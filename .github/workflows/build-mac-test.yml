@@ -1,0 +1,49 @@
+name: Build client Electron (macOS) — TEST INSÉCURISÉ
+
+# ATTENTION : ce build pointe vers le serveur en ligne ET désactive la
+# vérification du certificat TLS (le certificat o2switch est encore
+# auto-signé). Uniquement pour des tests internes — l'artefact produit ne
+# doit JAMAIS être distribué à un vrai utilisateur. Une fois le certificat
+# HTTPS valide obtenu, utiliser build-mac.yml (la version propre) à la place.
+on:
+  workflow_dispatch:
+
+jobs:
+  build-mac-test:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: client-electron
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Installer les dépendances
+        run: npm install
+
+      - name: "[TEST] Pointer vers le serveur en ligne + désactiver la vérif. TLS"
+        # Modifie uniquement la copie de travail de ce job CI, jamais commité.
+        run: |
+          perl -i -pe 's#http://localhost:8000/api#https://gestion.stock.sc3trsi4875.universe.wf/api#' electron/config.ts
+          perl -i -pe 's/(import \{ enregistrerLesHandlers \}.*)/$1\nprocess.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";/' electron/main.ts
+          grep -q "gestion.stock.sc3trsi4875" electron/config.ts
+          grep -q "NODE_TLS_REJECT_UNAUTHORIZED" electron/main.ts
+
+      - name: Construire le paquet macOS (.dmg)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run package:mac
+
+      - name: Publier le résultat (téléchargeable depuis l'onglet Actions)
+        uses: actions/upload-artifact@v4
+        with:
+          name: gestion-stock-mac-TEST-INSECURISE
+          path: |
+            client-electron/release/*.dmg
+            client-electron/release/*.zip
+          if-no-files-found: error
