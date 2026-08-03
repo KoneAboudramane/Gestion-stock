@@ -50,7 +50,9 @@ explicitement "Setup Python App" dans cPanel. Pas d'accès root, pas de
    `DB_PORT=3306`.
 4. Dans le terminal fourni par cPanel pour cette app Python (active
    automatiquement le bon venv) : `pip install -r requirements.txt`
-   (`mysqlclient` y est déjà listé, pas d'étape séparée).
+   (`PyMySQL` y est déjà listé — pilote pur Python, aucune compilation requise,
+   contrairement à `mysqlclient` qui échoue sur ce type d'hébergement où `gcc`
+   n'est pas autorisé).
 5. Toujours dans ce terminal : `python manage.py migrate`,
    `python manage.py collectstatic --noinput`, `python manage.py createsuperuser`.
 6. Redémarrer l'app Python depuis l'interface cPanel ("Restart").
