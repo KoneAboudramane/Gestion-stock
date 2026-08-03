@@ -1,0 +1,26 @@
+__pycache__/
+*.py[cod]
+*.sqlite3
+db.sqlite3
+.env
+venv/
+.venv/
+media/
+staticfiles/
+*.log
+
+# --- Node / clients (client-electron, client-web) ---
+# Note : client-electron/build/ contient des assets sources (icônes) versionnés,
+# ce n'est pas un dossier de sortie — ne pas l'ignorer.
+node_modules/
+dist/
+dist-electron/
+release/
+*.tsbuildinfo
+npm-debug.log*
+
+# --- Scripts de vérification locaux (chemins machine spécifiques, non versionnés) ---
+client-electron/_*_tmp*.mjs
+
+# --- État interne Claude Code (spécifique à la machine) ---
+.claude/scheduled_tasks.lock

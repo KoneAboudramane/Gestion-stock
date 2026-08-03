@@ -1,0 +1,25 @@
+# Unité systemd pour un VPS (gunicorn derrière nginx).
+# À copier vers /etc/systemd/system/gestion_stock.service, puis adapter les
+# chemins et l'utilisateur, puis :
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now gestion_stock
+
+[Unit]
+Description=gestion_stock (Django + gunicorn)
+After=network.target postgresql.service
+
+[Service]
+Type=notify
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/gestion_stock
+EnvironmentFile=/var/www/gestion_stock/.env
+ExecStart=/var/www/gestion_stock/.venv/bin/gunicorn config.wsgi:application \
+  --bind unix:/run/gestion_stock/gunicorn.sock \
+  --workers 3 \
+  --timeout 60
+RuntimeDirectory=gestion_stock
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

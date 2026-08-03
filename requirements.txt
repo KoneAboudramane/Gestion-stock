@@ -1,0 +1,19 @@
+# Backend gestion_stock
+Django>=5.0,<6.0
+djangorestframework>=3.15
+Pillow>=10.0
+# Pour PostgreSQL (VPS, parcours A) :
+psycopg2-binary>=2.9
+# Pour MySQL (mutualisé type o2switch, parcours B) :
+mysqlclient>=2.2
+# Authentification par jeton (API de synchronisation) :
+djangorestframework-simplejwt>=5.3
+# CORS (client web, appelé depuis un navigateur — le client Electron n'en a pas besoin) :
+django-cors-headers>=4.4
+# Exports de rapports :
+openpyxl>=3.1
+reportlab>=4.0
+# Déploiement (VPS et hébergement mutualisé) :
+gunicorn>=22.0
+whitenoise>=6.7
+python-dotenv>=1.0

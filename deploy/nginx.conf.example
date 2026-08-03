@@ -1,0 +1,28 @@
+# Reverse proxy nginx pour un VPS, vers le socket gunicorn de gestion_stock.service.
+# À copier vers /etc/nginx/sites-available/gestion_stock, activer via un lien
+# symbolique dans sites-enabled, puis `sudo nginx -t && sudo systemctl reload nginx`.
+# HTTPS : lancer `sudo certbot --nginx -d exemple.com` après ce premier déploiement
+# en HTTP — certbot réécrit ce fichier pour ajouter le bloc 443 automatiquement.
+
+server {
+    listen 80;
+    server_name exemple.com;
+
+    client_max_body_size 20M;
+
+    location /static/ {
+        alias /var/www/gestion_stock/staticfiles/;
+    }
+
+    location /media/ {
+        alias /var/www/gestion_stock/media/;
+    }
+
+    location / {
+        proxy_pass http://unix:/run/gestion_stock/gunicorn.sock;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

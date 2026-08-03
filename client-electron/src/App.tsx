@@ -1,0 +1,61 @@
+import { useEffect, useState } from "react";
+
+import { api } from "./api/client";
+import type { Session } from "./api/client";
+import { DeviseProvider } from "./contexts/DeviseContext";
+import { LogoProvider } from "./contexts/LogoContext";
+import Connexion from "./pages/Connexion";
+import Inscription from "./pages/Inscription";
+import MotDePasseOublie from "./pages/MotDePasseOublie";
+import Shell from "./pages/Shell";
+
+type Ecran = "chargement" | "connexion" | "inscription" | "motDePasseOublie" | "shell";
+
+export default function App() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [ecran, setEcran] = useState<Ecran>("chargement");
+
+  useEffect(() => {
+    api.auth.session().then((s) => {
+      setSession(s);
+      setEcran(s ? "shell" : "connexion");
+    });
+  }, []);
+
+  function surConnecte(s: Session) {
+    setSession(s);
+    setEcran("shell");
+  }
+
+  async function surDeconnexion() {
+    await api.auth.deconnexion();
+    setSession(null);
+    setEcran("connexion");
+  }
+
+  if (ecran === "chargement") {
+    return <div className="ecran-chargement">Chargement…</div>;
+  }
+  if (ecran === "connexion") {
+    return (
+      <Connexion
+        onConnecte={surConnecte}
+        allerInscription={() => setEcran("inscription")}
+        allerMotDePasseOublie={() => setEcran("motDePasseOublie")}
+      />
+    );
+  }
+  if (ecran === "inscription") {
+    return <Inscription allerConnexion={() => setEcran("connexion")} />;
+  }
+  if (ecran === "motDePasseOublie") {
+    return <MotDePasseOublie allerConnexion={() => setEcran("connexion")} />;
+  }
+  return (
+    <DeviseProvider session={session!}>
+      <LogoProvider session={session!}>
+        <Shell session={session!} onDeconnexion={surDeconnexion} />
+      </LogoProvider>
+    </DeviseProvider>
+  );
+}
