@@ -247,33 +247,35 @@ export default function TableauDeBord({ session }: { session: Session }) {
       <div className="deux-colonnes">
         <div className="detail-produit">
           <h3>Alertes de rupture</h3>
-          <table className="tableau-catalogue">
-            <thead>
-              <tr>
-                <th>Produit</th>
-                <th>Dépôt</th>
-                <th>Quantité</th>
-                <th>Seuil</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ruptures.slice(0, 5).map((l) => (
-                <tr key={l.id}>
-                  <td>{l.produitNom}</td>
-                  <td>{l.depotNom}</td>
-                  <td>{l.quantite}</td>
-                  <td>{l.seuilAlerte}</td>
-                </tr>
-              ))}
-              {ruptures.length === 0 && (
+          <div className="zone-tableau-scroll">
+            <table className="tableau-catalogue">
+              <thead>
                 <tr>
-                  <td colSpan={4} className="liste-vide">
-                    Aucune rupture de stock.
-                  </td>
+                  <th>Produit</th>
+                  <th>Dépôt</th>
+                  <th>Quantité</th>
+                  <th>Seuil</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {ruptures.slice(0, 5).map((l) => (
+                  <tr key={l.id}>
+                    <td>{l.produitNom}</td>
+                    <td>{l.depotNom}</td>
+                    <td>{l.quantite}</td>
+                    <td>{l.seuilAlerte}</td>
+                  </tr>
+                ))}
+                {ruptures.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="liste-vide">
+                      Aucune rupture de stock.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
           {ruptures.length > 5 && (
             <p className="note-aide">{ruptures.length - 5} autre(s). Voir l'écran Stock pour la liste complète.</p>
           )}
@@ -302,33 +304,35 @@ export default function TableauDeBord({ session }: { session: Session }) {
               )}
             </div>
           </div>
-          <table className="tableau-catalogue">
-            <thead>
-              <tr>
-                <th>Client</th>
-                <th>Ventes</th>
-                <th>CA généré</th>
-              </tr>
-            </thead>
-            <tbody>
-              {meilleursClients.map((c) => (
-                <tr key={c.clientId}>
-                  <td>{c.clientNom}</td>
-                  <td>{c.nombreVentes}</td>
-                  <td>
-                    {c.totalNet} {devise}
-                  </td>
-                </tr>
-              ))}
-              {meilleursClients.length === 0 && (
+          <div className="zone-tableau-scroll">
+            <table className="tableau-catalogue">
+              <thead>
                 <tr>
-                  <td colSpan={3} className="liste-vide">
-                    Aucune vente à un client identifié sur la période.
-                  </td>
+                  <th>Client</th>
+                  <th>Ventes</th>
+                  <th>CA généré</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {meilleursClients.map((c) => (
+                  <tr key={c.clientId}>
+                    <td>{c.clientNom}</td>
+                    <td>{c.nombreVentes}</td>
+                    <td>
+                      {c.totalNet} {devise}
+                    </td>
+                  </tr>
+                ))}
+                {meilleursClients.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="liste-vide">
+                      Aucune vente à un client identifié sur la période.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

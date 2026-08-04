@@ -733,6 +733,101 @@ input[type="number"]::-webkit-outer-spin-button {
   padding: 1.75rem;
 }
 
+/* En dessous de 720px (téléphone) : la barre latérale devient une barre
+   d'onglets fixée en bas de l'écran, comme sur une appli mobile — plus
+   pratique qu'un menu à ouvrir quand il n'y a que 5 destinations. */
+@media (max-width: 720px) {
+  .shell {
+    flex-direction: column;
+  }
+
+  .contenu-principal {
+    order: 1;
+    padding-bottom: 4.5rem;
+  }
+
+  .barre-laterale {
+    order: 2;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    height: auto;
+    flex-direction: row;
+    align-items: stretch;
+    padding: 0.35rem 0.4rem;
+    gap: 0.2rem;
+    z-index: 20;
+    box-shadow: 0 -4px 18px -8px rgba(0, 0, 0, 0.35);
+  }
+
+  .barre-laterale::before {
+    display: none;
+  }
+
+  .barre-laterale .logo {
+    display: none;
+  }
+
+  .barre-laterale nav {
+    flex-direction: row;
+    /* 4x la part de .lien-deconnexion (flex:1 juste après) : les 5 destinations
+       (4 onglets + déconnexion) se partagent la largeur à parts égales. */
+    flex: 4;
+    gap: 0.15rem;
+  }
+
+  .item-nav {
+    flex: 1;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 0.15rem;
+    padding: 0.35rem 0.15rem;
+    text-align: center;
+    transform: none !important;
+  }
+
+  .item-nav-libelle {
+    flex-direction: column;
+    gap: 0.2rem;
+    font-size: 0.6rem;
+    line-height: 1.15;
+    text-align: center;
+  }
+
+  .lien-deconnexion {
+    flex: 1;
+    margin: 0;
+    width: auto;
+    padding: 0.35rem 0.15rem;
+    font-size: 0.62rem;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .entete {
+    padding: 0.85rem 1.1rem;
+  }
+
+  .zone-contenu {
+    padding: 1rem;
+  }
+
+  .entete-page-onglets {
+    grid-template-columns: 1fr;
+    justify-items: start;
+    gap: 0.6rem;
+  }
+
+  .entete-page-onglets .barre-onglets {
+    justify-self: start;
+  }
+}
+
 .placeholder {
   color: var(--gris-500);
 }
@@ -1344,6 +1439,7 @@ input.champ-invalide:focus {
 .zone-tableau-scroll {
   max-height: 420px;
   overflow-y: auto;
+  overflow-x: auto;
   overscroll-behavior: contain;
 }
 
