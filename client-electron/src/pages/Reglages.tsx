@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useRafraichirDevise } from "../contexts/DeviseContext";
 import { useRafraichirLogoBoutique } from "../contexts/LogoContext";
+import { useRafraichirNomBoutique } from "../contexts/NomBoutiqueContext";
 import type {
   BoutiqueDetail,
   DepotResume,
@@ -41,6 +42,7 @@ function OngletProfilBoutique({ session }: { session: Session }) {
   const [enCours, setEnCours] = useState(false);
   const rafraichirDevise = useRafraichirDevise();
   const rafraichirLogo = useRafraichirLogoBoutique();
+  const rafraichirNomBoutique = useRafraichirNomBoutique();
 
   async function charger() {
     const [b, l, resultatUtilisateurs] = await Promise.all([
@@ -102,6 +104,7 @@ function OngletProfilBoutique({ session }: { session: Session }) {
       setMessage("Informations enregistrées.");
       rafraichirDevise();
       rafraichirLogo();
+      rafraichirNomBoutique();
       setModeEdition(false);
       charger();
     } finally {

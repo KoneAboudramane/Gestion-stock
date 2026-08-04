@@ -4,6 +4,7 @@ import { api } from "./api/client";
 import type { Session } from "./api/client";
 import { DeviseProvider } from "./contexts/DeviseContext";
 import { LogoProvider } from "./contexts/LogoContext";
+import { NomBoutiqueProvider } from "./contexts/NomBoutiqueContext";
 import Connexion from "./pages/Connexion";
 import Inscription from "./pages/Inscription";
 import MotDePasseOublie from "./pages/MotDePasseOublie";
@@ -54,7 +55,9 @@ export default function App() {
   return (
     <DeviseProvider session={session!}>
       <LogoProvider session={session!}>
-        <Shell session={session!} onDeconnexion={surDeconnexion} />
+        <NomBoutiqueProvider session={session!}>
+          <Shell session={session!} onDeconnexion={surDeconnexion} />
+        </NomBoutiqueProvider>
       </LogoProvider>
     </DeviseProvider>
   );

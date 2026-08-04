@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import type { LigneAchatInitiale, Session } from "../api/client";
 import BarreSynchro from "../components/BarreSynchro";
 import { useLogoBoutique } from "../contexts/LogoContext";
+import { useNomBoutique } from "../contexts/NomBoutiqueContext";
 import Achats from "./Achats";
 import Caisse from "./Caisse";
 import Clients from "./Clients";
@@ -53,6 +54,7 @@ export default function Shell({
   const [lignesAchatInitiales, setLignesAchatInitiales] = useState<LigneAchatInitiale[]>([]);
   const [lignesEntreeInitiales, setLignesEntreeInitiales] = useState<LigneAchatInitiale[]>([]);
   const logo = useLogoBoutique();
+  const nomBoutique = useNomBoutique();
 
   /**
    * Bouton "Commander" sur une/des ligne(s) en rupture (Stock ou détail d'une
@@ -137,7 +139,7 @@ export default function Shell({
             <img src={logo} alt="" className="logo-boutique-entete" />
           ) : (
             <span className="logo-boutique-entete logo-boutique-nav-vide">
-              {session.boutiqueNom.charAt(0).toUpperCase()}
+              {nomBoutique.charAt(0).toUpperCase()}
             </span>
           )}
           Gestion Stock
@@ -173,7 +175,7 @@ export default function Shell({
       <div className="contenu-principal">
         <header className="entete">
           <div>
-            <strong>{session.boutiqueNom}</strong>
+            <strong>{nomBoutique}</strong>
             <span className="sous-info"> · {session.username} ({session.role})</span>
           </div>
           <BarreSynchro session={session} />
