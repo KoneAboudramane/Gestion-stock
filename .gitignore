@@ -19,6 +19,12 @@ release/
 *.tsbuildinfo
 npm-debug.log*
 
+# client-web/dist/ EST versionné (exception au dist/ ci-dessus) : O2switch n'a
+# pas Node côté serveur (Setup Python App uniquement), donc WhiteNoise sert ce
+# build pré-compilé directement — un `git pull` doit suffire à déployer, voir
+# config/settings.py::WHITENOISE_ROOT et deploy/README.md.
+!client-web/dist/
+
 # --- Scripts de vérification locaux (chemins machine spécifiques, non versionnés) ---
 client-electron/_*_tmp*.mjs
 
