@@ -50,6 +50,10 @@ export async function listerTout<T extends NomStore>(store: T): Promise<GestionS
  * Recalcule stocks.quantite pour une (variante, dépôt) à partir de l'historique
  * de mouvements_stock — miroir de client-electron/electron/services/stock.ts::recalculerStock.
  * "stocks" n'est jamais synchronisé ni marqué non-synchronisé : c'est une vue dérivée, locale.
+ * L'id est un vrai UUID aléatoire (généré une fois, réutilisé aux mises à jour),
+ * comme côté Electron (SQLite) — jamais la paire variante/dépôt elle-même : ce
+ * champ finit parfois en `reference_id` d'une Notification poussée au serveur
+ * (UUIDField Django), qui rejetterait un identifiant qui n'a pas cette forme.
  */
 export async function recalculerStock(varianteId: string, depotId: string): Promise<void> {
   const db = await ouvrirBaseDeDonnees();
@@ -62,11 +66,13 @@ export async function recalculerStock(varianteId: string, depotId: string): Prom
       return somme + m.quantite; // ajustement : delta signé fourni tel quel
     }, 0);
 
-  await db.put("stocks", { id: `${varianteId}::${depotId}`, variante_id: varianteId, depot_id: depotId, quantite: total });
+  const existant = await db.getFromIndex("stocks", "variante_depot", [varianteId, depotId]);
+  const id = existant?.id ?? crypto.randomUUID();
+  await db.put("stocks", { id, variante_id: varianteId, depot_id: depotId, quantite: total });
 }
 
 export async function obtenirQuantiteStock(varianteId: string, depotId: string): Promise<number> {
   const db = await ouvrirBaseDeDonnees();
-  const ligne = await db.get("stocks", `${varianteId}::${depotId}`);
+  const ligne = await db.getFromIndex("stocks", "variante_depot", [varianteId, depotId]);
   return ligne?.quantite ?? 0;
 }

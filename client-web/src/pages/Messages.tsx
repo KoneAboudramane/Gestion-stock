@@ -1,20 +1,22 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../api";
-import type { CreditDetail, DepotResume, MessageResume, Session, StatutMessage, UtilisateurResume } from "../api";
+import type { Session, UtilisateurResume } from "../api";
 import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant } from "../lib/formatage";
 import { libelleCanalMessage, libelleModePaiement, libelleStatutVente } from "../lib/libelles";
+import { obtenirCredit, type CreditDetail } from "../services/clients";
+import { envoyerMessage, genererRappelsCredit, listerMessages, type MessageResume, type StatutMessage } from "../services/messages";
+import { listerDepotsDetail, type DepotResume } from "../services/stock";
 import { obtenirVenteDetail, type VenteDetail } from "../services/ventes";
 
 /**
- * Port simplifié de client-electron/src/pages/Messages.tsx : rappels de
- * crédit et tickets WhatsApp, en ligne uniquement (voir messages.ts pour la
- * nuance sur les tickets générés hors-ligne). Le détail d'un crédit lié se
- * lit en ligne (api.credits.obtenir) ; le détail d'une vente liée se lit
- * localement (obtenirVenteDetail, IndexedDB) comme dans l'historique des
- * ventes — les deux référencent le même enregistrement, juste via des
- * chemins différents.
+ * Port de client-electron/src/pages/Messages.tsx : rappels de crédit, local
+ * d'abord (IndexedDB, voir services/messages.ts). Le détail d'un crédit lié
+ * et celui d'une vente liée se lisent tous deux localement désormais — les
+ * deux référencent le même enregistrement, juste via des chemins différents.
+ * La gestion des utilisateurs (filtre "Caissier") reste en ligne uniquement
+ * (comptes.Utilisateur hors synchronisation, voir CLAUDE.md).
  */
 function libelleType(type: MessageResume["type"]): string {
   return type === "rappel_credit" ? "Rappel de crédit" : "Ticket WhatsApp";
@@ -31,7 +33,7 @@ function DetailCreditLie({ creditId }: { creditId: string }) {
   const [credit, setCredit] = useState<CreditDetail | null | undefined>(undefined);
 
   useEffect(() => {
-    api.credits.obtenir(creditId).then((r) => setCredit(r.succes ? r.resultat : null));
+    obtenirCredit(creditId).then((c) => setCredit(c ?? null));
   }, [creditId]);
 
   if (credit === undefined) return <p>Chargement du crédit…</p>;
@@ -98,7 +100,7 @@ function DetailMessage({ message, onRetour, onEnvoye }: { message: MessageResume
         const numero = message.destinataire.replace(/\D/g, "");
         window.open(`https://wa.me/${numero}?text=${encodeURIComponent(message.message)}`, "_blank", "noopener");
       }
-      await api.messages.envoyer(message.id);
+      await envoyerMessage(message.id);
       onEnvoye();
     } finally {
       setEnCours(false);
@@ -149,13 +151,12 @@ export default function Messages({ session }: { session: Session }) {
   const nomsUtilisateurs = new Map(utilisateurs.map((u) => [String(u.id), `${u.first_name} ${u.last_name}`.trim() || u.username]));
 
   async function rafraichir() {
-    const resultat = await api.messages.lister({ depotId: depotIdEffectif, utilisateurId: utilisateurIdEffectif });
-    if (resultat.succes) setMessagesListe(resultat.resultat);
+    setMessagesListe(await listerMessages(session.boutiqueId, { depotId: depotIdEffectif, utilisateurId: utilisateurIdEffectif }));
   }
 
   useEffect(() => {
     if (verrouilleSurDepot) return;
-    api.depots.lister().then((r) => r.succes && setDepots(r.resultat));
+    listerDepotsDetail(session.boutiqueId).then(setDepots);
     api.comptes.listerUtilisateurs().then((r) => r.succes && setUtilisateurs(r.resultat));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [verrouilleSurDepot]);
@@ -164,7 +165,7 @@ export default function Messages({ session }: { session: Session }) {
   // les alertes de rupture — les tickets WhatsApp naissent, eux, à la vente.
   useEffect(() => {
     (async () => {
-      await api.messages.genererRappelsCredit();
+      await genererRappelsCredit(session.boutiqueId);
       await rafraichir();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps

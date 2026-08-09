@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react";
 
-import { api } from "../api";
-import type { DepotResume, LigneStock, Session } from "../api";
+import type { Session } from "../api";
+import { listerDepotsDetail, listerStock, type DepotResume, type LigneStock } from "../services/stock";
 
 /**
  * Adapté de client-electron/src/pages/Stock.tsx (uniquement OngletStockNiveau —
  * Mouvements/Transferts/Inventaire ne sont pas dans le périmètre du portail web).
- * La recherche par texte se fait côté client (filtrage local) : contrairement au
- * SQLite local d'Electron, l'API Django /api/stocks/ ne supporte qu'un filtre par
- * dépôt, pas par terme de recherche.
+ * Local d'abord (IndexedDB, voir services/stock.ts), comme le reste de l'application.
  */
 export default function Stock({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
@@ -19,11 +17,13 @@ export default function Stock({ session }: { session: Session }) {
   const [seulementRuptures, setSeulementRuptures] = useState(false);
 
   useEffect(() => {
-    if (peutGerer) api.depots.lister().then((r) => r.succes && setDepots(r.resultat));
+    if (peutGerer) listerDepotsDetail(session.boutiqueId).then(setDepots);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peutGerer]);
 
   useEffect(() => {
-    api.stock.lister(depotId || undefined).then((r) => r.succes && setLignes(r.resultat));
+    listerStock(session.boutiqueId, depotId || undefined).then(setLignes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [depotId]);
 
   const termeNormalise = terme.trim().toLowerCase();

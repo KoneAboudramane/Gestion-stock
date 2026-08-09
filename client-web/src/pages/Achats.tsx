@@ -1,27 +1,35 @@
 import { useEffect, useState } from "react";
 
-import { api } from "../api";
-import type {
-  CommandeDetail,
-  CommandeResume,
-  DepotResume,
-  DetteResume,
-  FournisseurResume,
-  Session,
-  StatutCommande,
-  StatutDette,
-  VarianteAchat,
-} from "../api";
+import type { Session } from "../api";
 import ChampMontant from "../components/ChampMontant";
 import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant } from "../lib/formatage";
+import {
+  creerCommande,
+  creerFournisseur,
+  ErreurAchat,
+  listerCommandes,
+  listerDettes,
+  listerFournisseurs,
+  modifierCommande,
+  obtenirCommande,
+  payerDette,
+  receptionnerCommande,
+  rechercherVariantesAchat,
+  type CommandeDetail,
+  type CommandeResume,
+  type DetteResume,
+  type FournisseurResume,
+  type StatutCommande,
+  type StatutDette,
+  type VarianteAchat,
+} from "../services/achats";
+import { listerDepotsDetail, type DepotResume } from "../services/stock";
 
 /**
- * Port simplifié de client-electron/src/pages/Achats.tsx, en ligne uniquement
- * (voir Produits.tsx/Clients.tsx pour le même choix de scoping). Accès réservé
- * aux comptes ayant la permission gerer_produits_stock_achats — appliqué côté
- * serveur (CommandeAchatViewSet/DetteFournisseurViewSet), donc masqué ici aussi
- * plutôt que de laisser échouer les requêtes.
+ * Port de client-electron/src/pages/Achats.tsx, local d'abord (IndexedDB, voir
+ * services/achats.ts), comme le reste de l'application. Accès réservé aux
+ * comptes ayant la permission gerer_produits_stock_achats.
  *
  * Non repris ici par rapport à l'Electron : le raccourci "Commander" groupé
  * depuis une rupture de stock du tableau de bord (n'existe pas côté web).
@@ -43,10 +51,12 @@ interface LigneSaisie {
 }
 
 function FormulaireCommande({
+  session,
   fournisseurs,
   onAnnuler,
   onCree,
 }: {
+  session: Session;
   fournisseurs: FournisseurResume[];
   onAnnuler: () => void;
   onCree: () => void;
@@ -66,9 +76,10 @@ function FormulaireCommande({
       return;
     }
     const identifiant = setTimeout(() => {
-      api.variantesAchat.rechercher(terme.trim()).then((r) => r.succes && setResultats(r.resultat));
+      rechercherVariantesAchat(session.boutiqueId, terme.trim()).then(setResultats);
     }, 200);
     return () => clearTimeout(identifiant);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terme]);
 
   function ajouterLigne(variante: VarianteAchat) {
@@ -105,13 +116,16 @@ function FormulaireCommande({
     }
     setEnCours(true);
     try {
-      const resultat = await api.commandes.creer({
+      await creerCommande({
+        boutiqueId: session.boutiqueId,
         fournisseurId,
+        utilisateurId: session.utilisateurId,
         statut,
         lignes: lignes.map((l) => ({ varianteId: l.varianteId, quantite: l.quantite, prixAchat: l.prixAchat })),
       });
-      if (resultat.succes) onCree();
-      else setErreur(resultat.message);
+      onCree();
+    } catch (e) {
+      setErreur(e instanceof ErreurAchat ? e.message : "Erreur inattendue.");
     } finally {
       setEnCours(false);
     }
@@ -267,29 +281,34 @@ function DetailCommande({
   const [enCours, setEnCours] = useState(false);
 
   async function rafraichir() {
-    const resultat = await api.commandes.obtenir(commandeId);
-    if (resultat.succes) setCommande(resultat.resultat);
+    const resultat = await obtenirCommande(commandeId);
+    if (resultat) setCommande(resultat);
   }
   useEffect(() => {
     rafraichir();
-    api.depots.lister().then((r) => {
-      if (!r.succes) return;
-      setDepots(r.resultat);
-      if (r.resultat[0]) setDepotId(r.resultat[0].id);
+    listerDepotsDetail(session.boutiqueId).then((liste) => {
+      setDepots(liste);
+      if (liste[0]) setDepotId(liste[0].id);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [commandeId]);
 
   async function changerFournisseur(nouveauFournisseurId: string) {
-    const resultat = await api.commandes.modifier(commandeId, { fournisseurId: nouveauFournisseurId });
-    if (resultat.succes) rafraichir();
-    else setErreur(resultat.message);
+    try {
+      await modifierCommande(commandeId, { fournisseurId: nouveauFournisseurId });
+      rafraichir();
+    } catch (e) {
+      setErreur(e instanceof ErreurAchat ? e.message : "Erreur inattendue.");
+    }
   }
 
   async function passerEnCommandee() {
-    const resultat = await api.commandes.modifier(commandeId, { statut: "commandee" });
-    if (resultat.succes) rafraichir();
-    else setErreur(resultat.message);
+    try {
+      await modifierCommande(commandeId, { statut: "commandee" });
+      rafraichir();
+    } catch (e) {
+      setErreur(e instanceof ErreurAchat ? e.message : "Erreur inattendue.");
+    }
   }
 
   function ouvrirReception() {
@@ -308,18 +327,17 @@ function DetailCommande({
     setEnCours(true);
     setErreur(null);
     try {
-      const resultat = await api.commandes.receptionner({
+      await receptionnerCommande({
         commandeId,
         depotId,
+        utilisateurId: session.utilisateurId,
         montantDejaPaye: Number(montantDejaPaye) || 0,
         lignesPrix: Object.entries(prixVentes).map(([varianteId, prixVente]) => ({ varianteId, prixVente: Number(prixVente) || 0 })),
       });
-      if (resultat.succes) {
-        setAfficherReception(false);
-        rafraichir();
-      } else {
-        setErreur(resultat.message);
-      }
+      setAfficherReception(false);
+      rafraichir();
+    } catch (e) {
+      setErreur(e instanceof ErreurAchat ? e.message : "Erreur inattendue.");
     } finally {
       setEnCours(false);
     }
@@ -508,12 +526,12 @@ function OngletCommandes({ session, onglet, setOnglet }: { session: Session; ong
   const [commandeSelectionneeId, setCommandeSelectionneeId] = useState<string | null>(null);
 
   useEffect(() => {
-    api.fournisseurs.lister().then((r) => r.succes && setFournisseurs(r.resultat));
+    listerFournisseurs(session.boutiqueId).then(setFournisseurs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function rafraichir() {
-    const resultat = await api.commandes.lister(fournisseurId || undefined, statut || undefined, terme);
-    if (resultat.succes) setCommandes(resultat.resultat);
+    setCommandes(await listerCommandes(session.boutiqueId, fournisseurId || undefined, statut || undefined, terme));
   }
   useEffect(() => {
     rafraichir();
@@ -540,6 +558,7 @@ function OngletCommandes({ session, onglet, setOnglet }: { session: Session; ong
         <div className="fond-modale" onClick={() => setAfficherForm(false)}>
           <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
             <FormulaireCommande
+              session={session}
               fournisseurs={fournisseurs}
               onAnnuler={() => setAfficherForm(false)}
               onCree={() => {
@@ -624,7 +643,15 @@ interface LigneFournisseurGroupe {
   contact: string;
 }
 
-function FormulaireFournisseursGroupe({ onAnnuler, onCree }: { onAnnuler: () => void; onCree: () => void }) {
+function FormulaireFournisseursGroupe({
+  boutiqueId,
+  onAnnuler,
+  onCree,
+}: {
+  boutiqueId: string;
+  onAnnuler: () => void;
+  onCree: () => void;
+}) {
   const [nom, setNom] = useState("");
   const [telephone, setTelephone] = useState("");
   const [adresse, setAdresse] = useState("");
@@ -663,9 +690,10 @@ function FormulaireFournisseursGroupe({ onAnnuler, onCree }: { onAnnuler: () => 
     setEnCours(true);
     try {
       for (const ligne of lignes) {
-        const resultat = await api.fournisseurs.creer(ligne.nom, ligne.telephone, ligne.adresse, ligne.contact);
-        if (!resultat.succes) {
-          setErreur(`"${ligne.nom}" : ${resultat.message}`);
+        try {
+          await creerFournisseur(boutiqueId, ligne.nom, ligne.telephone, ligne.adresse, ligne.contact);
+        } catch (e) {
+          setErreur(`"${ligne.nom}" : ${e instanceof ErreurAchat ? e.message : "Erreur inattendue."}`);
           return;
         }
       }
@@ -765,11 +793,11 @@ function OngletFournisseurs({ session, onglet, setOnglet }: { session: Session; 
   const [afficherModal, setAfficherModal] = useState(false);
 
   async function rafraichir() {
-    const resultat = await api.fournisseurs.lister();
-    if (resultat.succes) setFournisseurs(resultat.resultat);
+    setFournisseurs(await listerFournisseurs(session.boutiqueId));
   }
   useEffect(() => {
     rafraichir();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -786,6 +814,7 @@ function OngletFournisseurs({ session, onglet, setOnglet }: { session: Session; 
         <div className="fond-modale" onClick={() => setAfficherModal(false)}>
           <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
             <FormulaireFournisseursGroupe
+              boutiqueId={session.boutiqueId}
               onAnnuler={() => setAfficherModal(false)}
               onCree={() => {
                 setAfficherModal(false);
@@ -839,13 +868,11 @@ function LignePayer({ dette, onPaye }: { dette: DetteResume; onPaye: () => void 
     setEnCours(true);
     setErreur(null);
     try {
-      const resultat = await api.dettes.payer(dette.id, Number(montant) || 0);
-      if (resultat.succes) {
-        setMontant("");
-        onPaye();
-      } else {
-        setErreur(resultat.message);
-      }
+      await payerDette(dette.id, Number(montant) || 0);
+      setMontant("");
+      onPaye();
+    } catch (e) {
+      setErreur(e instanceof ErreurAchat ? e.message : "Erreur inattendue.");
     } finally {
       setEnCours(false);
     }
@@ -868,8 +895,7 @@ function OngletDettes({ session, onglet, setOnglet }: { session: Session; onglet
   const [dettes, setDettes] = useState<DetteResume[]>([]);
 
   async function rafraichir() {
-    const resultat = await api.dettes.lister(undefined, statut || undefined);
-    if (resultat.succes) setDettes(resultat.resultat);
+    setDettes(await listerDettes(session.boutiqueId, undefined, statut || undefined));
   }
   useEffect(() => {
     rafraichir();

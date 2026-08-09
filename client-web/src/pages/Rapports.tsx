@@ -1,28 +1,42 @@
 import { useEffect, useState } from "react";
 
-import { api } from "../api";
-import type {
-  DepotResume,
-  LigneTopClient,
-  LigneTopProduit,
-  LigneVentesCategorie,
-  LigneVentesModePaiement,
-  LigneVentesVendeur,
-  Periode,
-  PlageDates,
-  Session,
-  SyntheseVentes,
-  ValeurStock,
-} from "../api";
+import type { Session } from "../api";
 import { libelleModePaiement } from "../lib/libelles";
+import {
+  calculerPlageDates,
+  syntheseVentes as syntheseVentesLocale,
+  topClients as topClientsLocal,
+  topProduits as topProduitsLocal,
+  valeurStock as valeurStockLocal,
+  ventesParCategorie as ventesParCategorieLocal,
+  ventesParModePaiement as ventesParModePaiementLocal,
+  ventesParVendeur as ventesParVendeurLocal,
+  type LigneTopClient,
+  type LigneTopProduit,
+  type LigneVentesCategorie,
+  type LigneVentesModePaiement,
+  type LigneVentesVendeur,
+  type Periode,
+  type PlageDates,
+  type SyntheseVentes,
+  type ValeurStock,
+} from "../services/rapports";
+import { listerDepotsDetail, type DepotResume } from "../services/stock";
 
 /**
- * Adapté de client-electron/src/pages/Rapports.tsx : mêmes onglets (y compris Top
- * clients, désormais possible côté web grâce à la route Django ajoutée pour ce
- * portail), mais sans les boutons d'export (v1, voir le plan) et avec le vrai nom
- * d'utilisateur pour "Ventes par vendeur" (Django le fournit, Electron devait s'en
- * passer faute d'accès local à la table des utilisateurs).
+ * Port de client-electron/src/pages/Rapports.tsx, local d'abord (IndexedDB,
+ * voir services/rapports.ts) : mêmes onglets, mêmes agrégations recalculées
+ * depuis les données locales pour rester consultables hors-ligne — y compris
+ * "Ventes par vendeur", qui retombe comme sur le desktop sur un libellé
+ * "Vous"/identifiant tronqué faute d'accès local à la table des utilisateurs
+ * (comptes.Utilisateur reste hors synchronisation, voir CLAUDE.md).
  */
+
+function libelleVendeur(utilisateurId: string | null, session: Session): string {
+  if (!utilisateurId) return "";
+  if (utilisateurId === session.utilisateurId) return "Vous";
+  return `Utilisateur ${utilisateurId.slice(0, 8)}`;
+}
 
 // --- Sélecteur de période partagé ---
 
@@ -62,12 +76,13 @@ function SelecteurPeriode({
 
 // --- Onglet Synthèse ---
 
-function OngletSynthese({ plage }: { plage: PlageDates | null }) {
+function OngletSynthese({ session, plage }: { session: Session; plage: PlageDates | null }) {
   const [synthese, setSynthese] = useState<SyntheseVentes | null>(null);
 
   useEffect(() => {
     if (!plage) return;
-    api.rapports.syntheseVentes(plage.debut, plage.fin).then((r) => r.succes && setSynthese(r.resultat));
+    syntheseVentesLocale(session.boutiqueId, plage.debut, plage.fin).then(setSynthese);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plage]);
 
   if (!synthese) return <p>Chargement…</p>;
@@ -105,13 +120,14 @@ function OngletSynthese({ plage }: { plage: PlageDates | null }) {
 
 // --- Onglet Top produits ---
 
-function OngletTopProduits({ plage }: { plage: PlageDates | null }) {
+function OngletTopProduits({ session, plage }: { session: Session; plage: PlageDates | null }) {
   const [ordre, setOrdre] = useState<"asc" | "desc">("desc");
   const [lignes, setLignes] = useState<LigneTopProduit[]>([]);
 
   useEffect(() => {
     if (!plage) return;
-    api.rapports.topProduits(plage.debut, plage.fin, 10, ordre).then((r) => r.succes && setLignes(r.resultat));
+    topProduitsLocal(session.boutiqueId, plage.debut, plage.fin, 10, ordre).then(setLignes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plage, ordre]);
 
   return (
@@ -159,12 +175,13 @@ function OngletTopProduits({ plage }: { plage: PlageDates | null }) {
 
 // --- Onglet Top clients ---
 
-function OngletTopClients({ plage }: { plage: PlageDates | null }) {
+function OngletTopClients({ session, plage }: { session: Session; plage: PlageDates | null }) {
   const [lignes, setLignes] = useState<LigneTopClient[]>([]);
 
   useEffect(() => {
     if (!plage) return;
-    api.rapports.topClients(plage.debut, plage.fin, 100).then((r) => r.succes && setLignes(r.resultat));
+    topClientsLocal(session.boutiqueId, plage.debut, plage.fin, 100).then(setLignes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plage]);
 
   return (
@@ -202,17 +219,19 @@ function OngletTopClients({ plage }: { plage: PlageDates | null }) {
 
 // --- Onglet Valeur du stock ---
 
-function OngletValeurStock() {
+function OngletValeurStock({ session }: { session: Session }) {
   const [depots, setDepots] = useState<DepotResume[]>([]);
   const [depotId, setDepotId] = useState("");
   const [valeur, setValeur] = useState<ValeurStock | null>(null);
 
   useEffect(() => {
-    api.depots.lister().then((r) => r.succes && setDepots(r.resultat));
+    listerDepotsDetail(session.boutiqueId).then(setDepots);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    api.rapports.valeurStock(depotId || undefined).then((r) => r.succes && setValeur(r.resultat));
+    valeurStockLocal(session.boutiqueId, depotId || undefined).then(setValeur);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [depotId]);
 
   if (!valeur) return <p>Chargement…</p>;
@@ -260,12 +279,13 @@ function OngletValeurStock() {
 
 // --- Onglet Ventes par vendeur ---
 
-function OngletVentesParVendeur({ plage }: { plage: PlageDates | null }) {
+function OngletVentesParVendeur({ session, plage }: { session: Session; plage: PlageDates | null }) {
   const [lignes, setLignes] = useState<LigneVentesVendeur[]>([]);
 
   useEffect(() => {
     if (!plage) return;
-    api.rapports.ventesParVendeur(plage.debut, plage.fin).then((r) => r.succes && setLignes(r.resultat));
+    ventesParVendeurLocal(session.boutiqueId, plage.debut, plage.fin).then(setLignes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plage]);
 
   return (
@@ -283,7 +303,7 @@ function OngletVentesParVendeur({ plage }: { plage: PlageDates | null }) {
           {lignes.map((l, i) => (
             <tr key={i}>
               <td>{i + 1}</td>
-              <td>{l.utilisateur || ""}</td>
+              <td>{libelleVendeur(l.utilisateurId, session)}</td>
               <td>{l.nombreVentes}</td>
               <td>{l.totalNet}</td>
             </tr>
@@ -303,12 +323,13 @@ function OngletVentesParVendeur({ plage }: { plage: PlageDates | null }) {
 
 // --- Onglet Ventes par catégorie ---
 
-function OngletVentesParCategorie({ plage }: { plage: PlageDates | null }) {
+function OngletVentesParCategorie({ session, plage }: { session: Session; plage: PlageDates | null }) {
   const [lignes, setLignes] = useState<LigneVentesCategorie[]>([]);
 
   useEffect(() => {
     if (!plage) return;
-    api.rapports.ventesParCategorie(plage.debut, plage.fin).then((r) => r.succes && setLignes(r.resultat));
+    ventesParCategorieLocal(session.boutiqueId, plage.debut, plage.fin).then(setLignes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plage]);
 
   return (
@@ -346,12 +367,13 @@ function OngletVentesParCategorie({ plage }: { plage: PlageDates | null }) {
 
 // --- Onglet Ventes par mode de paiement ---
 
-function OngletVentesParModePaiement({ plage }: { plage: PlageDates | null }) {
+function OngletVentesParModePaiement({ session, plage }: { session: Session; plage: PlageDates | null }) {
   const [lignes, setLignes] = useState<LigneVentesModePaiement[]>([]);
 
   useEffect(() => {
     if (!plage) return;
-    api.rapports.ventesParModePaiement(plage.debut, plage.fin).then((r) => r.succes && setLignes(r.resultat));
+    ventesParModePaiementLocal(session.boutiqueId, plage.debut, plage.fin).then(setLignes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plage]);
 
   return (
@@ -409,7 +431,7 @@ export default function Rapports({ session }: { session: Session }) {
 
   useEffect(() => {
     if (!peutVoir) return;
-    api.rapports.plageDates(periode, dateDebutPerso, dateFinPerso).then(setPlage);
+    setPlage(calculerPlageDates(periode, dateDebutPerso, dateFinPerso));
   }, [peutVoir, periode, dateDebutPerso, dateFinPerso]);
 
   if (!peutVoir) {
@@ -444,13 +466,13 @@ export default function Rapports({ session }: { session: Session }) {
         />
       )}
       <div className="contenu-onglet">
-        {onglet === "synthese" && <OngletSynthese plage={plage} />}
-        {onglet === "topProduits" && <OngletTopProduits plage={plage} />}
-        {onglet === "topClients" && <OngletTopClients plage={plage} />}
-        {onglet === "valeurStock" && <OngletValeurStock />}
-        {onglet === "vendeurs" && <OngletVentesParVendeur plage={plage} />}
-        {onglet === "categories" && <OngletVentesParCategorie plage={plage} />}
-        {onglet === "modePaiement" && <OngletVentesParModePaiement plage={plage} />}
+        {onglet === "synthese" && <OngletSynthese session={session} plage={plage} />}
+        {onglet === "topProduits" && <OngletTopProduits session={session} plage={plage} />}
+        {onglet === "topClients" && <OngletTopClients session={session} plage={plage} />}
+        {onglet === "valeurStock" && <OngletValeurStock session={session} />}
+        {onglet === "vendeurs" && <OngletVentesParVendeur session={session} plage={plage} />}
+        {onglet === "categories" && <OngletVentesParCategorie session={session} plage={plage} />}
+        {onglet === "modePaiement" && <OngletVentesParModePaiement session={session} plage={plage} />}
       </div>
     </div>
   );

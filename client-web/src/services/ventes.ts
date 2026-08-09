@@ -1,5 +1,5 @@
 import { ouvrirBaseDeDonnees } from "../db";
-import { suiviSyncNeuf } from "../db/helpers";
+import { maintenant, suiviSyncNeuf } from "../db/helpers";
 import type { CreditLocal, LigneVenteLocale, PaiementLocal, VenteLocale } from "../db/schema";
 import { appliquerMouvement } from "./stock";
 
@@ -224,6 +224,7 @@ export interface VenteDetail {
 export interface VenteResumeLocale {
   id: string;
   depotId: string;
+  clientId: string | null;
   numero: string;
   dateCreation: string;
   depotNom: string;
@@ -238,6 +239,7 @@ export async function listerVentesLocales(
   depotId?: string,
   statut?: StatutVente,
   terme?: string,
+  clientId?: string,
 ): Promise<VenteResumeLocale[]> {
   const db = await ouvrirBaseDeDonnees();
   const ventes = (await db.getAllFromIndex("ventes", "boutique_id", boutiqueId)).filter((v) => !v.supprime);
@@ -249,6 +251,7 @@ export async function listerVentesLocales(
     resumes.push({
       id: v.id,
       depotId: v.depot_id,
+      clientId: v.client_id,
       numero: v.numero,
       dateCreation: v.date_creation,
       depotNom: depot?.nom ?? "",
@@ -260,12 +263,49 @@ export async function listerVentesLocales(
 
   let filtres = resumes;
   if (depotId) filtres = filtres.filter((v) => v.depotId === depotId);
+  if (clientId) filtres = filtres.filter((v) => v.clientId === clientId);
   if (statut) filtres = filtres.filter((v) => v.statut === statut);
   if (terme?.trim()) {
     const t = terme.trim().toLowerCase();
     filtres = filtres.filter((v) => v.numero.toLowerCase().includes(t) || (v.clientNom ?? "").toLowerCase().includes(t));
   }
   return filtres.sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));
+}
+
+/**
+ * Miroir de ventes/services.py::annuler_vente (client-electron/electron/services/ventes.ts::annulerVente) :
+ * recrée le stock consommé par chaque ligne, solde toute créance liée, passe
+ * la vente à "annulee". Refuse si déjà annulée.
+ */
+export async function annulerVente(venteId: string, utilisateurId: string | null): Promise<void> {
+  const db = await ouvrirBaseDeDonnees();
+  const vente = await db.get("ventes", venteId);
+  if (!vente) throw new ErreurVente("Vente introuvable.");
+  if (vente.statut === "annulee") {
+    throw new ErreurVente("Cette vente est déjà annulée.");
+  }
+
+  const lignes = await db.getAllFromIndex("lignes_vente", "vente_id", venteId);
+  for (const ligne of lignes) {
+    await appliquerMouvement({
+      varianteId: ligne.variante_id,
+      depotId: vente.depot_id,
+      type: "entree",
+      quantite: ligne.quantite,
+      motif: `Annulation vente ${vente.numero}`,
+      utilisateurId,
+      referenceType: "ventes.Vente",
+      referenceId: venteId,
+    });
+  }
+
+  const maintenantIso = maintenant();
+  const credits = (await db.getAll("credits")).filter((c) => c.vente_id === venteId);
+  for (const credit of credits) {
+    await db.put("credits", { ...credit, montant_paye: credit.montant, solde: 0, statut: "solde", synchronise: 0, date_modification: maintenantIso });
+  }
+
+  await db.put("ventes", { ...vente, statut: "annulee", synchronise: 0, date_modification: maintenantIso });
 }
 
 /** Assemble le détail complet d'une vente depuis IndexedDB — utilisé par FactureVente. */

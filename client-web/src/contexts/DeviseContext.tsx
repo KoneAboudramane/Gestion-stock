@@ -1,24 +1,24 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
-import { api } from "../api";
+import { obtenirBoutique } from "../services/boutique";
 
-// Adapté de client-electron/src/contexts/DeviseContext.tsx : même rôle, mais lit
-// /api/boutique/ directement (Django) au lieu du SQLite local — inexistant ici.
+// Port de client-electron/src/contexts/DeviseContext.tsx : même rôle, local
+// d'abord (IndexedDB, voir services/boutique.ts) pour rester lisible hors-ligne.
 const DeviseContext = createContext<{ devise: string; rafraichirDevise: () => void }>({
   devise: "FCFA",
   rafraichirDevise: () => {},
 });
 
-export function DeviseProvider({ children }: { children: ReactNode }) {
+export function DeviseProvider({ boutiqueId, children }: { boutiqueId: string; children: ReactNode }) {
   const [devise, setDevise] = useState("FCFA");
 
   function rafraichir() {
-    api.reglages.obtenirBoutique().then((resultat) => {
-      if (resultat.succes) setDevise(resultat.resultat.devise);
+    obtenirBoutique(boutiqueId).then((boutique) => {
+      if (boutique) setDevise(boutique.devise);
     });
   }
 
-  useEffect(rafraichir, []);
+  useEffect(rafraichir, [boutiqueId]);
 
   return <DeviseContext.Provider value={{ devise, rafraichirDevise: rafraichir }}>{children}</DeviseContext.Provider>;
 }

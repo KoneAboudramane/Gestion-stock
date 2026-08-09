@@ -1,17 +1,31 @@
 import { useEffect, useState } from "react";
 
-import { api } from "../api";
-import type { ClientResume, CreditDetail, CreditResume, Session, StatutCredit, VenteResume } from "../api";
+import type { Session } from "../api";
 import ChampMontant from "../components/ChampMontant";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant, normaliserTelephone, telephoneValide } from "../lib/formatage";
 import { libelleStatutVente } from "../lib/libelles";
+import {
+  creerClient,
+  ErreurClient,
+  listerClientsDetail,
+  listerCredits,
+  modifierClient,
+  obtenirCredit,
+  rembourserCredit,
+  supprimerClient,
+  type ClientDetailResume as ClientResume,
+  type CreditDetail,
+  type CreditResume,
+  type StatutCredit,
+} from "../services/clients";
+import { listerVentesLocales, type VenteResumeLocale as VenteResume } from "../services/ventes";
 
 /**
- * Port simplifié de client-electron/src/pages/Clients.tsx : gestion des clients
- * et du carnet de crédit en ligne uniquement (voir Produits.tsx pour le même
- * choix de scoping — la Caisse reste la seule zone traitée hors-ligne).
+ * Port de client-electron/src/pages/Clients.tsx : gestion des clients et du
+ * carnet de crédit, local d'abord (IndexedDB, voir services/clients.ts),
+ * comme le reste de l'application.
  *
  * Non repris ici : ouverture du détail d'une vente depuis l'historique des
  * achats d'un client (la page Ventes/historique n'existe pas encore côté web) —
@@ -35,8 +49,8 @@ function DetailCredit({ creditId, session, onRetour }: { creditId: string; sessi
   const [enCours, setEnCours] = useState(false);
 
   async function rafraichir() {
-    const resultat = await api.credits.obtenir(creditId);
-    if (resultat.succes) setCredit(resultat.resultat);
+    const resultat = await obtenirCredit(creditId);
+    if (resultat) setCredit(resultat);
   }
   useEffect(() => {
     rafraichir();
@@ -48,15 +62,13 @@ function DetailCredit({ creditId, session, onRetour }: { creditId: string; sessi
     setErreur(null);
     setEnCours(true);
     try {
-      const resultat = await api.credits.rembourser(creditId, Number(montant) || 0, mode);
-      if (resultat.succes) {
-        setMontant("");
-        setMode(MODES_REMBOURSEMENT[0]);
-        setAfficherModalRembourser(false);
-        rafraichir();
-      } else {
-        setErreur(resultat.message);
-      }
+      await rembourserCredit(creditId, Number(montant) || 0, mode);
+      setMontant("");
+      setMode(MODES_REMBOURSEMENT[0]);
+      setAfficherModalRembourser(false);
+      rafraichir();
+    } catch (e) {
+      setErreur(e instanceof ErreurClient ? e.message : "Erreur inattendue.");
     } finally {
       setEnCours(false);
     }
@@ -194,9 +206,12 @@ function DetailClient({ client, session, onRetour }: { client: ClientResume; ses
   const [pageClient, setPageClient] = useState<"achats" | "credits">("achats");
 
   async function rafraichir() {
-    const [resultatVentes, resultatCredits] = await Promise.all([api.ventes.lister(), api.credits.lister(clientId)]);
-    if (resultatVentes.succes) setVentes(resultatVentes.resultat.filter((v) => v.clientId === clientId));
-    if (resultatCredits.succes) setCredits(resultatCredits.resultat);
+    const [ventesResultat, creditsResultat] = await Promise.all([
+      listerVentesLocales(session.boutiqueId, undefined, undefined, undefined, clientId),
+      listerCredits(session.boutiqueId, clientId),
+    ]);
+    setVentes(ventesResultat);
+    setCredits(creditsResultat);
   }
   useEffect(() => {
     rafraichir();
@@ -215,13 +230,11 @@ function DetailClient({ client, session, onRetour }: { client: ClientResume; ses
     }
     setEnCoursInfos(true);
     try {
-      const resultat = await api.clients.modifier(clientId, { nom: nom.trim(), telephone, adresse });
-      if (resultat.succes) {
-        setInfos({ ...infos, nom: nom.trim(), telephone, adresse });
-        setModifierInfos(false);
-      } else {
-        setErreurInfos(resultat.message);
-      }
+      await modifierClient(clientId, { nom: nom.trim(), telephone, adresse });
+      setInfos({ ...infos, nom: nom.trim(), telephone, adresse });
+      setModifierInfos(false);
+    } catch (e) {
+      setErreurInfos(e instanceof ErreurClient ? e.message : "Erreur inattendue.");
     } finally {
       setEnCoursInfos(false);
     }
@@ -422,7 +435,15 @@ interface LigneClientGroupe {
   adresse: string;
 }
 
-function FormulaireClientsGroupe({ onAnnuler, onCree }: { onAnnuler: () => void; onCree: () => void }) {
+function FormulaireClientsGroupe({
+  boutiqueId,
+  onAnnuler,
+  onCree,
+}: {
+  boutiqueId: string;
+  onAnnuler: () => void;
+  onCree: () => void;
+}) {
   const [nom, setNom] = useState("");
   const [telephone, setTelephone] = useState("");
   const [adresse, setAdresse] = useState("");
@@ -464,9 +485,10 @@ function FormulaireClientsGroupe({ onAnnuler, onCree }: { onAnnuler: () => void;
     setEnCours(true);
     try {
       for (const ligne of lignes) {
-        const resultat = await api.clients.creer(ligne.nom, ligne.telephone, ligne.adresse);
-        if (!resultat.succes) {
-          setErreur(`"${ligne.nom}" : ${resultat.message}`);
+        try {
+          await creerClient(boutiqueId, ligne.nom, ligne.telephone, ligne.adresse);
+        } catch (e) {
+          setErreur(`"${ligne.nom}" : ${e instanceof ErreurClient ? e.message : "Erreur inattendue."}`);
           return;
         }
       }
@@ -566,11 +588,11 @@ function OngletClients({ session, onglet, setOnglet }: { session: Session; ongle
   const [clientASupprimerId, setClientASupprimerId] = useState<string | null>(null);
 
   async function rafraichir() {
-    const resultat = await api.clients.lister();
-    if (resultat.succes) setClientsListe(resultat.resultat);
+    setClientsListe(await listerClientsDetail(session.boutiqueId));
   }
   useEffect(() => {
     rafraichir();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const termeNormalise = terme.trim().toLowerCase();
@@ -579,11 +601,9 @@ function OngletClients({ session, onglet, setOnglet }: { session: Session; ongle
     : clientsListe;
 
   async function supprimer(id: string) {
-    const resultat = await api.clients.supprimer(id);
-    if (resultat.succes) {
-      setClientASupprimerId(null);
-      rafraichir();
-    }
+    await supprimerClient(id);
+    setClientASupprimerId(null);
+    rafraichir();
   }
 
   return (
@@ -627,6 +647,7 @@ function OngletClients({ session, onglet, setOnglet }: { session: Session; ongle
         <div className="fond-modale" onClick={() => setAfficherForm(false)}>
           <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
             <FormulaireClientsGroupe
+              boutiqueId={session.boutiqueId}
               onAnnuler={() => setAfficherForm(false)}
               onCree={() => {
                 setAfficherForm(false);
@@ -702,8 +723,7 @@ function OngletCredits({ session, onglet, setOnglet }: { session: Session; ongle
   const [creditSelectionneId, setCreditSelectionneId] = useState<string | null>(null);
 
   async function rafraichir() {
-    const resultat = await api.credits.lister(undefined, statut || undefined);
-    if (resultat.succes) setCredits(resultat.resultat);
+    setCredits(await listerCredits(session.boutiqueId, undefined, statut || undefined));
   }
   useEffect(() => {
     rafraichir();

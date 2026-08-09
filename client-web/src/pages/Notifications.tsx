@@ -1,16 +1,15 @@
 import { useEffect, useState } from "react";
 
-import { api } from "../api";
-import type { NotificationResume, Session } from "../api";
+import type { Session } from "../api";
+import { genererAlertesRupture, listerNotifications, type NotificationResume } from "../services/notifications";
 
 /**
- * Port simplifié de client-electron/src/pages/Notifications.tsx : alertes de
- * rupture de stock, en ligne uniquement (voir notifications.ts). Non repris
+ * Port de client-electron/src/pages/Notifications.tsx : alertes de rupture de
+ * stock, local d'abord (IndexedDB, voir services/notifications.ts). Non repris
  * ici : les boutons "Voir dans le Stock"/"Commander" du détail — ils
  * naviguent vers d'autres onglets avec un état pré-rempli côté Electron,
  * un mécanisme de navigation croisée que client-web n'a pas encore ; et
- * "marquer comme lue" (pas de cloche de notifications dans l'en-tête ici,
- * et le modèle serveur n'a pas de champ de lecture).
+ * "marquer comme lue" (pas de cloche de notifications dans l'en-tête ici).
  */
 function DetailNotification({ notification, onRetour }: { notification: NotificationResume; onRetour: () => void }) {
   return (
@@ -38,15 +37,14 @@ export default function Notifications({ session }: { session: Session }) {
   const depotIdEffectif = session.depotId ?? undefined;
 
   async function rafraichir() {
-    const resultat = await api.notifications.lister(depotIdEffectif);
-    if (resultat.succes) setNotificationsListe(resultat.resultat);
+    setNotificationsListe(await listerNotifications(session.boutiqueId, { depotId: depotIdEffectif }));
   }
 
   // Le système détecte lui-même les ruptures de stock à chaque ouverture de
   // la page — pas de bouton "Générer" manuel.
   useEffect(() => {
     (async () => {
-      await api.notifications.genererAlertesRupture();
+      await genererAlertesRupture(session.boutiqueId);
       await rafraichir();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps

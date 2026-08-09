@@ -62,7 +62,7 @@ export default function App() {
     return <MotDePasseOublie allerConnexion={() => setEcran("connexion")} />;
   }
   return (
-    <DeviseProvider>
+    <DeviseProvider boutiqueId={session!.boutiqueId}>
       <Shell session={session!} onDeconnexion={surDeconnexion} />
     </DeviseProvider>
   );

@@ -38,3 +38,27 @@ const LIBELLES_CANAL_MESSAGE: Record<string, string> = {
 export function libelleCanalMessage(canal: string): string {
   return LIBELLES_CANAL_MESSAGE[canal] ?? canal;
 }
+
+// Distinct de OperateurMobileMoney (ventes.Paiement.operateur, 4 choix) :
+// paiements.TransactionMobileMoney.fournisseur n'en a que 3 (pas de Moov, "mtn" pas "mtn_money").
+export type FournisseurMobileMoney = "wave" | "orange_money" | "mtn";
+
+export const FOURNISSEURS_MOBILE_MONEY: { valeur: FournisseurMobileMoney; label: string }[] = [
+  { valeur: "wave", label: "Wave" },
+  { valeur: "orange_money", label: "Orange Money" },
+  { valeur: "mtn", label: "MTN Mobile Money" },
+];
+
+export function libelleFournisseurMobileMoney(fournisseur: string): string {
+  return FOURNISSEURS_MOBILE_MONEY.find((f) => f.valeur === fournisseur)?.label ?? fournisseur;
+}
+
+const LIBELLES_STATUT_TRANSACTION: Record<string, string> = {
+  en_attente: "En attente",
+  reussie: "Réussie",
+  echouee: "Échouée",
+};
+
+export function libelleStatutTransactionMobileMoney(statut: string): string {
+  return LIBELLES_STATUT_TRANSACTION[statut] ?? statut;
+}

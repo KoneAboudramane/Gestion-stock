@@ -1,27 +1,40 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { api } from "../api";
-import type {
-  CategorieResume,
-  DepotResume,
-  ProduitDetail,
-  ProduitResume,
-  Session,
-  UniteResume,
-  VarianteResume,
-} from "../api";
+import type { Session } from "../api";
 import ChampMontant from "../components/ChampMontant";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import { formaterMontant } from "../lib/formatage";
+import { listerDepots, type DepotResume } from "../services/catalogue";
+import {
+  creerCategorie,
+  creerProduit,
+  ErreurProduit,
+  listerCategories,
+  modifierCategorie,
+  modifierProduit,
+  modifierVariante,
+  obtenirProduit,
+  supprimerCategorie,
+  supprimerProduit,
+  listerProduits as listerProduitsLocal,
+  listerUnites,
+  type ProduitDetail,
+  type ProduitResume,
+  type ReferenceNommee,
+  type UniteResume,
+  type VarianteResume,
+} from "../services/produits";
+import { appliquerMouvement, ErreurStock } from "../services/stock";
 
 /**
- * Port simplifié de client-electron/src/pages/Produits.tsx : gestion du catalogue
- * (produits, variante par défaut, catégories) en ligne uniquement — la Caisse est
- * la seule zone traitée hors-ligne pour l'instant (voir project_strategie_mobile.md).
+ * Port de client-electron/src/pages/Produits.tsx : gestion du catalogue
+ * (produits, variantes, catégories, unités) — local d'abord (IndexedDB),
+ * synchronisé en tâche de fond comme le reste de l'application (voir
+ * services/produits.ts, miroir de electron/services/produits.ts).
  *
  * Non repris ici par rapport à l'Electron (à ajouter dans une phase ultérieure si
- * besoin) : variantes multi-attributs (Taille/Couleur...), historique des
- * mouvements/ventes dans la fiche produit.
+ * besoin) : variantes multi-attributs (Taille/Couleur...) dans l'UI de création
+ * groupée, historique des mouvements/ventes dans la fiche produit.
  */
 
 function FormulaireEditionProduit({
@@ -32,7 +45,7 @@ function FormulaireEditionProduit({
   onModifie,
 }: {
   produit: ProduitDetail;
-  categories: CategorieResume[];
+  categories: ReferenceNommee[];
   unites: UniteResume[];
   onAnnuler: () => void;
   onModifie: () => void;
@@ -52,14 +65,15 @@ function FormulaireEditionProduit({
     }
     setEnCours(true);
     try {
-      const resultat = await api.produits.modifier(produit.id, {
+      await modifierProduit(produit.id, {
         nom: nom.trim(),
         categorieId: categorieId || null,
         uniteId: uniteId || null,
         description,
       });
-      if (resultat.succes) onModifie();
-      else setErreur(resultat.message);
+      onModifie();
+    } catch (e) {
+      setErreur(e instanceof ErreurProduit ? e.message : "Erreur inattendue.");
     } finally {
       setEnCours(false);
     }
@@ -111,11 +125,13 @@ function FormulaireEditionProduit({
 function FormulaireAjoutStock({
   varianteId,
   depots,
+  utilisateurId,
   onAnnuler,
   onAjoute,
 }: {
   varianteId: string;
   depots: DepotResume[];
+  utilisateurId: string | null;
   onAnnuler: () => void;
   onAjoute: () => void;
 }) {
@@ -139,9 +155,19 @@ function FormulaireAjoutStock({
     }
     setEnCours(true);
     try {
-      const resultat = await api.mouvements.creer({ varianteId, depotId, quantite: quantiteNombre, motif });
-      if (resultat.succes) onAjoute();
-      else setErreur(resultat.message);
+      await appliquerMouvement({
+        varianteId,
+        depotId,
+        type: "entree",
+        quantite: quantiteNombre,
+        motif,
+        utilisateurId,
+        referenceType: "catalogue.Variante",
+        referenceId: varianteId,
+      });
+      onAjoute();
+    } catch (e) {
+      setErreur(e instanceof ErreurStock ? e.message : "Erreur inattendue.");
     } finally {
       setEnCours(false);
     }
@@ -197,15 +223,16 @@ function LigneEditionVariante({
     setErreur(null);
     setEnCours(true);
     try {
-      const resultat = await api.variantes.modifier(variante.id, {
+      await modifierVariante(variante.id, {
         reference,
         codeBarres,
         prixAchat: Number(prixAchat) || 0,
         prixVente: Number(prixVente) || 0,
         seuilAlerte: Number(seuilAlerte) || 0,
       });
-      if (resultat.succes) onModifie();
-      else setErreur(resultat.message);
+      onModifie();
+    } catch (e) {
+      setErreur(e instanceof ErreurProduit ? e.message : "Erreur inattendue.");
     } finally {
       setEnCours(false);
     }
@@ -267,7 +294,7 @@ function DetailProduit({
 }: {
   produitId: string;
   session: Session;
-  categories: CategorieResume[];
+  categories: ReferenceNommee[];
   unites: UniteResume[];
   depots: DepotResume[];
   onFermer: () => void;
@@ -283,8 +310,8 @@ function DetailProduit({
   const [messageStock, setMessageStock] = useState<string | null>(null);
 
   async function rafraichir() {
-    const resultat = await api.produits.obtenir(produitId);
-    if (resultat.succes) setProduit(resultat.resultat);
+    const resultat = await obtenirProduit(produitId);
+    if (resultat) setProduit(resultat);
   }
 
   useEffect(() => {
@@ -428,6 +455,7 @@ function DetailProduit({
                             <FormulaireAjoutStock
                               varianteId={varianteAjoutStock}
                               depots={depots}
+                              utilisateurId={session.utilisateurId}
                               onAnnuler={() => setVarianteAjoutStock(null)}
                               onAjoute={() => {
                                 setVarianteAjoutStock(null);
@@ -481,7 +509,7 @@ function FormulaireProduitsGroupe({
   onCree,
 }: {
   session: Session;
-  categories: CategorieResume[];
+  categories: ReferenceNommee[];
   unites: UniteResume[];
   depots: DepotResume[];
   onAnnuler: () => void;
@@ -554,30 +582,38 @@ function FormulaireProduitsGroupe({
     setEnCours(true);
     try {
       for (const ligne of lignes) {
-        const resultat = await api.produits.creer({
-          nom: ligne.nom,
-          categorieId: ligne.categorieId || null,
-          uniteId: ligne.uniteId || null,
-          reference: "",
-          codeBarres: ligne.codeBarres,
-          prixAchat: Number(ligne.prixAchat) || 0,
-          prixVente: Number(ligne.prixVente) || 0,
-          seuilAlerte: Number(ligne.seuilAlerte) || 0,
-        });
-        if (!resultat.succes) {
-          setErreur(`"${ligne.nom}" : ${resultat.message}`);
+        let cree;
+        try {
+          cree = await creerProduit({
+            boutiqueId: session.boutiqueId,
+            nom: ligne.nom,
+            categorieId: ligne.categorieId || null,
+            uniteId: ligne.uniteId || null,
+            reference: "",
+            codeBarres: ligne.codeBarres,
+            prixAchat: Number(ligne.prixAchat) || 0,
+            prixVente: Number(ligne.prixVente) || 0,
+            seuilAlerte: Number(ligne.seuilAlerte) || 0,
+          });
+        } catch (e) {
+          setErreur(`"${ligne.nom}" : ${e instanceof ErreurProduit ? e.message : "erreur inattendue."}`);
           return;
         }
         const quantiteNombre = Number(ligne.quantiteInitiale) || 0;
         if (depotId && quantiteNombre > 0) {
-          const resultatStock = await api.mouvements.creer({
-            varianteId: resultat.resultat.varianteId,
-            depotId,
-            quantite: quantiteNombre,
-            motif: "Stock initial",
-          });
-          if (!resultatStock.succes) {
-            setErreur(`"${ligne.nom}" créé, mais le stock initial a échoué : ${resultatStock.message}`);
+          try {
+            await appliquerMouvement({
+              varianteId: cree.varianteId,
+              depotId,
+              type: "entree",
+              quantite: quantiteNombre,
+              motif: "Stock initial",
+              utilisateurId: session.utilisateurId,
+              referenceType: "catalogue.Variante",
+              referenceId: cree.varianteId,
+            });
+          } catch (e) {
+            setErreur(`"${ligne.nom}" créé, mais le stock initial a échoué : ${e instanceof ErreurStock ? e.message : "erreur inattendue."}`);
             return;
           }
         }
@@ -797,7 +833,7 @@ function OngletProduits({ session, onglet, setOnglet }: { session: Session; ongl
 
   const [vue, setVue] = useState<"liste" | "nouveau">("liste");
   const [produits, setProduits] = useState<ProduitResume[]>([]);
-  const [categories, setCategories] = useState<CategorieResume[]>([]);
+  const [categories, setCategories] = useState<ReferenceNommee[]>([]);
   const [unites, setUnites] = useState<UniteResume[]>([]);
   const [depots, setDepots] = useState<DepotResume[]>([]);
   const [terme, setTerme] = useState("");
@@ -809,15 +845,14 @@ function OngletProduits({ session, onglet, setOnglet }: { session: Session; ongl
   const [produitASupprimerId, setProduitASupprimerId] = useState<string | null>(null);
 
   async function rafraichirListe() {
-    const resultat = await api.produits.lister();
-    if (resultat.succes) setProduits(resultat.resultat);
+    setProduits(await listerProduitsLocal(session.boutiqueId));
   }
 
   useEffect(() => {
     rafraichirListe();
-    api.categories.lister().then((r) => r.succes && setCategories(r.resultat));
-    api.unites.lister().then((r) => r.succes && setUnites(r.resultat));
-    if (peutGerer) api.depots.lister().then((r) => r.succes && setDepots(r.resultat));
+    listerCategories(session.boutiqueId).then(setCategories);
+    listerUnites(session.boutiqueId).then(setUnites);
+    if (peutGerer) listerDepots(session.boutiqueId).then(setDepots);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -851,16 +886,14 @@ function OngletProduits({ session, onglet, setOnglet }: { session: Session; ongl
   }
 
   async function supprimer(id: string) {
-    const resultat = await api.produits.supprimer(id);
-    if (resultat.succes) {
-      setProduitASupprimerId(null);
-      rafraichirListe();
-    }
+    await supprimerProduit(id);
+    setProduitASupprimerId(null);
+    rafraichirListe();
   }
 
   async function basculerActif(p: ProduitResume) {
-    const resultat = await api.produits.modifier(p.id, { actif: !p.actif });
-    if (resultat.succes) rafraichirListe();
+    await modifierProduit(p.id, { actif: !p.actif });
+    rafraichirListe();
   }
 
   return (
@@ -986,7 +1019,7 @@ function OngletProduits({ session, onglet, setOnglet }: { session: Session; ongl
 
 function OngletCategories({ session, onglet, setOnglet }: { session: Session; onglet: Onglet; setOnglet: (o: Onglet) => void }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
-  const [categories, setCategories] = useState<CategorieResume[]>([]);
+  const [categories, setCategories] = useState<ReferenceNommee[]>([]);
   const [nom, setNom] = useState("");
   const [erreur, setErreur] = useState<string | null>(null);
   const [enEditionId, setEnEditionId] = useState<string | null>(null);
@@ -994,47 +1027,51 @@ function OngletCategories({ session, onglet, setOnglet }: { session: Session; on
   const [confirmationSuppressionId, setConfirmationSuppressionId] = useState<string | null>(null);
 
   async function rafraichir() {
-    const resultat = await api.categories.lister();
-    if (resultat.succes) setCategories(resultat.resultat);
+    setCategories(await listerCategories(session.boutiqueId));
   }
   useEffect(() => {
     rafraichir();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function ajouter(evenement: React.FormEvent) {
     evenement.preventDefault();
     if (!nom.trim()) return;
-    const resultat = await api.categories.creer(nom.trim());
-    if (resultat.succes) {
+    try {
+      await creerCategorie(session.boutiqueId, nom.trim());
       setNom("");
       setErreur(null);
       rafraichir();
-    } else {
-      setErreur(resultat.message);
+    } catch (e) {
+      setErreur(e instanceof ErreurProduit ? e.message : "Erreur inattendue.");
     }
   }
 
-  function commencerEdition(c: CategorieResume) {
+  function commencerEdition(c: ReferenceNommee) {
     setEnEditionId(c.id);
     setNomEdition(c.nom);
   }
 
   async function enregistrerEdition(id: string) {
     if (!nomEdition.trim()) return;
-    const resultat = await api.categories.modifier(id, nomEdition.trim());
-    if (resultat.succes) {
+    try {
+      await modifierCategorie(id, nomEdition.trim());
       setEnEditionId(null);
       rafraichir();
-    } else {
-      setErreur(resultat.message);
+    } catch (e) {
+      setErreur(e instanceof ErreurProduit ? e.message : "Erreur inattendue.");
     }
   }
 
   async function supprimer(id: string) {
-    const resultat = await api.categories.supprimer(id);
-    setConfirmationSuppressionId(null);
-    if (resultat.succes) rafraichir();
-    else setErreur(resultat.message);
+    try {
+      await supprimerCategorie(id);
+      setConfirmationSuppressionId(null);
+      rafraichir();
+    } catch (e) {
+      setConfirmationSuppressionId(null);
+      setErreur(e instanceof ErreurProduit ? e.message : "Erreur inattendue.");
+    }
   }
 
   return (

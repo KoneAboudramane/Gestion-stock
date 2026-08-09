@@ -1,9 +1,38 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../api";
-import type { AttributResume, BoutiqueDetail, DepotResume, ParametreResume, RoleResume, Session, UniteResume, UtilisateurResume } from "../api";
+import type { RoleResume, Session, UtilisateurResume } from "../api";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import { useRafraichirDevise } from "../contexts/DeviseContext";
+import { ErreurBoutique, modifierBoutique, obtenirBoutique, type BoutiqueDetail } from "../services/boutique";
+import {
+  definirParametre,
+  ErreurConfiguration,
+  listerParametres,
+  supprimerParametre,
+  type ParametreResume,
+} from "../services/configuration";
+import {
+  creerAttribut,
+  creerUnite,
+  ErreurProduit,
+  listerAttributs,
+  listerUnites,
+  modifierAttribut,
+  modifierUnite,
+  supprimerAttribut,
+  supprimerUnite,
+  type ReferenceNommee,
+  type UniteResume,
+} from "../services/produits";
+import {
+  creerDepot,
+  ErreurStock,
+  listerDepotsDetail,
+  modifierDepot,
+  supprimerDepot,
+  type DepotResume,
+} from "../services/stock";
 
 /**
  * Port simplifié de client-electron/src/pages/Reglages.tsx. Non repris ici :
@@ -52,8 +81,11 @@ function OngletProfilBoutique({ session, onglet, setOnglet }: { session: Session
   const rafraichirDevise = useRafraichirDevise();
 
   async function charger() {
-    const [resultatBoutique, resultatUtilisateurs] = await Promise.all([api.reglages.obtenirBoutique(), api.comptes.listerUtilisateurs()]);
-    if (resultatBoutique.succes) setBoutique(resultatBoutique.resultat);
+    const [boutiqueLocale, resultatUtilisateurs] = await Promise.all([
+      obtenirBoutique(session.boutiqueId),
+      api.comptes.listerUtilisateurs(),
+    ]);
+    if (boutiqueLocale) setBoutique(boutiqueLocale);
     if (resultatUtilisateurs.succes) {
       const moiTrouve = resultatUtilisateurs.resultat.find((u) => u.id === Number(session.utilisateurId)) ?? null;
       setMoi(moiTrouve);
@@ -74,15 +106,16 @@ function OngletProfilBoutique({ session, onglet, setOnglet }: { session: Session
     setMessage(null);
     setEnCours(true);
     try {
-      const resultat = await api.reglages.modifierBoutique({
-        nom: boutique.nom,
-        adresse: boutique.adresse,
-        telephone: boutique.telephone,
-        email: boutique.email,
-        devise: boutique.devise,
-      });
-      if (!resultat.succes) {
-        setErreur(resultat.message);
+      try {
+        await modifierBoutique(session.boutiqueId, {
+          nom: boutique.nom,
+          adresse: boutique.adresse,
+          telephone: boutique.telephone,
+          email: boutique.email,
+          devise: boutique.devise,
+        });
+      } catch (e) {
+        setErreur(e instanceof ErreurBoutique ? e.message : "Erreur inattendue.");
         return;
       }
       if (moi) {
@@ -661,8 +694,7 @@ function OngletUtilisateursRoles({ session, onglet, setOnglet }: { session: Sess
     if (resultatRoles.succes) setRoles(resultatRoles.resultat);
     else setErreur(resultatRoles.message);
 
-    const resultatDepots = await api.depots.lister();
-    if (resultatDepots.succes) setDepots(resultatDepots.resultat);
+    setDepots(await listerDepotsDetail(session.boutiqueId));
 
     const resultatUtilisateurs = await api.comptes.listerUtilisateurs();
     if (resultatUtilisateurs.succes) {
@@ -781,32 +813,35 @@ function OngletParametresGeneral({ session }: { session: Session }) {
   const [confirmationSuppressionId, setConfirmationSuppressionId] = useState<string | null>(null);
 
   async function rafraichir() {
-    const resultat = await api.reglages.listerParametres();
-    if (resultat.succes) setParametres(resultat.resultat);
+    setParametres(await listerParametres(session.boutiqueId));
   }
   useEffect(() => {
     rafraichir();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function enregistrer(evenement: React.FormEvent) {
     evenement.preventDefault();
     if (!cle.trim()) return;
-    const resultat = await api.reglages.definirParametre(cle.trim(), valeur);
-    if (resultat.succes) {
+    try {
+      await definirParametre(session.boutiqueId, cle.trim(), valeur);
       setCle("");
       setValeur("");
       setErreur(null);
       rafraichir();
-    } else {
-      setErreur(resultat.message);
+    } catch (e) {
+      setErreur(e instanceof ErreurConfiguration ? e.message : "Erreur inattendue.");
     }
   }
 
   async function supprimer(id: string) {
-    const resultat = await api.reglages.supprimerParametre(id);
     setConfirmationSuppressionId(null);
-    if (resultat.succes) rafraichir();
-    else setErreur(resultat.message);
+    try {
+      await supprimerParametre(id);
+      rafraichir();
+    } catch (e) {
+      setErreur(e instanceof ErreurConfiguration ? e.message : "Erreur inattendue.");
+    }
   }
 
   return (
@@ -867,24 +902,24 @@ function OngletUnites({ session }: { session: Session }) {
   const [confirmationSuppressionId, setConfirmationSuppressionId] = useState<string | null>(null);
 
   async function rafraichir() {
-    const resultat = await api.unites.lister();
-    if (resultat.succes) setUnites(resultat.resultat);
+    setUnites(await listerUnites(session.boutiqueId));
   }
   useEffect(() => {
     rafraichir();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function ajouter(evenement: React.FormEvent) {
     evenement.preventDefault();
     if (!nom.trim()) return;
-    const resultat = await api.unites.creer(nom.trim(), abreviation.trim());
-    if (resultat.succes) {
+    try {
+      await creerUnite(session.boutiqueId, nom.trim(), abreviation.trim());
       setNom("");
       setAbreviation("");
       setErreur(null);
       rafraichir();
-    } else {
-      setErreur(resultat.message);
+    } catch (e) {
+      setErreur(e instanceof ErreurProduit ? e.message : "Erreur inattendue.");
     }
   }
 
@@ -896,20 +931,24 @@ function OngletUnites({ session }: { session: Session }) {
 
   async function enregistrerEdition(id: string) {
     if (!nomEdition.trim()) return;
-    const resultat = await api.unites.modifier(id, { nom: nomEdition.trim(), abreviation: abreviationEdition.trim() });
-    if (resultat.succes) {
+    try {
+      await modifierUnite(id, { nom: nomEdition.trim(), abreviation: abreviationEdition.trim() });
       setEnEditionId(null);
       rafraichir();
-    } else {
-      setErreur(resultat.message);
+    } catch (e) {
+      setErreur(e instanceof ErreurProduit ? e.message : "Erreur inattendue.");
     }
   }
 
   async function supprimer(id: string) {
-    const resultat = await api.unites.supprimer(id);
-    setConfirmationSuppressionId(null);
-    if (resultat.succes) rafraichir();
-    else setErreur(resultat.message);
+    try {
+      await supprimerUnite(id);
+      setConfirmationSuppressionId(null);
+      rafraichir();
+    } catch (e) {
+      setConfirmationSuppressionId(null);
+      setErreur(e instanceof ErreurProduit ? e.message : "Erreur inattendue.");
+    }
   }
 
   return (
@@ -976,7 +1015,7 @@ function OngletUnites({ session }: { session: Session }) {
 
 function OngletAttributs({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
-  const [attributs, setAttributs] = useState<AttributResume[]>([]);
+  const [attributs, setAttributs] = useState<ReferenceNommee[]>([]);
   const [nom, setNom] = useState("");
   const [erreur, setErreur] = useState<string | null>(null);
   const [enEditionId, setEnEditionId] = useState<string | null>(null);
@@ -984,47 +1023,51 @@ function OngletAttributs({ session }: { session: Session }) {
   const [confirmationSuppressionId, setConfirmationSuppressionId] = useState<string | null>(null);
 
   async function rafraichir() {
-    const resultat = await api.attributs.lister();
-    if (resultat.succes) setAttributs(resultat.resultat);
+    setAttributs(await listerAttributs(session.boutiqueId));
   }
   useEffect(() => {
     rafraichir();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function ajouter(evenement: React.FormEvent) {
     evenement.preventDefault();
     if (!nom.trim()) return;
-    const resultat = await api.attributs.creer(nom.trim());
-    if (resultat.succes) {
+    try {
+      await creerAttribut(session.boutiqueId, nom.trim());
       setNom("");
       setErreur(null);
       rafraichir();
-    } else {
-      setErreur(resultat.message);
+    } catch (e) {
+      setErreur(e instanceof ErreurProduit ? e.message : "Erreur inattendue.");
     }
   }
 
-  function commencerEdition(a: AttributResume) {
+  function commencerEdition(a: ReferenceNommee) {
     setEnEditionId(a.id);
     setNomEdition(a.nom);
   }
 
   async function enregistrerEdition(id: string) {
     if (!nomEdition.trim()) return;
-    const resultat = await api.attributs.modifier(id, nomEdition.trim());
-    if (resultat.succes) {
+    try {
+      await modifierAttribut(id, nomEdition.trim());
       setEnEditionId(null);
       rafraichir();
-    } else {
-      setErreur(resultat.message);
+    } catch (e) {
+      setErreur(e instanceof ErreurProduit ? e.message : "Erreur inattendue.");
     }
   }
 
   async function supprimer(id: string) {
-    const resultat = await api.attributs.supprimer(id);
-    setConfirmationSuppressionId(null);
-    if (resultat.succes) rafraichir();
-    else setErreur(resultat.message);
+    try {
+      await supprimerAttribut(id);
+      setConfirmationSuppressionId(null);
+      rafraichir();
+    } catch (e) {
+      setConfirmationSuppressionId(null);
+      setErreur(e instanceof ErreurProduit ? e.message : "Erreur inattendue.");
+    }
   }
 
   return (
@@ -1096,9 +1139,7 @@ function OngletDepots({ session }: { session: Session }) {
   const [confirmationSuppressionId, setConfirmationSuppressionId] = useState<string | null>(null);
 
   async function rafraichir() {
-    const resultat = await api.depots.lister();
-    if (!resultat.succes) return;
-    const tous = resultat.resultat;
+    const tous = await listerDepotsDetail(session.boutiqueId);
     setDepots(peutGerer || !session.depotId ? tous : tous.filter((d) => d.id === session.depotId));
   }
   useEffect(() => {
@@ -1109,14 +1150,14 @@ function OngletDepots({ session }: { session: Session }) {
   async function ajouter(evenement: React.FormEvent) {
     evenement.preventDefault();
     if (!nom.trim()) return;
-    const resultat = await api.depots.creer(nom.trim(), adresse.trim());
-    if (resultat.succes) {
+    try {
+      await creerDepot(session.boutiqueId, nom.trim(), adresse.trim());
       setNom("");
       setAdresse("");
       setErreur(null);
       rafraichir();
-    } else {
-      setErreur(resultat.message);
+    } catch (e) {
+      setErreur(e instanceof ErreurStock ? e.message : "Erreur inattendue.");
     }
   }
 
@@ -1128,20 +1169,24 @@ function OngletDepots({ session }: { session: Session }) {
 
   async function enregistrerEdition(id: string) {
     if (!nomEdition.trim()) return;
-    const resultat = await api.depots.modifier(id, { nom: nomEdition.trim(), adresse: adresseEdition.trim() });
-    if (resultat.succes) {
+    try {
+      await modifierDepot(id, { nom: nomEdition.trim(), adresse: adresseEdition.trim() });
       setEnEditionId(null);
       rafraichir();
-    } else {
-      setErreur(resultat.message);
+    } catch (e) {
+      setErreur(e instanceof ErreurStock ? e.message : "Erreur inattendue.");
     }
   }
 
   async function supprimer(id: string) {
-    const resultat = await api.depots.supprimer(id);
-    setConfirmationSuppressionId(null);
-    if (resultat.succes) rafraichir();
-    else setErreur(resultat.message);
+    try {
+      await supprimerDepot(id);
+      setConfirmationSuppressionId(null);
+      rafraichir();
+    } catch (e) {
+      setConfirmationSuppressionId(null);
+      setErreur(e instanceof ErreurStock ? e.message : "Erreur inattendue.");
+    }
   }
 
   return (

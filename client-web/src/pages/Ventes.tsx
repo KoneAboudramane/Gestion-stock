@@ -1,26 +1,36 @@
 import { useEffect, useState } from "react";
 
-import { api } from "../api";
 import type { Session } from "../api";
 import FactureVente from "../components/FactureVente";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant } from "../lib/formatage";
-import { libelleModePaiement, libelleStatutVente } from "../lib/libelles";
+import {
+  FOURNISSEURS_MOBILE_MONEY,
+  libelleFournisseurMobileMoney,
+  libelleModePaiement,
+  libelleStatutTransactionMobileMoney,
+  libelleStatutVente,
+  type FournisseurMobileMoney,
+} from "../lib/libelles";
+import { initierPaiementMobileMoney, obtenirTransactionPourPaiement, type TransactionResume } from "../services/paiements";
 import { listerDepots, type DepotResume } from "../services/catalogue";
-import { listerVentesLocales, obtenirVenteDetail, type StatutVente, type VenteDetail, type VenteResumeLocale } from "../services/ventes";
+import {
+  annulerVente,
+  ErreurVente,
+  listerVentesLocales,
+  obtenirVenteDetail,
+  type PaiementDetail,
+  type StatutVente,
+  type VenteDetail,
+  type VenteResumeLocale,
+} from "../services/ventes";
 
 /**
- * Port simplifié de client-electron/src/pages/Ventes.tsx : historique des
- * ventes lu depuis IndexedDB (les mêmes données déjà synchronisées que la
- * Caisse et FactureVente utilisent — voir services/ventes.ts). L'annulation
- * est la seule écriture, et passe par le serveur (recréditer le stock, inverser
- * un crédit éventuel est une vraie logique métier, sans miroir local) : voir
- * ventes/services.py::annuler_vente. Une resynchronisation immédiate rapatrie
- * le résultat dans IndexedDB.
- *
- * Non repris ici par rapport à l'Electron : le suivi des paiements Mobile Money
- * (Phase 2, squelette simulé côté Electron — hors périmètre).
+ * Port de client-electron/src/pages/Ventes.tsx : historique des ventes, local
+ * d'abord (IndexedDB, voir services/ventes.ts) — y compris l'annulation
+ * (recrédite le stock, solde toute créance liée) et le suivi des paiements
+ * Mobile Money (simulation locale, voir services/paiements.ts).
  */
 
 const STATUTS: { valeur: StatutVente | ""; label: string }[] = [
@@ -29,6 +39,67 @@ const STATUTS: { valeur: StatutVente | ""; label: string }[] = [
   { valeur: "credit", label: "Crédit" },
   { valeur: "annulee", label: "Annulée" },
 ];
+
+// --- Paiement mobile money (simulation locale) ---
+
+function PaiementMobileMoney({ paiement }: { paiement: PaiementDetail }) {
+  const [transaction, setTransaction] = useState<TransactionResume | null | undefined>(undefined);
+  const [afficherForm, setAfficherForm] = useState(false);
+  const [fournisseur, setFournisseur] = useState<FournisseurMobileMoney>("wave");
+  const [numeroTelephone, setNumeroTelephone] = useState("");
+  const [enCours, setEnCours] = useState(false);
+
+  async function rafraichir() {
+    setTransaction((await obtenirTransactionPourPaiement(paiement.id)) ?? null);
+  }
+  useEffect(() => {
+    rafraichir();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paiement.id]);
+
+  async function initier(evenement: React.FormEvent) {
+    evenement.preventDefault();
+    setEnCours(true);
+    try {
+      await initierPaiementMobileMoney({ paiementId: paiement.id, fournisseur, numeroTelephone, montant: paiement.montant });
+      setAfficherForm(false);
+      rafraichir();
+    } finally {
+      setEnCours(false);
+    }
+  }
+
+  if (transaction === undefined) return null;
+
+  return (
+    <div>
+      {transaction ? (
+        <span className={transaction.statut === "reussie" ? "badge-payee" : "badge-credit"}>
+          {libelleFournisseurMobileMoney(transaction.fournisseur)} · {libelleStatutTransactionMobileMoney(transaction.statut)} (
+          {transaction.referenceExterne})
+        </span>
+      ) : afficherForm ? (
+        <form onSubmit={initier} className="formulaire-inline">
+          <select value={fournisseur} onChange={(e) => setFournisseur(e.target.value as FournisseurMobileMoney)}>
+            {FOURNISSEURS_MOBILE_MONEY.map((f) => (
+              <option key={f.valeur} value={f.valeur}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+          <input placeholder="Numéro de téléphone" value={numeroTelephone} onChange={(e) => setNumeroTelephone(e.target.value)} />
+          <button type="submit" disabled={enCours}>
+            {enCours ? "…" : "Initier"}
+          </button>
+        </form>
+      ) : (
+        <button type="button" className="bouton-primaire" onClick={() => setAfficherForm(true)}>
+          Initier le paiement mobile money
+        </button>
+      )}
+    </div>
+  );
+}
 
 function DetailVente({ venteId, session, onRetour }: { venteId: string; session: Session; onRetour: () => void }) {
   const peutAnnuler = !!session.permissions.annuler_vente;
@@ -52,14 +123,11 @@ function DetailVente({ venteId, session, onRetour }: { venteId: string; session:
     setEnCours(true);
     setErreur(null);
     try {
-      const resultat = await api.ventes.annuler(venteId);
-      if (resultat.succes) {
-        await api.sync.executer(session);
-        setConfirmation(false);
-        rafraichir();
-      } else {
-        setErreur(resultat.message);
-      }
+      await annulerVente(venteId, session.utilisateurId);
+      setConfirmation(false);
+      rafraichir();
+    } catch (e) {
+      setErreur(e instanceof ErreurVente ? e.message : "Erreur inattendue.");
     } finally {
       setEnCours(false);
     }
@@ -140,6 +208,7 @@ function DetailVente({ venteId, session, onRetour }: { venteId: string; session:
             {vente.paiements.map((p) => (
               <li key={p.id}>
                 {libelleModePaiement(p.mode)} : {formaterMontant(p.montant)} {devise}
+                {p.mode === "mobile_money" && <PaiementMobileMoney paiement={p} />}
               </li>
             ))}
             {vente.paiements.length === 0 && <li className="liste-vide">Aucun paiement.</li>}
