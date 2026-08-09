@@ -11,6 +11,7 @@ import type {
   VenteDetail,
 } from "../api/client";
 import { useDevise } from "../contexts/DeviseContext";
+import { formaterMontant } from "../lib/formatage";
 import { libelleCanalMessage, libelleModePaiement, libelleStatutVente } from "../lib/libelles";
 
 function libelleType(type: MessageResume["type"]): string {
@@ -39,10 +40,10 @@ function DetailCreditLie({ creditId }: { creditId: string }) {
       <h3>Crédit lié</h3>
       <div>Client : {credit.clientNom}</div>
       <div>
-        Montant : {credit.montant} {devise} · Payé : {credit.montantPaye} {devise}
+        Montant : {formaterMontant(credit.montant)} {devise} · Payé : {formaterMontant(credit.montantPaye)} {devise}
       </div>
       <div className="total-net">
-        Solde : {credit.solde} {devise}
+        Solde : {formaterMontant(credit.solde)} {devise}
       </div>
       {credit.echeance && <div>Échéance : {credit.echeance}</div>}
     </div>
@@ -68,17 +69,17 @@ function DetailVenteLiee({ venteId }: { venteId: string }) {
       <ul className="liste-simple">
         {vente.lignes.map((l) => (
           <li key={l.id}>
-            {l.produitNom} x{l.quantite} = {l.sousTotal} {devise}
+            {l.produitNom} x{l.quantite} = {formaterMontant(l.sousTotal)} {devise}
           </li>
         ))}
       </ul>
       <div className="total-net">
-        Total net : {vente.totalNet} {devise}
+        Total net : {formaterMontant(vente.totalNet)} {devise}
       </div>
       <ul className="liste-simple">
         {vente.paiements.map((p) => (
           <li key={p.id}>
-            {libelleModePaiement(p.mode)} : {p.montant} {devise}
+            {libelleModePaiement(p.mode)} : {formaterMontant(p.montant)} {devise}
           </li>
         ))}
       </ul>
@@ -100,6 +101,10 @@ function DetailMessage({
   async function envoyer() {
     setEnCours(true);
     try {
+      if (message.canal === "whatsapp" && message.destinataire) {
+        const numero = message.destinataire.replace(/\D/g, "");
+        await api.systeme.ouvrirExterne(`https://wa.me/${numero}?text=${encodeURIComponent(message.message)}`);
+      }
       await api.messages.envoyer(message.id);
       onEnvoye();
     } finally {
@@ -142,7 +147,7 @@ function DetailMessage({
 }
 
 export default function Messages({ session }: { session: Session }) {
-  const [statut, setStatut] = useState<StatutMessage | "">("");
+  const [onglet, setOnglet] = useState<"enAttente" | "historique">("enAttente");
   const [messagesListe, setMessagesListe] = useState<MessageResume[]>([]);
   const [depots, setDepots] = useState<Depot[]>([]);
   const [utilisateurs, setUtilisateurs] = useState<UtilisateurResume[]>([]);
@@ -161,7 +166,6 @@ export default function Messages({ session }: { session: Session }) {
   async function rafraichir() {
     setMessagesListe(
       await api.messages.lister(session.boutiqueId, {
-        statut: statut || undefined,
         depotId: depotIdEffectif,
         utilisateurId: utilisateurIdEffectif,
       }),
@@ -185,13 +189,16 @@ export default function Messages({ session }: { session: Session }) {
       await rafraichir();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.boutiqueId, statut, depotIdEffectif, utilisateurIdEffectif]);
+  }, [session.boutiqueId, depotIdEffectif, utilisateurIdEffectif]);
+
+  const messagesAffiches = messagesListe.filter((m) =>
+    onglet === "enAttente" ? m.statut === "en_attente" : m.statut !== "en_attente",
+  );
 
   const messageSelectionne = messagesListe.find((m) => m.id === messageSelectionneId);
   if (messageSelectionne) {
     return (
       <div className="page-produits">
-        <h2>Messages</h2>
         <DetailMessage
           message={messageSelectionne}
           onRetour={() => setMessageSelectionneId(null)}
@@ -203,14 +210,23 @@ export default function Messages({ session }: { session: Session }) {
 
   return (
     <div className="page-produits">
-      <h2>Messages</h2>
-      <div className="barre-actions">
-        <select value={statut} onChange={(e) => setStatut(e.target.value as StatutMessage | "")}>
-          <option value="">Tous les statuts</option>
-          <option value="en_attente">En attente</option>
-          <option value="envoyee">Envoyée</option>
-          <option value="echouee">Échouée</option>
-        </select>
+      <div className="barre-actions barre-actions-avec-onglets">
+        <div className="barre-onglets">
+          <button
+            type="button"
+            className={`onglet ${onglet === "enAttente" ? "actif" : ""}`}
+            onClick={() => setOnglet("enAttente")}
+          >
+            En attente
+          </button>
+          <button
+            type="button"
+            className={`onglet ${onglet === "historique" ? "actif" : ""}`}
+            onClick={() => setOnglet("historique")}
+          >
+            Historique
+          </button>
+        </div>
         {!verrouilleSurDepot && (
           <>
             <select value={filtreDepotId} onChange={(e) => setFiltreDepotId(e.target.value)}>
@@ -246,7 +262,7 @@ export default function Messages({ session }: { session: Session }) {
           </tr>
         </thead>
         <tbody>
-          {messagesListe.map((m) => (
+          {messagesAffiches.map((m) => (
             <tr key={m.id} onClick={() => setMessageSelectionneId(m.id)}>
               <td>{new Date(m.dateCreation).toLocaleString("fr-FR")}</td>
               <td>{libelleType(m.type)}</td>
@@ -261,13 +277,25 @@ export default function Messages({ session }: { session: Session }) {
               </td>
             </tr>
           ))}
-          {messagesListe.length === 0 && (
+          {messagesAffiches.length === 0 && (
             <tr>
               <td colSpan={7} className="liste-vide">
-                Aucun message.
+                {onglet === "enAttente" ? "Aucun message en attente." : "Aucun message dans l'historique."}
               </td>
             </tr>
           )}
+          {messagesAffiches.length > 0 &&
+            Array.from({ length: Math.max(0, 10 - messagesAffiches.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
         </tbody>
       </table>
       </div>

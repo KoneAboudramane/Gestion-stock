@@ -23,7 +23,7 @@ import Ventes from "./Ventes";
 const ZONES = [
   { cle: "tableauDeBord", label: "Tableau de bord", icone: "📊", disponible: true },
   { cle: "caisse", label: "Caisse / Vente", icone: "🧾", disponible: true },
-  { cle: "produits", label: "Produits", icone: "🏷️", disponible: true },
+  { cle: "produits", label: "Articles", icone: "🏷️", disponible: true },
   { cle: "stock", label: "Stock", icone: "📦", disponible: true },
   { cle: "ventes", label: "Historique des ventes", icone: "📜", disponible: true },
   { cle: "achats", label: "Achats & fournisseurs", icone: "🚚", disponible: true },
@@ -36,6 +36,20 @@ const ZONES = [
 
 export type Zone = (typeof ZONES)[number]["cle"];
 
+const TITRES_PAGE: Record<Zone, string> = {
+  tableauDeBord: "Tableau de bord",
+  caisse: "Caisse",
+  produits: "Articles",
+  stock: "Stock",
+  ventes: "Historique des ventes",
+  achats: "Achats & fournisseurs",
+  clients: "Clients & crédit",
+  rapports: "Rapports",
+  notifications: "Notifications",
+  messages: "Messages",
+  reglages: "Informations boutique",
+};
+
 export default function Shell({
   session,
   onDeconnexion,
@@ -44,6 +58,9 @@ export default function Shell({
   onDeconnexion: () => void;
 }) {
   const [zone, setZone] = useState<Zone>("tableauDeBord");
+  const [barreReduite, setBarreReduite] = useState(
+    () => localStorage.getItem("gs_barre_laterale_reduite") === "1",
+  );
   const [notificationsNonLues, setNotificationsNonLues] = useState(0);
   const [ouvrirNouvelleCommande, setOuvrirNouvelleCommande] = useState(false);
   const [ongletRapportsInitial, setOngletRapportsInitial] = useState<OngletRapports | undefined>(undefined);
@@ -131,9 +148,17 @@ export default function Shell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zone]);
 
+  function basculerBarreLaterale() {
+    setBarreReduite((valeur) => {
+      const nouvelleValeur = !valeur;
+      localStorage.setItem("gs_barre_laterale_reduite", nouvelleValeur ? "1" : "0");
+      return nouvelleValeur;
+    });
+  }
+
   return (
     <div className="shell">
-      <aside className="barre-laterale">
+      <aside className={`barre-laterale ${barreReduite ? "reduite" : ""}`}>
         <div className="logo">
           {logo ? (
             <img src={logo} alt="" className="logo-boutique-entete" />
@@ -142,7 +167,14 @@ export default function Shell({
               {nomBoutique.charAt(0).toUpperCase()}
             </span>
           )}
-          Gestion Stock
+          <span className="texte-logo">Gestion Stock</span>
+          <button
+            className="bouton-reduire-barre"
+            onClick={basculerBarreLaterale}
+            title={barreReduite ? "Ouvrir le menu" : "Réduire le menu"}
+          >
+            {barreReduite ? "»" : "«"}
+          </button>
         </div>
         <nav>
           {ZONES.map((z) => (
@@ -151,7 +183,7 @@ export default function Shell({
               className={`item-nav ${zone === z.cle ? "actif" : ""}`}
               disabled={!z.disponible}
               onClick={() => setZone(z.cle)}
-              title={z.disponible ? undefined : "Bientôt disponible"}
+              title={!z.disponible ? "Bientôt disponible" : barreReduite ? z.label : undefined}
             >
               <span className="item-nav-libelle">
                 {z.cle === "notifications" ? (
@@ -162,21 +194,29 @@ export default function Shell({
                 ) : (
                   <span className="icone-nav">{z.icone}</span>
                 )}
-                {z.label}
+                <span className="texte-nav">{z.label}</span>
               </span>
               {!z.disponible && <span className="badge">à venir</span>}
             </button>
           ))}
         </nav>
-        <button className="lien-deconnexion" onClick={onDeconnexion}>
-          Déconnexion
+        <button
+          className="lien-deconnexion"
+          onClick={onDeconnexion}
+          title={barreReduite ? "Déconnexion" : undefined}
+        >
+          <span className="icone-deconnexion">🚪</span>
+          <span className="texte-deconnexion">Déconnexion</span>
         </button>
       </aside>
       <div className="contenu-principal">
         <header className="entete">
-          <div>
-            <strong>{nomBoutique}</strong>
-            <span className="sous-info"> · {session.username} ({session.role})</span>
+          <div className="entete-gauche">
+            <h1 className="titre-page">{TITRES_PAGE[zone]}</h1>
+            <div className="entete-infos-boutique">
+              <strong>{nomBoutique}</strong>
+              <span className="sous-info"> · {session.username} ({session.role})</span>
+            </div>
           </div>
           <BarreSynchro session={session} />
         </header>

@@ -2,6 +2,7 @@ import type {
   CanalMessage,
   FournisseurMobileMoney,
   ModePaiement,
+  OperateurMobileMoney,
   StatutTransaction,
   StatutVenteHistorique,
   TypeMouvement,
@@ -16,12 +17,22 @@ import type {
 export const MODES_PAIEMENT: { valeur: ModePaiement; label: string }[] = [
   { valeur: "especes", label: "Espèces" },
   { valeur: "mobile_money", label: "Mobile Money" },
-  { valeur: "carte", label: "Carte" },
   { valeur: "credit", label: "Crédit" },
 ];
 
 export function libelleModePaiement(mode: string): string {
   return MODES_PAIEMENT.find((m) => m.valeur === mode)?.label ?? mode;
+}
+
+export const OPERATEURS_MOBILE_MONEY: { valeur: OperateurMobileMoney; label: string }[] = [
+  { valeur: "orange_money", label: "Orange Money" },
+  { valeur: "mtn_money", label: "MTN Money" },
+  { valeur: "moov_money", label: "Moov Money" },
+  { valeur: "wave", label: "Wave" },
+];
+
+export function libelleOperateurMobileMoney(operateur: string): string {
+  return OPERATEURS_MOBILE_MONEY.find((o) => o.valeur === operateur)?.label ?? operateur;
 }
 
 export const FOURNISSEURS_MOBILE_MONEY: { valeur: FournisseurMobileMoney; label: string }[] = [

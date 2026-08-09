@@ -16,6 +16,7 @@ import type {
   SyntheseVentes,
   ValeurStock,
 } from "../api/client";
+import { formaterMontant } from "../lib/formatage";
 import { libelleModePaiement } from "../lib/libelles";
 
 function libelleVendeur(utilisateurId: string | null, session: Session): string {
@@ -87,7 +88,7 @@ function SelecteurPeriode({
   setDateFinPerso: (v: string) => void;
 }) {
   return (
-    <div className="barre-actions">
+    <>
       <select value={periode} onChange={(e) => setPeriode(e.target.value as Periode)}>
         <option value="jour">Aujourd'hui</option>
         <option value="semaine">Cette semaine</option>
@@ -101,8 +102,61 @@ function SelecteurPeriode({
           <input type="date" value={dateFinPerso} onChange={(e) => setDateFinPerso(e.target.value)} />
         </>
       )}
+    </>
+  );
+}
+
+// --- Sélecteur d'onglet (fusionné dans la barre d'actions de chaque onglet) ---
+
+const ONGLETS = [
+  { cle: "synthese", label: "Synthèse" },
+  { cle: "topProduits", label: "Top articles" },
+  { cle: "topClients", label: "Top clients" },
+  { cle: "valeurStock", label: "Valeur du stock" },
+  { cle: "vendeurs", label: "Ventes par vendeur" },
+  { cle: "categories", label: "Ventes par catégorie" },
+  { cle: "modePaiement", label: "Ventes par mode de paiement" },
+] as const;
+
+export type OngletRapports = (typeof ONGLETS)[number]["cle"];
+
+function SelecteurOnglet({
+  onglet,
+  setOnglet,
+}: {
+  onglet: OngletRapports;
+  setOnglet: (o: OngletRapports) => void;
+}) {
+  return (
+    <div className="barre-onglets">
+      {ONGLETS.map((o) => (
+        <button
+          key={o.cle}
+          type="button"
+          className={`onglet ${onglet === o.cle ? "actif" : ""}`}
+          onClick={() => setOnglet(o.cle)}
+        >
+          {o.label}
+        </button>
+      ))}
     </div>
   );
+}
+
+// Props communes à un onglet basé sur une plage de dates (tous sauf Valeur du
+// stock, qui n'a pas de filtre de période).
+interface ProprietesFiltrePeriode {
+  periode: Periode;
+  setPeriode: (p: Periode) => void;
+  dateDebutPerso: string;
+  setDateDebutPerso: (v: string) => void;
+  dateFinPerso: string;
+  setDateFinPerso: (v: string) => void;
+}
+
+interface ProprietesOnglet {
+  onglet: OngletRapports;
+  setOnglet: (o: OngletRapports) => void;
 }
 
 // --- Onglet Synthèse ---
@@ -116,7 +170,18 @@ const COLONNES_SYNTHESE: ColonneExport[] = [
   { cle: "beneficeTotal", libelle: "Bénéfice" },
 ];
 
-function OngletSynthese({ session, plage }: { session: Session; plage: PlageDates | null }) {
+function OngletSynthese({
+  session,
+  plage,
+  onglet,
+  setOnglet,
+  periode,
+  setPeriode,
+  dateDebutPerso,
+  setDateDebutPerso,
+  dateFinPerso,
+  setDateFinPerso,
+}: { session: Session; plage: PlageDates | null } & ProprietesOnglet & ProprietesFiltrePeriode) {
   const [synthese, setSynthese] = useState<SyntheseVentes | null>(null);
 
   useEffect(() => {
@@ -128,12 +193,22 @@ function OngletSynthese({ session, plage }: { session: Session; plage: PlageDate
 
   return (
     <div>
-      <div className="barre-actions">
-        <BoutonsExport
-          titre="Synthese des ventes"
-          colonnes={COLONNES_SYNTHESE}
-          lignes={[synthese as unknown as Record<string, unknown>]}
+      <div className="barre-actions barre-actions-avec-onglets">
+        <SelecteurPeriode
+          periode={periode}
+          setPeriode={setPeriode}
+          dateDebutPerso={dateDebutPerso}
+          setDateDebutPerso={setDateDebutPerso}
+          dateFinPerso={dateFinPerso}
+          setDateFinPerso={setDateFinPerso}
         />
+        <span className="actions-ligne">
+          <BoutonsExport
+            titre="Synthese des ventes"
+            colonnes={COLONNES_SYNTHESE}
+            lignes={[synthese as unknown as Record<string, unknown>]}
+          />
+        </span>
       </div>
       <div className="zone-tableau-scroll">
       <table className="tableau-catalogue">
@@ -147,7 +222,7 @@ function OngletSynthese({ session, plage }: { session: Session; plage: PlageDate
         <tbody>
           <tr>
             {COLONNES_SYNTHESE.map((c) => (
-              <td key={c.cle}>{(synthese as unknown as Record<string, unknown>)[c.cle] as number}</td>
+              <td key={c.cle}>{formaterMontant((synthese as unknown as Record<string, unknown>)[c.cle] as number)}</td>
             ))}
           </tr>
         </tbody>
@@ -160,13 +235,24 @@ function OngletSynthese({ session, plage }: { session: Session; plage: PlageDate
 // --- Onglet Top produits ---
 
 const COLONNES_TOP_PRODUITS: ColonneExport[] = [
-  { cle: "produit", libelle: "Produit" },
+  { cle: "produit", libelle: "Désignation" },
   { cle: "reference", libelle: "Référence" },
   { cle: "quantiteVendue", libelle: "Quantité vendue" },
   { cle: "caGenere", libelle: "CA généré" },
 ];
 
-function OngletTopProduits({ session, plage }: { session: Session; plage: PlageDates | null }) {
+function OngletTopProduits({
+  session,
+  plage,
+  onglet,
+  setOnglet,
+  periode,
+  setPeriode,
+  dateDebutPerso,
+  setDateDebutPerso,
+  dateFinPerso,
+  setDateFinPerso,
+}: { session: Session; plage: PlageDates | null } & ProprietesOnglet & ProprietesFiltrePeriode) {
   const [ordre, setOrdre] = useState<"asc" | "desc">("desc");
   const [lignes, setLignes] = useState<LigneTopProduit[]>([]);
 
@@ -177,12 +263,26 @@ function OngletTopProduits({ session, plage }: { session: Session; plage: PlageD
 
   return (
     <div>
-      <div className="barre-actions">
+      <div className="barre-actions barre-actions-avec-onglets">
+        <SelecteurPeriode
+          periode={periode}
+          setPeriode={setPeriode}
+          dateDebutPerso={dateDebutPerso}
+          setDateDebutPerso={setDateDebutPerso}
+          dateFinPerso={dateFinPerso}
+          setDateFinPerso={setDateFinPerso}
+        />
         <select value={ordre} onChange={(e) => setOrdre(e.target.value as "asc" | "desc")}>
           <option value="desc">Les plus vendus</option>
           <option value="asc">Les moins vendus</option>
         </select>
-        <BoutonsExport titre="Top produits" colonnes={COLONNES_TOP_PRODUITS} lignes={lignes as unknown as Record<string, unknown>[]} />
+        <span className="actions-ligne">
+          <BoutonsExport
+            titre="Top articles"
+            colonnes={COLONNES_TOP_PRODUITS}
+            lignes={lignes as unknown as Record<string, unknown>[]}
+          />
+        </span>
       </div>
       <div className="zone-tableau-scroll">
       <table className="tableau-catalogue">
@@ -199,7 +299,7 @@ function OngletTopProduits({ session, plage }: { session: Session; plage: PlageD
               <td>{l.produit}</td>
               <td>{l.reference || ""}</td>
               <td>{l.quantiteVendue}</td>
-              <td>{l.caGenere}</td>
+              <td>{formaterMontant(l.caGenere)}</td>
             </tr>
           ))}
           {lignes.length === 0 && (
@@ -209,6 +309,14 @@ function OngletTopProduits({ session, plage }: { session: Session; plage: PlageD
               </td>
             </tr>
           )}
+          {lignes.length > 0 &&
+            Array.from({ length: Math.max(0, 10 - lignes.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                {COLONNES_TOP_PRODUITS.map((c) => (
+                  <td key={c.cle}>&nbsp;</td>
+                ))}
+              </tr>
+            ))}
         </tbody>
       </table>
       </div>
@@ -224,7 +332,18 @@ const COLONNES_TOP_CLIENTS: ColonneExport[] = [
   { cle: "totalNet", libelle: "CA généré" },
 ];
 
-function OngletTopClients({ session, plage }: { session: Session; plage: PlageDates | null }) {
+function OngletTopClients({
+  session,
+  plage,
+  onglet,
+  setOnglet,
+  periode,
+  setPeriode,
+  dateDebutPerso,
+  setDateDebutPerso,
+  dateFinPerso,
+  setDateFinPerso,
+}: { session: Session; plage: PlageDates | null } & ProprietesOnglet & ProprietesFiltrePeriode) {
   const [lignes, setLignes] = useState<LigneTopClient[]>([]);
 
   useEffect(() => {
@@ -234,12 +353,22 @@ function OngletTopClients({ session, plage }: { session: Session; plage: PlageDa
 
   return (
     <div>
-      <div className="barre-actions">
-        <BoutonsExport
-          titre="Top clients"
-          colonnes={COLONNES_TOP_CLIENTS}
-          lignes={lignes as unknown as Record<string, unknown>[]}
+      <div className="barre-actions barre-actions-avec-onglets">
+        <SelecteurPeriode
+          periode={periode}
+          setPeriode={setPeriode}
+          dateDebutPerso={dateDebutPerso}
+          setDateDebutPerso={setDateDebutPerso}
+          dateFinPerso={dateFinPerso}
+          setDateFinPerso={setDateFinPerso}
         />
+        <span className="actions-ligne">
+          <BoutonsExport
+            titre="Top clients"
+            colonnes={COLONNES_TOP_CLIENTS}
+            lignes={lignes as unknown as Record<string, unknown>[]}
+          />
+        </span>
       </div>
       <div className="zone-tableau-scroll">
       <table className="tableau-catalogue">
@@ -255,7 +384,7 @@ function OngletTopClients({ session, plage }: { session: Session; plage: PlageDa
             <tr key={l.clientId}>
               <td>{l.clientNom}</td>
               <td>{l.nombreVentes}</td>
-              <td>{l.totalNet}</td>
+              <td>{formaterMontant(l.totalNet)}</td>
             </tr>
           ))}
           {lignes.length === 0 && (
@@ -265,6 +394,14 @@ function OngletTopClients({ session, plage }: { session: Session; plage: PlageDa
               </td>
             </tr>
           )}
+          {lignes.length > 0 &&
+            Array.from({ length: Math.max(0, 10 - lignes.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                {COLONNES_TOP_CLIENTS.map((c) => (
+                  <td key={c.cle}>&nbsp;</td>
+                ))}
+              </tr>
+            ))}
         </tbody>
       </table>
       </div>
@@ -281,7 +418,7 @@ const COLONNES_VALEUR_STOCK: ColonneExport[] = [
   { cle: "nombreRuptures", libelle: "Variantes en rupture" },
 ];
 
-function OngletValeurStock({ session }: { session: Session }) {
+function OngletValeurStock({ session, onglet, setOnglet }: { session: Session } & ProprietesOnglet) {
   const [depots, setDepots] = useState<Depot[]>([]);
   const [depotId, setDepotId] = useState("");
   const [valeur, setValeur] = useState<ValeurStock | null>(null);
@@ -298,7 +435,7 @@ function OngletValeurStock({ session }: { session: Session }) {
 
   return (
     <div>
-      <div className="barre-actions">
+      <div className="barre-actions barre-actions-avec-onglets">
         <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
           <option value="">Tous les dépôts</option>
           {depots.map((d) => (
@@ -307,11 +444,13 @@ function OngletValeurStock({ session }: { session: Session }) {
             </option>
           ))}
         </select>
-        <BoutonsExport
-          titre="Valeur du stock"
-          colonnes={COLONNES_VALEUR_STOCK}
-          lignes={[valeur as unknown as Record<string, unknown>]}
-        />
+        <span className="actions-ligne">
+          <BoutonsExport
+            titre="Valeur du stock"
+            colonnes={COLONNES_VALEUR_STOCK}
+            lignes={[valeur as unknown as Record<string, unknown>]}
+          />
+        </span>
       </div>
       <div className="zone-tableau-scroll">
       <table className="tableau-catalogue">
@@ -325,7 +464,7 @@ function OngletValeurStock({ session }: { session: Session }) {
         <tbody>
           <tr>
             {COLONNES_VALEUR_STOCK.map((c) => (
-              <td key={c.cle}>{(valeur as unknown as Record<string, unknown>)[c.cle] as number}</td>
+              <td key={c.cle}>{formaterMontant((valeur as unknown as Record<string, unknown>)[c.cle] as number)}</td>
             ))}
           </tr>
         </tbody>
@@ -343,7 +482,18 @@ const COLONNES_VENDEUR: ColonneExport[] = [
   { cle: "totalNet", libelle: "Total net" },
 ];
 
-function OngletVentesParVendeur({ session, plage }: { session: Session; plage: PlageDates | null }) {
+function OngletVentesParVendeur({
+  session,
+  plage,
+  onglet,
+  setOnglet,
+  periode,
+  setPeriode,
+  dateDebutPerso,
+  setDateDebutPerso,
+  dateFinPerso,
+  setDateFinPerso,
+}: { session: Session; plage: PlageDates | null } & ProprietesOnglet & ProprietesFiltrePeriode) {
   const [lignes, setLignes] = useState<LigneVentesVendeur[]>([]);
 
   useEffect(() => {
@@ -359,8 +509,18 @@ function OngletVentesParVendeur({ session, plage }: { session: Session; plage: P
 
   return (
     <div>
-      <div className="barre-actions">
-        <BoutonsExport titre="Ventes par vendeur" colonnes={COLONNES_VENDEUR} lignes={lignesExport} />
+      <div className="barre-actions barre-actions-avec-onglets">
+        <SelecteurPeriode
+          periode={periode}
+          setPeriode={setPeriode}
+          dateDebutPerso={dateDebutPerso}
+          setDateDebutPerso={setDateDebutPerso}
+          dateFinPerso={dateFinPerso}
+          setDateFinPerso={setDateFinPerso}
+        />
+        <span className="actions-ligne">
+          <BoutonsExport titre="Ventes par vendeur" colonnes={COLONNES_VENDEUR} lignes={lignesExport} />
+        </span>
       </div>
       <div className="zone-tableau-scroll">
       <table className="tableau-catalogue">
@@ -376,7 +536,7 @@ function OngletVentesParVendeur({ session, plage }: { session: Session; plage: P
             <tr key={i}>
               <td>{l.vendeur}</td>
               <td>{l.nombreVentes}</td>
-              <td>{l.totalNet}</td>
+              <td>{formaterMontant(l.totalNet)}</td>
             </tr>
           ))}
           {lignesExport.length === 0 && (
@@ -386,6 +546,14 @@ function OngletVentesParVendeur({ session, plage }: { session: Session; plage: P
               </td>
             </tr>
           )}
+          {lignesExport.length > 0 &&
+            Array.from({ length: Math.max(0, 10 - lignesExport.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                {COLONNES_VENDEUR.map((c) => (
+                  <td key={c.cle}>&nbsp;</td>
+                ))}
+              </tr>
+            ))}
         </tbody>
       </table>
       </div>
@@ -401,7 +569,18 @@ const COLONNES_CATEGORIE: ColonneExport[] = [
   { cle: "caGenere", libelle: "CA généré" },
 ];
 
-function OngletVentesParCategorie({ session, plage }: { session: Session; plage: PlageDates | null }) {
+function OngletVentesParCategorie({
+  session,
+  plage,
+  onglet,
+  setOnglet,
+  periode,
+  setPeriode,
+  dateDebutPerso,
+  setDateDebutPerso,
+  dateFinPerso,
+  setDateFinPerso,
+}: { session: Session; plage: PlageDates | null } & ProprietesOnglet & ProprietesFiltrePeriode) {
   const [lignes, setLignes] = useState<LigneVentesCategorie[]>([]);
 
   useEffect(() => {
@@ -411,8 +590,22 @@ function OngletVentesParCategorie({ session, plage }: { session: Session; plage:
 
   return (
     <div>
-      <div className="barre-actions">
-        <BoutonsExport titre="Ventes par categorie" colonnes={COLONNES_CATEGORIE} lignes={lignes as unknown as Record<string, unknown>[]} />
+      <div className="barre-actions barre-actions-avec-onglets">
+        <SelecteurPeriode
+          periode={periode}
+          setPeriode={setPeriode}
+          dateDebutPerso={dateDebutPerso}
+          setDateDebutPerso={setDateDebutPerso}
+          dateFinPerso={dateFinPerso}
+          setDateFinPerso={setDateFinPerso}
+        />
+        <span className="actions-ligne">
+          <BoutonsExport
+            titre="Ventes par categorie"
+            colonnes={COLONNES_CATEGORIE}
+            lignes={lignes as unknown as Record<string, unknown>[]}
+          />
+        </span>
       </div>
       <div className="zone-tableau-scroll">
       <table className="tableau-catalogue">
@@ -428,7 +621,7 @@ function OngletVentesParCategorie({ session, plage }: { session: Session; plage:
             <tr key={i}>
               <td>{l.categorie}</td>
               <td>{l.quantiteVendue}</td>
-              <td>{l.caGenere}</td>
+              <td>{formaterMontant(l.caGenere)}</td>
             </tr>
           ))}
           {lignes.length === 0 && (
@@ -438,6 +631,14 @@ function OngletVentesParCategorie({ session, plage }: { session: Session; plage:
               </td>
             </tr>
           )}
+          {lignes.length > 0 &&
+            Array.from({ length: Math.max(0, 10 - lignes.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                {COLONNES_CATEGORIE.map((c) => (
+                  <td key={c.cle}>&nbsp;</td>
+                ))}
+              </tr>
+            ))}
         </tbody>
       </table>
       </div>
@@ -452,7 +653,18 @@ const COLONNES_MODE_PAIEMENT: ColonneExport[] = [
   { cle: "total", libelle: "Total" },
 ];
 
-function OngletVentesParModePaiement({ session, plage }: { session: Session; plage: PlageDates | null }) {
+function OngletVentesParModePaiement({
+  session,
+  plage,
+  onglet,
+  setOnglet,
+  periode,
+  setPeriode,
+  dateDebutPerso,
+  setDateDebutPerso,
+  dateFinPerso,
+  setDateFinPerso,
+}: { session: Session; plage: PlageDates | null } & ProprietesOnglet & ProprietesFiltrePeriode) {
   const [lignes, setLignes] = useState<LigneVentesModePaiement[]>([]);
 
   useEffect(() => {
@@ -462,12 +674,22 @@ function OngletVentesParModePaiement({ session, plage }: { session: Session; pla
 
   return (
     <div>
-      <div className="barre-actions">
-        <BoutonsExport
-          titre="Ventes par mode de paiement"
-          colonnes={COLONNES_MODE_PAIEMENT}
-          lignes={lignes.map((l) => ({ mode: libelleModePaiement(l.mode), total: l.total }))}
+      <div className="barre-actions barre-actions-avec-onglets">
+        <SelecteurPeriode
+          periode={periode}
+          setPeriode={setPeriode}
+          dateDebutPerso={dateDebutPerso}
+          setDateDebutPerso={setDateDebutPerso}
+          dateFinPerso={dateFinPerso}
+          setDateFinPerso={setDateFinPerso}
         />
+        <span className="actions-ligne">
+          <BoutonsExport
+            titre="Ventes par mode de paiement"
+            colonnes={COLONNES_MODE_PAIEMENT}
+            lignes={lignes.map((l) => ({ mode: libelleModePaiement(l.mode), total: l.total }))}
+          />
+        </span>
       </div>
       <div className="zone-tableau-scroll">
       <table className="tableau-catalogue">
@@ -482,9 +704,17 @@ function OngletVentesParModePaiement({ session, plage }: { session: Session; pla
           {lignes.map((l, i) => (
             <tr key={i}>
               <td>{libelleModePaiement(l.mode)}</td>
-              <td>{l.total}</td>
+              <td>{formaterMontant(l.total)}</td>
             </tr>
           ))}
+          {lignes.length > 0 &&
+            Array.from({ length: Math.max(0, 10 - lignes.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                {COLONNES_MODE_PAIEMENT.map((c) => (
+                  <td key={c.cle}>&nbsp;</td>
+                ))}
+              </tr>
+            ))}
           {lignes.length === 0 && (
             <tr>
               <td colSpan={2} className="liste-vide">
@@ -500,18 +730,10 @@ function OngletVentesParModePaiement({ session, plage }: { session: Session; pla
 }
 
 // --- Page principale ---
-
-const ONGLETS = [
-  { cle: "synthese", label: "Synthèse" },
-  { cle: "topProduits", label: "Top produits" },
-  { cle: "topClients", label: "Top clients" },
-  { cle: "valeurStock", label: "Valeur du stock" },
-  { cle: "vendeurs", label: "Ventes par vendeur" },
-  { cle: "categories", label: "Ventes par catégorie" },
-  { cle: "modePaiement", label: "Ventes par mode de paiement" },
-] as const;
-
-export type OngletRapports = (typeof ONGLETS)[number]["cle"];
+// Contrairement aux autres pages à onglets, Rapports a trop d'onglets (7, aux
+// libellés longs) pour tenir sur la même ligne que le filtre de période et les
+// boutons d'export sans que ce soit encombré — la barre d'onglets reste donc
+// sur sa propre ligne, en en-tête de page.
 
 export default function Rapports({
   session,
@@ -537,42 +759,46 @@ export default function Rapports({
   if (!peutVoir) {
     return (
       <div className="page-produits">
-        <h2>Rapports</h2>
         <p className="note-aide">Vous n'avez pas accès aux rapports.</p>
       </div>
     );
   }
 
+  const proprietesPeriode: ProprietesFiltrePeriode = {
+    periode,
+    setPeriode,
+    dateDebutPerso,
+    setDateDebutPerso,
+    dateFinPerso,
+    setDateFinPerso,
+  };
+  const proprietesOnglet: ProprietesOnglet = { onglet, setOnglet };
+
   return (
     <div className="page-produits">
       <div className="entete-page-onglets">
-        <h2>Rapports</h2>
-        <div className="barre-onglets">
-          {ONGLETS.map((o) => (
-            <button key={o.cle} className={`onglet ${onglet === o.cle ? "actif" : ""}`} onClick={() => setOnglet(o.cle)}>
-              {o.label}
-            </button>
-          ))}
-        </div>
+        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
       </div>
-      {onglet !== "valeurStock" && (
-        <SelecteurPeriode
-          periode={periode}
-          setPeriode={setPeriode}
-          dateDebutPerso={dateDebutPerso}
-          setDateDebutPerso={setDateDebutPerso}
-          dateFinPerso={dateFinPerso}
-          setDateFinPerso={setDateFinPerso}
-        />
-      )}
       <div className="contenu-onglet">
-        {onglet === "synthese" && <OngletSynthese session={session} plage={plage} />}
-        {onglet === "topProduits" && <OngletTopProduits session={session} plage={plage} />}
-        {onglet === "topClients" && <OngletTopClients session={session} plage={plage} />}
-        {onglet === "valeurStock" && <OngletValeurStock session={session} />}
-        {onglet === "vendeurs" && <OngletVentesParVendeur session={session} plage={plage} />}
-        {onglet === "categories" && <OngletVentesParCategorie session={session} plage={plage} />}
-        {onglet === "modePaiement" && <OngletVentesParModePaiement session={session} plage={plage} />}
+        {onglet === "synthese" && (
+          <OngletSynthese session={session} plage={plage} {...proprietesOnglet} {...proprietesPeriode} />
+        )}
+        {onglet === "topProduits" && (
+          <OngletTopProduits session={session} plage={plage} {...proprietesOnglet} {...proprietesPeriode} />
+        )}
+        {onglet === "topClients" && (
+          <OngletTopClients session={session} plage={plage} {...proprietesOnglet} {...proprietesPeriode} />
+        )}
+        {onglet === "valeurStock" && <OngletValeurStock session={session} {...proprietesOnglet} />}
+        {onglet === "vendeurs" && (
+          <OngletVentesParVendeur session={session} plage={plage} {...proprietesOnglet} {...proprietesPeriode} />
+        )}
+        {onglet === "categories" && (
+          <OngletVentesParCategorie session={session} plage={plage} {...proprietesOnglet} {...proprietesPeriode} />
+        )}
+        {onglet === "modePaiement" && (
+          <OngletVentesParModePaiement session={session} plage={plage} {...proprietesOnglet} {...proprietesPeriode} />
+        )}
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
+import ModaleConfirmation from "../components/ModaleConfirmation";
 import { useRafraichirDevise } from "../contexts/DeviseContext";
 import { useRafraichirLogoBoutique } from "../contexts/LogoContext";
 import { useRafraichirNomBoutique } from "../contexts/NomBoutiqueContext";
@@ -19,7 +20,7 @@ const CLES_PERMISSIONS: { cle: string; label: string }[] = [
   { cle: "vendre", label: "Vendre / encaisser" },
   { cle: "consulter_stock", label: "Consulter le stock" },
   { cle: "gerer_clients", label: "Gérer les clients" },
-  { cle: "gerer_produits_stock_achats", label: "Gérer produits / stock / achats" },
+  { cle: "gerer_produits_stock_achats", label: "Gérer articles / stock / achats" },
   { cle: "voir_benefices_achat", label: "Voir les bénéfices et prix d'achat" },
   { cle: "modifier_prix", label: "Modifier les prix" },
   { cle: "annuler_vente", label: "Annuler une vente" },
@@ -27,9 +28,42 @@ const CLES_PERMISSIONS: { cle: string; label: string }[] = [
   { cle: "gerer_utilisateurs_reglages", label: "Gérer les utilisateurs et réglages" },
 ];
 
+const ONGLETS = [
+  { cle: "profil", label: "Informations boutique" },
+  { cle: "utilisateurs", label: "Utilisateurs & rôles" },
+  { cle: "parametres", label: "Paramètres" },
+] as const;
+
+type Onglet = (typeof ONGLETS)[number]["cle"];
+
+function SelecteurOnglet({ onglet, setOnglet }: { onglet: Onglet; setOnglet: (o: Onglet) => void }) {
+  return (
+    <div className="barre-onglets">
+      {ONGLETS.map((o) => (
+        <button
+          key={o.cle}
+          type="button"
+          className={`onglet ${onglet === o.cle ? "actif" : ""}`}
+          onClick={() => setOnglet(o.cle)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // --- Onglet Informations boutique ---
 
-function OngletProfilBoutique({ session }: { session: Session }) {
+function OngletProfilBoutique({
+  session,
+  onglet,
+  setOnglet,
+}: {
+  session: Session;
+  onglet: Onglet;
+  setOnglet: (o: Onglet) => void;
+}) {
   const peutGerer = !!session.permissions.gerer_utilisateurs_reglages;
   const [boutique, setBoutique] = useState<BoutiqueDetail | null>(null);
   const [logo, setLogo] = useState("");
@@ -122,7 +156,11 @@ function OngletProfilBoutique({ session }: { session: Session }) {
 
   if (!modeEdition) {
     return (
-      <div className="formulaire-catalogue formulaire-profil-boutique">
+      <div>
+        <div className="barre-actions barre-actions-avec-onglets">
+          <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
+        </div>
+        <div className="formulaire-catalogue formulaire-profil-boutique">
         {message && <p className="note-aide">{message}</p>}
         <div className="champ-logo-boutique">
           {logo ? (
@@ -188,6 +226,7 @@ function OngletProfilBoutique({ session }: { session: Session }) {
             </button>
           </div>
         )}
+        </div>
       </div>
     );
   }
@@ -435,7 +474,9 @@ function FormulaireUtilisateur({
   if (utilisateurCree) {
     return (
       <div className="formulaire-catalogue">
-        <h4>Utilisateur créé</h4>
+        <div className="modale-entete entete-fixe">
+          <h3>Utilisateur créé</h3>
+        </div>
         <p className="note-aide">
           Note ce mot de passe maintenant et transmets-le à {utilisateurCree.username} : il ne sera plus affiché
           ensuite.
@@ -445,7 +486,7 @@ function FormulaireUtilisateur({
           <strong>{utilisateurCree.password}</strong>
         </div>
         <div className="actions-formulaire">
-          <button type="button" onClick={onCree}>
+          <button type="button" className="bouton-primaire" onClick={onCree}>
             J'ai noté le mot de passe
           </button>
         </div>
@@ -455,7 +496,17 @@ function FormulaireUtilisateur({
 
   return (
     <form onSubmit={soumettre} className="formulaire-catalogue">
-      <h4>Nouvel utilisateur</h4>
+      <div className="modale-entete entete-fixe">
+        <h3>Nouvel utilisateur</h3>
+        <div className="actions-formulaire">
+          <button type="submit" disabled={enCours}>
+            {enCours ? "Création…" : "Créer"}
+          </button>
+          <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
+            ← Retour
+          </button>
+        </div>
+      </div>
       {erreur && <div className="message-erreur">{erreur}</div>}
       <div className="grille-champs">
         <label>
@@ -523,14 +574,6 @@ function FormulaireUtilisateur({
             ))}
           </select>
         </label>
-      </div>
-      <div className="actions-formulaire">
-        <button type="button" onClick={onAnnuler}>
-          Annuler
-        </button>
-        <button type="submit" disabled={enCours}>
-          {enCours ? "Création…" : "Créer"}
-        </button>
       </div>
     </form>
   );
@@ -678,26 +721,24 @@ function LigneUtilisateur({
         )}
       </td>
       <td>
-        {confirmationSuppression ? (
-          <div className="confirmation-retrait">
-            <span>Confirmer ?</span>
-            <button type="button" disabled={enCours} onClick={() => setConfirmationSuppression(false)}>
-              Non
-            </button>
-            <button type="button" disabled={enCours} onClick={supprimer}>
-              {enCours ? "…" : "Oui"}
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            className="lien-icone"
-            title="Retirer"
-            disabled={enCours}
-            onClick={() => setConfirmationSuppression(true)}
-          >
-            ×
-          </button>
+        <button
+          type="button"
+          className="lien-icone"
+          title="Retirer"
+          disabled={enCours}
+          onClick={() => setConfirmationSuppression(true)}
+        >
+          ×
+        </button>
+        {confirmationSuppression && (
+          <ModaleConfirmation
+            titre="Retirer cet utilisateur ?"
+            labelConfirmer="Retirer"
+            dangereux
+            enCours={enCours}
+            onAnnuler={() => setConfirmationSuppression(false)}
+            onConfirmer={supprimer}
+          />
         )}
       </td>
     </tr>
@@ -711,7 +752,15 @@ const SOUS_ONGLETS_UTILISATEURS = [
 
 type SousOngletUtilisateurs = (typeof SOUS_ONGLETS_UTILISATEURS)[number]["cle"];
 
-function OngletUtilisateursRoles({ session }: { session: Session }) {
+function OngletUtilisateursRoles({
+  session,
+  onglet,
+  setOnglet,
+}: {
+  session: Session;
+  onglet: Onglet;
+  setOnglet: (o: Onglet) => void;
+}) {
   const peutGerer = !!session.permissions.gerer_utilisateurs_reglages;
   const [sousOnglet, setSousOnglet] = useState<SousOngletUtilisateurs>("roles");
   const [roles, setRoles] = useState<RoleResume[]>([]);
@@ -746,37 +795,49 @@ function OngletUtilisateursRoles({ session }: { session: Session }) {
     return <p className="note-aide">Réservé au Patron.</p>;
   }
 
-  if (afficherForm) {
-    return (
-      <FormulaireUtilisateur
-        session={session}
-        roles={roles}
-        depots={depots}
-        nomsUtilisateursExistants={
-          new Set([session.username.toLowerCase(), ...utilisateurs.map((u) => u.username.toLowerCase())])
-        }
-        onAnnuler={() => setAfficherForm(false)}
-        onCree={() => {
-          setAfficherForm(false);
-          rafraichir();
-        }}
-      />
-    );
-  }
-
   return (
     <div>
+      {afficherForm && (
+        <div className="fond-modale" onClick={() => setAfficherForm(false)}>
+          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+            <FormulaireUtilisateur
+              session={session}
+              roles={roles}
+              depots={depots}
+              nomsUtilisateursExistants={
+                new Set([session.username.toLowerCase(), ...utilisateurs.map((u) => u.username.toLowerCase())])
+              }
+              onAnnuler={() => setAfficherForm(false)}
+              onCree={() => {
+                setAfficherForm(false);
+                rafraichir();
+              }}
+            />
+          </div>
+        </div>
+      )}
       {erreur && <div className="message-erreur">{erreur}</div>}
-      <div className="barre-onglets">
-        {SOUS_ONGLETS_UTILISATEURS.map((o) => (
-          <button
-            key={o.cle}
-            className={`onglet ${sousOnglet === o.cle ? "actif" : ""}`}
-            onClick={() => setSousOnglet(o.cle)}
-          >
-            {o.label}
-          </button>
-        ))}
+      <div className="barre-actions barre-actions-avec-onglets">
+        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
+        <div className="barre-onglets">
+          {SOUS_ONGLETS_UTILISATEURS.map((o) => (
+            <button
+              key={o.cle}
+              type="button"
+              className={`onglet ${sousOnglet === o.cle ? "actif" : ""}`}
+              onClick={() => setSousOnglet(o.cle)}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        {sousOnglet === "utilisateurs" && (
+          <span className="actions-ligne">
+            <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherForm(true)}>
+              + Nouvel utilisateur
+            </button>
+          </span>
+        )}
       </div>
       <div className="contenu-onglet">
         {sousOnglet === "roles" &&
@@ -784,11 +845,6 @@ function OngletUtilisateursRoles({ session }: { session: Session }) {
 
         {sousOnglet === "utilisateurs" && (
           <>
-            <div className="barre-actions">
-              <button type="button" onClick={() => setAfficherForm(true)}>
-                + Nouvel utilisateur
-              </button>
-            </div>
             <div className="zone-tableau-scroll">
             <table className="tableau-catalogue">
               <thead>
@@ -816,6 +872,21 @@ function OngletUtilisateursRoles({ session }: { session: Session }) {
                     onModifie={rafraichir}
                   />
                 ))}
+                {utilisateurs.length > 0 &&
+                  Array.from({ length: Math.max(0, 10 - utilisateurs.length) }).map((_, i) => (
+                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                    </tr>
+                  ))}
                 {utilisateurs.length === 0 && (
                   <tr>
                     <td colSpan={10} className="liste-vide">
@@ -894,31 +965,29 @@ function OngletParametres({ session }: { session: Session }) {
             >
               <strong>{p.cle}</strong> = {p.valeur}
             </span>
-            {peutGerer &&
-              (confirmationSuppressionId === p.id ? (
-                <div className="confirmation-retrait">
-                  <span>Supprimer ?</span>
-                  <button type="button" onClick={() => setConfirmationSuppressionId(null)}>
-                    Non
-                  </button>
-                  <button type="button" onClick={() => supprimer(p.id)}>
-                    Oui
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  className="lien-icone"
-                  title="Supprimer"
-                  onClick={() => setConfirmationSuppressionId(p.id)}
-                >
-                  ×
-                </button>
-              ))}
+            {peutGerer && (
+              <button
+                type="button"
+                className="lien-icone lien-icone-danger"
+                title="Supprimer"
+                onClick={() => setConfirmationSuppressionId(p.id)}
+              >
+                ×
+              </button>
+            )}
           </li>
         ))}
         {parametres.length === 0 && <li className="liste-vide">Aucun paramètre.</li>}
       </ul>
+      {confirmationSuppressionId && (
+        <ModaleConfirmation
+          titre="Supprimer ce paramètre ?"
+          labelConfirmer="Supprimer"
+          dangereux
+          onAnnuler={() => setConfirmationSuppressionId(null)}
+          onConfirmer={() => supprimer(confirmationSuppressionId)}
+        />
+      )}
     </div>
   );
 }
@@ -1023,37 +1092,35 @@ function OngletUnites({ session }: { session: Session }) {
               <span>
                 {u.nom} {u.abreviation && `(${u.abreviation})`}
               </span>
-              {peutGerer &&
-                (confirmationSuppressionId === u.id ? (
-                  <div className="confirmation-retrait">
-                    <span>Supprimer ?</span>
-                    <button type="button" onClick={() => setConfirmationSuppressionId(null)}>
-                      Non
-                    </button>
-                    <button type="button" onClick={() => supprimer(u.id)}>
-                      Oui
-                    </button>
-                  </div>
-                ) : (
-                  <div className="actions-ligne-simple">
-                    <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(u)}>
-                      ✎
-                    </button>
-                    <button
-                      type="button"
-                      className="lien-icone"
-                      title="Supprimer"
-                      onClick={() => setConfirmationSuppressionId(u.id)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
+              {peutGerer && (
+                <div className="actions-ligne-simple">
+                  <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(u)}>
+                    ✎
+                  </button>
+                  <button
+                    type="button"
+                    className="lien-icone lien-icone-danger"
+                    title="Supprimer"
+                    onClick={() => setConfirmationSuppressionId(u.id)}
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
             </li>
           ),
         )}
         {unites.length === 0 && <li className="liste-vide">Aucune unité.</li>}
       </ul>
+      {confirmationSuppressionId && (
+        <ModaleConfirmation
+          titre="Supprimer cette unité ?"
+          labelConfirmer="Supprimer"
+          dangereux
+          onAnnuler={() => setConfirmationSuppressionId(null)}
+          onConfirmer={() => supprimer(confirmationSuppressionId)}
+        />
+      )}
     </div>
   );
 }
@@ -1124,7 +1191,7 @@ function OngletAttributs({ session }: { session: Session }) {
       {erreur && <div className="message-erreur">{erreur}</div>}
       <p className="note-aide">
         Les valeurs de chaque attribut (ex. Rouge, Bleu pour Couleur) se créent directement lors de l'ajout d'une
-        variante, dans la fiche du produit.
+        variante, dans la fiche de l'article.
       </p>
       <ul className="liste-simple">
         {attributs.map((a) =>
@@ -1143,37 +1210,35 @@ function OngletAttributs({ session }: { session: Session }) {
           ) : (
             <li key={a.id} className="ligne-liste-simple">
               <span>{a.nom}</span>
-              {peutGerer &&
-                (confirmationSuppressionId === a.id ? (
-                  <div className="confirmation-retrait">
-                    <span>Supprimer ?</span>
-                    <button type="button" onClick={() => setConfirmationSuppressionId(null)}>
-                      Non
-                    </button>
-                    <button type="button" onClick={() => supprimer(a.id)}>
-                      Oui
-                    </button>
-                  </div>
-                ) : (
-                  <div className="actions-ligne-simple">
-                    <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(a)}>
-                      ✎
-                    </button>
-                    <button
-                      type="button"
-                      className="lien-icone"
-                      title="Supprimer"
-                      onClick={() => setConfirmationSuppressionId(a.id)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
+              {peutGerer && (
+                <div className="actions-ligne-simple">
+                  <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(a)}>
+                    ✎
+                  </button>
+                  <button
+                    type="button"
+                    className="lien-icone lien-icone-danger"
+                    title="Supprimer"
+                    onClick={() => setConfirmationSuppressionId(a.id)}
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
             </li>
           ),
         )}
         {attributs.length === 0 && <li className="liste-vide">Aucun attribut.</li>}
       </ul>
+      {confirmationSuppressionId && (
+        <ModaleConfirmation
+          titre="Supprimer cet attribut ?"
+          labelConfirmer="Supprimer"
+          dangereux
+          onAnnuler={() => setConfirmationSuppressionId(null)}
+          onConfirmer={() => supprimer(confirmationSuppressionId)}
+        />
+      )}
     </div>
   );
 }
@@ -1270,37 +1335,35 @@ function OngletDepots({ session }: { session: Session }) {
               <span>
                 {d.nom} {d.adresse && `(${d.adresse})`}
               </span>
-              {peutGerer &&
-                (confirmationSuppressionId === d.id ? (
-                  <div className="confirmation-retrait">
-                    <span>Supprimer ?</span>
-                    <button type="button" onClick={() => setConfirmationSuppressionId(null)}>
-                      Non
-                    </button>
-                    <button type="button" onClick={() => supprimer(d.id)}>
-                      Oui
-                    </button>
-                  </div>
-                ) : (
-                  <div className="actions-ligne-simple">
-                    <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(d)}>
-                      ✎
-                    </button>
-                    <button
-                      type="button"
-                      className="lien-icone"
-                      title="Supprimer"
-                      onClick={() => setConfirmationSuppressionId(d.id)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
+              {peutGerer && (
+                <div className="actions-ligne-simple">
+                  <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(d)}>
+                    ✎
+                  </button>
+                  <button
+                    type="button"
+                    className="lien-icone lien-icone-danger"
+                    title="Supprimer"
+                    onClick={() => setConfirmationSuppressionId(d.id)}
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
             </li>
           ),
         )}
         {depots.length === 0 && <li className="liste-vide">Aucun dépôt.</li>}
       </ul>
+      {confirmationSuppressionId && (
+        <ModaleConfirmation
+          titre="Supprimer ce dépôt ?"
+          labelConfirmer="Supprimer"
+          dangereux
+          onAnnuler={() => setConfirmationSuppressionId(null)}
+          onConfirmer={() => supprimer(confirmationSuppressionId)}
+        />
+      )}
     </div>
   );
 }
@@ -1316,21 +1379,33 @@ const SOUS_ONGLETS_PARAMETRES = [
 
 type SousOngletParametres = (typeof SOUS_ONGLETS_PARAMETRES)[number]["cle"];
 
-function OngletParametresGeneraux({ session }: { session: Session }) {
+function OngletParametresGeneraux({
+  session,
+  onglet,
+  setOnglet,
+}: {
+  session: Session;
+  onglet: Onglet;
+  setOnglet: (o: Onglet) => void;
+}) {
   const [sousOnglet, setSousOnglet] = useState<SousOngletParametres>("general");
 
   return (
     <div>
-      <div className="barre-onglets">
-        {SOUS_ONGLETS_PARAMETRES.map((o) => (
-          <button
-            key={o.cle}
-            className={`onglet ${sousOnglet === o.cle ? "actif" : ""}`}
-            onClick={() => setSousOnglet(o.cle)}
-          >
-            {o.label}
-          </button>
-        ))}
+      <div className="barre-actions barre-actions-avec-onglets">
+        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
+        <div className="barre-onglets">
+          {SOUS_ONGLETS_PARAMETRES.map((o) => (
+            <button
+              key={o.cle}
+              type="button"
+              className={`onglet ${sousOnglet === o.cle ? "actif" : ""}`}
+              onClick={() => setSousOnglet(o.cle)}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
       </div>
       <div className="contenu-onglet">
         {sousOnglet === "general" && <OngletParametres session={session} />}
@@ -1343,34 +1418,22 @@ function OngletParametresGeneraux({ session }: { session: Session }) {
 }
 
 // --- Page principale ---
-
-const ONGLETS = [
-  { cle: "profil", label: "Informations boutique" },
-  { cle: "utilisateurs", label: "Utilisateurs & rôles" },
-  { cle: "parametres", label: "Paramètres" },
-] as const;
-
-type Onglet = (typeof ONGLETS)[number]["cle"];
+// L'onglet est affiché dans la même ligne que les actions de chaque onglet
+// (voir SelecteurOnglet) plutôt que dans une en-tête séparée.
 
 export default function Reglages({ session }: { session: Session }) {
   const [onglet, setOnglet] = useState<Onglet>("profil");
 
   return (
     <div className="page-produits">
-      <div className="entete-page-onglets">
-        <h2>Informations boutique</h2>
-        <div className="barre-onglets">
-          {ONGLETS.map((o) => (
-            <button key={o.cle} className={`onglet ${onglet === o.cle ? "actif" : ""}`} onClick={() => setOnglet(o.cle)}>
-              {o.label}
-            </button>
-          ))}
-        </div>
-      </div>
       <div className="contenu-onglet">
-        {onglet === "profil" && <OngletProfilBoutique session={session} />}
-        {onglet === "utilisateurs" && <OngletUtilisateursRoles session={session} />}
-        {onglet === "parametres" && <OngletParametresGeneraux session={session} />}
+        {onglet === "profil" && <OngletProfilBoutique session={session} onglet={onglet} setOnglet={setOnglet} />}
+        {onglet === "utilisateurs" && (
+          <OngletUtilisateursRoles session={session} onglet={onglet} setOnglet={setOnglet} />
+        )}
+        {onglet === "parametres" && (
+          <OngletParametresGeneraux session={session} onglet={onglet} setOnglet={setOnglet} />
+        )}
       </div>
     </div>
   );

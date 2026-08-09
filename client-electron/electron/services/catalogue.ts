@@ -73,9 +73,13 @@ export function listerDepots(boutiqueId: string): { id: string; nom: string }[] 
   );
 }
 
-export function listerClients(boutiqueId: string): { id: string; nom: string; telephone: string }[] {
-  return tousLesResultats<{ id: string; nom: string; telephone: string }>(
-    "SELECT id, nom, telephone FROM clients WHERE boutique_id = ? AND supprime = 0",
+// Clients réguliers uniquement — les clients occasionnels (vente à crédit) ne
+// doivent pas apparaître dans cette liste, voir electron/services/clients.ts.
+export function listerClients(
+  boutiqueId: string,
+): { id: string; nom: string; telephone: string; adresse: string }[] {
+  return tousLesResultats<{ id: string; nom: string; telephone: string; adresse: string }>(
+    "SELECT id, nom, telephone, adresse FROM clients WHERE boutique_id = ? AND supprime = 0 AND est_permanent = 1",
     [boutiqueId],
   );
 }

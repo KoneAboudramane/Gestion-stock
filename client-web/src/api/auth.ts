@@ -1,3 +1,4 @@
+import { enregistrerIdentifiantLocal, estErreurReseau, verifierIdentifiantLocal } from "./authHorsLigne";
 import {
   ErreurApi,
   apiFetch,
@@ -28,10 +29,16 @@ function decoderPayloadJWT(token: string): Record<string, any> {
 }
 
 async function connexionBrute(username: string, password: string): Promise<Session> {
-  const reponse = await apiFetch("/auth/connexion/", {
-    method: "POST",
-    body: JSON.stringify({ username, password }),
-  });
+  let reponse: Response;
+  try {
+    reponse = await apiFetch("/auth/connexion/", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    });
+  } catch (erreur) {
+    if (!estErreurReseau(erreur)) throw erreur;
+    return connexionHorsLigne(username, password);
+  }
   if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
   const donnees = await reponse.json();
   const payload = decoderPayloadJWT(donnees.access);
@@ -49,7 +56,23 @@ async function connexionBrute(username: string, password: string): Promise<Sessi
     depotNom: payload.depot_nom ?? null,
   };
   definirJetons({ accessToken: session.accessToken, refreshToken: session.refreshToken });
+  await enregistrerIdentifiantLocal(username, password, session);
   return session;
+}
+
+/** Serveur injoignable : on retombe sur les identifiants de la dernière connexion réussie sur cet appareil. */
+async function connexionHorsLigne(username: string, password: string): Promise<Session> {
+  const resultat = await verifierIdentifiantLocal(username, password);
+  if (resultat.statut === "ok") {
+    definirJetons({ accessToken: resultat.session.accessToken, refreshToken: resultat.session.refreshToken });
+    return resultat.session;
+  }
+  if (resultat.statut === "motDePasseInvalide") {
+    throw new ErreurApi("Mot de passe incorrect.");
+  }
+  throw new ErreurApi(
+    "Impossible de joindre le serveur, et aucune connexion hors-ligne n'est enregistrée pour cet utilisateur sur cet appareil. Connectez-vous une première fois avec internet.",
+  );
 }
 
 export function connexion(username: string, password: string): Promise<ResultatEcriture<Session>> {

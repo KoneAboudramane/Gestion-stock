@@ -21,16 +21,24 @@ export default function App() {
     }
     // Une session restaurée depuis localStorage peut être périmée (mot de passe
     // changé ailleurs, jeton de rafraîchissement expiré) : on la vérifie avant de
-    // lui faire confiance, contrairement à Electron qui peut rester hors-ligne
-    // avec une session non revérifiée.
-    api.auth.sessionValide().then((valide) => {
-      if (valide) {
-        setEcran("shell");
-      } else {
-        definirSession(null);
-        setEcran("connexion");
-      }
-    });
+    // lui faire confiance — mais seulement si un réseau est disponible. Hors-ligne
+    // au démarrage (ou serveur injoignable), on fait confiance à la session en
+    // cache, comme le client Electron avec son repli identifiants-locaux.json.
+    if (!navigator.onLine) {
+      setEcran("shell");
+      return;
+    }
+    api.auth
+      .sessionValide()
+      .then((valide) => {
+        if (valide) {
+          setEcran("shell");
+        } else {
+          definirSession(null);
+          setEcran("connexion");
+        }
+      })
+      .catch(() => setEcran("shell"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

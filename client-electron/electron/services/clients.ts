@@ -25,7 +25,11 @@ export interface ClientDetailResume {
 }
 
 export function listerClientsDetail(boutiqueId: string, terme = ""): ClientDetailResume[] {
-  const conditions = ["c.boutique_id = ?", "c.supprime = 0"];
+  // Le répertoire clients n'affiche que les clients permanents — les clients
+  // occasionnels (saisis à la volée pour une vente à crédit) n'y figurent
+  // jamais, ils ne sont visibles que via le carnet de crédit (listerCredits)
+  // tant que leur solde n'est pas soldé.
+  const conditions = ["c.boutique_id = ?", "c.supprime = 0", "c.est_permanent = 1"];
   const parametres: string[] = [boutiqueId];
   if (terme.trim()) {
     conditions.push("(c.nom LIKE ? OR c.telephone LIKE ?)");
@@ -46,14 +50,37 @@ export function listerClientsDetail(boutiqueId: string, terme = ""): ClientDetai
   );
 }
 
-export function creerClient(boutiqueId: string, nom: string, telephone = "", adresse = ""): string {
+// Contrairement à listerClientsDetail, n'importe quel client (permanent ou
+// occasionnel) peut être récupéré ici — nécessaire pour afficher/modifier ses
+// informations depuis le carnet de crédit (DetailCredit), où figurent aussi
+// des clients de passage absents du répertoire principal.
+export function obtenirClient(id: string): ClientDetailResume | undefined {
+  return unResultat<ClientDetailResume>(
+    `SELECT c.id as id, c.nom as nom, c.telephone as telephone, c.adresse as adresse,
+            COALESCE((
+              SELECT SUM(cr.solde) FROM credits cr
+              WHERE cr.client_id = c.id AND cr.statut = 'en_cours' AND cr.supprime = 0
+            ), 0) as soldeCredit
+     FROM clients c
+     WHERE c.id = ? AND c.supprime = 0`,
+    [id],
+  );
+}
+
+export function creerClient(
+  boutiqueId: string,
+  nom: string,
+  telephone = "",
+  adresse = "",
+  estPermanent = true,
+): string {
   if (!nom.trim()) throw new ErreurClient("Le nom du client est obligatoire.");
   const id = randomUUID();
   const maintenant = new Date().toISOString();
   executer(
-    `INSERT INTO clients (id, boutique_id, nom, telephone, adresse, date_creation, date_modification)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [id, boutiqueId, nom.trim(), telephone, adresse, maintenant, maintenant],
+    `INSERT INTO clients (id, boutique_id, nom, telephone, adresse, est_permanent, date_creation, date_modification)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, boutiqueId, nom.trim(), telephone, adresse, estPermanent ? 1 : 0, maintenant, maintenant],
   );
   sauvegarder();
   return id;
@@ -75,11 +102,22 @@ export function modifierClient(
   sauvegarder();
 }
 
+export function supprimerClient(id: string): void {
+  const maintenant = new Date().toISOString();
+  executer("UPDATE clients SET supprime = 1, synchronise = 0, date_modification = ? WHERE id = ?", [
+    maintenant,
+    id,
+  ]);
+  sauvegarder();
+}
+
 // --- Crédits ---
 
 export interface CreditResume {
   id: string;
   clientNom: string;
+  // SQLite renvoie 0/1 (comme "actif" ailleurs dans ce fichier), pas un booléen.
+  clientEstPermanent: number;
   venteNumero: string | null;
   montant: number;
   montantPaye: number;
@@ -102,7 +140,7 @@ export function listerCredits(boutiqueId: string, clientId?: string, statut?: St
   }
 
   return tousLesResultats<CreditResume>(
-    `SELECT cr.id as id, cl.nom as clientNom, v.numero as venteNumero,
+    `SELECT cr.id as id, cl.nom as clientNom, cl.est_permanent as clientEstPermanent, v.numero as venteNumero,
             cr.montant as montant, cr.montant_paye as montantPaye, cr.solde as solde,
             cr.echeance as echeance, cr.statut as statut, cr.date_creation as dateCreation
      FROM credits cr

@@ -14,6 +14,34 @@ export function listerDepots(): Promise<ResultatEcriture<DepotResume[]>> {
   });
 }
 
+export function creerDepot(nom: string, adresse: string): Promise<ResultatEcriture<DepotResume>> {
+  return executerEnSecurite(async () => {
+    const reponse = await apiFetch("/depots/", { method: "POST", body: JSON.stringify({ nom, adresse }) });
+    if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
+    return reponse.json();
+  });
+}
+
+export interface ModifierDepotEntree {
+  nom?: string;
+  adresse?: string;
+}
+
+export function modifierDepot(id: string, entree: ModifierDepotEntree): Promise<ResultatEcriture<DepotResume>> {
+  return executerEnSecurite(async () => {
+    const reponse = await apiFetch(`/depots/${id}/`, { method: "PATCH", body: JSON.stringify(entree) });
+    if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
+    return reponse.json();
+  });
+}
+
+export function supprimerDepot(id: string): Promise<ResultatEcriture<void>> {
+  return executerEnSecurite(async () => {
+    const reponse = await apiFetch(`/depots/${id}/`, { method: "DELETE" });
+    if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
+  });
+}
+
 export interface LigneStock {
   id: string;
   varianteId: string;

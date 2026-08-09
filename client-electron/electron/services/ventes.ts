@@ -12,7 +12,8 @@ import { appliquerMouvement } from "./stock";
  */
 
 export type StatutVente = "payee" | "credit" | "annulee";
-export type ModePaiement = "especes" | "mobile_money" | "carte" | "credit";
+export type ModePaiement = "especes" | "mobile_money" | "credit";
+export type OperateurMobileMoney = "orange_money" | "mtn_money" | "moov_money" | "wave";
 
 export class ErreurVente extends Error {}
 
@@ -25,6 +26,7 @@ export interface LigneVenteEntree {
 
 export interface PaiementEntree {
   mode: ModePaiement;
+  operateur?: OperateurMobileMoney | "";
   montant: number;
 }
 
@@ -112,6 +114,9 @@ export function creerVente(params: ParametresVente): VenteCreee {
       `La somme des paiements (${totalPaiements}) doit être égale au total net (${totalNet}).`,
     );
   }
+  if (paiements.some((p) => p.mode === "mobile_money" && !p.operateur)) {
+    throw new ErreurVente("Un opérateur est requis pour un paiement Mobile Money.");
+  }
 
   // Tout ce qui suit écrit en base : enveloppé dans une transaction (comme
   // @transaction.atomic côté Django) pour qu'un stock insuffisant sur une
@@ -173,8 +178,8 @@ export function creerVente(params: ParametresVente): VenteCreee {
 
     for (const paiement of paiements) {
       executer(
-        "INSERT INTO paiements (id, vente_id, mode, montant, date_creation, date_modification) VALUES (?, ?, ?, ?, ?, ?)",
-        [randomUUID(), venteId, paiement.mode, paiement.montant, maintenant, maintenant],
+        "INSERT INTO paiements (id, vente_id, mode, operateur, montant, date_creation, date_modification) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [randomUUID(), venteId, paiement.mode, paiement.operateur || "", paiement.montant, maintenant, maintenant],
       );
     }
 
@@ -281,11 +286,41 @@ export interface VenteDetail {
   paiements: PaiementDetail[];
 }
 
+export interface LigneVenteHistorique {
+  venteId: string;
+  venteNumero: string;
+  dateCreation: string;
+  clientNom: string | null;
+  statut: StatutVente;
+  quantite: number;
+  prixUnitaire: number;
+  sousTotal: number;
+}
+
+// Historique produit (toutes variantes confondues) — utilisé par la modale de
+// détail produit en Produits.tsx.
+export function listerVentesParProduit(produitId: string, limite = 100): LigneVenteHistorique[] {
+  return tousLesResultats<LigneVenteHistorique>(
+    `SELECT v.id as venteId, v.numero as venteNumero, v.date_creation as dateCreation,
+            c.nom as clientNom, v.statut as statut,
+            lv.quantite as quantite, lv.prix_unitaire as prixUnitaire, lv.sous_total as sousTotal
+     FROM lignes_vente lv
+     JOIN variantes va ON va.id = lv.variante_id
+     JOIN ventes v ON v.id = lv.vente_id
+     LEFT JOIN clients c ON c.id = v.client_id
+     WHERE va.produit_id = ? AND lv.supprime = 0 AND v.supprime = 0
+     ORDER BY v.date_creation DESC
+     LIMIT ?`,
+    [produitId, limite],
+  );
+}
+
 export function obtenirVente(id: string): VenteDetail | undefined {
   const vente = unResultat<Omit<VenteDetail, "lignes" | "paiements">>(
     `SELECT v.id as id, v.numero as numero, v.date_creation as dateCreation,
-            d.nom as depotNom, c.nom as clientNom, v.statut as statut,
-            v.total_brut as totalBrut, v.remise as remise, v.total_net as totalNet
+            d.nom as depotNom, c.nom as clientNom, c.telephone as clientTelephone, v.statut as statut,
+            v.total_brut as totalBrut, v.remise as remise, v.total_net as totalNet,
+            v.utilisateur_id as utilisateurId
      FROM ventes v
      JOIN depots d ON d.id = v.depot_id
      LEFT JOIN clients c ON c.id = v.client_id

@@ -101,7 +101,6 @@ export default function Notifications({
   if (notificationSelectionnee) {
     return (
       <div className="page-produits">
-        <h2>Notifications</h2>
         <DetailNotification
           notification={notificationSelectionnee}
           onRetour={() => setNotificationSelectionneeId(null)}
@@ -114,7 +113,6 @@ export default function Notifications({
 
   return (
     <div className="page-produits">
-      <h2>Notifications</h2>
       <div className="zone-tableau-scroll">
       <table className="tableau-catalogue">
         <thead>
@@ -139,6 +137,14 @@ export default function Notifications({
               </td>
             </tr>
           )}
+          {notificationsListe.length > 0 &&
+            Array.from({ length: Math.max(0, 10 - notificationsListe.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
         </tbody>
       </table>
       </div>

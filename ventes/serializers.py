@@ -21,7 +21,15 @@ class LigneVenteEntreeSerializer(serializers.Serializer):
 
 class PaiementEntreeSerializer(serializers.Serializer):
     mode = serializers.ChoiceField(choices=Paiement.Mode.choices)
+    operateur = serializers.ChoiceField(choices=Paiement.Operateur.choices, required=False, allow_blank=True, default="")
     montant = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
+
+    def validate(self, attrs):
+        if attrs["mode"] == Paiement.Mode.MOBILE_MONEY and not attrs.get("operateur"):
+            raise serializers.ValidationError("Un opérateur est requis pour un paiement Mobile Money.")
+        if attrs["mode"] != Paiement.Mode.MOBILE_MONEY and attrs.get("operateur"):
+            attrs["operateur"] = ""
+        return attrs
 
 
 class LigneVenteSerializer(serializers.ModelSerializer):
@@ -42,7 +50,7 @@ class LigneVenteSerializer(serializers.ModelSerializer):
 class PaiementSerializer(serializers.ModelSerializer):
     class Meta:
         model = Paiement
-        fields = ["id", "mode", "montant"]
+        fields = ["id", "mode", "operateur", "montant"]
         read_only_fields = fields
 
 

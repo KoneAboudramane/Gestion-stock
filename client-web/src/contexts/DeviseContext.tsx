@@ -26,3 +26,8 @@ export function DeviseProvider({ children }: { children: ReactNode }) {
 export function useDevise(): string {
   return useContext(DeviseContext).devise;
 }
+
+/** Appelé après modification de la devise dans Réglages pour rafraîchir l'affichage partout (totaux, factures...). */
+export function useRafraichirDevise(): () => void {
+  return useContext(DeviseContext).rafraichirDevise;
+}

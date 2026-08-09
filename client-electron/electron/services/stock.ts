@@ -335,6 +335,23 @@ export function listerMouvements(boutiqueId: string, depotId?: string, limite = 
   );
 }
 
+// Historique produit (toutes variantes confondues, tous dépôts) — utilisé par
+// la modale de détail produit en Produits.tsx.
+export function listerMouvementsParProduit(produitId: string, limite = 100): MouvementResume[] {
+  return tousLesResultats<MouvementResume>(
+    `SELECT m.id as id, p.nom as produitNom, v.reference as reference, d.nom as depotNom,
+            m.type as type, m.quantite as quantite, m.motif as motif, m.date_creation as dateCreation
+     FROM mouvements_stock m
+     JOIN variantes v ON v.id = m.variante_id
+     JOIN produits p ON p.id = v.produit_id
+     JOIN depots d ON d.id = m.depot_id
+     WHERE v.produit_id = ? AND m.supprime = 0
+     ORDER BY m.date_creation DESC
+     LIMIT ?`,
+    [produitId, limite],
+  );
+}
+
 // --- Transferts (miroir de stock/services.py::transferer_stock) ---
 
 export interface ParametresTransfert {

@@ -11,7 +11,10 @@ import type {
   VenteDetail,
   VenteResume,
 } from "../api/client";
+import FactureVente from "../components/FactureVente";
+import ModaleConfirmation from "../components/ModaleConfirmation";
 import { useDevise } from "../contexts/DeviseContext";
+import { formaterMontant } from "../lib/formatage";
 import {
   FOURNISSEURS_MOBILE_MONEY,
   libelleFournisseurMobileMoney,
@@ -96,7 +99,7 @@ function PaiementMobileMoney({ paiement }: { paiement: PaiementDetail }) {
           {erreur && <span className="message-erreur">{erreur}</span>}
         </form>
       ) : (
-        <button type="button" onClick={() => setAfficherForm(true)}>
+        <button type="button" className="bouton-primaire" onClick={() => setAfficherForm(true)}>
           Initier le paiement mobile money
         </button>
       )}
@@ -104,7 +107,7 @@ function PaiementMobileMoney({ paiement }: { paiement: PaiementDetail }) {
   );
 }
 
-function DetailVente({
+export function DetailVente({
   venteId,
   session,
   onRetour,
@@ -119,6 +122,7 @@ function DetailVente({
   const [confirmation, setConfirmation] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  const [afficherFacture, setAfficherFacture] = useState(false);
 
   async function rafraichir() {
     setVente((await api.ventes.obtenir(venteId)) ?? null);
@@ -144,19 +148,36 @@ function DetailVente({
     }
   }
 
+  if (afficherFacture) {
+    return (
+      <FactureVente
+        venteId={venteId}
+        session={session}
+        labelRetour="← Retour à la vente"
+        onRetour={() => setAfficherFacture(false)}
+      />
+    );
+  }
+
   if (!vente) return <p>Chargement…</p>;
   const estAnnulee = vente.statut === "annulee";
 
   return (
-    <div className="detail-produit">
-      <div className="entete-detail">
+    <>
+      <div className="modale-entete">
         <h3>
           Vente {vente.numero} <span className={`badge-${vente.statut}`}>{libelleStatutVente(vente.statut)}</span>
         </h3>
-        <button type="button" className="lien bouton-retour" onClick={onRetour}>
-          ← Retour à la liste
-        </button>
+        <div className="actions-formulaire">
+          <button type="button" className="bouton-primaire" onClick={() => setAfficherFacture(true)}>
+            Voir la facture
+          </button>
+          <button type="button" className="lien bouton-retour" onClick={onRetour}>
+            ← Retour
+          </button>
+        </div>
       </div>
+      <div className="modale-corps">
       <p>
         Dépôt : {vente.depotNom} · Client : {vente.clientNom ?? ""} · {new Date(vente.dateCreation).toLocaleString("fr-FR")}
       </p>
@@ -166,7 +187,7 @@ function DetailVente({
       <table className="tableau-catalogue">
         <thead>
           <tr>
-            <th>Produit</th>
+            <th>Désignation</th>
             <th>Référence</th>
             <th>Qté</th>
             <th>PU</th>
@@ -180,9 +201,19 @@ function DetailVente({
               <td>{l.produitNom}</td>
               <td>{l.reference || ""}</td>
               <td>{l.quantite}</td>
-              <td>{l.prixUnitaire}</td>
-              <td>{l.remise}</td>
-              <td>{l.sousTotal}</td>
+              <td>{formaterMontant(l.prixUnitaire)}</td>
+              <td>{formaterMontant(l.remise)}</td>
+              <td>{formaterMontant(l.sousTotal)}</td>
+            </tr>
+          ))}
+          {Array.from({ length: Math.max(0, 10 - vente.lignes.length) }).map((_, i) => (
+            <tr key={`vide-${i}`} className="ligne-groupe-vide">
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
             </tr>
           ))}
         </tbody>
@@ -190,9 +221,9 @@ function DetailVente({
       </div>
 
       <div className="totaux">
-        <div>Total brut : {vente.totalBrut} {devise}</div>
-        <div>Remise : {vente.remise} {devise}</div>
-        <div className="total-net">Total net : {vente.totalNet} {devise}</div>
+        <div>Total brut : {formaterMontant(vente.totalBrut)} {devise}</div>
+        <div>Remise : {formaterMontant(vente.remise)} {devise}</div>
+        <div className="total-net">Total net : {formaterMontant(vente.totalNet)} {devise}</div>
       </div>
 
       <div className="paiements">
@@ -200,7 +231,7 @@ function DetailVente({
         <ul className="liste-simple">
           {vente.paiements.map((p) => (
             <li key={p.id}>
-              {libelleModePaiement(p.mode)} : {p.montant} {devise}
+              {libelleModePaiement(p.mode)} : {formaterMontant(p.montant)} {devise}
               {p.mode === "mobile_money" && <PaiementMobileMoney paiement={p} />}
             </li>
           ))}
@@ -208,23 +239,24 @@ function DetailVente({
         </ul>
       </div>
 
-      {!estAnnulee && peutAnnuler && !confirmation && (
-        <button type="button" onClick={() => setConfirmation(true)}>
+      {!estAnnulee && peutAnnuler && (
+        <button type="button" className="bouton-danger" onClick={() => setConfirmation(true)}>
           Annuler la vente
         </button>
       )}
       {!estAnnulee && peutAnnuler && confirmation && (
-        <div className="actions-formulaire">
-          <span>Confirmer l'annulation de cette vente ? Le stock sera recrédité.</span>
-          <button type="button" onClick={() => setConfirmation(false)}>
-            Non
-          </button>
-          <button type="button" onClick={confirmerAnnulation} disabled={enCours}>
-            {enCours ? "Annulation…" : "Confirmer l'annulation"}
-          </button>
-        </div>
+        <ModaleConfirmation
+          titre="Annuler cette vente ?"
+          description="Le stock sera recrédité."
+          labelConfirmer="Confirmer l'annulation"
+          dangereux
+          enCours={enCours}
+          onAnnuler={() => setConfirmation(false)}
+          onConfirmer={confirmerAnnulation}
+        />
       )}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -250,25 +282,22 @@ export default function Ventes({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [depotId, statut, terme]);
 
-  if (venteSelectionneeId) {
-    return (
-      <div className="page-produits">
-        <h2>Historique des ventes</h2>
-        <DetailVente
-          venteId={venteSelectionneeId}
-          session={session}
-          onRetour={() => {
-            setVenteSelectionneeId(null);
-            rafraichir();
-          }}
-        />
-      </div>
-    );
-  }
-
   return (
     <div className="page-produits">
-      <h2>Historique des ventes</h2>
+      {venteSelectionneeId && (
+        <div className="fond-modale" onClick={() => setVenteSelectionneeId(null)}>
+          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+            <DetailVente
+              venteId={venteSelectionneeId}
+              session={session}
+              onRetour={() => {
+                setVenteSelectionneeId(null);
+                rafraichir();
+              }}
+            />
+          </div>
+        </div>
+      )}
       <div className="barre-actions">
         {peutGerer ? (
           <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
@@ -290,7 +319,7 @@ export default function Ventes({ session }: { session: Session }) {
           ))}
         </select>
         <input
-          className="champ-recherche"
+          className="champ-recherche champ-recherche-ventes"
           placeholder="Rechercher par numéro ou client…"
           value={terme}
           onChange={(e) => setTerme(e.target.value)}
@@ -318,7 +347,7 @@ export default function Ventes({ session }: { session: Session }) {
               <td>
                 <span className={`badge-${v.statut}`}>{libelleStatutVente(v.statut)}</span>
               </td>
-              <td>{v.totalNet}</td>
+              <td>{formaterMontant(v.totalNet)}</td>
             </tr>
           ))}
           {ventes.length === 0 && (
@@ -328,6 +357,17 @@ export default function Ventes({ session }: { session: Session }) {
               </td>
             </tr>
           )}
+          {ventes.length > 0 &&
+            Array.from({ length: Math.max(0, 10 - ventes.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
         </tbody>
       </table>
       </div>

@@ -13,7 +13,9 @@ import type {
   StatutDette,
   VarianteRecherchee,
 } from "../api/client";
+import ChampMontant from "../components/ChampMontant";
 import { useDevise } from "../contexts/DeviseContext";
+import { formaterMontant } from "../lib/formatage";
 
 function libelleStatutCommande(statut: StatutCommande): string {
   if (statut === "brouillon") return "Brouillon";
@@ -27,6 +29,7 @@ function libelleStatutCommande(statut: StatutCommande): string {
 interface LigneSaisie {
   varianteId: string;
   produitNom: string;
+  reference: string;
   quantite: number;
   prixAchat: number;
 }
@@ -46,6 +49,7 @@ function FormulaireCommande({
   const [fournisseurId, setFournisseurId] = useState(fournisseurs[0]?.id ?? "");
   const [terme, setTerme] = useState("");
   const [resultats, setResultats] = useState<VarianteRecherchee[]>([]);
+  const [dropdownOuvert, setDropdownOuvert] = useState(false);
   const [lignes, setLignes] = useState<LigneSaisie[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
@@ -64,10 +68,17 @@ function FormulaireCommande({
   function ajouterLigne(variante: VarianteRecherchee) {
     setLignes((actuel) => {
       if (actuel.some((l) => l.varianteId === variante.id)) return actuel;
-      return [...actuel, { varianteId: variante.id, produitNom: variante.produitNom, quantite: 1, prixAchat: variante.prixAchat }];
+      return [
+        ...actuel,
+        {
+          varianteId: variante.id,
+          produitNom: variante.produitNom,
+          reference: variante.reference,
+          quantite: 1,
+          prixAchat: variante.prixAchat,
+        },
+      ];
     });
-    setTerme("");
-    setResultats([]);
   }
 
   async function ajouterNouveauProduit() {
@@ -75,9 +86,11 @@ function FormulaireCommande({
     if (!nom) return;
     const resultat = await api.produits.creer({ boutiqueId: session.boutiqueId, nom, prixAchat: 0, prixVente: 0 });
     if (resultat.succes) {
+      const produit = await api.produits.obtenir(resultat.resultat.produitId);
+      const reference = produit?.variantes[0]?.reference ?? "";
       setLignes((actuel) => [
         ...actuel,
-        { varianteId: resultat.resultat.varianteId, produitNom: nom, quantite: 1, prixAchat: 0 },
+        { varianteId: resultat.resultat.varianteId, produitNom: nom, reference, quantite: 1, prixAchat: 0 },
       ]);
       setTerme("");
       setResultats([]);
@@ -124,17 +137,17 @@ function FormulaireCommande({
 
   return (
     <form onSubmit={(e) => e.preventDefault()} className="formulaire-mouvement-groupe">
-      <div className="entete-detail entete-fixe">
+      <div className="modale-entete entete-fixe">
         <h3>Nouvelle commande</h3>
         <div className="actions-formulaire">
-          <button type="button" onClick={onAnnuler}>
-            Annuler
-          </button>
-          <button type="button" onClick={() => soumettre("brouillon")} disabled={enCours}>
+          <button type="button" className="bouton-brouillon-commande" onClick={() => soumettre("brouillon")} disabled={enCours}>
             {enCours ? "Enregistrement…" : "Enregistrer en brouillon"}
           </button>
-          <button type="button" onClick={() => soumettre("commandee")} disabled={enCours}>
+          <button type="button" className="bouton-creer-commande" onClick={() => soumettre("commandee")} disabled={enCours}>
             {enCours ? "Enregistrement…" : "Créer et commander"}
+          </button>
+          <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
+            ← Retour
           </button>
         </div>
       </div>
@@ -142,34 +155,53 @@ function FormulaireCommande({
 
       <div className="colonnes-mouvement-groupe">
         <div className="colonne-recherche-groupe">
-          <label>
-            Fournisseur
-            <select value={fournisseurId} onChange={(e) => setFournisseurId(e.target.value)}>
-              {fournisseurs.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.nom}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="ligne-champs-recherche-commande">
+            <label>
+              Fournisseur
+              <select value={fournisseurId} onChange={(e) => setFournisseurId(e.target.value)}>
+                {fournisseurs.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.nom}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <input
-            placeholder="Rechercher un produit à commander…"
-            value={terme}
-            onChange={(e) => setTerme(e.target.value)}
-          />
-          <ul className="resultats-recherche">
-            {resultats.map((v) => (
-              <li key={v.id} onClick={() => ajouterLigne(v)}>
-                <span>{v.produitNom}</span>
-              </li>
-            ))}
-            {terme.trim() && resultats.length === 0 && (
-              <li className="client-suggestion-ajout" onClick={ajouterNouveauProduit}>
-                + Ajouter « {terme.trim()} » comme nouveau produit
-              </li>
-            )}
-          </ul>
+            <div className="recherche-commande-combobox">
+              <input
+                placeholder="Rechercher un article à commander…"
+                value={terme}
+                onChange={(e) => setTerme(e.target.value)}
+                onFocus={() => setDropdownOuvert(true)}
+                onBlur={() => setDropdownOuvert(false)}
+              />
+              {terme.trim() && dropdownOuvert && (
+                <ul className="resultats-recherche">
+                  {resultats
+                    .filter((v) => !lignes.some((l) => l.varianteId === v.id))
+                    .map((v) => (
+                      <li key={v.id} onMouseDown={(e) => { e.preventDefault(); ajouterLigne(v); }}>
+                        <span>{v.produitNom}</span>
+                      </li>
+                    ))}
+                  {resultats.length === 0 && (
+                    <li
+                      className="client-suggestion-ajout"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        ajouterNouveauProduit();
+                      }}
+                    >
+                      + Ajouter « {terme.trim()} » comme nouvel article
+                    </li>
+                  )}
+                </ul>
+              )}
+            </div>
+            <div className="total-net total-net-commande">
+              Total : <span className="montant-total-commande">{formaterMontant(total)} {devise}</span>
+            </div>
+          </div>
         </div>
 
         <div className="colonne-lignes-groupe">
@@ -177,16 +209,20 @@ function FormulaireCommande({
             <table className="tableau-catalogue">
               <thead>
                 <tr>
-                  <th>Produit</th>
+                  <th>N°</th>
+                  <th>Référence</th>
+                  <th>Désignation</th>
                   <th>Qté</th>
                   <th>Prix d'achat</th>
                   <th className="colonne-sous-total">Sous-total</th>
-                  <th />
+                  <th className="colonne-actions-variante" />
                 </tr>
               </thead>
               <tbody>
-                {lignes.map((l) => (
+                {lignes.map((l, index) => (
                   <tr key={l.varianteId}>
+                    <td>{index + 1}</td>
+                    <td>{l.reference || ""}</td>
                     <td>{l.produitNom}</td>
                     <td>
                       <input
@@ -198,37 +234,37 @@ function FormulaireCommande({
                       />
                     </td>
                     <td>
-                      <input
-                        type="number"
-                        min={0}
-                        step="any"
-                        value={l.prixAchat}
-                        onChange={(e) => modifierLigne(l.varianteId, { prixAchat: Number(e.target.value) })}
+                      <ChampMontant
+                        value={String(l.prixAchat)}
+                        onChange={(valeur) => modifierLigne(l.varianteId, { prixAchat: Number(valeur) || 0 })}
                       />
                     </td>
-                    <td className="colonne-sous-total">{Math.round(l.quantite * l.prixAchat)}</td>
-                    <td>
-                      <button type="button" onClick={() => retirerLigne(l.varianteId)}>
+                    <td className="colonne-sous-total">{formaterMontant(Math.round(l.quantite * l.prixAchat))}</td>
+                    <td className="colonne-actions-variante">
+                      <button
+                        type="button"
+                        className="bouton-retirer-ligne-groupe"
+                        title="Retirer de la liste"
+                        onClick={() => retirerLigne(l.varianteId)}
+                      >
                         ✕
                       </button>
                     </td>
                   </tr>
                 ))}
-                {lignes.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="liste-vide">
-                      Aucune ligne.
-                    </td>
+                {Array.from({ length: Math.max(0, 10 - lignes.length) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td className="colonne-sous-total">&nbsp;</td>
+                    <td className="colonne-actions-variante">&nbsp;</td>
                   </tr>
-                )}
+                ))}
               </tbody>
             </table>
-          </div>
-
-          <div className="totaux">
-            <div className="total-net">
-              Total : {total} {devise}
-            </div>
           </div>
         </div>
       </div>
@@ -307,11 +343,11 @@ function ApercuCommandesGroupees({
   async function creerLesCommandes() {
     setErreur(null);
     if (lignesEditees === null || lignesEditees.length === 0) {
-      setErreur("Aucun produit à commander.");
+      setErreur("Aucun article à commander.");
       return;
     }
     if (lignesEditees.some((l) => !l.fournisseurId)) {
-      setErreur("Choisissez un fournisseur pour chaque produit avant de créer les commandes.");
+      setErreur("Choisissez un fournisseur pour chaque article avant de créer les commandes.");
       return;
     }
     setEnCours(true);
@@ -343,7 +379,12 @@ function ApercuCommandesGroupees({
           <button type="button" onClick={onAnnuler}>
             Annuler
           </button>
-          <button type="button" onClick={creerLesCommandes} disabled={enCours || lignesEditees.length === 0}>
+          <button
+            type="button"
+            className="bouton-creer-commande"
+            onClick={creerLesCommandes}
+            disabled={enCours || lignesEditees.length === 0}
+          >
             {enCours ? "Création…" : `Créer les commandes (${groupes.size})`}
           </button>
         </div>
@@ -354,7 +395,7 @@ function ApercuCommandesGroupees({
       <table className="tableau-catalogue">
         <thead>
           <tr>
-            <th>Produit</th>
+            <th>Désignation</th>
             <th>Dépôt</th>
             <th>Qté</th>
             <th>Prix d'achat</th>
@@ -377,12 +418,9 @@ function ApercuCommandesGroupees({
                 />
               </td>
               <td>
-                <input
-                  type="number"
-                  min={0}
-                  step="any"
-                  value={l.prixAchat}
-                  onChange={(e) => modifierLigne(l.varianteId, { prixAchat: Number(e.target.value) })}
+                <ChampMontant
+                  value={String(l.prixAchat)}
+                  onChange={(valeur) => modifierLigne(l.varianteId, { prixAchat: Number(valeur) || 0 })}
                 />
               </td>
               <td>
@@ -399,10 +437,25 @@ function ApercuCommandesGroupees({
                 </select>
               </td>
               <td>
-                <button type="button" onClick={() => retirerLigne(l.varianteId)}>
+                <button
+                  type="button"
+                  className="bouton-retirer-ligne-groupe"
+                  title="Retirer de la liste"
+                  onClick={() => retirerLigne(l.varianteId)}
+                >
                   ✕
                 </button>
               </td>
+            </tr>
+          ))}
+          {Array.from({ length: Math.max(0, 10 - lignesEditees.length) }).map((_, i) => (
+            <tr key={`vide-${i}`} className="ligne-groupe-vide">
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
             </tr>
           ))}
         </tbody>
@@ -531,7 +584,7 @@ function DetailCommande({
       <table className="tableau-catalogue">
         <thead>
           <tr>
-            <th>Produit</th>
+            <th>Désignation</th>
             <th>Référence</th>
             <th>Qté</th>
             <th>Prix d'achat</th>
@@ -544,8 +597,17 @@ function DetailCommande({
               <td>{l.produitNom}</td>
               <td>{l.reference || ""}</td>
               <td>{l.quantite}</td>
-              <td>{l.prixAchat}</td>
-              <td>{l.sousTotal}</td>
+              <td>{formaterMontant(l.prixAchat)}</td>
+              <td>{formaterMontant(l.sousTotal)}</td>
+            </tr>
+          ))}
+          {Array.from({ length: Math.max(0, 10 - commande.lignes.length) }).map((_, i) => (
+            <tr key={`vide-${i}`} className="ligne-groupe-vide">
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
             </tr>
           ))}
         </tbody>
@@ -553,17 +615,17 @@ function DetailCommande({
       </div>
 
       <div className="totaux">
-        <div className="total-net">Total : {commande.total} {devise}</div>
+        <div className="total-net">Total : {formaterMontant(commande.total)} {devise}</div>
       </div>
 
       {peutGerer && commande.statut === "brouillon" && (
-        <button type="button" onClick={passerEnCommandee}>
+        <button type="button" className="bouton-primaire" onClick={passerEnCommandee}>
           Passer en commandée
         </button>
       )}
 
       {peutGerer && commande.statut === "commandee" && !afficherReception && (
-        <button type="button" onClick={ouvrirReception}>
+        <button type="button" className="bouton-primaire" onClick={ouvrirReception}>
           Réceptionner
         </button>
       )}
@@ -583,13 +645,7 @@ function DetailCommande({
             </label>
             <label>
               Montant déjà payé
-              <input
-                type="number"
-                min={0}
-                step="any"
-                value={montantDejaPaye}
-                onChange={(e) => setMontantDejaPaye(e.target.value)}
-              />
+              <ChampMontant value={montantDejaPaye} onChange={setMontantDejaPaye} />
             </label>
           </div>
 
@@ -598,7 +654,7 @@ function DetailCommande({
           <table className="tableau-catalogue">
             <thead>
               <tr>
-                <th>Produit</th>
+                <th>Désignation</th>
                 <th>Prix d'achat</th>
                 <th>Prix de vente</th>
               </tr>
@@ -609,16 +665,13 @@ function DetailCommande({
                 return (
                   <tr key={l.id}>
                     <td>{l.produitNom}</td>
-                    <td>{l.prixAchat}</td>
+                    <td>{formaterMontant(l.prixAchat)}</td>
                     <td>
-                      <input
-                        type="number"
-                        min={0}
-                        step="any"
+                      <ChampMontant
                         className={invalide ? "champ-invalide" : ""}
                         value={prixVentes[l.varianteId] ?? ""}
-                        onChange={(e) =>
-                          setPrixVentes((prec) => ({ ...prec, [l.varianteId]: e.target.value }))
+                        onChange={(valeur) =>
+                          setPrixVentes((prec) => ({ ...prec, [l.varianteId]: valeur }))
                         }
                       />
                       {invalide && (
@@ -630,6 +683,13 @@ function DetailCommande({
                   </tr>
                 );
               })}
+              {Array.from({ length: Math.max(0, 10 - commande.lignes.length) }).map((_, i) => (
+                <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                </tr>
+              ))}
             </tbody>
           </table>
           </div>
@@ -640,6 +700,7 @@ function DetailCommande({
             </button>
             <button
               type="button"
+              className="bouton-primaire"
               onClick={receptionner}
               disabled={
                 enCours || commande.lignes.some((l) => Number(prixVentes[l.varianteId] || 0) < l.prixAchat)
@@ -654,16 +715,45 @@ function DetailCommande({
   );
 }
 
+const ONGLETS = [
+  { cle: "commandes", label: "Commandes" },
+  { cle: "fournisseurs", label: "Fournisseurs" },
+  { cle: "dettes", label: "Dettes" },
+] as const;
+
+type Onglet = (typeof ONGLETS)[number]["cle"];
+
+function SelecteurOnglet({ onglet, setOnglet }: { onglet: Onglet; setOnglet: (o: Onglet) => void }) {
+  return (
+    <div className="barre-onglets">
+      {ONGLETS.map((o) => (
+        <button
+          key={o.cle}
+          type="button"
+          className={`onglet ${onglet === o.cle ? "actif" : ""}`}
+          onClick={() => setOnglet(o.cle)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function OngletCommandes({
   session,
   ouvrirFormulaireInitial,
   lignesInitiales,
   onFormulaireInitialConsomme,
+  onglet,
+  setOnglet,
 }: {
   session: Session;
   ouvrirFormulaireInitial?: boolean;
   lignesInitiales?: LigneAchatInitiale[];
   onFormulaireInitialConsomme?: () => void;
+  onglet: Onglet;
+  setOnglet: (o: Onglet) => void;
 }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [fournisseurs, setFournisseurs] = useState<FournisseurResume[]>([]);
@@ -732,23 +822,25 @@ function OngletCommandes({
     );
   }
 
-  if (afficherForm) {
-    return (
-      <FormulaireCommande
-        session={session}
-        fournisseurs={fournisseurs}
-        onAnnuler={() => setAfficherForm(false)}
-        onCree={() => {
-          setAfficherForm(false);
-          rafraichir();
-        }}
-      />
-    );
-  }
-
   return (
     <div>
-      <div className="barre-actions">
+      {afficherForm && (
+        <div className="fond-modale" onClick={() => setAfficherForm(false)}>
+          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+            <FormulaireCommande
+              session={session}
+              fournisseurs={fournisseurs}
+              onAnnuler={() => setAfficherForm(false)}
+              onCree={() => {
+                setAfficherForm(false);
+                rafraichir();
+              }}
+            />
+          </div>
+        </div>
+      )}
+      <div className="barre-actions barre-actions-avec-onglets">
+        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         <select value={fournisseurId} onChange={(e) => setFournisseurId(e.target.value)}>
           <option value="">Tous les fournisseurs</option>
           {fournisseurs.map((f) => (
@@ -771,9 +863,16 @@ function OngletCommandes({
           onChange={(e) => setTerme(e.target.value)}
         />
         {peutGerer && (
-          <button type="button" onClick={() => setAfficherForm(true)} disabled={fournisseurs.length === 0}>
-            + Nouvelle commande
-          </button>
+          <span className="actions-ligne">
+            <button
+              type="button"
+              className="bouton-ajouter-variante"
+              onClick={() => setAfficherForm(true)}
+              disabled={fournisseurs.length === 0}
+            >
+              + Nouvelle commande
+            </button>
+          </span>
         )}
       </div>
       {peutGerer && fournisseurs.length === 0 && (
@@ -799,7 +898,7 @@ function OngletCommandes({
               <td>
                 <span className={`badge-${c.statut}`}>{libelleStatutCommande(c.statut)}</span>
               </td>
-              <td>{c.total}</td>
+              <td>{formaterMontant(c.total)}</td>
             </tr>
           ))}
           {commandes.length === 0 && (
@@ -809,6 +908,16 @@ function OngletCommandes({
               </td>
             </tr>
           )}
+          {commandes.length > 0 &&
+            Array.from({ length: Math.max(0, 10 - commandes.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
         </tbody>
       </table>
       </div>
@@ -818,14 +927,183 @@ function OngletCommandes({
 
 // --- Onglet Fournisseurs ---
 
-function OngletFournisseurs({ session }: { session: Session }) {
-  const peutGerer = !!session.permissions.gerer_produits_stock_achats;
-  const [fournisseurs, setFournisseurs] = useState<FournisseurResume[]>([]);
+interface LigneFournisseurGroupe {
+  id: string;
+  nom: string;
+  telephone: string;
+  adresse: string;
+  contact: string;
+}
+
+function FormulaireFournisseursGroupe({
+  session,
+  onAnnuler,
+  onCree,
+}: {
+  session: Session;
+  onAnnuler: () => void;
+  onCree: () => void;
+}) {
   const [nom, setNom] = useState("");
   const [telephone, setTelephone] = useState("");
   const [adresse, setAdresse] = useState("");
   const [contact, setContact] = useState("");
+  const [lignes, setLignes] = useState<LigneFournisseurGroupe[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState(false);
+
+  function ajouterFournisseur() {
+    if (!nom.trim()) return;
+    setLignes((actuel) => [
+      ...actuel,
+      { id: crypto.randomUUID(), nom: nom.trim(), telephone: telephone.trim(), adresse: adresse.trim(), contact: contact.trim() },
+    ]);
+    setNom("");
+    setTelephone("");
+    setAdresse("");
+    setContact("");
+  }
+
+  function surEntree(evenement: React.KeyboardEvent) {
+    if (evenement.key === "Enter") {
+      evenement.preventDefault();
+      ajouterFournisseur();
+    }
+  }
+
+  function retirerLigne(id: string) {
+    setLignes((actuel) => actuel.filter((l) => l.id !== id));
+  }
+
+  async function soumettre(evenement: React.FormEvent) {
+    evenement.preventDefault();
+    setErreur(null);
+    if (lignes.length === 0) {
+      setErreur("Ajoutez au moins un fournisseur à la liste.");
+      return;
+    }
+    setEnCours(true);
+    try {
+      for (const ligne of lignes) {
+        const resultat = await api.fournisseurs.creer(
+          session.boutiqueId,
+          ligne.nom,
+          ligne.telephone,
+          ligne.adresse,
+          ligne.contact,
+        );
+        if (!resultat.succes) {
+          setErreur(`"${ligne.nom}" : ${resultat.message}`);
+          return;
+        }
+      }
+      onCree();
+    } finally {
+      setEnCours(false);
+    }
+  }
+
+  return (
+    <form onSubmit={soumettre} className="formulaire-produits-groupe">
+      <div className="modale-entete entete-fixe">
+        <h3>Nouveau fournisseur</h3>
+        <div className="actions-formulaire">
+          <button type="button" onClick={onAnnuler}>
+            Annuler
+          </button>
+          <button type="submit" disabled={enCours}>
+            {enCours ? "Enregistrement…" : `Enregistrer la liste (${lignes.length})`}
+          </button>
+          <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
+            ← Retour
+          </button>
+        </div>
+      </div>
+      {erreur && <div className="message-erreur">{erreur}</div>}
+
+      <div className="grille-champs ajout-produit-groupe">
+        <label>
+          Nom
+          <input value={nom} onChange={(e) => setNom(e.target.value)} onKeyDown={surEntree} autoFocus />
+        </label>
+        <label>
+          Téléphone
+          <input value={telephone} onChange={(e) => setTelephone(e.target.value)} onKeyDown={surEntree} />
+        </label>
+        <label>
+          Adresse
+          <input value={adresse} onChange={(e) => setAdresse(e.target.value)} onKeyDown={surEntree} />
+        </label>
+        <label>
+          Contact
+          <input value={contact} onChange={(e) => setContact(e.target.value)} onKeyDown={surEntree} />
+        </label>
+        <button type="button" className="bouton-ajouter-produit-groupe" onClick={ajouterFournisseur}>
+          + Ajouter à la liste
+        </button>
+      </div>
+
+      <div className="zone-tableau-scroll tableau-produits-groupe-scroll">
+        <table className="tableau-catalogue">
+          <thead>
+            <tr>
+              <th className="colonne-numero-groupe">N°</th>
+              <th className="col-designation-groupe">Nom</th>
+              <th>Téléphone</th>
+              <th>Adresse</th>
+              <th>Contact</th>
+              <th className="colonne-numero-groupe" />
+            </tr>
+          </thead>
+          <tbody>
+            {lignes.map((l, index) => (
+              <tr key={l.id}>
+                <td className="colonne-numero-groupe">{index + 1}</td>
+                <td className="col-designation-groupe">{l.nom}</td>
+                <td>{l.telephone}</td>
+                <td>{l.adresse}</td>
+                <td>{l.contact}</td>
+                <td className="colonne-numero-groupe">
+                  <button
+                    type="button"
+                    className="bouton-retirer-ligne-groupe"
+                    title="Retirer de la liste"
+                    onClick={() => retirerLigne(l.id)}
+                  >
+                    ✕
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {Array.from({ length: Math.max(0, 10 - lignes.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td className="colonne-numero-groupe">&nbsp;</td>
+                <td className="col-designation-groupe">&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td className="colonne-numero-groupe">&nbsp;</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </form>
+  );
+}
+
+function OngletFournisseurs({
+  session,
+  onglet,
+  setOnglet,
+}: {
+  session: Session;
+  onglet: Onglet;
+  setOnglet: (o: Onglet) => void;
+}) {
+  const peutGerer = !!session.permissions.gerer_produits_stock_achats;
+  const [fournisseurs, setFournisseurs] = useState<FournisseurResume[]>([]);
+  const [afficherModal, setAfficherModal] = useState(false);
 
   async function rafraichir() {
     setFournisseurs(await api.fournisseurs.lister(session.boutiqueId));
@@ -835,40 +1113,30 @@ function OngletFournisseurs({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function ajouter(evenement: React.FormEvent) {
-    evenement.preventDefault();
-    if (!nom.trim()) return;
-    const resultat = await api.fournisseurs.creer(
-      session.boutiqueId,
-      nom.trim(),
-      telephone.trim(),
-      adresse.trim(),
-      contact.trim(),
-    );
-    if (resultat.succes) {
-      setNom("");
-      setTelephone("");
-      setAdresse("");
-      setContact("");
-      setErreur(null);
-      rafraichir();
-    } else {
-      setErreur(resultat.message);
-    }
-  }
-
   return (
     <div>
-      {peutGerer && (
-        <form onSubmit={ajouter} className="formulaire-inline barre-actions-fixe">
-          <input placeholder="Nouveau fournisseur" value={nom} onChange={(e) => setNom(e.target.value)} />
-          <input placeholder="Téléphone" value={telephone} onChange={(e) => setTelephone(e.target.value)} />
-          <input placeholder="Adresse" value={adresse} onChange={(e) => setAdresse(e.target.value)} />
-          <input placeholder="Contact" value={contact} onChange={(e) => setContact(e.target.value)} />
-          <button type="submit">Ajouter</button>
-        </form>
+      <div className="barre-actions barre-actions-fixe barre-actions-avec-onglets">
+        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
+        {peutGerer && (
+          <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherModal(true)}>
+            + Nouveau fournisseur
+          </button>
+        )}
+      </div>
+      {afficherModal && (
+        <div className="fond-modale" onClick={() => setAfficherModal(false)}>
+          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+            <FormulaireFournisseursGroupe
+              session={session}
+              onAnnuler={() => setAfficherModal(false)}
+              onCree={() => {
+                setAfficherModal(false);
+                rafraichir();
+              }}
+            />
+          </div>
+        </div>
       )}
-      {erreur && <div className="message-erreur">{erreur}</div>}
       <div className="zone-tableau-scroll">
       <table className="tableau-catalogue">
         <thead>
@@ -895,6 +1163,15 @@ function OngletFournisseurs({ session }: { session: Session }) {
               </td>
             </tr>
           )}
+          {fournisseurs.length > 0 &&
+            Array.from({ length: Math.max(0, 10 - fournisseurs.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
         </tbody>
       </table>
       </div>
@@ -927,16 +1204,8 @@ function LignePayer({ dette, onPaye }: { dette: DetteResume; onPaye: () => void 
 
   return (
     <div>
-      <input
-        type="number"
-        min={0.01}
-        step="any"
-        placeholder="Montant"
-        value={montant}
-        onChange={(e) => setMontant(e.target.value)}
-        style={{ width: "100px" }}
-      />
-      <button type="button" onClick={payer} disabled={enCours}>
+      <ChampMontant placeholder="Montant" value={montant} onChange={setMontant} style={{ width: "100px" }} />
+      <button type="button" className="bouton-primaire" onClick={payer} disabled={enCours}>
         {enCours ? "…" : "Payer"}
       </button>
       {erreur && <div className="message-erreur">{erreur}</div>}
@@ -944,7 +1213,15 @@ function LignePayer({ dette, onPaye }: { dette: DetteResume; onPaye: () => void 
   );
 }
 
-function OngletDettes({ session }: { session: Session }) {
+function OngletDettes({
+  session,
+  onglet,
+  setOnglet,
+}: {
+  session: Session;
+  onglet: Onglet;
+  setOnglet: (o: Onglet) => void;
+}) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [statut, setStatut] = useState<StatutDette | "">("");
   const [dettes, setDettes] = useState<DetteResume[]>([]);
@@ -959,7 +1236,8 @@ function OngletDettes({ session }: { session: Session }) {
 
   return (
     <div>
-      <div className="barre-actions">
+      <div className="barre-actions barre-actions-avec-onglets">
+        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         <select value={statut} onChange={(e) => setStatut(e.target.value as StatutDette | "")}>
           <option value="">Tous les statuts</option>
           <option value="en_cours">En cours</option>
@@ -986,9 +1264,9 @@ function OngletDettes({ session }: { session: Session }) {
               <td>{new Date(d.dateCreation).toLocaleString("fr-FR")}</td>
               <td>{d.fournisseurNom}</td>
               <td>{d.commandeNumero ?? ""}</td>
-              <td>{d.montant}</td>
-              <td>{d.montantPaye}</td>
-              <td>{d.solde}</td>
+              <td>{formaterMontant(d.montant)}</td>
+              <td>{formaterMontant(d.montantPaye)}</td>
+              <td>{formaterMontant(d.solde)}</td>
               <td>
                 <span className={d.statut === "solde" ? "badge-payee" : "badge-commandee"}>
                   {d.statut === "solde" ? "Soldée" : "En cours"}
@@ -1004,6 +1282,19 @@ function OngletDettes({ session }: { session: Session }) {
               </td>
             </tr>
           )}
+          {dettes.length > 0 &&
+            Array.from({ length: Math.max(0, 10 - dettes.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                {peutGerer && <td>&nbsp;</td>}
+              </tr>
+            ))}
         </tbody>
       </table>
       </div>
@@ -1012,14 +1303,8 @@ function OngletDettes({ session }: { session: Session }) {
 }
 
 // --- Page principale ---
-
-const ONGLETS = [
-  { cle: "commandes", label: "Commandes" },
-  { cle: "fournisseurs", label: "Fournisseurs" },
-  { cle: "dettes", label: "Dettes" },
-] as const;
-
-type Onglet = (typeof ONGLETS)[number]["cle"];
+// L'onglet est affiché dans la même ligne que la recherche et les actions de
+// chaque onglet (voir SelecteurOnglet) plutôt que dans une en-tête séparée.
 
 export default function Achats({
   session,
@@ -1036,16 +1321,6 @@ export default function Achats({
 
   return (
     <div className="page-produits">
-      <div className="entete-page-onglets">
-        <h2>Achats & fournisseurs</h2>
-        <div className="barre-onglets">
-          {ONGLETS.map((o) => (
-            <button key={o.cle} className={`onglet ${onglet === o.cle ? "actif" : ""}`} onClick={() => setOnglet(o.cle)}>
-              {o.label}
-            </button>
-          ))}
-        </div>
-      </div>
       <div className="contenu-onglet">
         {onglet === "commandes" && (
           <OngletCommandes
@@ -1053,10 +1328,12 @@ export default function Achats({
             ouvrirFormulaireInitial={ouvrirNouvelleCommande}
             lignesInitiales={lignesAchatInitiales}
             onFormulaireInitialConsomme={onOuvertureConsommee}
+            onglet={onglet}
+            setOnglet={setOnglet}
           />
         )}
-        {onglet === "fournisseurs" && <OngletFournisseurs session={session} />}
-        {onglet === "dettes" && <OngletDettes session={session} />}
+        {onglet === "fournisseurs" && <OngletFournisseurs session={session} onglet={onglet} setOnglet={setOnglet} />}
+        {onglet === "dettes" && <OngletDettes session={session} onglet={onglet} setOnglet={setOnglet} />}
       </div>
     </div>
   );

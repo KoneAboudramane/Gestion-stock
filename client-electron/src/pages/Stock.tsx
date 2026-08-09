@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
+import ChampMontant from "../components/ChampMontant";
 import { useDevise } from "../contexts/DeviseContext";
 import type {
   DepotResume,
@@ -16,6 +17,7 @@ import type {
   TypeMouvement,
   VarianteRecherchee,
 } from "../api/client";
+import { formaterMontant } from "../lib/formatage";
 import { libelleTypeMouvement } from "../lib/libelles";
 
 // --- Onglet Stock : niveaux par dépôt ---
@@ -31,14 +33,44 @@ function versLigneAchatInitiale(l: LigneStock): LigneAchatInitiale {
   };
 }
 
+const ONGLETS = [
+  { cle: "stock", label: "Stock" },
+  { cle: "mouvements", label: "Mouvements" },
+  { cle: "transferts", label: "Transferts" },
+  { cle: "inventaire", label: "Inventaire" },
+] as const;
+
+type Onglet = (typeof ONGLETS)[number]["cle"];
+
+function SelecteurOnglet({ onglet, setOnglet }: { onglet: Onglet; setOnglet: (o: Onglet) => void }) {
+  return (
+    <div className="barre-onglets">
+      {ONGLETS.map((o) => (
+        <button
+          key={o.cle}
+          type="button"
+          className={`onglet ${onglet === o.cle ? "actif" : ""}`}
+          onClick={() => setOnglet(o.cle)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function OngletStockNiveau({
   session,
   filtreRuptureInitial,
   onCommander,
+  onglet,
+  setOnglet,
 }: {
   session: Session;
   filtreRuptureInitial?: boolean;
   onCommander?: (lignes: LigneAchatInitiale[]) => void;
+  onglet: Onglet;
+  setOnglet: (o: Onglet) => void;
 }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [depots, setDepots] = useState<DepotResume[]>([]);
@@ -82,7 +114,8 @@ function OngletStockNiveau({
 
   return (
     <div>
-      <div className="barre-actions">
+      <div className="barre-actions barre-actions-avec-onglets">
+        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         {peutGerer ? (
           <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
             <option value="">Tous les dépôts</option>
@@ -96,8 +129,8 @@ function OngletStockNiveau({
           session.depotNom && <span className="depot-fixe">{session.depotNom}</span>
         )}
         <input
-          className="champ-recherche"
-          placeholder="Rechercher un produit…"
+          className="champ-recherche champ-recherche-stock"
+          placeholder="Rechercher un article…"
           value={terme}
           onChange={(e) => setTerme(e.target.value)}
         />
@@ -110,48 +143,69 @@ function OngletStockNiveau({
           Seulement les ruptures
         </label>
         {selection.size > 0 && (
-          <button type="button" onClick={commanderLaSelection}>
-            Commander la sélection ({selection.size})
-          </button>
+          <span className="actions-ligne">
+            <button type="button" className="bouton-primaire" onClick={commanderLaSelection}>
+              Commander la sélection ({selection.size})
+            </button>
+          </span>
         )}
       </div>
       <div className="zone-tableau-scroll">
       <table className="tableau-catalogue">
         <thead>
           <tr>
-            <th>
-              {rupturesAffichees.length > 0 && (
-                <input type="checkbox" checked={toutesSelectionnees} onChange={basculerToutSelectionner} />
-              )}
-            </th>
-            <th>Produit</th>
+            <th>N°</th>
             <th>Référence</th>
+            <th>Désignation</th>
             <th>Dépôt</th>
             <th>Quantité</th>
             <th>Seuil</th>
-            <th></th>
-            <th></th>
+            <th className="colonne-statut-stock">Statut</th>
+            <th className="colonne-actions-stock">
+              <span className="entete-actions-stock">
+                Actions
+                {rupturesAffichees.length > 0 && (
+                  <input
+                    type="checkbox"
+                    className="case-selection"
+                    title="Tout sélectionner"
+                    checked={toutesSelectionnees}
+                    onChange={basculerToutSelectionner}
+                  />
+                )}
+              </span>
+            </th>
           </tr>
         </thead>
         <tbody>
-          {lignesAffichees.map((l) => (
+          {lignesAffichees.map((l, index) => (
             <tr key={l.id}>
-              <td>
-                {l.enRupture && (
-                  <input type="checkbox" checked={selection.has(l.id)} onChange={() => basculerSelection(l.id)} />
-                )}
-              </td>
-              <td>{l.produitNom}</td>
+              <td>{index + 1}</td>
               <td>{l.reference || ""}</td>
+              <td>{l.produitNom}</td>
               <td>{l.depotNom}</td>
               <td>{l.quantite}</td>
               <td>{l.seuilAlerte}</td>
-              <td>{l.enRupture ? <span className="badge-rupture">Rupture</span> : null}</td>
-              <td>
-                {l.enRupture && onCommander && (
-                  <button type="button" onClick={() => onCommander([versLigneAchatInitiale(l)])}>
-                    Commander
-                  </button>
+              <td className="colonne-statut-stock">{l.enRupture ? <span className="badge-rupture">Rupture</span> : null}</td>
+              <td className="colonne-actions-stock">
+                {l.enRupture && (
+                  <span className="actions-ligne">
+                    <input
+                      type="checkbox"
+                      className="case-selection"
+                      checked={selection.has(l.id)}
+                      onChange={() => basculerSelection(l.id)}
+                    />
+                    {onCommander && (
+                      <button
+                        type="button"
+                        className="bouton-commander-stock"
+                        onClick={() => onCommander([versLigneAchatInitiale(l)])}
+                      >
+                        Commander
+                      </button>
+                    )}
+                  </span>
                 )}
               </td>
             </tr>
@@ -163,6 +217,19 @@ function OngletStockNiveau({
               </td>
             </tr>
           )}
+          {lignesAffichees.length > 0 &&
+            Array.from({ length: Math.max(0, 10 - lignesAffichees.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td className="colonne-statut-stock">&nbsp;</td>
+                <td className="colonne-actions-stock">&nbsp;</td>
+              </tr>
+            ))}
         </tbody>
       </table>
       </div>
@@ -172,146 +239,10 @@ function OngletStockNiveau({
 
 // --- Onglet Mouvements ---
 
-function FormulaireMouvement({
-  session,
-  depots,
-  onAnnuler,
-  onCree,
-}: {
-  session: Session;
-  depots: DepotResume[];
-  onAnnuler: () => void;
-  onCree: () => void;
-}) {
-  const [terme, setTerme] = useState("");
-  const [resultats, setResultats] = useState<VarianteRecherchee[]>([]);
-  const [varianteChoisie, setVarianteChoisie] = useState<VarianteRecherchee | null>(null);
-  const [depotId, setDepotId] = useState(depots[0]?.id ?? "");
-  const [type, setType] = useState<TypeMouvement>("entree");
-  const [quantite, setQuantite] = useState("1");
-  const [motif, setMotif] = useState("");
-  const [erreur, setErreur] = useState<string | null>(null);
-  const [enCours, setEnCours] = useState(false);
-
-  useEffect(() => {
-    if (!terme.trim()) {
-      setResultats([]);
-      return;
-    }
-    const identifiant = setTimeout(() => {
-      api.catalogue.rechercherVariantes(session.boutiqueId, terme.trim()).then(setResultats);
-    }, 200);
-    return () => clearTimeout(identifiant);
-  }, [terme, session.boutiqueId]);
-
-  async function soumettre(evenement: React.FormEvent) {
-    evenement.preventDefault();
-    setErreur(null);
-    if (!varianteChoisie) {
-      setErreur("Choisissez un produit.");
-      return;
-    }
-    if (!depotId) {
-      setErreur("Choisissez un dépôt.");
-      return;
-    }
-    const quantiteNombre = Number(quantite);
-    if (!quantiteNombre || (type !== "ajustement" && quantiteNombre <= 0)) {
-      setErreur("Quantité invalide.");
-      return;
-    }
-    setEnCours(true);
-    try {
-      const resultat = await api.mouvements.creer({
-        varianteId: varianteChoisie.id,
-        depotId,
-        type,
-        quantite: type === "ajustement" ? quantiteNombre : Math.abs(quantiteNombre),
-        motif,
-        utilisateurId: session.utilisateurId,
-      });
-      if (resultat.succes) onCree();
-      else setErreur(resultat.message);
-    } finally {
-      setEnCours(false);
-    }
-  }
-
-  return (
-    <form onSubmit={soumettre} className="formulaire-catalogue">
-      <h4>Nouveau mouvement</h4>
-      {erreur && <div className="message-erreur">{erreur}</div>}
-      {!varianteChoisie ? (
-        <>
-          <input placeholder="Rechercher un produit…" value={terme} onChange={(e) => setTerme(e.target.value)} autoFocus />
-          <ul className="resultats-recherche">
-            {resultats.map((v) => (
-              <li
-                key={v.id}
-                onClick={() => {
-                  setVarianteChoisie(v);
-                  setTerme("");
-                  setResultats([]);
-                }}
-              >
-                <span>
-                  {v.produitNom} {v.reference && `(${v.reference})`}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : (
-        <p>
-          Produit : <strong>{varianteChoisie.produitNom}</strong>{" "}
-          <button type="button" className="lien" onClick={() => setVarianteChoisie(null)}>
-            changer
-          </button>
-        </p>
-      )}
-      <div className="grille-champs">
-        <label>
-          Dépôt
-          <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
-            {depots.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.nom}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Type
-          <select value={type} onChange={(e) => setType(e.target.value as TypeMouvement)}>
-            <option value="entree">Entrée</option>
-            <option value="sortie">Sortie</option>
-            <option value="ajustement">Ajustement (correction signée)</option>
-          </select>
-        </label>
-        <label>
-          Quantité {type === "ajustement" && "(peut être négative)"}
-          <input type="number" step="any" value={quantite} onChange={(e) => setQuantite(e.target.value)} />
-        </label>
-        <label>
-          Motif
-          <input value={motif} onChange={(e) => setMotif(e.target.value)} />
-        </label>
-      </div>
-      <div className="actions-formulaire">
-        <button type="button" onClick={onAnnuler}>
-          Annuler
-        </button>
-        <button type="submit" disabled={enCours}>
-          {enCours ? "Enregistrement…" : "Enregistrer"}
-        </button>
-      </div>
-    </form>
-  );
-}
-
 interface LigneMouvementGroupe {
   varianteId: string;
   produitNom: string;
+  reference: string;
   quantite: number;
 }
 
@@ -327,9 +258,11 @@ function FormulaireMouvementGroupe({
   onCree: () => void;
 }) {
   const [depotId, setDepotId] = useState(depots[0]?.id ?? "");
+  const [type, setType] = useState<TypeMouvement>("entree");
   const [motif, setMotif] = useState("");
   const [terme, setTerme] = useState("");
   const [resultats, setResultats] = useState<VarianteRecherchee[]>([]);
+  const [dropdownOuvert, setDropdownOuvert] = useState(false);
   const [lignes, setLignes] = useState<LigneMouvementGroupe[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
@@ -348,10 +281,11 @@ function FormulaireMouvementGroupe({
   function ajouterLigne(variante: VarianteRecherchee) {
     setLignes((actuel) => {
       if (actuel.some((l) => l.varianteId === variante.id)) return actuel;
-      return [...actuel, { varianteId: variante.id, produitNom: variante.produitNom, quantite: 1 }];
+      return [
+        ...actuel,
+        { varianteId: variante.id, produitNom: variante.produitNom, reference: variante.reference, quantite: 1 },
+      ];
     });
-    setTerme("");
-    setResultats([]);
   }
 
   function modifierQuantite(varianteId: string, quantite: number) {
@@ -370,7 +304,7 @@ function FormulaireMouvementGroupe({
       return;
     }
     if (lignes.length === 0) {
-      setErreur("Ajoutez au moins un produit.");
+      setErreur("Ajoutez au moins un article.");
       return;
     }
     setEnCours(true);
@@ -379,8 +313,8 @@ function FormulaireMouvementGroupe({
         const resultat = await api.mouvements.creer({
           varianteId: ligne.varianteId,
           depotId,
-          type: "entree",
-          quantite: ligne.quantite,
+          type,
+          quantite: type === "ajustement" ? ligne.quantite : Math.abs(ligne.quantite),
           motif,
           utilisateurId: session.utilisateurId,
         });
@@ -397,21 +331,21 @@ function FormulaireMouvementGroupe({
 
   return (
     <form onSubmit={soumettre} className="formulaire-mouvement-groupe">
-      <div className="entete-detail entete-fixe">
-        <h3>Entrée groupée</h3>
+      <div className="modale-entete entete-fixe">
+        <h3>Nouveau mouvement</h3>
         <div className="actions-formulaire">
-          <button type="button" onClick={onAnnuler}>
-            Annuler
-          </button>
           <button type="submit" disabled={enCours}>
             {enCours ? "Enregistrement…" : `Enregistrer (${lignes.length})`}
+          </button>
+          <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
+            ← Retour
           </button>
         </div>
       </div>
       {erreur && <div className="message-erreur">{erreur}</div>}
       <div className="colonnes-mouvement-groupe">
         <div className="colonne-recherche-groupe">
-          <div className="grille-champs">
+          <div className="ligne-champs-recherche-commande">
             <label>
               Dépôt
               <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
@@ -423,25 +357,48 @@ function FormulaireMouvementGroupe({
               </select>
             </label>
             <label>
+              Type
+              <select value={type} onChange={(e) => setType(e.target.value as TypeMouvement)}>
+                <option value="entree">Entrée</option>
+                <option value="sortie">Sortie</option>
+                <option value="ajustement">Ajustement (correction signée)</option>
+              </select>
+            </label>
+            <label>
               Motif
               <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. Réassort livraison" />
             </label>
-          </div>
 
-          <input
-            placeholder="Rechercher un produit à ajouter…"
-            value={terme}
-            onChange={(e) => setTerme(e.target.value)}
-          />
-          <ul className="resultats-recherche">
-            {resultats.map((v) => (
-              <li key={v.id} onClick={() => ajouterLigne(v)}>
-                <span>
-                  {v.produitNom} {v.reference && `(${v.reference})`}
-                </span>
-              </li>
-            ))}
-          </ul>
+            <div className="recherche-commande-combobox">
+              <input
+                placeholder="Rechercher un article à ajouter…"
+                value={terme}
+                onChange={(e) => setTerme(e.target.value)}
+                onFocus={() => setDropdownOuvert(true)}
+                onBlur={() => setDropdownOuvert(false)}
+              />
+              {terme.trim() && dropdownOuvert && (
+                <ul className="resultats-recherche">
+                  {resultats
+                    .filter((v) => !lignes.some((l) => l.varianteId === v.id))
+                    .map((v) => (
+                      <li
+                        key={v.id}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          ajouterLigne(v);
+                        }}
+                      >
+                        <span>
+                          {v.produitNom} {v.reference && `(${v.reference})`}
+                        </span>
+                      </li>
+                    ))}
+                  {resultats.length === 0 && <li className="liste-vide">Aucun résultat.</li>}
+                </ul>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="colonne-lignes-groupe">
@@ -449,38 +406,49 @@ function FormulaireMouvementGroupe({
             <table className="tableau-catalogue">
               <thead>
                 <tr>
-                  <th>Produit</th>
-                  <th>Quantité</th>
+                  <th className="colonne-numero-groupe">N°</th>
+                  <th>Référence</th>
+                  <th className="col-designation-groupe">Désignation</th>
+                  <th>Quantité {type === "ajustement" && "(± )"}</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
-                {lignes.map((l) => (
+                {lignes.map((l, index) => (
                   <tr key={l.varianteId}>
-                    <td>{l.produitNom}</td>
+                    <td className="colonne-numero-groupe">{index + 1}</td>
+                    <td>{l.reference || ""}</td>
+                    <td className="col-designation-groupe">{l.produitNom}</td>
                     <td>
                       <input
                         type="number"
-                        min={0.01}
+                        min={type === "ajustement" ? undefined : 0.01}
                         step="any"
                         value={l.quantite}
                         onChange={(e) => modifierQuantite(l.varianteId, Number(e.target.value))}
                       />
                     </td>
                     <td>
-                      <button type="button" onClick={() => retirerLigne(l.varianteId)}>
+                      <button
+                        type="button"
+                        className="bouton-retirer-ligne-groupe"
+                        title="Retirer de la liste"
+                        onClick={() => retirerLigne(l.varianteId)}
+                      >
                         ✕
                       </button>
                     </td>
                   </tr>
                 ))}
-                {lignes.length === 0 && (
-                  <tr>
-                    <td colSpan={3} className="liste-vide">
-                      Aucun produit ajouté.
-                    </td>
+                {Array.from({ length: Math.max(0, 10 - lignes.length) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td className="colonne-numero-groupe">&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td className="col-designation-groupe">&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
                   </tr>
-                )}
+                ))}
               </tbody>
             </table>
           </div>
@@ -490,12 +458,20 @@ function FormulaireMouvementGroupe({
   );
 }
 
-function OngletMouvements({ session }: { session: Session }) {
+function OngletMouvements({
+  session,
+  onglet,
+  setOnglet,
+}: {
+  session: Session;
+  onglet: Onglet;
+  setOnglet: (o: Onglet) => void;
+}) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [depots, setDepots] = useState<DepotResume[]>([]);
   const [depotId, setDepotId] = useState(peutGerer ? "" : (session.depotId ?? ""));
   const [mouvements, setMouvements] = useState<MouvementResume[]>([]);
-  const [vue, setVue] = useState<"liste" | "formulaire" | "groupe">("liste");
+  const [vue, setVue] = useState<"liste" | "groupe">("liste");
 
   useEffect(() => {
     api.depots.lister(session.boutiqueId).then(setDepots);
@@ -510,37 +486,25 @@ function OngletMouvements({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [depotId]);
 
-  if (vue === "formulaire") {
-    return (
-      <FormulaireMouvement
-        session={session}
-        depots={depots}
-        onAnnuler={() => setVue("liste")}
-        onCree={() => {
-          setVue("liste");
-          rafraichir();
-        }}
-      />
-    );
-  }
-
-  if (vue === "groupe") {
-    return (
-      <FormulaireMouvementGroupe
-        session={session}
-        depots={depots}
-        onAnnuler={() => setVue("liste")}
-        onCree={() => {
-          setVue("liste");
-          rafraichir();
-        }}
-      />
-    );
-  }
-
   return (
     <div>
-      <div className="barre-actions">
+      {vue === "groupe" && (
+        <div className="fond-modale" onClick={() => setVue("liste")}>
+          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+            <FormulaireMouvementGroupe
+              session={session}
+              depots={depots}
+              onAnnuler={() => setVue("liste")}
+              onCree={() => {
+                setVue("liste");
+                rafraichir();
+              }}
+            />
+          </div>
+        </div>
+      )}
+      <div className="barre-actions barre-actions-avec-onglets">
+        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         {peutGerer ? (
           <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
             <option value="">Tous les dépôts</option>
@@ -555,11 +519,8 @@ function OngletMouvements({ session }: { session: Session }) {
         )}
         {peutGerer && (
           <span className="actions-ligne">
-            <button type="button" onClick={() => setVue("formulaire")}>
+            <button type="button" className="bouton-ajouter-variante" onClick={() => setVue("groupe")}>
               + Nouveau mouvement
-            </button>
-            <button type="button" onClick={() => setVue("groupe")}>
-              + Entrée groupée
             </button>
           </span>
         )}
@@ -569,7 +530,7 @@ function OngletMouvements({ session }: { session: Session }) {
         <thead>
           <tr>
             <th>Date</th>
-            <th>Produit</th>
+            <th>Désignation</th>
             <th>Dépôt</th>
             <th>Type</th>
             <th>Quantité</th>
@@ -596,6 +557,17 @@ function OngletMouvements({ session }: { session: Session }) {
               </td>
             </tr>
           )}
+          {mouvements.length > 0 &&
+            Array.from({ length: Math.max(0, 10 - mouvements.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
         </tbody>
       </table>
       </div>
@@ -604,6 +576,13 @@ function OngletMouvements({ session }: { session: Session }) {
 }
 
 // --- Onglet Transferts ---
+
+interface LigneTransfertGroupe {
+  varianteId: string;
+  produitNom: string;
+  reference: string;
+  quantite: number;
+}
 
 function FormulaireTransfert({
   session,
@@ -616,12 +595,12 @@ function FormulaireTransfert({
   onAnnuler: () => void;
   onCree: () => void;
 }) {
-  const [terme, setTerme] = useState("");
-  const [resultats, setResultats] = useState<VarianteRecherchee[]>([]);
-  const [varianteChoisie, setVarianteChoisie] = useState<VarianteRecherchee | null>(null);
   const [depotSourceId, setDepotSourceId] = useState(depots[0]?.id ?? "");
   const [depotDestinationId, setDepotDestinationId] = useState(depots[1]?.id ?? "");
-  const [quantite, setQuantite] = useState("1");
+  const [terme, setTerme] = useState("");
+  const [resultats, setResultats] = useState<VarianteRecherchee[]>([]);
+  const [dropdownOuvert, setDropdownOuvert] = useState(false);
+  const [lignes, setLignes] = useState<LigneTransfertGroupe[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
 
@@ -636,100 +615,196 @@ function FormulaireTransfert({
     return () => clearTimeout(identifiant);
   }, [terme, session.boutiqueId]);
 
+  function ajouterLigne(variante: VarianteRecherchee) {
+    setLignes((actuel) => {
+      if (actuel.some((l) => l.varianteId === variante.id)) return actuel;
+      return [
+        ...actuel,
+        { varianteId: variante.id, produitNom: variante.produitNom, reference: variante.reference, quantite: 1 },
+      ];
+    });
+  }
+
+  function modifierQuantite(varianteId: string, quantite: number) {
+    setLignes((actuel) => actuel.map((l) => (l.varianteId === varianteId ? { ...l, quantite } : l)));
+  }
+
+  function retirerLigne(varianteId: string) {
+    setLignes((actuel) => actuel.filter((l) => l.varianteId !== varianteId));
+  }
+
   async function soumettre(evenement: React.FormEvent) {
     evenement.preventDefault();
     setErreur(null);
-    if (!varianteChoisie) {
-      setErreur("Choisissez un produit.");
+    if (!depotSourceId || !depotDestinationId) {
+      setErreur("Choisissez les dépôts source et destination.");
+      return;
+    }
+    if (depotSourceId === depotDestinationId) {
+      setErreur("Les dépôts source et destination doivent être différents.");
+      return;
+    }
+    if (lignes.length === 0) {
+      setErreur("Ajoutez au moins un article.");
       return;
     }
     setEnCours(true);
     try {
-      const resultat = await api.transferts.creer({
-        varianteId: varianteChoisie.id,
-        depotSourceId,
-        depotDestinationId,
-        quantite: Number(quantite) || 0,
-        utilisateurId: session.utilisateurId,
-      });
-      if (resultat.succes) onCree();
-      else setErreur(resultat.message);
+      for (const ligne of lignes) {
+        const resultat = await api.transferts.creer({
+          varianteId: ligne.varianteId,
+          depotSourceId,
+          depotDestinationId,
+          quantite: ligne.quantite,
+          utilisateurId: session.utilisateurId,
+        });
+        if (!resultat.succes) {
+          setErreur(`${ligne.produitNom} : ${resultat.message}`);
+          return;
+        }
+      }
+      onCree();
     } finally {
       setEnCours(false);
     }
   }
 
   return (
-    <form onSubmit={soumettre} className="formulaire-catalogue">
-      <h4>Nouveau transfert</h4>
-      {erreur && <div className="message-erreur">{erreur}</div>}
-      {!varianteChoisie ? (
-        <>
-          <input placeholder="Rechercher un produit…" value={terme} onChange={(e) => setTerme(e.target.value)} autoFocus />
-          <ul className="resultats-recherche">
-            {resultats.map((v) => (
-              <li
-                key={v.id}
-                onClick={() => {
-                  setVarianteChoisie(v);
-                  setTerme("");
-                  setResultats([]);
-                }}
-              >
-                <span>
-                  {v.produitNom} {v.reference && `(${v.reference})`}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : (
-        <p>
-          Produit : <strong>{varianteChoisie.produitNom}</strong>{" "}
-          <button type="button" className="lien" onClick={() => setVarianteChoisie(null)}>
-            changer
+    <form onSubmit={soumettre} className="formulaire-mouvement-groupe">
+      <div className="modale-entete entete-fixe">
+        <h3>Nouveau transfert</h3>
+        <div className="actions-formulaire">
+          <button type="submit" disabled={enCours}>
+            {enCours ? "Enregistrement…" : `Transférer (${lignes.length})`}
           </button>
-        </p>
-      )}
-      <div className="grille-champs">
-        <label>
-          Dépôt source
-          <select value={depotSourceId} onChange={(e) => setDepotSourceId(e.target.value)}>
-            {depots.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.nom}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Dépôt destination
-          <select value={depotDestinationId} onChange={(e) => setDepotDestinationId(e.target.value)}>
-            {depots.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.nom}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Quantité
-          <input type="number" min={0.01} step="any" value={quantite} onChange={(e) => setQuantite(e.target.value)} />
-        </label>
+          <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
+            ← Retour
+          </button>
+        </div>
       </div>
-      <div className="actions-formulaire">
-        <button type="button" onClick={onAnnuler}>
-          Annuler
-        </button>
-        <button type="submit" disabled={enCours}>
-          {enCours ? "Transfert…" : "Transférer"}
-        </button>
+      {erreur && <div className="message-erreur">{erreur}</div>}
+      <div className="colonnes-mouvement-groupe">
+        <div className="colonne-recherche-groupe">
+          <div className="ligne-champs-recherche-commande">
+            <label>
+              Dépôt source
+              <select value={depotSourceId} onChange={(e) => setDepotSourceId(e.target.value)}>
+                {depots.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.nom}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Dépôt destination
+              <select value={depotDestinationId} onChange={(e) => setDepotDestinationId(e.target.value)}>
+                {depots.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.nom}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="recherche-commande-combobox">
+              <input
+                placeholder="Rechercher un article à ajouter…"
+                value={terme}
+                onChange={(e) => setTerme(e.target.value)}
+                onFocus={() => setDropdownOuvert(true)}
+                onBlur={() => setDropdownOuvert(false)}
+              />
+              {terme.trim() && dropdownOuvert && (
+                <ul className="resultats-recherche">
+                  {resultats
+                    .filter((v) => !lignes.some((l) => l.varianteId === v.id))
+                    .map((v) => (
+                      <li
+                        key={v.id}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          ajouterLigne(v);
+                        }}
+                      >
+                        <span>
+                          {v.produitNom} {v.reference && `(${v.reference})`}
+                        </span>
+                      </li>
+                    ))}
+                  {resultats.length === 0 && <li className="liste-vide">Aucun résultat.</li>}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="colonne-lignes-groupe">
+          <div className="lignes-groupe-scrollable">
+            <table className="tableau-catalogue">
+              <thead>
+                <tr>
+                  <th className="colonne-numero-groupe">N°</th>
+                  <th>Référence</th>
+                  <th className="col-designation-groupe">Désignation</th>
+                  <th>Quantité</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {lignes.map((l, index) => (
+                  <tr key={l.varianteId}>
+                    <td className="colonne-numero-groupe">{index + 1}</td>
+                    <td>{l.reference || ""}</td>
+                    <td className="col-designation-groupe">{l.produitNom}</td>
+                    <td>
+                      <input
+                        type="number"
+                        min={0.01}
+                        step="any"
+                        value={l.quantite}
+                        onChange={(e) => modifierQuantite(l.varianteId, Number(e.target.value))}
+                      />
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="bouton-retirer-ligne-groupe"
+                        title="Retirer de la liste"
+                        onClick={() => retirerLigne(l.varianteId)}
+                      >
+                        ✕
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {Array.from({ length: Math.max(0, 10 - lignes.length) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td className="colonne-numero-groupe">&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td className="col-designation-groupe">&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </form>
   );
 }
 
-function OngletTransferts({ session }: { session: Session }) {
+function OngletTransferts({
+  session,
+  onglet,
+  setOnglet,
+}: {
+  session: Session;
+  onglet: Onglet;
+  setOnglet: (o: Onglet) => void;
+}) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [depots, setDepots] = useState<DepotResume[]>([]);
   const [transferts, setTransferts] = useState<TransfertResume[]>([]);
@@ -753,30 +828,37 @@ function OngletTransferts({ session }: { session: Session }) {
 
   return (
     <div>
-      {peutGerer && !afficherForm && (
-        <div className="barre-actions">
-          <button type="button" onClick={() => setAfficherForm(true)}>
-            + Nouveau transfert
-          </button>
-        </div>
-      )}
+      <div className="barre-actions barre-actions-avec-onglets">
+        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
+        {peutGerer && !afficherForm && (
+          <span className="actions-ligne">
+            <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherForm(true)}>
+              + Nouveau transfert
+            </button>
+          </span>
+        )}
+      </div>
       {afficherForm && (
-        <FormulaireTransfert
-          session={session}
-          depots={depots}
-          onAnnuler={() => setAfficherForm(false)}
-          onCree={() => {
-            setAfficherForm(false);
-            rafraichir();
-          }}
-        />
+        <div className="fond-modale" onClick={() => setAfficherForm(false)}>
+          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+            <FormulaireTransfert
+              session={session}
+              depots={depots}
+              onAnnuler={() => setAfficherForm(false)}
+              onCree={() => {
+                setAfficherForm(false);
+                rafraichir();
+              }}
+            />
+          </div>
+        </div>
       )}
       <div className="zone-tableau-scroll">
       <table className="tableau-catalogue">
         <thead>
           <tr>
             <th>Date</th>
-            <th>Produit</th>
+            <th>Désignation</th>
             <th>De</th>
             <th>Vers</th>
             <th>Quantité</th>
@@ -801,6 +883,16 @@ function OngletTransferts({ session }: { session: Session }) {
               </td>
             </tr>
           )}
+          {transferts.length > 0 &&
+            Array.from({ length: Math.max(0, 10 - transferts.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
         </tbody>
       </table>
       </div>
@@ -910,29 +1002,30 @@ function DetailInventaire({
   const estValide = inventaire.statut === "valide";
 
   return (
-    <div className="detail-produit">
-      <div className="entete-detail">
+    <>
+      <div className="modale-entete">
         <div className="entete-detail-titre">
           <h3>Inventaire : {inventaire.depotNom}</h3>
           <span className="statut-inline">Statut : {estValide ? "Validé" : "En cours"}</span>
         </div>
         <div className="entete-detail-actions">
           {!estValide && peutGerer && (
-            <button type="button" onClick={valider} disabled={enCours}>
+            <button type="button" className="bouton-primaire" onClick={valider} disabled={enCours}>
               {enCours ? "Validation…" : "Valider l'inventaire"}
             </button>
           )}
           <button type="button" className="lien bouton-retour" onClick={onRetour}>
-            ← Retour à la liste
+            ← Retour
           </button>
         </div>
       </div>
+      <div className="modale-corps">
       {erreur && <div className="message-erreur">{erreur}</div>}
       <div className="zone-tableau-scroll">
       <table className="tableau-catalogue">
         <thead>
           <tr>
-            <th>Produit</th>
+            <th>Désignation</th>
             <th>Référence</th>
             <th>Théorique</th>
             <th>Physique</th>
@@ -952,10 +1045,10 @@ function DetailInventaire({
                 <td>{l.qteTheorique}</td>
                 <td>{l.qtePhysique}</td>
                 <td>{l.ecart}</td>
-                <td>{l.valeurTheorique}</td>
-                <td>{l.valeurPhysique}</td>
-                <td>{l.valeurEcart}</td>
-                <td>{l.caPeriode}</td>
+                <td>{formaterMontant(l.valeurTheorique)}</td>
+                <td>{formaterMontant(l.valeurPhysique)}</td>
+                <td>{formaterMontant(l.valeurEcart)}</td>
+                <td>{formaterMontant(l.caPeriode)}</td>
               </tr>
             ) : (
               <tr key={l.id}>
@@ -963,10 +1056,10 @@ function DetailInventaire({
                 <td>{l.reference || ""}</td>
                 <td>{l.qteTheorique}</td>
                 <LigneInventaireEditable ligne={l} onEnregistrer={enregistrerLigne} />
-                <td>{l.valeurTheorique}</td>
-                <td>{l.valeurPhysique}</td>
-                <td>{l.valeurEcart}</td>
-                <td>{l.caPeriode}</td>
+                <td>{formaterMontant(l.valeurTheorique)}</td>
+                <td>{formaterMontant(l.valeurPhysique)}</td>
+                <td>{formaterMontant(l.valeurEcart)}</td>
+                <td>{formaterMontant(l.caPeriode)}</td>
               </tr>
             ),
           )}
@@ -977,6 +1070,20 @@ function DetailInventaire({
               </td>
             </tr>
           )}
+          {inventaire.lignes.length > 0 &&
+            Array.from({ length: Math.max(0, 10 - inventaire.lignes.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
         </tbody>
         {inventaire.lignes.length > 0 && (
           <tfoot>
@@ -991,11 +1098,20 @@ function DetailInventaire({
         )}
       </table>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 
-function OngletInventaire({ session }: { session: Session }) {
+function OngletInventaire({
+  session,
+  onglet,
+  setOnglet,
+}: {
+  session: Session;
+  onglet: Onglet;
+  setOnglet: (o: Onglet) => void;
+}) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [vue, setVue] = useState<"liste" | "detail">("liste");
   const [inventaires, setInventaires] = useState<InventaireResume[]>([]);
@@ -1036,36 +1152,42 @@ function OngletInventaire({ session }: { session: Session }) {
     }
   }
 
-  if (vue === "detail" && inventaireSelectionneId) {
-    return (
-      <DetailInventaire
-        inventaireId={inventaireSelectionneId}
-        session={session}
-        onRetour={() => {
-          setVue("liste");
-          rafraichir();
-        }}
-      />
-    );
-  }
-
   return (
     <div>
-      {erreur && <div className="message-erreur">{erreur}</div>}
-      {peutGerer && (
-        <div className="barre-actions">
-          <select value={depotChoisi} onChange={(e) => setDepotChoisi(e.target.value)}>
-            {depots.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.nom}
-              </option>
-            ))}
-          </select>
-          <button type="button" onClick={demarrer} disabled={enCours || !depotChoisi}>
-            {enCours ? "Démarrage…" : "Démarrer un inventaire"}
-          </button>
+      {vue === "detail" && inventaireSelectionneId && (
+        <div className="fond-modale" onClick={() => setVue("liste")}>
+          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+            <DetailInventaire
+              inventaireId={inventaireSelectionneId}
+              session={session}
+              onRetour={() => {
+                setVue("liste");
+                rafraichir();
+              }}
+            />
+          </div>
         </div>
       )}
+      {erreur && <div className="message-erreur">{erreur}</div>}
+      <div className="barre-actions barre-actions-avec-onglets">
+        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
+        {peutGerer && (
+          <>
+            <select value={depotChoisi} onChange={(e) => setDepotChoisi(e.target.value)}>
+              {depots.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.nom}
+                </option>
+              ))}
+            </select>
+            <span className="actions-ligne">
+              <button type="button" className="bouton-primaire" onClick={demarrer} disabled={enCours || !depotChoisi}>
+                {enCours ? "Démarrage…" : "Démarrer un inventaire"}
+              </button>
+            </span>
+          </>
+        )}
+      </div>
       <div className="zone-tableau-scroll">
       <table className="tableau-catalogue">
         <thead>
@@ -1096,6 +1218,14 @@ function OngletInventaire({ session }: { session: Session }) {
               </td>
             </tr>
           )}
+          {inventaires.length > 0 &&
+            Array.from({ length: Math.max(0, 10 - inventaires.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
         </tbody>
       </table>
       </div>
@@ -1152,7 +1282,7 @@ function EntreeGroupeeDepuisSelection({
   async function confirmer() {
     setErreur(null);
     if (lignesEditees.length === 0) {
-      setErreur("Aucun produit à enregistrer.");
+      setErreur("Aucun article à enregistrer.");
       return;
     }
     setEnCours(true);
@@ -1186,7 +1316,12 @@ function EntreeGroupeeDepuisSelection({
           <button type="button" onClick={onAnnuler}>
             Annuler
           </button>
-          <button type="button" onClick={confirmer} disabled={enCours || lignesEditees.length === 0}>
+          <button
+            type="button"
+            className="bouton-primaire"
+            onClick={confirmer}
+            disabled={enCours || lignesEditees.length === 0}
+          >
             {enCours ? "Enregistrement…" : "Confirmer l'entrée"}
           </button>
         </div>
@@ -1200,7 +1335,7 @@ function EntreeGroupeeDepuisSelection({
       <table className="tableau-catalogue">
         <thead>
           <tr>
-            <th>Produit</th>
+            <th>Désignation</th>
             <th>Dépôt</th>
             <th>Quantité</th>
             <th>Coût unitaire</th>
@@ -1223,28 +1358,37 @@ function EntreeGroupeeDepuisSelection({
                 />
               </td>
               <td>
-                <input
-                  type="number"
-                  min={0}
-                  step="any"
-                  value={l.prixAchat}
-                  onChange={(e) => modifierLigne(l.varianteId, { prixAchat: Number(e.target.value) })}
+                <ChampMontant
+                  value={String(l.prixAchat)}
+                  onChange={(valeur) => modifierLigne(l.varianteId, { prixAchat: Number(valeur) || 0 })}
                 />
               </td>
               <td>
-                <input
-                  type="number"
-                  min={0}
-                  step="any"
-                  value={l.prixVente}
-                  onChange={(e) => modifierLigne(l.varianteId, { prixVente: Number(e.target.value) })}
+                <ChampMontant
+                  value={String(l.prixVente)}
+                  onChange={(valeur) => modifierLigne(l.varianteId, { prixVente: Number(valeur) || 0 })}
                 />
               </td>
               <td>
-                <button type="button" onClick={() => retirerLigne(l.varianteId)}>
+                <button
+                  type="button"
+                  className="bouton-retirer-ligne-groupe"
+                  title="Retirer de la liste"
+                  onClick={() => retirerLigne(l.varianteId)}
+                >
                   ✕
                 </button>
               </td>
+            </tr>
+          ))}
+          {Array.from({ length: Math.max(0, 10 - lignesEditees.length) }).map((_, i) => (
+            <tr key={`vide-${i}`} className="ligne-groupe-vide">
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
             </tr>
           ))}
         </tbody>
@@ -1257,15 +1401,8 @@ function EntreeGroupeeDepuisSelection({
 // --- Page principale ---
 // Dépôts se gère désormais depuis Réglages (voir Reglages.tsx) — ici on ne
 // fait que les consommer (sélecteurs de filtre par dépôt).
-
-const ONGLETS = [
-  { cle: "stock", label: "Stock" },
-  { cle: "mouvements", label: "Mouvements" },
-  { cle: "transferts", label: "Transferts" },
-  { cle: "inventaire", label: "Inventaire" },
-] as const;
-
-type Onglet = (typeof ONGLETS)[number]["cle"];
+// L'onglet est affiché dans la même ligne que la recherche et les actions de
+// chaque onglet (voir SelecteurOnglet) plutôt que dans une en-tête séparée.
 
 export default function Stock({
   session,
@@ -1293,7 +1430,6 @@ export default function Stock({
   if (entreeGroupeeActive) {
     return (
       <div className="page-produits">
-        <h2>Stock</h2>
         <EntreeGroupeeDepuisSelection
           session={session}
           lignes={lignesEntreeInitiales ?? []}
@@ -1306,23 +1442,19 @@ export default function Stock({
 
   return (
     <div className="page-produits">
-      <div className="entete-page-onglets">
-        <h2>Stock</h2>
-        <div className="barre-onglets">
-          {ONGLETS.map((o) => (
-            <button key={o.cle} className={`onglet ${onglet === o.cle ? "actif" : ""}`} onClick={() => setOnglet(o.cle)}>
-              {o.label}
-            </button>
-          ))}
-        </div>
-      </div>
       <div className="contenu-onglet">
         {onglet === "stock" && (
-          <OngletStockNiveau session={session} filtreRuptureInitial={filtreRuptureInitial} onCommander={onCommander} />
+          <OngletStockNiveau
+            session={session}
+            filtreRuptureInitial={filtreRuptureInitial}
+            onCommander={onCommander}
+            onglet={onglet}
+            setOnglet={setOnglet}
+          />
         )}
-        {onglet === "mouvements" && <OngletMouvements session={session} />}
-        {onglet === "transferts" && <OngletTransferts session={session} />}
-        {onglet === "inventaire" && <OngletInventaire session={session} />}
+        {onglet === "mouvements" && <OngletMouvements session={session} onglet={onglet} setOnglet={setOnglet} />}
+        {onglet === "transferts" && <OngletTransferts session={session} onglet={onglet} setOnglet={setOnglet} />}
+        {onglet === "inventaire" && <OngletInventaire session={session} onglet={onglet} setOnglet={setOnglet} />}
       </div>
     </div>
   );

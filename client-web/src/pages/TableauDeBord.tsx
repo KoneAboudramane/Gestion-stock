@@ -251,15 +251,17 @@ export default function TableauDeBord({ session }: { session: Session }) {
             <table className="tableau-catalogue">
               <thead>
                 <tr>
-                  <th>Produit</th>
+                  <th>N°</th>
+                  <th>Désignation</th>
                   <th>Dépôt</th>
                   <th>Quantité</th>
                   <th>Seuil</th>
                 </tr>
               </thead>
               <tbody>
-                {ruptures.slice(0, 5).map((l) => (
+                {ruptures.slice(0, 5).map((l, index) => (
                   <tr key={l.id}>
+                    <td>{index + 1}</td>
                     <td>{l.produitNom}</td>
                     <td>{l.depotNom}</td>
                     <td>{l.quantite}</td>
@@ -268,7 +270,7 @@ export default function TableauDeBord({ session }: { session: Session }) {
                 ))}
                 {ruptures.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="liste-vide">
+                    <td colSpan={5} className="liste-vide">
                       Aucune rupture de stock.
                     </td>
                   </tr>
@@ -308,14 +310,16 @@ export default function TableauDeBord({ session }: { session: Session }) {
             <table className="tableau-catalogue">
               <thead>
                 <tr>
+                  <th>N°</th>
                   <th>Client</th>
                   <th>Ventes</th>
                   <th>CA généré</th>
                 </tr>
               </thead>
               <tbody>
-                {meilleursClients.map((c) => (
+                {meilleursClients.map((c, index) => (
                   <tr key={c.clientId}>
+                    <td>{index + 1}</td>
                     <td>{c.clientNom}</td>
                     <td>{c.nombreVentes}</td>
                     <td>
@@ -325,7 +329,7 @@ export default function TableauDeBord({ session }: { session: Session }) {
                 ))}
                 {meilleursClients.length === 0 && (
                   <tr>
-                    <td colSpan={3} className="liste-vide">
+                    <td colSpan={4} className="liste-vide">
                       Aucune vente à un client identifié sur la période.
                     </td>
                   </tr>

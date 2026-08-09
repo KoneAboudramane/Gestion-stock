@@ -6,7 +6,7 @@ from .models import Client, Credit, PaiementCredit
 class ClientSerializer(serializers.ModelSerializer):
     class Meta:
         model = Client
-        fields = ["id", "nom", "telephone", "adresse"]
+        fields = ["id", "nom", "telephone", "adresse", "est_permanent"]
         read_only_fields = ["id"]
 
 

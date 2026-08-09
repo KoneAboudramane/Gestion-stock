@@ -17,11 +17,41 @@ function versEntier(valeur: boolean | number | undefined, defaut: number): numbe
   return typeof valeur === "boolean" ? (valeur ? 1 : 0) : valeur;
 }
 
+// --- Référence automatique ---
+// Générée seulement si le champ est laissé vide par l'utilisateur (voir
+// FormulaireProduit) : REF-000001, REF-000002, ... par boutique, comptée sur
+// toutes les variantes déjà créées (y compris supprimées) pour rester unique.
+function genererReferenceProduit(boutiqueId: string): string {
+  const resultat = unResultat<{ n: number }>(
+    "SELECT COUNT(*) as n FROM variantes v JOIN produits p ON p.id = v.produit_id WHERE p.boutique_id = ?",
+    [boutiqueId],
+  );
+  const compteur = (resultat ? Number(resultat.n) : 0) + 1;
+  return `REF-${String(compteur).padStart(6, "0")}`;
+}
+
+// Exposée pour l'aperçu côté UI (tableau "Plusieurs produits") : donne la
+// référence qui sera assignée au prochain produit créé, sans rien écrire en
+// base. Reste correcte tant qu'aucune autre création ne s'intercale (usage
+// mono-utilisateur, session d'ajout groupé courte).
+export function prochaineReferenceProduit(boutiqueId: string): string {
+  return genererReferenceProduit(boutiqueId);
+}
+
+function boutiqueIdDuProduit(produitId: string): string {
+  const resultat = unResultat<{ boutiqueId: string }>("SELECT boutique_id as boutiqueId FROM produits WHERE id = ?", [
+    produitId,
+  ]);
+  if (!resultat) throw new ErreurProduit("Produit introuvable.");
+  return resultat.boutiqueId;
+}
+
 // --- Produits ---
 
 export interface ProduitResume {
   id: string;
   nom: string;
+  reference: string | null;
   categorieNom: string | null;
   actif: number;
   prixVente: number | null;
@@ -33,7 +63,7 @@ export interface ProduitResume {
 export function listerProduits(boutiqueId: string, terme = ""): ProduitResume[] {
   const motif = `%${terme}%`;
   return tousLesResultats<ProduitResume>(
-    `SELECT p.id as id, p.nom as nom, c.nom as categorieNom, p.actif as actif,
+    `SELECT p.id as id, p.nom as nom, v.reference as reference, c.nom as categorieNom, p.actif as actif,
             v.prix_vente as prixVente, v.prix_achat as prixAchat, p.date_creation as dateCreation,
             CASE WHEN EXISTS (
               SELECT 1 FROM stocks s
@@ -59,6 +89,7 @@ export interface VarianteDetail {
   prixVente: number;
   seuilAlerte: number;
   actif: number;
+  quantiteStock: number;
   valeurs: string[];
 }
 
@@ -66,7 +97,9 @@ export interface ProduitDetail {
   id: string;
   nom: string;
   categorieId: string | null;
+  categorieNom: string | null;
   uniteId: string | null;
+  uniteNom: string | null;
   description: string;
   actif: number;
   variantes: VarianteDetail[];
@@ -74,14 +107,20 @@ export interface ProduitDetail {
 
 export function obtenirProduit(id: string): ProduitDetail | undefined {
   const produit = unResultat<Omit<ProduitDetail, "variantes">>(
-    "SELECT id, nom, categorie_id as categorieId, unite_id as uniteId, description, actif FROM produits WHERE id = ? AND supprime = 0",
+    `SELECT p.id as id, p.nom as nom, p.categorie_id as categorieId, c.nom as categorieNom,
+            p.unite_id as uniteId, u.nom as uniteNom, p.description as description, p.actif as actif
+     FROM produits p
+     LEFT JOIN categories c ON c.id = p.categorie_id
+     LEFT JOIN unites u ON u.id = p.unite_id
+     WHERE p.id = ? AND p.supprime = 0`,
     [id],
   );
   if (!produit) return undefined;
 
   const variantesBrutes = tousLesResultats<Omit<VarianteDetail, "valeurs">>(
     `SELECT id, reference, code_barres as codeBarres, prix_achat as prixAchat, prix_vente as prixVente,
-            seuil_alerte as seuilAlerte, actif
+            seuil_alerte as seuilAlerte, actif,
+            (SELECT COALESCE(SUM(quantite), 0) FROM stocks WHERE variante_id = variantes.id) as quantiteStock
      FROM variantes WHERE produit_id = ? AND supprime = 0 ORDER BY date_creation`,
     [id],
   );
@@ -140,11 +179,12 @@ export function creerProduit(params: ParametresProduit): { produitId: string; va
     );
 
     const varianteId = randomUUID();
+    const referenceFinale = reference.trim() || genererReferenceProduit(boutiqueId);
     executer(
       `INSERT INTO variantes
          (id, produit_id, reference, code_barres, prix_achat, prix_vente, seuil_alerte, actif, date_creation, date_modification)
        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-      [varianteId, produitId, reference, codeBarres, prixAchat, prixVente, seuilAlerte, maintenant, maintenant],
+      [varianteId, produitId, referenceFinale, codeBarres, prixAchat, prixVente, seuilAlerte, maintenant, maintenant],
     );
 
     return { produitId, varianteId };
@@ -245,11 +285,12 @@ export function creerVariante(params: ParametresVarianteEntree): string {
   const varianteId = dansUneTransaction(() => {
     const maintenant = new Date().toISOString();
     const id = randomUUID();
+    const referenceFinale = reference.trim() || genererReferenceProduit(boutiqueIdDuProduit(produitId));
     executer(
       `INSERT INTO variantes
          (id, produit_id, reference, code_barres, prix_achat, prix_vente, seuil_alerte, actif, date_creation, date_modification)
        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-      [id, produitId, reference, codeBarres, prixAchat, prixVente, seuilAlerte, maintenant, maintenant],
+      [id, produitId, referenceFinale, codeBarres, prixAchat, prixVente, seuilAlerte, maintenant, maintenant],
     );
     remplacerValeursVariante(id, valeurAttributIds, maintenant);
     return id;

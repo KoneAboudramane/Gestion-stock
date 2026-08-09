@@ -39,6 +39,14 @@
 
   --degrade-primaire: linear-gradient(135deg, var(--couleur-primaire), var(--couleur-accent));
   --degrade-succes: linear-gradient(135deg, var(--succes), var(--succes-fonce));
+
+  /* Alias pour réutiliser directement des blocs CSS de client-electron/src/index.css
+     (Caisse, Facture) sans les réécrire — mêmes valeurs que ce que ce fichier
+     utilise déjà en dur (white / --gris-200 / --gris-300). */
+  --surface: #ffffff;
+  --surface-entete: color-mix(in srgb, var(--surface), var(--gris-300) 35%);
+  --bordure-tableau: var(--gris-200);
+  --bordure-tableau-forte: var(--gris-300);
 }
 
 * {
@@ -471,6 +479,63 @@ input[type="number"]::-webkit-outer-spin-button {
   flex-direction: column;
   padding: 1.5rem 0.85rem;
   overflow: hidden;
+  transition: width var(--transition), padding var(--transition);
+  flex-shrink: 0;
+}
+
+.barre-laterale.reduite {
+  width: 72px;
+  padding-left: 0.45rem;
+  padding-right: 0.45rem;
+}
+
+.bouton-reduire-barre {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  color: #cbd5e1;
+  font-size: 0.9rem;
+  line-height: 1;
+  transition: background var(--transition), color var(--transition);
+}
+
+.barre-laterale .bouton-reduire-barre:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: white;
+}
+
+.barre-laterale.reduite .logo {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.barre-laterale.reduite .texte-logo {
+  display: none;
+}
+
+.barre-laterale.reduite .item-nav {
+  justify-content: center;
+  padding: 0.62rem;
+}
+
+.barre-laterale.reduite .item-nav-libelle {
+  gap: 0;
+}
+
+.barre-laterale.reduite .texte-nav,
+.barre-laterale.reduite .badge {
+  display: none;
+}
+
+.barre-laterale.reduite .texte-deconnexion {
+  display: none;
 }
 
 .barre-laterale::before {
@@ -496,6 +561,12 @@ input[type="number"]::-webkit-outer-spin-button {
   font-size: 1.1rem;
   letter-spacing: -0.01em;
   color: white;
+  white-space: nowrap;
+}
+
+.texte-logo {
+  flex: 1;
+  min-width: 0;
 }
 
 .logo-boutique-entete {
@@ -528,6 +599,7 @@ input[type="number"]::-webkit-outer-spin-button {
   align-items: center;
   font-size: 0.87rem;
   font-weight: 500;
+  white-space: nowrap;
   transition: background var(--transition), color var(--transition), transform var(--transition);
 }
 
@@ -653,6 +725,11 @@ input[type="number"]::-webkit-outer-spin-button {
   padding: 0.55rem;
   border-radius: 10px;
   font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  white-space: nowrap;
 }
 
 .lien-deconnexion:hover:not(:disabled) {
@@ -772,9 +849,11 @@ input[type="number"]::-webkit-outer-spin-button {
 
   .barre-laterale nav {
     flex-direction: row;
-    /* 4x la part de .lien-deconnexion (flex:1 juste après) : les 5 destinations
-       (4 onglets + déconnexion) se partagent la largeur à parts égales. */
-    flex: 4;
+    /* 12x la part de .lien-deconnexion (flex:1 juste après) : les 13 destinations
+       au maximum (12 onglets + déconnexion, "Achats" n'étant visible que pour
+       les comptes avec la permission gerer_produits_stock_achats) se
+       partagent la largeur à parts égales. */
+    flex: 12;
     gap: 0.15rem;
   }
 
@@ -1022,6 +1101,10 @@ input[type="number"]::-webkit-outer-spin-button {
 
 .tableau-panier tbody tr:hover {
   background: var(--couleur-primaire-clair);
+}
+
+.tableau-panier tbody tr.ligne-groupe-vide:hover {
+  background: none;
 }
 
 .tableau-panier input {
@@ -1409,11 +1492,88 @@ input.champ-invalide:focus {
   padding: 0.2rem 0;
 }
 
+/* Bloc manquant côté web (jamais porté depuis client-electron/src/index.css) :
+   sans lui, .champ-recherche (1rem/0.65rem de base) étire par flex-stretch
+   toute la ligne .barre-actions-avec-onglets à ~62px, et les boutons "+ Nouveau…"
+   suivent avec elle — d'où leur taille disproportionnée sur Produits/Clients/Achats. */
+.barre-actions-avec-onglets {
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+.barre-actions-avec-onglets .barre-onglets {
+  padding: 0.15rem;
+  margin-bottom: 0;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.barre-actions-avec-onglets .onglet {
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+}
+
+.barre-actions-avec-onglets .champ-recherche {
+  flex: 1 1 420px;
+  max-width: 420px;
+  min-width: 100px;
+  height: 30px;
+  font-size: 0.72rem;
+  padding: 0 0.6rem;
+}
+
+.barre-actions-avec-onglets .actions-ligne,
+.barre-actions-avec-onglets .formulaire-inline {
+  flex-shrink: 0;
+}
+
+.barre-actions-avec-onglets .actions-ligne button {
+  height: 30px;
+  font-size: 0.78rem;
+  padding: 0 0.7rem;
+}
+
+.barre-actions-avec-onglets .formulaire-inline button {
+  height: 30px;
+  font-size: 0.72rem;
+  padding: 0 0.7rem;
+}
+
+.barre-actions-avec-onglets .formulaire-inline input {
+  height: 30px;
+  font-size: 0.72rem;
+  padding: 0 0.6rem;
+}
+
+.barre-actions-avec-onglets > select {
+  flex-shrink: 0;
+  height: 30px;
+  font-size: 0.72rem;
+  padding: 0 0.6rem;
+}
+
+.barre-actions-avec-onglets .case-a-cocher {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+}
+
+.barre-actions-avec-onglets > input[type="date"] {
+  flex-shrink: 0;
+  height: 30px;
+  font-size: 0.72rem;
+  padding: 0 0.5rem;
+}
+
 .tableau-catalogue {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   background: white;
+  border: 1px solid var(--gris-300);
   border-radius: var(--rayon-md);
   overflow: hidden;
   box-shadow: var(--ombre-md);
@@ -1428,7 +1588,15 @@ input.champ-invalide:focus {
   font-weight: 700;
   padding: 0.75rem 0.9rem;
   background: var(--gris-50);
-  border-bottom: 1px solid var(--gris-200);
+  border-bottom: 1px solid var(--gris-300);
+  border-right: 1px solid var(--gris-300);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.tableau-catalogue th:last-child {
+  border-right: none;
 }
 
 .tableau-catalogue th.th-triable {
@@ -1445,12 +1613,6 @@ input.champ-invalide:focus {
 
 .zone-tableau-scroll .tableau-catalogue {
   overflow: visible;
-}
-
-.zone-tableau-scroll .tableau-catalogue th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
 }
 
 .zone-tableau-scroll .ligne-total-inventaire td {
@@ -1479,8 +1641,13 @@ input.champ-invalide:focus {
 
 .tableau-catalogue td {
   padding: 0.7rem 0.9rem;
-  border-bottom: 1px solid var(--gris-100);
+  border-bottom: 1px solid var(--gris-300);
+  border-right: 1px solid var(--gris-300);
   font-size: 0.875rem;
+}
+
+.tableau-catalogue td:last-child {
+  border-right: none;
 }
 
 .tableau-catalogue td button {
@@ -1499,6 +1666,13 @@ input.champ-invalide:focus {
 
 .tableau-catalogue tbody tr:last-child td {
   border-bottom: none;
+}
+
+/* Lignes vides qui tracent d'avance la grille d'un tableau "liste groupée"
+   (Produits/Clients/Fournisseurs) — purement visuelles, pas interactives. */
+.tableau-catalogue tbody tr.ligne-groupe-vide:hover {
+  background: none;
+  cursor: default;
 }
 
 .liste-vide {
@@ -1607,7 +1781,11 @@ input.champ-invalide:focus {
   padding: 1.4rem;
   border-radius: var(--rayon-lg);
   box-shadow: var(--ombre-md);
-  max-width: 900px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  flex: 1;
+  min-height: 0;
 }
 
 .formulaire-mouvement-groupe label {
@@ -1619,10 +1797,11 @@ input.champ-invalide:focus {
 }
 
 .colonnes-mouvement-groupe {
-  display: grid;
-  grid-template-columns: minmax(280px, 0.7fr) minmax(320px, 1.6fr);
-  gap: 1.75rem;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-height: 0;
+  flex: 1;
 }
 
 .colonne-recherche-groupe,
@@ -1631,6 +1810,11 @@ input.champ-invalide:focus {
   flex-direction: column;
   gap: 0.75rem;
   min-width: 0;
+}
+
+.colonne-lignes-groupe {
+  flex: 1;
+  min-height: 0;
 }
 
 .colonne-recherche-groupe select,
@@ -1659,19 +1843,15 @@ input.champ-invalide:focus {
 }
 
 .lignes-groupe-scrollable {
-  max-height: 320px;
+  max-height: none;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
 .lignes-groupe-scrollable .tableau-catalogue {
   overflow: visible;
-}
-
-.lignes-groupe-scrollable .tableau-catalogue th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
 }
 
 .lignes-groupe-scrollable .tableau-catalogue td input[type="number"] {
@@ -1691,6 +1871,8 @@ input.champ-invalide:focus {
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
+  flex: 1;
+  min-height: 0;
 }
 
 .formulaire-produits-groupe label {
@@ -1735,7 +1917,7 @@ input.champ-invalide:focus {
 }
 
 .ajout-produit-groupe {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .ajout-produit-groupe label {
@@ -1748,15 +1930,27 @@ input.champ-invalide:focus {
   width: 100%;
 }
 
-.ajout-produit-groupe label:first-child {
-  grid-column: 1 / -1;
+.bouton-ajouter-produit-groupe {
+  align-self: end;
+  background: var(--degrade-primaire);
+  border-color: transparent;
+  color: white;
+  box-shadow: 0 8px 18px -8px rgba(37, 99, 235, 0.55);
 }
 
+.bouton-ajouter-produit-groupe:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--couleur-primaire-fonce), #163d5c);
+}
+
+/* Empilé verticalement (champs en haut, tableau en bas qui remplit le reste) —
+   pas côte à côte : voir client-electron/src/index.css, seule disposition qui
+   remplit correctement un modal de hauteur fixe (88vh) sans espace mort. */
 .colonnes-produits-groupe {
-  display: grid;
-  grid-template-columns: minmax(320px, 1fr) minmax(320px, 1.2fr);
-  gap: 1.75rem;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-height: 0;
+  flex: 1;
 }
 
 .colonne-ajout-produit,
@@ -1767,10 +1961,14 @@ input.champ-invalide:focus {
   min-width: 0;
 }
 
-@media (max-width: 900px) {
-  .colonnes-produits-groupe {
-    grid-template-columns: 1fr;
-  }
+.colonne-liste-produits {
+  flex: 1;
+  min-height: 0;
+}
+
+.colonne-liste-produits .tableau-produits-groupe-scroll {
+  flex: 1;
+  max-height: none;
 }
 
 .formulaire-produit {
@@ -2226,4 +2424,1164 @@ input.champ-invalide:focus {
 
 .page-produits .detail-produit h3 {
   margin-top: 0;
+}
+
+/* .entete est blanc côté client-web (contrairement au header sombre
+   d'Electron) : couleurs adaptées plutôt que reprises telles quelles. */
+.barre-synchro {
+  font-size: 0.8rem;
+  color: var(--gris-600);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.point {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transition: background var(--transition);
+}
+
+.point-hors-ligne {
+  background: var(--avertissement);
+}
+
+.point-en-ligne {
+  background: var(--succes);
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
+}
+
+.bouton-synchro {
+  margin-left: 0.6rem;
+  font-size: 0.75rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--rayon-sm);
+  border: 1px solid var(--gris-300);
+  background: white;
+  color: var(--couleur-primaire-fonce);
+}
+
+.bouton-synchro:disabled {
+  color: var(--gris-400);
+}
+
+/* ==========================================================================
+   Caisse + Facture (port de client-electron/src/index.css) — voir le plan
+   PWA Caisse hors-ligne. Classes reprises telles quelles pour rester fidèles
+   à l'original déjà réglé visuellement ; --surface/--surface-entete/
+   --bordure-tableau(-forte) sont des alias déclarés dans :root ci-dessus.
+   ========================================================================== */
+
+.fond-modale {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  z-index: 50;
+}
+
+/* Dimension fixe, identique pour tous les modals de l'app — ne doit pas
+   varier selon le contenu (tableau vide ou rempli). */
+.modale-selection-produits {
+  display: flex;
+  flex-direction: column;
+  width: 1120px;
+  max-width: 95vw;
+  height: 88vh;
+  min-height: 0;
+  background: var(--surface);
+  border-radius: var(--rayon-lg);
+  box-shadow: var(--ombre-lg);
+  overflow: hidden;
+}
+
+.ajustements-modale {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  flex-shrink: 0;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid var(--bordure-tableau);
+}
+
+.ajustements-modale-corps {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.ajustements-modale-corps .bouton-valider {
+  flex-shrink: 0;
+  padding: 0.5rem 1rem;
+  font-size: 0.82rem;
+}
+
+.ajustements-modale-corps .remise-globale-entete {
+  flex: 0 0 auto;
+  max-width: 320px;
+}
+
+.ajustements-modale-corps .bloc-total-net {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.modale-entete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--bordure-tableau);
+  flex-shrink: 0;
+}
+
+.modale-entete h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.modale-corps {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 0.9rem;
+  padding: 1rem 1.4rem 1.4rem;
+  min-height: 0;
+}
+
+.modale-corps .champ-recherche {
+  width: 60%;
+  font-size: 0.82rem;
+  padding: 0.5rem 0.7rem;
+}
+
+.ligne-recherche-monnaie {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+}
+
+.ligne-recherche-monnaie .champ-recherche {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.ligne-recherche-monnaie .calculette-monnaie {
+  flex: 0 0 auto;
+  width: auto;
+  margin-left: auto;
+}
+
+.bouton-primaire {
+  background: var(--degrade-primaire);
+  border-color: transparent;
+  color: white;
+  box-shadow: 0 8px 18px -8px rgba(37, 99, 235, 0.55);
+}
+
+.bouton-primaire:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--couleur-primaire-fonce), #163d5c);
+}
+
+.lien-icone-danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.lien-icone-danger:hover:not(:disabled) {
+  background: var(--danger);
+  color: white;
+}
+
+.caisse {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 1fr;
+  gap: 1.5rem;
+  height: 100%;
+  min-height: 0;
+}
+
+.carte-caisse-principale {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0;
+  background: #f2d9a8;
+  padding: 0.8rem 0.9rem;
+  border-radius: var(--rayon-lg);
+  box-shadow: var(--ombre-md);
+}
+
+.colonne-caisse {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 0.8rem;
+  padding: 0 1.4rem;
+}
+
+.colonne-caisse:first-child {
+  padding-left: 0;
+}
+
+.colonne-caisse:not(:last-child) {
+  border-right: 1px solid var(--bordure-tableau);
+}
+
+.titre-colonne-caisse {
+  margin: 0;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--couleur-primaire-fonce);
+  font-weight: 700;
+}
+
+.colonne-recherche-vente {
+  flex: 1.3 1 240px;
+}
+
+.colonne-modes-paiement {
+  flex: 1.1 1 200px;
+  max-width: 290px;
+}
+
+.colonne-totaux {
+  flex: 0 0 auto;
+  margin-left: auto;
+  align-items: flex-end;
+  justify-content: flex-start;
+}
+
+.recherche-produit-combobox {
+  position: relative;
+  width: 100%;
+}
+
+.recherche-produit-combobox .champ-recherche {
+  width: 100%;
+  font-size: 0.85rem;
+  padding-top: 0.45rem;
+  padding-bottom: 0.45rem;
+  padding-right: 0.6rem;
+}
+
+.recherche-produit-combobox .champ-recherche-avec-bouton {
+  padding-left: 3.6rem;
+}
+
+.bouton-ajouter-produit-dans-champ {
+  position: absolute;
+  top: 50%;
+  left: 0.4rem;
+  transform: translateY(-50%);
+  z-index: 1;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--rayon-sm);
+  background: var(--degrade-primaire);
+  color: white;
+  font-size: 1.4rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.recherche-produit-combobox .bouton-ajouter-produit-dans-champ:hover:not(:disabled) {
+  transform: translateY(-50%);
+  background: var(--degrade-primaire);
+  border-color: transparent;
+  color: white;
+  filter: brightness(1.08);
+}
+
+.suggestions-produit-recherche {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  margin: 0.3rem 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--surface);
+  border: 1px solid var(--bordure-tableau-forte);
+  border-radius: var(--rayon-md);
+  box-shadow: var(--ombre-lg);
+}
+
+.suggestions-produit-recherche li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--bordure-tableau);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.suggestions-produit-recherche li:last-child {
+  border-bottom: none;
+}
+
+.suggestions-produit-recherche li:hover {
+  background: var(--couleur-primaire-clair);
+}
+
+.suggestions-produit-recherche li.ligne-rupture {
+  opacity: 0.6;
+}
+
+.suggestion-produit-details {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: var(--gris-500);
+  white-space: nowrap;
+}
+
+.suggestion-produit-vide {
+  padding: 0.75rem 0.9rem;
+  color: var(--gris-400);
+  cursor: default;
+}
+
+.colonne-totaux .bouton-valider {
+  align-self: flex-end;
+  padding: 0.5rem 1rem;
+  font-size: 0.82rem;
+}
+
+.colonne-totaux .boutons-validation {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: auto;
+}
+
+.bouton-annuler-vente {
+  align-self: flex-start;
+  margin-top: auto;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.68rem;
+  background: var(--danger);
+  border-color: transparent;
+  color: white;
+}
+
+.bouton-annuler-vente:hover:not(:disabled) {
+  background: var(--danger-fonce);
+}
+
+.remise-globale-entete {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  font-size: 0.85rem;
+  color: var(--gris-700);
+}
+
+.bloc-total-net {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+}
+
+.catalogue-caisse {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  padding-right: 0.3rem;
+}
+
+.catalogue-caisse .tableau-catalogue {
+  table-layout: fixed;
+  overflow: visible;
+}
+
+.catalogue-caisse .tableau-catalogue th:nth-child(1),
+.catalogue-caisse .tableau-catalogue td:nth-child(1) {
+  width: 5%;
+}
+
+.catalogue-caisse .tableau-catalogue th:nth-child(2),
+.catalogue-caisse .tableau-catalogue td:nth-child(2) {
+  width: 13%;
+}
+
+.catalogue-caisse .tableau-catalogue th:nth-child(3),
+.catalogue-caisse .tableau-catalogue td:nth-child(3) {
+  width: 27%;
+}
+
+.catalogue-clients-reguliers .tableau-catalogue th:nth-child(1),
+.catalogue-clients-reguliers .tableau-catalogue td:nth-child(1) {
+  width: 5%;
+}
+
+.catalogue-clients-reguliers .tableau-catalogue th:nth-child(2),
+.catalogue-clients-reguliers .tableau-catalogue td:nth-child(2) {
+  width: 42%;
+}
+
+.catalogue-clients-reguliers .tableau-catalogue th:nth-child(3),
+.catalogue-clients-reguliers .tableau-catalogue td:nth-child(3) {
+  width: 24%;
+}
+
+.catalogue-clients-reguliers .tableau-catalogue th:nth-child(4),
+.catalogue-clients-reguliers .tableau-catalogue td:nth-child(4) {
+  width: 29%;
+}
+
+.catalogue-caisse .tableau-catalogue input {
+  width: 90px;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.78rem;
+}
+
+.catalogue-caisse .tableau-catalogue .champ-quantite {
+  width: 60px;
+}
+
+.qte-selection-controle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.bouton-deselection {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: var(--danger);
+  color: white;
+  border-radius: 50%;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.bouton-deselection:hover:not(:disabled) {
+  background: var(--danger-fonce);
+}
+
+.catalogue-caisse .tableau-catalogue tbody tr:hover {
+  background: linear-gradient(90deg, var(--couleur-primaire-clair), white);
+}
+
+.catalogue-caisse .tableau-catalogue tbody tr.ligne-rupture {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.catalogue-caisse .tableau-catalogue tbody tr.ligne-selectionnee {
+  background: var(--couleur-primaire-clair);
+}
+
+.catalogue-caisse .tableau-catalogue tbody tr.ligne-selectionnee:hover {
+  background: var(--couleur-primaire-clair);
+}
+
+.catalogue-caisse .tableau-catalogue tbody tr.ligne-rupture:hover {
+  background: none;
+}
+
+.catalogue-caisse .tableau-catalogue tbody tr.ligne-groupe-vide:hover {
+  background: none;
+  cursor: default;
+}
+
+.catalogue-caisse .tableau-catalogue tbody tr:focus-visible {
+  outline: 2px solid var(--couleur-primaire);
+  outline-offset: -2px;
+}
+
+.colonne-panier {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  border-radius: var(--rayon-lg);
+  padding: 0.9rem;
+  background: var(--surface);
+  box-shadow: var(--ombre-md);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.panier-scrollable {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.tableau-panier {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--bordure-tableau-forte);
+  border-radius: var(--rayon-md);
+  overflow: hidden;
+}
+
+/* Le sticky du thead se réfère à l'ancêtre scrollable le plus proche qui a un
+   overflow différent de "visible" — l'overflow:hidden ci-dessus (pour arrondir
+   les coins) rend la table elle-même cette référence au lieu de
+   .panier-scrollable, ce qui casse le collage de l'en-tête au défilement. */
+.panier-scrollable .tableau-panier {
+  overflow: visible;
+}
+
+.tableau-panier th:nth-child(1),
+.tableau-panier td:nth-child(1) {
+  width: 3%;
+}
+
+.tableau-panier th:nth-child(2),
+.tableau-panier td:nth-child(2) {
+  width: 12%;
+}
+
+.tableau-panier th:nth-child(3),
+.tableau-panier td:nth-child(3) {
+  width: 40%;
+}
+
+.tableau-panier th {
+  text-align: left;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--gris-600);
+  font-weight: 700;
+  padding: 0.5rem 0.4rem;
+  border-bottom: 2px solid var(--bordure-tableau-forte);
+  border-right: 1px solid var(--bordure-tableau);
+  position: sticky;
+  top: 0;
+  background: var(--surface-entete);
+  z-index: 1;
+}
+
+.tableau-panier th:last-child {
+  border-right: none;
+}
+
+.tableau-panier td {
+  padding: 0.5rem 0.4rem;
+  border-bottom: 1px solid var(--bordure-tableau);
+  border-right: 1px solid var(--bordure-tableau);
+}
+
+.tableau-panier td:last-child {
+  border-right: none;
+}
+
+.tableau-panier tbody tr {
+  transition: background var(--transition);
+}
+
+.tableau-panier tbody tr:hover {
+  background: var(--couleur-primaire-clair);
+}
+
+.tableau-panier tbody tr.ligne-groupe-vide:hover {
+  background: none;
+}
+
+.tableau-panier input {
+  width: 80px;
+}
+
+.tableau-panier .champ-quantite {
+  width: 50px;
+}
+
+.tableau-panier .colonne-supprimer {
+  width: 32px;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.panier-vide {
+  text-align: center;
+  color: var(--gris-400);
+  height: 420px;
+  padding: 1.5rem !important;
+}
+
+.total-brut-inline {
+  align-self: flex-end;
+  font-size: 0.85rem;
+  color: var(--gris-500);
+}
+
+.champ-remise-globale {
+  display: flex;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.champ-remise-globale input {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.72rem;
+}
+
+.champ-remise-globale select {
+  flex: 0 0 76px;
+  min-width: 0;
+  padding-left: 0.3rem;
+  padding-right: 1.1rem;
+  padding-top: 0.15rem;
+  padding-bottom: 0.15rem;
+  font-size: 0.68rem;
+}
+
+.creation-client-rapide {
+  margin: 0.2rem 0 0;
+  padding: 0.75rem;
+  background: var(--surface-entete);
+  border: 1px solid var(--bordure-tableau);
+  border-radius: var(--rayon-md);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.champs-client-occasionnel {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.champs-client-occasionnel input {
+  flex: 1;
+  min-width: 0;
+}
+
+.champ-telephone-avec-aide {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.champ-telephone-avec-aide input {
+  width: 100%;
+}
+
+.creation-client-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.total-net-entete {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  font-weight: 800;
+  font-size: 1.6rem;
+  color: var(--couleur-primaire-fonce);
+  background: #ffffff;
+  border: 2px solid var(--couleur-primaire-fonce);
+  padding: 0.4rem 1.1rem;
+  border-radius: var(--rayon-md);
+  white-space: nowrap;
+}
+
+.total-net-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--couleur-primaire);
+}
+
+.total-net-montant {
+  display: inline-block;
+  min-width: 16ch;
+  font-size: 1.6rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.bloc-paiement {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.bloc-paiement > label {
+  width: 60px;
+  flex-shrink: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--gris-900);
+}
+
+.bloc-paiement > input {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8rem;
+  padding: 0.3rem 0.5rem;
+}
+
+.bouton-choisir-client {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 0.42rem 0.6rem;
+  border: 1px solid var(--bordure-tableau);
+  background: var(--surface);
+  color: var(--couleur-primaire-fonce);
+}
+
+.ligne-mobile-money {
+  display: flex;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.ligne-mobile-money select {
+  flex: 0 0 114px;
+  min-width: 0;
+  padding-left: 0.4rem;
+  padding-right: 0.6rem;
+  font-size: 0.72rem;
+}
+
+.ligne-mobile-money input {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8rem;
+  padding: 0.3rem 0.5rem;
+}
+
+.calculette-monnaie {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.calculette-monnaie input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.25rem 0.4rem;
+}
+
+.monnaie-a-rendre {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  white-space: nowrap;
+  min-width: 10.5rem;
+}
+
+.monnaie-a-rendre span {
+  font-size: 0.68rem;
+  color: var(--gris-500);
+}
+
+.monnaie-a-rendre strong {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--couleur-primaire);
+}
+
+.bouton-valider {
+  position: relative;
+  overflow: hidden;
+  background: var(--degrade-succes);
+  border-color: transparent;
+  color: white;
+  padding: 0.6rem;
+  border-radius: var(--rayon-md);
+  font-size: 0.9rem;
+  font-weight: 700;
+  box-shadow: 0 10px 24px rgba(21, 128, 61, 0.35);
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+
+.bouton-valider:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px rgba(21, 128, 61, 0.45);
+  background: #0f6b30;
+  border-color: #0f6b30;
+}
+
+.bouton-valider:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.bouton-valider::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(120deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  transform: skewX(-20deg);
+  transition: left 500ms ease;
+}
+
+.bouton-valider:hover:not(:disabled)::after {
+  left: 130%;
+}
+
+.bouton-valider:disabled {
+  background: var(--gris-400);
+  border-color: var(--gris-400);
+  box-shadow: none;
+}
+
+.aide-format-telephone {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.68rem;
+  color: var(--gris-500);
+}
+
+.page-facture-vente {
+  max-width: 760px;
+  margin: 0 auto;
+  background: var(--surface);
+  border-radius: var(--rayon-lg);
+  box-shadow: var(--ombre-lg);
+  overflow: hidden;
+}
+
+.facture-entete-boutique {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.2rem;
+  padding-bottom: 1.2rem;
+  border-bottom: 1px solid var(--bordure-tableau);
+}
+
+.facture-entete-boutique h2 {
+  margin: 0;
+}
+
+.facture-coordonnees-boutique {
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--gris-600);
+}
+
+.facture-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.5rem;
+  margin-bottom: 1.2rem;
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.facture-paiements {
+  margin-top: 1.2rem;
+}
+
+.ligne-total-facture td {
+  border-top: 2px solid var(--bordure-tableau-forte);
+  background: var(--gris-50);
+}
+
+/* Portail d'impression : rendu en dehors de #root (donc hors de toute mise en
+   page fixe/flex de l'appli) pour que l'impression/export PDF ne dépende que
+   du flux normal du document — même technique que client-electron. */
+.zone-impression-facture {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  #root {
+    display: none !important;
+  }
+
+  .zone-impression-facture {
+    display: block !important;
+  }
+
+  .zone-impression-facture .zone-tableau-scroll {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}
+
+/* --- Fiche produit (page Produits) : classes portées de client-electron/src/index.css --- */
+
+.reference-auto {
+  font-style: italic;
+  color: var(--gris-500);
+}
+
+.zone-tableau-scroll-modale {
+  max-height: 220px;
+  flex-shrink: 0;
+}
+
+.detail-produit-modale-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.entete-section-tableau {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.entete-section-tableau h4 {
+  margin: 0;
+}
+
+.bouton-ajouter-variante {
+  background: var(--degrade-primaire);
+  border-color: transparent;
+  color: white;
+  font-size: 0.78rem;
+  padding: 0.4rem 0.8rem;
+  box-shadow: 0 8px 18px -8px rgba(37, 99, 235, 0.55);
+}
+
+.bouton-ajouter-variante:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--couleur-primaire-fonce), #163d5c);
+}
+
+.colonne-actions-variante {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.colonne-categorie-articles {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.colonne-actions-variante .actions-ligne button {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.72rem;
+}
+
+.colonne-actions-variante .actions-ligne button:not(.lien) {
+  background: var(--degrade-primaire);
+  border-color: transparent;
+  color: white;
+}
+
+.colonne-actions-variante .actions-ligne button:not(.lien):hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--couleur-primaire-fonce), #163d5c);
+}
+
+.colonne-actions-variante .actions-ligne .bouton-ajouter-stock-ligne {
+  background: var(--succes);
+}
+
+.colonne-actions-variante .actions-ligne .bouton-ajouter-stock-ligne:hover:not(:disabled) {
+  background: var(--succes-fonce);
+}
+
+.bouton-statut-produit {
+  margin-left: auto;
+  border: none;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.12rem 0.45rem;
+  border-radius: var(--rayon-pilule);
+}
+
+.bouton-statut-produit.actif {
+  background: var(--succes-clair);
+  color: var(--succes-fonce);
+}
+
+.bouton-statut-produit.actif:hover:not(:disabled) {
+  background: var(--succes-clair);
+  filter: brightness(0.95);
+}
+
+.bouton-statut-produit.inactif {
+  background: var(--danger-clair);
+  color: var(--danger-fonce);
+}
+
+.bouton-statut-produit.inactif:hover:not(:disabled) {
+  background: var(--danger-clair);
+  filter: brightness(0.95);
+}
+
+.col-designation-groupe {
+  min-width: 220px;
+  white-space: normal !important;
+}
+
+.bouton-retirer-ligne-groupe {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  background: var(--danger-clair);
+}
+
+.bouton-retirer-ligne-groupe:hover:not(:disabled) {
+  background: var(--danger);
+  color: white;
+  transform: none;
+}
+
+.modale-confirmation {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: 380px;
+  max-width: 90vw;
+  background: var(--surface);
+  border-radius: var(--rayon-lg);
+  box-shadow: var(--ombre-lg);
+  padding: 1.4rem;
+}
+
+.modale-confirmation h3 {
+  margin: 0;
+}
+
+.modale-confirmation .actions-formulaire {
+  margin-top: 0.6rem;
+}
+
+.bouton-danger {
+  background: var(--danger);
+  border-color: transparent;
+  color: white;
+}
+
+.bouton-danger:hover:not(:disabled) {
+  background: var(--danger-fonce);
+}
+
+.zone-tableau-scroll-client {
+  height: 360px;
+  max-height: 360px;
+}
+
+.barre-actions .champ-recherche-ventes {
+  flex: 1;
+  min-width: 80px;
+  max-width: 260px;
+  font-size: 0.8rem;
+  padding: 0.4rem 0.6rem;
+}
+
+.colonne-numero-groupe {
+  width: 1%;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.total-net-commande {
+  margin-left: auto;
+  background: #ffffff;
+  border: 2px solid var(--couleur-primaire-fonce);
+  border-radius: var(--rayon-md);
+  padding: 0.5rem 1rem;
+  color: var(--couleur-primaire-fonce);
+}
+
+.montant-total-commande {
+  display: inline-block;
+  min-width: 15ch;
+  text-align: right;
+}
+
+.recherche-commande-combobox {
+  position: relative;
+  min-width: 0;
+  max-width: 260px;
+  flex: 1;
+}
+
+.recherche-commande-combobox input {
+  width: 100%;
+}
+
+.recherche-commande-combobox .resultats-recherche {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  margin: 0.3rem 0 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.ligne-champs-recherche-commande {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.ligne-champs-recherche-commande label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--gris-900);
 }

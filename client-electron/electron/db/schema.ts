@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS clients (
   nom TEXT NOT NULL,
   telephone TEXT DEFAULT '',
   adresse TEXT DEFAULT '',
+  est_permanent INTEGER DEFAULT 1,
   ${SUIVI_SYNC}
 );
 
@@ -164,6 +165,7 @@ CREATE TABLE IF NOT EXISTS paiements (
   id TEXT PRIMARY KEY,
   vente_id TEXT NOT NULL,
   mode TEXT NOT NULL,
+  operateur TEXT DEFAULT '',
   montant REAL NOT NULL,
   ${SUIVI_SYNC}
 );

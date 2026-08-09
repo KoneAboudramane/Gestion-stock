@@ -124,6 +124,23 @@ function nomFichier(titre: string, extension: string): string {
 
 export type ResultatExport = { annule: true } | { annule: false; chemin: string };
 
+/** Écrit un PDF déjà généré (ex. webContents.printToPDF) sur disque, via le même dialogue "Enregistrer sous". */
+export async function exporterBufferPdf(
+  buffer: Buffer,
+  nomFichierDefaut: string,
+  cheminForce?: string,
+): Promise<ResultatExport> {
+  let chemin = cheminForce;
+  if (!chemin) {
+    const resultat = await dialog.showSaveDialog({ defaultPath: nomFichierDefaut });
+    if (resultat.canceled || !resultat.filePath) return { annule: true };
+    chemin = resultat.filePath;
+  }
+
+  fs.writeFileSync(chemin, buffer);
+  return { annule: false, chemin };
+}
+
 /**
  * `cheminForce` est réservé aux scripts de vérification/tests : il contourne
  * le dialogue natif "Enregistrer sous" (non pilotable par Playwright), même

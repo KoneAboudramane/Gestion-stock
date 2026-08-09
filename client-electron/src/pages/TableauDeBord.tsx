@@ -10,6 +10,7 @@ import type {
   SyntheseVentes,
 } from "../api/client";
 import { useDevise } from "../contexts/DeviseContext";
+import { formaterMontant } from "../lib/formatage";
 
 function formatJour(date: Date): string {
   const annee = date.getFullYear();
@@ -121,7 +122,7 @@ function GraphiqueVentesJournalieres({ serie, devise }: { serie: LigneVentesParJ
             <g key={n}>
               <line x1={margeGauche} y1={y} x2={largeur - margeDroite} y2={y} className="grille-graphique-ventes" />
               <text x={margeGauche - 6} y={y + 3} textAnchor="end" className="etiquette-axe-graphique">
-                {valeur}
+                {formaterMontant(valeur)}
               </text>
             </g>
           );
@@ -148,7 +149,7 @@ function GraphiqueVentesJournalieres({ serie, devise }: { serie: LigneVentesParJ
       {pointActif && (
         <div className="infobulle-graphique-ventes" style={{ left: `${(pointActif.x / largeur) * 100}%` }}>
           <strong>
-            {pointActif.totalNet} {devise}
+            {formaterMontant(pointActif.totalNet)} {devise}
           </strong>
           <span>{new Date(`${pointActif.jour}T00:00:00`).toLocaleDateString("fr-FR")}</span>
         </div>
@@ -208,8 +209,6 @@ export default function TableauDeBord({
 
   return (
     <div className="page-produits">
-      <h2>Tableau de bord</h2>
-
       <div className="grille-tableau-bord">
         <div className="carte-stat">
           <span className="carte-stat-label">Ventes du jour</span>
@@ -217,12 +216,14 @@ export default function TableauDeBord({
         </div>
         <div className="carte-stat">
           <span className="carte-stat-label">CA du jour</span>
-          <span className="carte-stat-valeur">{synthese ? `${synthese.totalNet} ${devise}` : ""}</span>
+          <span className="carte-stat-valeur">{synthese ? `${formaterMontant(synthese.totalNet)} ${devise}` : ""}</span>
         </div>
         {peutVoirBenefices && (
           <div className="carte-stat">
             <span className="carte-stat-label">Bénéfice du jour</span>
-            <span className="carte-stat-valeur">{synthese ? `${synthese.beneficeTotal} ${devise}` : ""}</span>
+            <span className="carte-stat-valeur">
+              {synthese ? `${formaterMontant(synthese.beneficeTotal)} ${devise}` : ""}
+            </span>
           </div>
         )}
         <div className="carte-stat">
@@ -234,7 +235,7 @@ export default function TableauDeBord({
         <div className="carte-stat">
           <span className="carte-stat-label">Crédits en attente</span>
           <span className={`carte-stat-valeur ${soldeTotalDu > 0 ? "carte-stat-alerte" : ""}`}>
-            {soldeTotalDu} {devise}
+            {formaterMontant(soldeTotalDu)} {devise}
           </span>
         </div>
       </div>
@@ -244,7 +245,7 @@ export default function TableauDeBord({
           Nouvelle vente
         </button>
         <button type="button" onClick={() => onNaviguer("produits")}>
-          Gérer les produits
+          Gérer les articles
         </button>
         <button type="button" onClick={() => onNaviguer("stock")}>
           Voir le stock
@@ -300,7 +301,7 @@ export default function TableauDeBord({
           <table className="tableau-catalogue">
             <thead>
               <tr>
-                <th>Produit</th>
+                <th>Désignation</th>
                 <th>Dépôt</th>
                 <th>Quantité</th>
                 <th>Seuil</th>
@@ -322,6 +323,15 @@ export default function TableauDeBord({
                   </td>
                 </tr>
               )}
+              {ruptures.length > 0 &&
+                Array.from({ length: Math.max(0, 5 - Math.min(ruptures.length, 5)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
+                ))}
             </tbody>
           </table>
           {ruptures.length > 5 && (
@@ -371,7 +381,7 @@ export default function TableauDeBord({
                 <tr key={c.clientId} onClick={() => onNaviguer("clients")}>
                   <td>{c.clientNom}</td>
                   <td>{c.nombreVentes}</td>
-                  <td>{c.totalNet} {devise}</td>
+                  <td>{formaterMontant(c.totalNet)} {devise}</td>
                 </tr>
               ))}
               {meilleursClients.length === 0 && (
@@ -381,6 +391,14 @@ export default function TableauDeBord({
                   </td>
                 </tr>
               )}
+              {meilleursClients.length > 0 &&
+                Array.from({ length: Math.max(0, 10 - meilleursClients.length) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         </div>
@@ -405,7 +423,7 @@ export default function TableauDeBord({
               <tr key={c.id} onClick={() => onNaviguer("clients:credits")}>
                 <td>{c.clientNom}</td>
                 <td>{c.venteNumero ?? ""}</td>
-                <td>{c.solde} {devise}</td>
+                <td>{formaterMontant(c.solde)} {devise}</td>
               </tr>
             ))}
             {creditsEnCours.length === 0 && (
@@ -415,6 +433,14 @@ export default function TableauDeBord({
                 </td>
               </tr>
             )}
+            {creditsEnCours.length > 0 &&
+              Array.from({ length: Math.max(0, 5 - Math.min(creditsEnCours.length, 5)) }).map((_, i) => (
+                <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                </tr>
+              ))}
           </tbody>
         </table>
         {creditsEnCours.length > 5 && (

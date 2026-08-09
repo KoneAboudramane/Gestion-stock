@@ -3,6 +3,8 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type {
   DepotResume,
+  LigneVenteHistorique,
+  MouvementResume,
   ProduitDetail,
   ProduitResume,
   ReferenceNommee,
@@ -11,219 +13,12 @@ import type {
   ValeurAttributResume,
   VarianteDetail,
 } from "../api/client";
+import ChampMontant from "../components/ChampMontant";
+import ModaleConfirmation from "../components/ModaleConfirmation";
+import { formaterMontant } from "../lib/formatage";
+import { libelleStatutVente } from "../lib/libelles";
 
 // --- Onglet Produits : liste, formulaire de création, fiche détail ---
-
-function FormulaireProduit({
-  session,
-  onAnnuler,
-  onCree,
-}: {
-  session: Session;
-  onAnnuler: () => void;
-  onCree: () => void;
-}) {
-  const peutModifierPrix = !!session.permissions.modifier_prix;
-
-  const [categories, setCategories] = useState<ReferenceNommee[]>([]);
-  const [unites, setUnites] = useState<UniteResume[]>([]);
-  const [depots, setDepots] = useState<DepotResume[]>([]);
-  const [nom, setNom] = useState("");
-  const [categorieId, setCategorieId] = useState("");
-  const [uniteId, setUniteId] = useState("");
-  const [description, setDescription] = useState("");
-  const [reference, setReference] = useState("");
-  const [codeBarres, setCodeBarres] = useState("");
-  const [prixAchat, setPrixAchat] = useState("0");
-  const [prixVente, setPrixVente] = useState("0");
-  const [seuilAlerte, setSeuilAlerte] = useState("0");
-  const [depotId, setDepotId] = useState("");
-  const [quantiteInitiale, setQuantiteInitiale] = useState("0");
-  const [erreur, setErreur] = useState<string | null>(null);
-  const [enCours, setEnCours] = useState(false);
-  const sousPrixAchat = Number(prixVente) > 0 && Number(prixAchat) > 0 && Number(prixVente) < Number(prixAchat);
-
-  useEffect(() => {
-    api.categories.lister(session.boutiqueId).then(setCategories);
-    api.unites.lister(session.boutiqueId).then(setUnites);
-    api.depots.lister(session.boutiqueId).then(setDepots);
-  }, [session.boutiqueId]);
-
-  async function soumettre(evenement: React.FormEvent) {
-    evenement.preventDefault();
-    setErreur(null);
-    if (!nom.trim()) {
-      setErreur("Le nom est requis.");
-      return;
-    }
-    setEnCours(true);
-    try {
-      const resultat = await api.produits.creer({
-        boutiqueId: session.boutiqueId,
-        nom: nom.trim(),
-        categorieId: categorieId || null,
-        uniteId: uniteId || null,
-        description,
-        reference,
-        codeBarres,
-        prixAchat: Number(prixAchat) || 0,
-        prixVente: Number(prixVente) || 0,
-        seuilAlerte: Number(seuilAlerte) || 0,
-      });
-      if (!resultat.succes) {
-        setErreur(resultat.message);
-        return;
-      }
-      const quantiteNombre = Number(quantiteInitiale) || 0;
-      if (depotId && quantiteNombre > 0) {
-        const resultatStock = await api.mouvements.creer({
-          varianteId: resultat.resultat.varianteId,
-          depotId,
-          type: "entree",
-          quantite: quantiteNombre,
-          motif: "Stock initial",
-          utilisateurId: session.utilisateurId,
-        });
-        if (!resultatStock.succes) {
-          setErreur(`Produit créé, mais le stock initial a échoué : ${resultatStock.message}`);
-          return;
-        }
-      }
-      onCree();
-    } finally {
-      setEnCours(false);
-    }
-  }
-
-  return (
-    <form onSubmit={soumettre} className="formulaire-catalogue formulaire-produit">
-      {erreur && <div className="message-erreur">{erreur}</div>}
-      <div className="colonnes-produit">
-        <div>
-          <h3>Nouveau produit</h3>
-          <div className="grille-champs">
-            <label>
-              Nom
-              <input value={nom} onChange={(e) => setNom(e.target.value)} autoFocus required />
-            </label>
-            <label>
-              Catégorie
-              <select value={categorieId} onChange={(e) => setCategorieId(e.target.value)}>
-                <option value=""></option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nom}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Unité
-              <select value={uniteId} onChange={(e) => setUniteId(e.target.value)}>
-                <option value=""></option>
-                {unites.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.nom}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <label>
-            Description
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} />
-          </label>
-        </div>
-
-        <div>
-          <h4>Variante par défaut</h4>
-          <div className="grille-champs">
-            <label>
-              Référence
-              <input value={reference} onChange={(e) => setReference(e.target.value)} />
-            </label>
-            <label>
-              Code-barres
-              <input value={codeBarres} onChange={(e) => setCodeBarres(e.target.value)} />
-            </label>
-            <label>
-              Prix d'achat
-              <input
-                type="number"
-                min={0}
-                step="any"
-                value={prixAchat}
-                disabled={!peutModifierPrix}
-                onChange={(e) => setPrixAchat(e.target.value)}
-              />
-            </label>
-            <label>
-              Prix de vente{" "}
-              {sousPrixAchat && (
-                <span className="badge-rupture" title="Le prix de vente est inférieur au prix d'achat">
-                  ⚠
-                </span>
-              )}
-              <input
-                type="number"
-                min={0}
-                step="any"
-                className={sousPrixAchat ? "champ-invalide" : undefined}
-                value={prixVente}
-                disabled={!peutModifierPrix}
-                onChange={(e) => setPrixVente(e.target.value)}
-              />
-            </label>
-            <label>
-              Seuil d'alerte
-              <input
-                type="number"
-                min={0}
-                step="any"
-                value={seuilAlerte}
-                onChange={(e) => setSeuilAlerte(e.target.value)}
-              />
-            </label>
-          </div>
-
-          <h4>Stock initial (optionnel)</h4>
-          <div className="grille-champs">
-            <label>
-              Dépôt
-              <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
-                <option value=""></option>
-                {depots.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.nom}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Quantité
-              <input
-                type="number"
-                min={0}
-                step="any"
-                value={quantiteInitiale}
-                onChange={(e) => setQuantiteInitiale(e.target.value)}
-              />
-            </label>
-          </div>
-        </div>
-      </div>
-
-      <div className="actions-formulaire">
-        <button type="button" onClick={onAnnuler}>
-          Annuler
-        </button>
-        <button type="submit" disabled={enCours}>
-          {enCours ? "Création…" : "Créer"}
-        </button>
-      </div>
-    </form>
-  );
-}
 
 function FormulaireEditionProduit({
   produitId,
@@ -260,8 +55,7 @@ function FormulaireEditionProduit({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [produitId, session.boutiqueId]);
 
-  async function soumettre(evenement: React.FormEvent) {
-    evenement.preventDefault();
+  async function enregistrer() {
     setErreur(null);
     if (!nom.trim()) {
       setErreur("Le nom est requis.");
@@ -282,69 +76,73 @@ function FormulaireEditionProduit({
     }
   }
 
-  if (!produit) return <p>Chargement…</p>;
+  if (!produit) {
+    return (
+      <tr>
+        <td colSpan={5}>Chargement…</td>
+      </tr>
+    );
+  }
 
   return (
-    <form onSubmit={soumettre} className="formulaire-catalogue">
-      <h3>Modifier le produit</h3>
-      {erreur && <div className="message-erreur">{erreur}</div>}
-      <div className="grille-champs">
-        <label>
-          Nom
-          <input value={nom} onChange={(e) => setNom(e.target.value)} autoFocus required />
-        </label>
-        <label>
-          Catégorie
-          <select value={categorieId} onChange={(e) => setCategorieId(e.target.value)}>
-            <option value=""></option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nom}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Unité
-          <select value={uniteId} onChange={(e) => setUniteId(e.target.value)}>
-            <option value=""></option>
-            {unites.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.nom}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <label>
-        Description
+    <tr className="ligne-edition">
+      <td>
+        <input value={nom} onChange={(e) => setNom(e.target.value)} autoFocus />
+      </td>
+      <td>
+        <select value={categorieId} onChange={(e) => setCategorieId(e.target.value)}>
+          <option value=""></option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.nom}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td>
+        <select value={uniteId} onChange={(e) => setUniteId(e.target.value)}>
+          <option value=""></option>
+          {unites.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.nom}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td>
         <textarea value={description} onChange={(e) => setDescription(e.target.value)} />
-      </label>
-      <p className="note-aide">
-        Pour modifier le prix, la référence ou le stock d'une variante précise, retourne sur la fiche du produit
-        (bouton "Modifier" sur chaque ligne du tableau des variantes).
-      </p>
-
-      <div className="actions-formulaire">
-        <button type="button" onClick={onAnnuler}>
-          Annuler
-        </button>
-        <button type="submit" disabled={enCours}>
-          {enCours ? "Enregistrement…" : "Enregistrer"}
-        </button>
-      </div>
-    </form>
+      </td>
+      <td>
+        {erreur && <div className="message-erreur">{erreur}</div>}
+        <span className="actions-ligne">
+          <button type="button" className="bouton-primaire" onClick={enregistrer} disabled={enCours}>
+            {enCours ? "Enregistrement…" : "Enregistrer"}
+          </button>
+          <button type="button" className="lien" onClick={onAnnuler}>
+            Annuler
+          </button>
+        </span>
+      </td>
+    </tr>
   );
 }
 
-function FormulaireVariante({
+function LigneNouvelleVariante({
   produitId,
   session,
+  afficherCodeBarres,
+  afficherAttributs,
+  peutVoirCout,
+  nombreColonnes,
   onAnnuler,
   onCree,
 }: {
   produitId: string;
   session: Session;
+  afficherCodeBarres: boolean;
+  afficherAttributs: boolean;
+  peutVoirCout: boolean;
+  nombreColonnes: number;
   onAnnuler: () => void;
   onCree: () => void;
 }) {
@@ -354,7 +152,6 @@ function FormulaireVariante({
   const [valeursParAttribut, setValeursParAttribut] = useState<Record<string, ValeurAttributResume[]>>({});
   const [selection, setSelection] = useState<Record<string, string>>({});
   const [nouvelleValeur, setNouvelleValeur] = useState<Record<string, string>>({});
-  const [reference, setReference] = useState("");
   const [codeBarres, setCodeBarres] = useState("");
   const [prixAchat, setPrixAchat] = useState("0");
   const [prixVente, setPrixVente] = useState("0");
@@ -386,15 +183,13 @@ function FormulaireVariante({
     }
   }
 
-  async function soumettre(evenement: React.FormEvent) {
-    evenement.preventDefault();
+  async function creer() {
     setErreur(null);
     setEnCours(true);
     try {
       const valeurAttributIds = Object.values(selection).filter(Boolean);
       const resultat = await api.variantes.creer({
         produitId,
-        reference,
         codeBarres,
         prixAchat: Number(prixAchat) || 0,
         prixVente: Number(prixVente) || 0,
@@ -409,89 +204,82 @@ function FormulaireVariante({
   }
 
   return (
-    <form onSubmit={soumettre} className="formulaire-catalogue">
-      <h4>Nouvelle variante</h4>
-      {erreur && <div className="message-erreur">{erreur}</div>}
-      <div className="grille-champs">
-        <label>
-          Référence
-          <input value={reference} onChange={(e) => setReference(e.target.value)} />
-        </label>
-        <label>
-          Code-barres
-          <input value={codeBarres} onChange={(e) => setCodeBarres(e.target.value)} />
-        </label>
-        <label>
-          Prix d'achat
-          <input
-            type="number"
-            min={0}
-            step="any"
-            value={prixAchat}
+    <>
+      <tr className="ligne-edition">
+        <td className="reference-auto">Auto</td>
+        {afficherCodeBarres && (
+          <td>
+            <input value={codeBarres} onChange={(e) => setCodeBarres(e.target.value)} autoFocus />
+          </td>
+        )}
+        {afficherAttributs && <td className="reference-auto">—</td>}
+        {peutVoirCout && (
+          <td>
+            <ChampMontant value={prixAchat} disabled={!peutModifierPrix} onChange={setPrixAchat} />
+          </td>
+        )}
+        <td>
+          <ChampMontant
+            className={sousPrixAchat ? "champ-invalide" : undefined}
+            value={prixVente}
             disabled={!peutModifierPrix}
-            onChange={(e) => setPrixAchat(e.target.value)}
+            onChange={setPrixVente}
           />
-        </label>
-        <label>
-          Prix de vente{" "}
           {sousPrixAchat && (
             <span className="badge-rupture" title="Le prix de vente est inférieur au prix d'achat">
               ⚠
             </span>
           )}
-          <input
-            type="number"
-            min={0}
-            step="any"
-            className={sousPrixAchat ? "champ-invalide" : undefined}
-            value={prixVente}
-            disabled={!peutModifierPrix}
-            onChange={(e) => setPrixVente(e.target.value)}
-          />
-        </label>
-        <label>
-          Seuil d'alerte
+        </td>
+        <td>
           <input type="number" min={0} step="any" value={seuilAlerte} onChange={(e) => setSeuilAlerte(e.target.value)} />
-        </label>
-      </div>
-
-      {attributs.length > 0 && <h4>Attributs</h4>}
-      {attributs.map((a) => (
-        <div key={a.id} className="ligne-attribut">
-          <label>
-            {a.nom}
-            <select
-              value={selection[a.id] || ""}
-              onChange={(e) => setSelection((s) => ({ ...s, [a.id]: e.target.value }))}
-            >
-              <option value=""></option>
-              {(valeursParAttribut[a.id] || []).map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.valeur}
-                </option>
-              ))}
-            </select>
-          </label>
-          <input
-            placeholder={`Nouvelle valeur (${a.nom})`}
-            value={nouvelleValeur[a.id] || ""}
-            onChange={(e) => setNouvelleValeur((n) => ({ ...n, [a.id]: e.target.value }))}
-          />
-          <button type="button" onClick={() => ajouterValeur(a.id)}>
-            + Ajouter
-          </button>
-        </div>
-      ))}
-
-      <div className="actions-formulaire">
-        <button type="button" onClick={onAnnuler}>
-          Annuler
-        </button>
-        <button type="submit" disabled={enCours}>
-          {enCours ? "Création…" : "Créer la variante"}
-        </button>
-      </div>
-    </form>
+        </td>
+        <td className="reference-auto">0</td>
+        <td className="colonne-actions-variante">
+          {erreur && <div className="message-erreur">{erreur}</div>}
+          <span className="actions-ligne">
+            <button type="button" className="bouton-primaire" onClick={creer} disabled={enCours}>
+              {enCours ? "Création…" : "Créer"}
+            </button>
+            <button type="button" className="lien" onClick={onAnnuler}>
+              Annuler
+            </button>
+          </span>
+        </td>
+      </tr>
+      {attributs.length > 0 && (
+        <tr>
+          <td colSpan={nombreColonnes}>
+            {attributs.map((a) => (
+              <div key={a.id} className="ligne-attribut">
+                <label>
+                  {a.nom}
+                  <select
+                    value={selection[a.id] || ""}
+                    onChange={(e) => setSelection((s) => ({ ...s, [a.id]: e.target.value }))}
+                  >
+                    <option value=""></option>
+                    {(valeursParAttribut[a.id] || []).map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.valeur}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <input
+                  placeholder={`Nouvelle valeur (${a.nom})`}
+                  value={nouvelleValeur[a.id] || ""}
+                  onChange={(e) => setNouvelleValeur((n) => ({ ...n, [a.id]: e.target.value }))}
+                />
+                <button type="button" className="bouton-primaire" onClick={() => ajouterValeur(a.id)}>
+                  + Ajouter
+                </button>
+              </div>
+            ))}
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -576,12 +364,16 @@ function LigneEditionVariante({
   variante,
   session,
   peutVoirCout,
+  afficherCodeBarres,
+  afficherAttributs,
   onAnnuler,
   onModifie,
 }: {
   variante: VarianteDetail;
   session: Session;
   peutVoirCout: boolean;
+  afficherCodeBarres: boolean;
+  afficherAttributs: boolean;
   onAnnuler: () => void;
   onModifie: () => void;
 }) {
@@ -619,31 +411,23 @@ function LigneEditionVariante({
       <td>
         <input value={reference} onChange={(e) => setReference(e.target.value)} autoFocus />
       </td>
-      <td>
-        <input value={codeBarres} onChange={(e) => setCodeBarres(e.target.value)} />
-      </td>
-      <td>{variante.valeurs.join(", ") || ""}</td>
+      {afficherCodeBarres && (
+        <td>
+          <input value={codeBarres} onChange={(e) => setCodeBarres(e.target.value)} />
+        </td>
+      )}
+      {afficherAttributs && <td>{variante.valeurs.join(", ") || ""}</td>}
       {peutVoirCout && (
         <td>
-          <input
-            type="number"
-            min={0}
-            step="any"
-            value={prixAchat}
-            disabled={!peutModifierPrix}
-            onChange={(e) => setPrixAchat(e.target.value)}
-          />
+          <ChampMontant value={prixAchat} disabled={!peutModifierPrix} onChange={setPrixAchat} />
         </td>
       )}
       <td>
-        <input
-          type="number"
-          min={0}
-          step="any"
+        <ChampMontant
           className={sousPrixAchat ? "champ-invalide" : undefined}
           value={prixVente}
           disabled={!peutModifierPrix}
-          onChange={(e) => setPrixVente(e.target.value)}
+          onChange={setPrixVente}
         />
         {sousPrixAchat && (
           <span className="badge-rupture" title="Le prix de vente est inférieur au prix d'achat">
@@ -654,10 +438,11 @@ function LigneEditionVariante({
       <td>
         <input type="number" min={0} step="any" value={seuilAlerte} onChange={(e) => setSeuilAlerte(e.target.value)} />
       </td>
-      <td>
+      <td>{variante.quantiteStock}</td>
+      <td className="colonne-actions-variante">
         {erreur && <div className="message-erreur">{erreur}</div>}
         <span className="actions-ligne">
-          <button type="button" onClick={enregistrer} disabled={enCours}>
+          <button type="button" className="bouton-primaire" onClick={enregistrer} disabled={enCours}>
             {enCours ? "Enregistrement…" : "Enregistrer"}
           </button>
           <button type="button" className="lien" onClick={onAnnuler}>
@@ -672,11 +457,11 @@ function LigneEditionVariante({
 function DetailProduit({
   produitId,
   session,
-  onRetour,
+  onFermer,
 }: {
   produitId: string;
   session: Session;
-  onRetour: () => void;
+  onFermer: () => void;
 }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const peutVoirCout = !!session.permissions.voir_benefices_achat;
@@ -689,6 +474,9 @@ function DetailProduit({
     type: "stock" | "modification";
   } | null>(null);
   const [messageStock, setMessageStock] = useState<string | null>(null);
+  const [mouvements, setMouvements] = useState<MouvementResume[]>([]);
+  const [ventesHistorique, setVentesHistorique] = useState<LigneVenteHistorique[]>([]);
+  const [pageDetail, setPageDetail] = useState<"details" | "mouvements" | "ventes">("details");
   const [modifierInfos, setModifierInfos] = useState(false);
 
   async function rafraichir() {
@@ -698,6 +486,8 @@ function DetailProduit({
 
   useEffect(() => {
     rafraichir();
+    api.mouvements.listerParProduit(produitId, 50).then(setMouvements);
+    api.ventes.listerParProduit(produitId, 50).then(setVentesHistorique);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [produitId]);
 
@@ -705,134 +495,336 @@ function DetailProduit({
     api.depots.lister(session.boutiqueId).then(setDepots);
   }, [session.boutiqueId]);
 
-  if (!produit) return <p>Chargement…</p>;
-
-  if (modifierInfos) {
-    return (
-      <FormulaireEditionProduit
-        produitId={produit.id}
-        session={session}
-        onAnnuler={() => setModifierInfos(false)}
-        onModifie={() => {
-          setModifierInfos(false);
-          rafraichir();
-        }}
-      />
-    );
-  }
+  const afficherCodeBarres = !!produit?.variantes.some((v) => v.codeBarres);
+  const afficherAttributs = !!produit?.variantes.some((v) => v.valeurs.length > 0);
+  const nombreColonnesVariantes =
+    1 + // Référence
+    (afficherCodeBarres ? 1 : 0) +
+    (afficherAttributs ? 1 : 0) +
+    (peutVoirCout ? 1 : 0) +
+    1 + // Prix de vente
+    1 + // Seuil
+    1 + // Stock
+    (peutGerer ? 1 : 0);
 
   return (
-    <div className="detail-produit">
-      <div className="entete-detail">
-        <h3>
-          {produit.nom}
-          {peutGerer && (
-            <button type="button" className="lien bouton-modifier-infos" onClick={() => setModifierInfos(true)}>
-              Modifier les informations
-            </button>
-          )}
-        </h3>
-        <button type="button" className="lien bouton-retour" onClick={onRetour}>
-          ← Retour à la liste
-        </button>
-      </div>
-      {produit.description && <p className="description-produit">{produit.description}</p>}
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <div className="modale-entete">
+          <h3>{produit ? produit.nom : "Article"}</h3>
+          <button type="button" className="lien bouton-retour" onClick={onFermer}>
+            ← Retour
+          </button>
+        </div>
+        <div className="modale-corps">
+          {!produit ? (
+            <p>Chargement…</p>
+          ) : (
+            <div className="detail-produit-modale-scroll">
+              <div className="barre-onglets">
+                <button
+                  type="button"
+                  className={`onglet ${pageDetail === "details" ? "actif" : ""}`}
+                  onClick={() => setPageDetail("details")}
+                >
+                  Détails
+                </button>
+                <button
+                  type="button"
+                  className={`onglet ${pageDetail === "mouvements" ? "actif" : ""}`}
+                  onClick={() => setPageDetail("mouvements")}
+                >
+                  Historique des mouvements de stock
+                </button>
+                <button
+                  type="button"
+                  className={`onglet ${pageDetail === "ventes" ? "actif" : ""}`}
+                  onClick={() => setPageDetail("ventes")}
+                >
+                  Historique des ventes
+                </button>
+              </div>
 
-      <h4>Variantes</h4>
-      {messageStock && <p className="note-aide">{messageStock}</p>}
-      <div className="zone-tableau-scroll">
-      <table className="tableau-catalogue">
-        <thead>
-          <tr>
-            <th>Référence</th>
-            <th>Code-barres</th>
-            <th>Attributs</th>
-            {peutVoirCout && <th>Prix d'achat</th>}
-            <th>Prix de vente</th>
-            <th>Seuil</th>
-            {peutGerer && <th>Stock</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {produit.variantes.map((v) => {
-            const enEdition = actionVarianteOuverte?.id === v.id && actionVarianteOuverte.type === "modification";
-            const enAjoutStock = actionVarianteOuverte?.id === v.id && actionVarianteOuverte.type === "stock";
-            if (enEdition) {
-              return (
-                <LigneEditionVariante
-                  key={v.id}
-                  variante={v}
-                  session={session}
-                  peutVoirCout={peutVoirCout}
-                  onAnnuler={() => setActionVarianteOuverte(null)}
-                  onModifie={() => {
-                    setActionVarianteOuverte(null);
-                    rafraichir();
-                  }}
-                />
-              );
-            }
-            return (
-              <Fragment key={v.id}>
-                <tr>
-                  <td>{v.reference || ""}</td>
-                  <td>{v.codeBarres || ""}</td>
-                  <td>{v.valeurs.join(", ") || ""}</td>
-                  {peutVoirCout && <td>{v.prixAchat}</td>}
-                  <td>{v.prixVente}</td>
-                  <td>{v.seuilAlerte}</td>
-                  {peutGerer && (
-                    <td>
-                      <span className="actions-ligne">
-                        <button type="button" onClick={() => setActionVarianteOuverte({ id: v.id, type: "modification" })}>
-                          Modifier
-                        </button>
-                        <button type="button" onClick={() => setActionVarianteOuverte({ id: v.id, type: "stock" })}>
-                          + Ajouter du stock
-                        </button>
-                      </span>
-                    </td>
-                  )}
-                </tr>
-                {enAjoutStock && (
+              {pageDetail === "details" && (
+              <>
+              <h4>Informations</h4>
+              <div className="zone-tableau-scroll zone-tableau-scroll-modale">
+              <table className="tableau-catalogue">
+                <thead>
                   <tr>
-                    <td colSpan={peutVoirCout ? 8 : 7}>
-                      <FormulaireAjoutStock
-                        varianteId={v.id}
-                        session={session}
-                        depots={depots}
-                        onAnnuler={() => setActionVarianteOuverte(null)}
-                        onAjoute={() => {
-                          setActionVarianteOuverte(null);
-                          setMessageStock(`Stock ajouté pour "${produit.nom}${v.reference ? ` (${v.reference})` : ""}".`);
-                        }}
-                      />
-                    </td>
+                    <th>Désignation</th>
+                    <th>Catégorie</th>
+                    <th>Unité</th>
+                    <th>Description</th>
+                    {peutGerer && <th />}
                   </tr>
-                )}
-              </Fragment>
-            );
-          })}
-        </tbody>
-      </table>
-      </div>
+                </thead>
+                <tbody>
+                  {modifierInfos ? (
+                    <FormulaireEditionProduit
+                      produitId={produit.id}
+                      session={session}
+                      onAnnuler={() => setModifierInfos(false)}
+                      onModifie={() => {
+                        setModifierInfos(false);
+                        rafraichir();
+                      }}
+                    />
+                  ) : (
+                    <tr>
+                      <td>{produit.nom}</td>
+                      <td>{produit.categorieNom || ""}</td>
+                      <td>{produit.uniteNom || ""}</td>
+                      <td>{produit.description || ""}</td>
+                      {peutGerer && (
+                        <td>
+                          <button type="button" onClick={() => setModifierInfos(true)}>
+                            Modifier
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              </div>
 
-      {peutGerer && !afficherFormVariante && (
-        <button type="button" onClick={() => setAfficherFormVariante(true)}>
-          + Ajouter une variante
-        </button>
-      )}
-      {afficherFormVariante && (
-        <FormulaireVariante
-          produitId={produit.id}
-          session={session}
-          onAnnuler={() => setAfficherFormVariante(false)}
-          onCree={() => {
-            setAfficherFormVariante(false);
-            rafraichir();
-          }}
-        />
-      )}
+              <div className="entete-section-tableau">
+                <h4>Variantes</h4>
+                {peutGerer && !afficherFormVariante && (
+                  <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherFormVariante(true)}>
+                    + Ajouter une variante
+                  </button>
+                )}
+              </div>
+              {messageStock && <p className="note-aide">{messageStock}</p>}
+              <div className="zone-tableau-scroll zone-tableau-scroll-modale">
+              <table className="tableau-catalogue">
+                <thead>
+                  <tr>
+                    <th>Référence</th>
+                    {afficherCodeBarres && <th>Code-barres</th>}
+                    {afficherAttributs && <th>Attributs</th>}
+                    {peutVoirCout && <th>Prix d'achat</th>}
+                    <th>Prix de vente</th>
+                    <th>Seuil</th>
+                    <th>Stock</th>
+                    {peutGerer && <th className="colonne-actions-variante">Actions</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {produit.variantes.map((v) => {
+                    const enEdition =
+                      actionVarianteOuverte?.id === v.id && actionVarianteOuverte.type === "modification";
+                    const enAjoutStock = actionVarianteOuverte?.id === v.id && actionVarianteOuverte.type === "stock";
+                    if (enEdition) {
+                      return (
+                        <LigneEditionVariante
+                          key={v.id}
+                          variante={v}
+                          session={session}
+                          peutVoirCout={peutVoirCout}
+                          afficherCodeBarres={afficherCodeBarres}
+                          afficherAttributs={afficherAttributs}
+                          onAnnuler={() => setActionVarianteOuverte(null)}
+                          onModifie={() => {
+                            setActionVarianteOuverte(null);
+                            rafraichir();
+                          }}
+                        />
+                      );
+                    }
+                    return (
+                      <Fragment key={v.id}>
+                        <tr>
+                          <td>{v.reference || ""}</td>
+                          {afficherCodeBarres && <td>{v.codeBarres || ""}</td>}
+                          {afficherAttributs && <td>{v.valeurs.join(", ") || ""}</td>}
+                          {peutVoirCout && <td>{formaterMontant(v.prixAchat)}</td>}
+                          <td>{formaterMontant(v.prixVente)}</td>
+                          <td>{v.seuilAlerte}</td>
+                          <td>
+                            {v.quantiteStock <= v.seuilAlerte ? (
+                              <span className="badge-rupture">{v.quantiteStock}</span>
+                            ) : (
+                              v.quantiteStock
+                            )}
+                          </td>
+                          {peutGerer && (
+                            <td className="colonne-actions-variante">
+                              <span className="actions-ligne">
+                                <button
+                                  type="button"
+                                  onClick={() => setActionVarianteOuverte({ id: v.id, type: "modification" })}
+                                >
+                                  Modifier
+                                </button>
+                                <button
+                                  type="button"
+                                  className="bouton-ajouter-stock-ligne"
+                                  onClick={() => setActionVarianteOuverte({ id: v.id, type: "stock" })}
+                                >
+                                  + Ajouter du stock
+                                </button>
+                              </span>
+                            </td>
+                          )}
+                        </tr>
+                        {enAjoutStock && (
+                          <tr>
+                            <td colSpan={nombreColonnesVariantes}>
+                              <FormulaireAjoutStock
+                                varianteId={v.id}
+                                session={session}
+                                depots={depots}
+                                onAnnuler={() => setActionVarianteOuverte(null)}
+                                onAjoute={() => {
+                                  setActionVarianteOuverte(null);
+                                  setMessageStock(
+                                    `Stock ajouté pour "${produit.nom}${v.reference ? ` (${v.reference})` : ""}".`,
+                                  );
+                                }}
+                              />
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                  {afficherFormVariante && (
+                    <LigneNouvelleVariante
+                      produitId={produit.id}
+                      session={session}
+                      afficherCodeBarres={afficherCodeBarres}
+                      afficherAttributs={afficherAttributs}
+                      peutVoirCout={peutVoirCout}
+                      nombreColonnes={nombreColonnesVariantes}
+                      onAnnuler={() => setAfficherFormVariante(false)}
+                      onCree={() => {
+                        setAfficherFormVariante(false);
+                        rafraichir();
+                      }}
+                    />
+                  )}
+                  {Array.from({ length: Math.max(0, 10 - produit.variantes.length) }).map((_, i) => (
+                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                      <td>&nbsp;</td>
+                      {afficherCodeBarres && <td>&nbsp;</td>}
+                      {afficherAttributs && <td>&nbsp;</td>}
+                      {peutVoirCout && <td>&nbsp;</td>}
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      {peutGerer && <td className="colonne-actions-variante">&nbsp;</td>}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </div>
+              </>
+              )}
+
+              {pageDetail === "mouvements" && (
+              <div className="zone-tableau-scroll zone-tableau-scroll-modale">
+              <table className="tableau-catalogue">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Dépôt</th>
+                    <th>Type</th>
+                    <th>Quantité</th>
+                    <th>Motif</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mouvements.map((m) => (
+                    <tr key={m.id}>
+                      <td>{new Date(m.dateCreation).toLocaleString("fr-FR")}</td>
+                      <td>{m.depotNom}</td>
+                      <td>
+                        {m.type === "entree" ? "Entrée" : m.type === "sortie" ? "Sortie" : "Ajustement"}
+                      </td>
+                      <td>{m.quantite}</td>
+                      <td>{m.motif || ""}</td>
+                    </tr>
+                  ))}
+                  {mouvements.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="liste-vide">
+                        Aucun mouvement de stock.
+                      </td>
+                    </tr>
+                  )}
+                  {mouvements.length > 0 &&
+                    Array.from({ length: Math.max(0, 10 - mouvements.length) }).map((_, i) => (
+                      <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+              </div>
+              )}
+
+              {pageDetail === "ventes" && (
+              <div className="zone-tableau-scroll zone-tableau-scroll-modale">
+              <table className="tableau-catalogue">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Vente</th>
+                    <th>Client</th>
+                    <th>Statut</th>
+                    <th>Qté</th>
+                    <th>Prix de vente</th>
+                    <th>Sous-total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ventesHistorique.map((l, index) => (
+                    <tr key={`${l.venteId}-${index}`}>
+                      <td>{new Date(l.dateCreation).toLocaleString("fr-FR")}</td>
+                      <td>{l.venteNumero}</td>
+                      <td>{l.clientNom ?? ""}</td>
+                      <td>
+                        <span className={`badge-${l.statut}`}>{libelleStatutVente(l.statut)}</span>
+                      </td>
+                      <td>{l.quantite}</td>
+                      <td>{formaterMontant(l.prixUnitaire)}</td>
+                      <td>{formaterMontant(l.sousTotal)}</td>
+                    </tr>
+                  ))}
+                  {ventesHistorique.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="liste-vide">
+                        Aucune vente.
+                      </td>
+                    </tr>
+                  )}
+                  {ventesHistorique.length > 0 &&
+                    Array.from({ length: Math.max(0, 10 - ventesHistorique.length) }).map((_, i) => (
+                      <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+              </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -844,6 +836,7 @@ interface LigneProduitGroupe {
   categorieNom: string;
   uniteId: string;
   uniteNom: string;
+  codeBarres: string;
   prixAchat: string;
   prixVente: string;
   seuilAlerte: string;
@@ -869,6 +862,7 @@ function FormulaireProduitsGroupe({
   const [nom, setNom] = useState("");
   const [categorieId, setCategorieId] = useState("");
   const [uniteId, setUniteId] = useState("");
+  const [codeBarres, setCodeBarres] = useState("");
   const [prixAchat, setPrixAchat] = useState("0");
   const [prixVente, setPrixVente] = useState("0");
   const [seuilAlerte, setSeuilAlerte] = useState("0");
@@ -877,13 +871,23 @@ function FormulaireProduitsGroupe({
   const [lignes, setLignes] = useState<LigneProduitGroupe[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  const [prochaineRefBase, setProchaineRefBase] = useState<number | null>(null);
   const sousPrixAchat = Number(prixVente) > 0 && Number(prixAchat) > 0 && Number(prixVente) < Number(prixAchat);
 
   useEffect(() => {
     api.categories.lister(session.boutiqueId).then(setCategories);
     api.unites.lister(session.boutiqueId).then(setUnites);
     api.depots.lister(session.boutiqueId).then(setDepots);
+    api.produits.prochaineReference(session.boutiqueId).then((ref) => {
+      const n = Number(ref.replace(/^REF-/, ""));
+      setProchaineRefBase(Number.isFinite(n) ? n : null);
+    });
   }, [session.boutiqueId]);
+
+  function referenceApercu(index: number): string {
+    if (prochaineRefBase === null) return "Auto";
+    return `REF-${String(prochaineRefBase + index).padStart(6, "0")}`;
+  }
 
   function ajouterProduit() {
     if (!nom.trim()) return;
@@ -896,6 +900,7 @@ function FormulaireProduitsGroupe({
         categorieNom: categories.find((c) => c.id === categorieId)?.nom ?? "",
         uniteId,
         uniteNom: unites.find((u) => u.id === uniteId)?.nom ?? "",
+        codeBarres,
         prixAchat,
         prixVente,
         seuilAlerte,
@@ -905,6 +910,7 @@ function FormulaireProduitsGroupe({
     setNom("");
     setCategorieId("");
     setUniteId("");
+    setCodeBarres("");
     setPrixAchat("0");
     setPrixVente("0");
     setSeuilAlerte("0");
@@ -926,7 +932,7 @@ function FormulaireProduitsGroupe({
     evenement.preventDefault();
     setErreur(null);
     if (lignes.length === 0) {
-      setErreur("Ajoutez au moins un produit à la liste.");
+      setErreur("Ajoutez au moins un article à la liste.");
       return;
     }
     setEnCours(true);
@@ -937,6 +943,7 @@ function FormulaireProduitsGroupe({
           nom: ligne.nom,
           categorieId: ligne.categorieId || null,
           uniteId: ligne.uniteId || null,
+          codeBarres: ligne.codeBarres,
           prixAchat: Number(ligne.prixAchat) || 0,
           prixVente: Number(ligne.prixVente) || 0,
           seuilAlerte: Number(ligne.seuilAlerte) || 0,
@@ -969,14 +976,17 @@ function FormulaireProduitsGroupe({
 
   return (
     <form onSubmit={soumettre} className="formulaire-produits-groupe">
-      <div className="entete-detail entete-fixe">
-        <h3>Plusieurs produits</h3>
+      <div className="modale-entete entete-fixe">
+        <h3>Nouvel article</h3>
         <div className="actions-formulaire">
           <button type="button" onClick={onAnnuler}>
             Annuler
           </button>
           <button type="submit" disabled={enCours}>
             {enCours ? "Enregistrement…" : `Enregistrer la liste (${lignes.length})`}
+          </button>
+          <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
+            ← Retour
           </button>
         </div>
       </div>
@@ -1007,7 +1017,7 @@ function FormulaireProduitsGroupe({
 
           <div className="grille-champs ajout-produit-groupe">
             <label>
-              Nom
+              Désignation
               <input value={nom} onChange={(e) => setNom(e.target.value)} onKeyDown={surEntree} autoFocus />
             </label>
             <label>
@@ -1033,14 +1043,15 @@ function FormulaireProduitsGroupe({
               </select>
             </label>
             <label>
+              Code-barres
+              <input value={codeBarres} onChange={(e) => setCodeBarres(e.target.value)} onKeyDown={surEntree} />
+            </label>
+            <label>
               Prix d'achat
-              <input
-                type="number"
-                min={0}
-                step="any"
+              <ChampMontant
                 value={prixAchat}
                 disabled={!peutModifierPrix}
-                onChange={(e) => setPrixAchat(e.target.value)}
+                onChange={setPrixAchat}
                 onKeyDown={surEntree}
               />
             </label>
@@ -1051,14 +1062,11 @@ function FormulaireProduitsGroupe({
                   ⚠
                 </span>
               )}
-              <input
-                type="number"
-                min={0}
-                step="any"
+              <ChampMontant
                 className={sousPrixAchat ? "champ-invalide" : undefined}
                 value={prixVente}
                 disabled={!peutModifierPrix}
-                onChange={(e) => setPrixVente(e.target.value)}
+                onChange={setPrixVente}
                 onKeyDown={surEntree}
               />
             </label>
@@ -1084,10 +1092,10 @@ function FormulaireProduitsGroupe({
                 onKeyDown={surEntree}
               />
             </label>
+            <button type="button" className="bouton-ajouter-produit-groupe" onClick={ajouterProduit}>
+              + Ajouter à la liste
+            </button>
           </div>
-          <button type="button" onClick={ajouterProduit}>
-            + Ajouter à la liste
-          </button>
         </div>
 
         <div className="colonne-liste-produits">
@@ -1095,9 +1103,12 @@ function FormulaireProduitsGroupe({
             <table className="tableau-catalogue">
               <thead>
                 <tr>
-                  <th>Nom</th>
+                  <th>N°</th>
+                  <th>Référence</th>
+                  <th className="col-designation-groupe">Désignation</th>
                   <th>Catégorie</th>
                   <th>Unité</th>
+                  <th>Code-barres</th>
                   <th>Prix d'achat</th>
                   <th>Prix de vente</th>
                   <th>Seuil</th>
@@ -1106,29 +1117,45 @@ function FormulaireProduitsGroupe({
                 </tr>
               </thead>
               <tbody>
-                {lignes.map((l) => (
+                {lignes.map((l, index) => (
                   <tr key={l.id}>
-                    <td>{l.nom}</td>
+                    <td>{index + 1}</td>
+                    <td className="reference-auto">{referenceApercu(index)}</td>
+                    <td className="col-designation-groupe">{l.nom}</td>
                     <td>{l.categorieNom}</td>
                     <td>{l.uniteNom}</td>
-                    <td>{l.prixAchat}</td>
-                    <td>{l.prixVente}</td>
+                    <td>{l.codeBarres || "—"}</td>
+                    <td>{formaterMontant(l.prixAchat)}</td>
+                    <td>{formaterMontant(l.prixVente)}</td>
                     <td>{l.seuilAlerte}</td>
                     <td>{l.quantiteInitiale}</td>
                     <td>
-                      <button type="button" onClick={() => retirerLigne(l.id)}>
+                      <button
+                        type="button"
+                        className="bouton-retirer-ligne-groupe"
+                        title="Retirer de la liste"
+                        onClick={() => retirerLigne(l.id)}
+                      >
                         ✕
                       </button>
                     </td>
                   </tr>
                 ))}
-                {lignes.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="liste-vide">
-                      Aucun produit ajouté à la liste.
-                    </td>
+                {Array.from({ length: Math.max(0, 10 - lignes.length) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td className="col-designation-groupe">&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
                   </tr>
-                )}
+                ))}
               </tbody>
             </table>
           </div>
@@ -1138,13 +1165,45 @@ function FormulaireProduitsGroupe({
   );
 }
 
-type ColonneTriProduit = "nom" | "prixVente" | "dateCreation" | "enStock";
+type ColonneTriProduit = "nom" | "prixVente" | "enStock";
 
-function OngletProduits({ session }: { session: Session }) {
+const ONGLETS = [
+  { cle: "produits", label: "Articles" },
+  { cle: "categories", label: "Catégories" },
+] as const;
+
+type Onglet = (typeof ONGLETS)[number]["cle"];
+
+function SelecteurOnglet({ onglet, setOnglet }: { onglet: Onglet; setOnglet: (o: Onglet) => void }) {
+  return (
+    <div className="barre-onglets">
+      {ONGLETS.map((o) => (
+        <button
+          key={o.cle}
+          type="button"
+          className={`onglet ${onglet === o.cle ? "actif" : ""}`}
+          onClick={() => setOnglet(o.cle)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function OngletProduits({
+  session,
+  onglet,
+  setOnglet,
+}: {
+  session: Session;
+  onglet: Onglet;
+  setOnglet: (o: Onglet) => void;
+}) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const peutVoirCout = !!session.permissions.voir_benefices_achat;
 
-  const [vue, setVue] = useState<"liste" | "formulaire" | "groupe" | "detail">("liste");
+  const [vue, setVue] = useState<"liste" | "groupe">("liste");
   const [produits, setProduits] = useState<ProduitResume[]>([]);
   const [terme, setTerme] = useState("");
   const [produitSelectionneId, setProduitSelectionneId] = useState<string | null>(null);
@@ -1177,7 +1236,6 @@ function OngletProduits({ session }: { session: Session }) {
       let comparaison = 0;
       if (tri.colonne === "nom") comparaison = a.nom.localeCompare(b.nom);
       else if (tri.colonne === "prixVente") comparaison = (a.prixVente ?? 0) - (b.prixVente ?? 0);
-      else if (tri.colonne === "dateCreation") comparaison = a.dateCreation.localeCompare(b.dateCreation);
       else if (tri.colonne === "enStock") comparaison = a.enStock - b.enStock;
       return tri.direction === "asc" ? comparaison : -comparaison;
     });
@@ -1202,61 +1260,55 @@ function OngletProduits({ session }: { session: Session }) {
     if (resultat.succes) rafraichirListe();
   }
 
-  if (vue === "formulaire") {
-    return (
-      <FormulaireProduit
-        session={session}
-        onAnnuler={() => setVue("liste")}
-        onCree={() => {
-          setVue("liste");
-          rafraichirListe();
-        }}
-      />
-    );
-  }
-
-  if (vue === "groupe") {
-    return (
-      <FormulaireProduitsGroupe
-        session={session}
-        onAnnuler={() => setVue("liste")}
-        onCree={() => {
-          setVue("liste");
-          rafraichirListe();
-        }}
-      />
-    );
-  }
-
-  if (vue === "detail" && produitSelectionneId) {
-    return (
+  return (
+    <>
+    {vue === "groupe" && (
+      <div className="fond-modale" onClick={() => setVue("liste")}>
+        <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+          <FormulaireProduitsGroupe
+            session={session}
+            onAnnuler={() => setVue("liste")}
+            onCree={() => {
+              setVue("liste");
+              rafraichirListe();
+            }}
+          />
+        </div>
+      </div>
+    )}
+    {produitSelectionneId && (
       <DetailProduit
         produitId={produitSelectionneId}
         session={session}
-        onRetour={() => {
-          setVue("liste");
+        onFermer={() => {
+          setProduitSelectionneId(null);
           rafraichirListe();
         }}
       />
-    );
-  }
-
-  return (
+    )}
+    {produitASupprimerId && (
+      <ModaleConfirmation
+        titre="Supprimer cet article ?"
+        description="Cette action est irréversible."
+        labelConfirmer="Supprimer"
+        dangereux
+        onAnnuler={() => setProduitASupprimerId(null)}
+        onConfirmer={() => supprimer(produitASupprimerId)}
+      />
+    )}
     <div>
-      <div className="barre-actions barre-actions-fixe">
+      <div className="barre-actions barre-actions-fixe barre-actions-avec-onglets">
+        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         <input
           className="champ-recherche"
-          placeholder="Rechercher un produit…"
+          placeholder="Rechercher un article…"
           value={terme}
           onChange={(e) => setTerme(e.target.value)}
         />
         {peutGerer && (
           <span className="actions-ligne">
-            <button type="button" onClick={() => setVue("formulaire")}>
-              + Nouveau produit
-            </button>
-            <button type="button" onClick={() => setVue("groupe")}>
-              + Plusieurs produits
+            <button type="button" className="bouton-ajouter-variante" onClick={() => setVue("groupe")}>
+              + Nouvel article
             </button>
           </span>
         )}
@@ -1265,10 +1317,12 @@ function OngletProduits({ session }: { session: Session }) {
       <table className="tableau-catalogue">
         <thead>
           <tr>
+            <th>N°</th>
+            <th>Référence</th>
             <th className="th-triable" onClick={() => basculerTri("nom")}>
-              Nom{icone("nom")}
+              Désignation{icone("nom")}
             </th>
-            <th>Catégorie</th>
+            <th className="colonne-categorie-articles">Catégorie</th>
             {peutVoirCout && <th>Prix d'achat</th>}
             <th className="th-triable" onClick={() => basculerTri("prixVente")}>
               Prix de vente{icone("prixVente")}
@@ -1276,24 +1330,19 @@ function OngletProduits({ session }: { session: Session }) {
             <th className="th-triable" onClick={() => basculerTri("enStock")}>
               Stock{icone("enStock")}
             </th>
-            <th className="th-triable" onClick={() => basculerTri("dateCreation")}>
-              Créé le{icone("dateCreation")}
-            </th>
-            <th>Actif</th>
             {peutGerer && <th>Actions</th>}
           </tr>
         </thead>
         <tbody>
-          {produitsTries.map((p) => (
+          {produitsTries.map((p, index) => (
             <tr
               key={p.id}
-              onClick={() => {
-                setProduitSelectionneId(p.id);
-                setVue("detail");
-              }}
+              onClick={() => setProduitSelectionneId(p.id)}
             >
+              <td>{index + 1}</td>
+              <td>{p.reference || "—"}</td>
               <td>{p.nom}</td>
-              <td>{p.categorieNom ?? ""}</td>
+              <td className="colonne-categorie-articles">{p.categorieNom ?? ""}</td>
               {peutVoirCout && <td>{p.prixAchat ?? ""}</td>}
               <td>{p.prixVente ?? ""}</td>
               <td>
@@ -1303,53 +1352,33 @@ function OngletProduits({ session }: { session: Session }) {
                   <span className="badge-rupture">Rupture</span>
                 )}
               </td>
-              <td>{new Date(p.dateCreation).toLocaleDateString("fr-FR")}</td>
-              <td onClick={(e) => e.stopPropagation()}>
-                {peutGerer ? (
-                  <button type="button" onClick={() => basculerActif(p)}>
-                    {p.actif ? "Actif" : "Inactif"}
-                  </button>
-                ) : p.actif ? (
-                  "Oui"
-                ) : (
-                  "Non"
-                )}
-              </td>
               {peutGerer && (
                 <td onClick={(e) => e.stopPropagation()}>
-                  {produitASupprimerId === p.id ? (
-                    <span className="confirmation-suppression">
-                      Supprimer ?
-                      <button type="button" onClick={() => supprimer(p.id)}>
-                        Oui
-                      </button>
-                      <button type="button" onClick={() => setProduitASupprimerId(null)}>
-                        Non
-                      </button>
-                    </span>
-                  ) : (
                     <span className="actions-ligne">
                       <button
                         type="button"
                         className="lien-icone"
                         title="Modifier"
-                        onClick={() => {
-                          setProduitSelectionneId(p.id);
-                          setVue("detail");
-                        }}
+                        onClick={() => setProduitSelectionneId(p.id)}
                       >
                         ✎
                       </button>
                       <button
                         type="button"
-                        className="lien-icone"
+                        className="lien-icone lien-icone-danger"
                         title="Supprimer"
                         onClick={() => setProduitASupprimerId(p.id)}
                       >
                         ×
                       </button>
+                      <button
+                        type="button"
+                        className={`bouton-statut-produit ${p.actif ? "actif" : "inactif"}`}
+                        onClick={() => basculerActif(p)}
+                      >
+                        {p.actif ? "Actif" : "Inactif"}
+                      </button>
                     </span>
-                  )}
                 </td>
               )}
             </tr>
@@ -1357,20 +1386,42 @@ function OngletProduits({ session }: { session: Session }) {
           {produits.length === 0 && (
             <tr>
               <td colSpan={6 + (peutVoirCout ? 1 : 0) + (peutGerer ? 1 : 0)} className="liste-vide">
-                Aucun produit.
+                Aucun article.
               </td>
             </tr>
           )}
+          {produits.length > 0 &&
+            Array.from({ length: Math.max(0, 10 - produits.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td className="colonne-categorie-articles">&nbsp;</td>
+                {peutVoirCout && <td>&nbsp;</td>}
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                {peutGerer && <td>&nbsp;</td>}
+              </tr>
+            ))}
         </tbody>
       </table>
       </div>
     </div>
+    </>
   );
 }
 
 // --- Onglets Réglages catalogue : catégories, unités, attributs ---
 
-function OngletCategories({ session }: { session: Session }) {
+function OngletCategories({
+  session,
+  onglet,
+  setOnglet,
+}: {
+  session: Session;
+  onglet: Onglet;
+  setOnglet: (o: Onglet) => void;
+}) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [categories, setCategories] = useState<ReferenceNommee[]>([]);
   const [nom, setNom] = useState("");
@@ -1425,12 +1476,15 @@ function OngletCategories({ session }: { session: Session }) {
 
   return (
     <div className="reglage-catalogue">
-      {peutGerer && (
-        <form onSubmit={ajouter} className="formulaire-inline barre-actions-fixe">
-          <input placeholder="Nouvelle catégorie" value={nom} onChange={(e) => setNom(e.target.value)} />
-          <button type="submit">Ajouter</button>
-        </form>
-      )}
+      <div className="barre-actions barre-actions-fixe barre-actions-avec-onglets">
+        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
+        {peutGerer && (
+          <form onSubmit={ajouter} className="formulaire-inline">
+            <input placeholder="Nouvelle catégorie" value={nom} onChange={(e) => setNom(e.target.value)} />
+            <button type="submit">Ajouter</button>
+          </form>
+        )}
+      </div>
       {erreur && <div className="message-erreur">{erreur}</div>}
       <ul className="liste-simple">
         {categories.map((c) =>
@@ -1441,7 +1495,7 @@ function OngletCategories({ session }: { session: Session }) {
                 <button type="button" onClick={() => setEnEditionId(null)}>
                   Annuler
                 </button>
-                <button type="button" onClick={() => enregistrerEdition(c.id)}>
+                <button type="button" className="bouton-primaire" onClick={() => enregistrerEdition(c.id)}>
                   Enregistrer
                 </button>
               </div>
@@ -1449,37 +1503,35 @@ function OngletCategories({ session }: { session: Session }) {
           ) : (
             <li key={c.id} className="ligne-liste-simple">
               <span>{c.nom}</span>
-              {peutGerer &&
-                (confirmationSuppressionId === c.id ? (
-                  <div className="confirmation-retrait">
-                    <span>Supprimer ?</span>
-                    <button type="button" onClick={() => setConfirmationSuppressionId(null)}>
-                      Non
-                    </button>
-                    <button type="button" onClick={() => supprimer(c.id)}>
-                      Oui
-                    </button>
-                  </div>
-                ) : (
-                  <div className="actions-ligne-simple">
-                    <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(c)}>
-                      ✎
-                    </button>
-                    <button
-                      type="button"
-                      className="lien-icone"
-                      title="Supprimer"
-                      onClick={() => setConfirmationSuppressionId(c.id)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
+              {peutGerer && (
+                <div className="actions-ligne-simple">
+                  <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(c)}>
+                    ✎
+                  </button>
+                  <button
+                    type="button"
+                    className="lien-icone lien-icone-danger"
+                    title="Supprimer"
+                    onClick={() => setConfirmationSuppressionId(c.id)}
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
             </li>
           ),
         )}
         {categories.length === 0 && <li className="liste-vide">Aucune catégorie.</li>}
       </ul>
+      {confirmationSuppressionId && (
+        <ModaleConfirmation
+          titre="Supprimer cette catégorie ?"
+          labelConfirmer="Supprimer"
+          dangereux
+          onAnnuler={() => setConfirmationSuppressionId(null)}
+          onConfirmer={() => supprimer(confirmationSuppressionId)}
+        />
+      )}
     </div>
   );
 }
@@ -1487,36 +1539,18 @@ function OngletCategories({ session }: { session: Session }) {
 // --- Page principale ---
 // Unités et Attributs se gèrent désormais depuis Réglages (voir Reglages.tsx) —
 // ici on ne fait que les consommer (menus déroulants du formulaire produit).
-
-const ONGLETS = [
-  { cle: "produits", label: "Produits" },
-  { cle: "categories", label: "Catégories" },
-] as const;
-
-type Onglet = (typeof ONGLETS)[number]["cle"];
+// L'onglet (Produits/Catégories) est affiché dans la même ligne que la
+// recherche et les actions de chaque onglet (voir SelecteurOnglet) plutôt que
+// dans une en-tête séparée.
 
 export default function Produits({ session }: { session: Session }) {
   const [onglet, setOnglet] = useState<Onglet>("produits");
 
   return (
     <div className="page-produits">
-      <div className="entete-page-onglets">
-        <h2>Produits</h2>
-        <div className="barre-onglets">
-          {ONGLETS.map((o) => (
-            <button
-              key={o.cle}
-              className={`onglet ${onglet === o.cle ? "actif" : ""}`}
-              onClick={() => setOnglet(o.cle)}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-      </div>
       <div className="contenu-onglet">
-        {onglet === "produits" && <OngletProduits session={session} />}
-        {onglet === "categories" && <OngletCategories session={session} />}
+        {onglet === "produits" && <OngletProduits session={session} onglet={onglet} setOnglet={setOnglet} />}
+        {onglet === "categories" && <OngletCategories session={session} onglet={onglet} setOnglet={setOnglet} />}
       </div>
     </div>
   );

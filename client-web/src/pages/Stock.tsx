@@ -52,7 +52,7 @@ export default function Stock({ session }: { session: Session }) {
         )}
         <input
           className="champ-recherche"
-          placeholder="Rechercher un produit…"
+          placeholder="Rechercher un article…"
           value={terme}
           onChange={(e) => setTerme(e.target.value)}
         />
@@ -69,7 +69,8 @@ export default function Stock({ session }: { session: Session }) {
         <table className="tableau-catalogue">
           <thead>
             <tr>
-              <th>Produit</th>
+              <th>N°</th>
+              <th>Désignation</th>
               <th>Référence</th>
               <th>Dépôt</th>
               <th>Quantité</th>
@@ -78,8 +79,9 @@ export default function Stock({ session }: { session: Session }) {
             </tr>
           </thead>
           <tbody>
-            {lignesAffichees.map((l) => (
+            {lignesAffichees.map((l, index) => (
               <tr key={l.id}>
+                <td>{index + 1}</td>
                 <td>{l.produitNom}</td>
                 <td>{l.reference || ""}</td>
                 <td>{l.depotNom}</td>
@@ -90,7 +92,7 @@ export default function Stock({ session }: { session: Session }) {
             ))}
             {lignesAffichees.length === 0 && (
               <tr>
-                <td colSpan={6} className="liste-vide">
+                <td colSpan={7} className="liste-vide">
                   {seulementRuptures ? "Aucune rupture de stock." : "Aucune ligne de stock."}
                 </td>
               </tr>

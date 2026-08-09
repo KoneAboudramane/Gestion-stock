@@ -13,6 +13,10 @@ class Client(ModeleBase):
     nom = models.CharField(max_length=200)
     telephone = models.CharField(max_length=30, blank=True)
     adresse = models.CharField(max_length=255, blank=True)
+    # Client régulier (fidélisé) vs client de passage saisi à la volée pour une
+    # vente à crédit : ce dernier n'apparaît pas dans le répertoire clients,
+    # seulement dans le carnet de crédit tant qu'il n'a pas soldé.
+    est_permanent = models.BooleanField(default=True)
 
     def __str__(self):
         return self.nom

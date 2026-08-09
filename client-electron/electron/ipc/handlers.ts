@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { ipcMain, shell } from "electron";
 
 import * as achats from "../services/achats";
 import * as alertesSysteme from "../services/alertesSysteme";
@@ -155,6 +155,9 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("ventes:annuler", (_evt, id: string, utilisateurId: string | null) =>
     executerEnSecurite(() => ventes.annulerVente(id, utilisateurId)),
   );
+  ipcMain.handle("ventes:listerParProduit", (_evt, produitId: string, limite?: number) =>
+    ventes.listerVentesParProduit(produitId, limite),
+  );
 
   ipcMain.handle("produits:lister", (_evt, boutiqueId: string, terme?: string) =>
     produits.listerProduits(boutiqueId, terme),
@@ -167,6 +170,9 @@ export function enregistrerLesHandlers(): void {
     executerEnSecurite(() => produits.modifierProduit(id, champs)),
   );
   ipcMain.handle("produits:supprimer", (_evt, id: string) => executerEnSecurite(() => produits.supprimerProduit(id)));
+  ipcMain.handle("produits:prochaineReference", (_evt, boutiqueId: string) =>
+    produits.prochaineReferenceProduit(boutiqueId),
+  );
 
   ipcMain.handle("variantes:creer", (_evt, params: produits.ParametresVarianteEntree) =>
     executerEnSecurite(() => produits.creerVariante(params)),
@@ -230,6 +236,9 @@ export function enregistrerLesHandlers(): void {
 
   ipcMain.handle("mouvements:lister", (_evt, boutiqueId: string, depotId?: string, limite?: number) =>
     stock.listerMouvements(boutiqueId, depotId, limite),
+  );
+  ipcMain.handle("mouvements:listerParProduit", (_evt, produitId: string, limite?: number) =>
+    stock.listerMouvementsParProduit(produitId, limite),
   );
   ipcMain.handle("mouvements:creer", (_evt, params: stock.ParametresMouvement) => {
     const resultat = executerEnSecurite(() => stock.creerMouvementManuel(params));
@@ -311,14 +320,18 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("clients:lister", (_evt, boutiqueId: string, terme?: string) =>
     clients.listerClientsDetail(boutiqueId, terme),
   );
-  ipcMain.handle("clients:creer", (_evt, boutiqueId: string, nom: string, telephone?: string, adresse?: string) =>
-    executerEnSecurite(() => clients.creerClient(boutiqueId, nom, telephone, adresse)),
+  ipcMain.handle("clients:obtenir", (_evt, id: string) => clients.obtenirClient(id));
+  ipcMain.handle(
+    "clients:creer",
+    (_evt, boutiqueId: string, nom: string, telephone?: string, adresse?: string, estPermanent?: boolean) =>
+      executerEnSecurite(() => clients.creerClient(boutiqueId, nom, telephone, adresse, estPermanent)),
   );
   ipcMain.handle(
     "clients:modifier",
     (_evt, id: string, champs: Parameters<typeof clients.modifierClient>[1]) =>
       executerEnSecurite(() => clients.modifierClient(id, champs)),
   );
+  ipcMain.handle("clients:supprimer", (_evt, id: string) => executerEnSecurite(() => clients.supprimerClient(id)));
 
   ipcMain.handle(
     "credits:lister",
@@ -502,5 +515,21 @@ export function enregistrerLesHandlers(): void {
     const { derniereSynchro } = sync.etatSynchro();
     const enLigne = await sync.verifierEnLigne();
     return { derniereSynchro, enLigne };
+  });
+
+  ipcMain.handle("systeme:exporterPdf", async (evenement, nomFichierDefaut: string) => {
+    try {
+      const buffer = await evenement.sender.printToPDF({ printBackground: true, pageSize: "A4" });
+      return {
+        succes: true as const,
+        resultat: await exportService.exporterBufferPdf(buffer, nomFichierDefaut),
+      };
+    } catch (erreur) {
+      return { succes: false as const, message: messageErreur(erreur) };
+    }
+  });
+
+  ipcMain.handle("systeme:ouvrirExterne", async (_evt, url: string) => {
+    await shell.openExternal(url);
   });
 }

@@ -38,6 +38,8 @@ contextBridge.exposeInMainWorld("api", {
     obtenir: (id: string) => ipcRenderer.invoke("ventes:obtenir", id),
     annuler: (id: string, utilisateurId: string | null) =>
       ipcRenderer.invoke("ventes:annuler", id, utilisateurId),
+    listerParProduit: (produitId: string, limite?: number) =>
+      ipcRenderer.invoke("ventes:listerParProduit", produitId, limite),
   },
   produits: {
     lister: (boutiqueId: string, terme?: string) => ipcRenderer.invoke("produits:lister", boutiqueId, terme),
@@ -45,6 +47,7 @@ contextBridge.exposeInMainWorld("api", {
     creer: (params: unknown) => ipcRenderer.invoke("produits:creer", params),
     modifier: (id: string, champs: unknown) => ipcRenderer.invoke("produits:modifier", id, champs),
     supprimer: (id: string) => ipcRenderer.invoke("produits:supprimer", id),
+    prochaineReference: (boutiqueId: string) => ipcRenderer.invoke("produits:prochaineReference", boutiqueId),
   },
   variantes: {
     creer: (params: unknown) => ipcRenderer.invoke("variantes:creer", params),
@@ -87,6 +90,8 @@ contextBridge.exposeInMainWorld("api", {
   mouvements: {
     lister: (boutiqueId: string, depotId?: string, limite?: number) =>
       ipcRenderer.invoke("mouvements:lister", boutiqueId, depotId, limite),
+    listerParProduit: (produitId: string, limite?: number) =>
+      ipcRenderer.invoke("mouvements:listerParProduit", produitId, limite),
     creer: (params: unknown) => ipcRenderer.invoke("mouvements:creer", params),
     creerEntreeProduction: (params: unknown) => ipcRenderer.invoke("mouvements:creerEntreeProduction", params),
   },
@@ -126,9 +131,11 @@ contextBridge.exposeInMainWorld("api", {
   },
   clients: {
     lister: (boutiqueId: string, terme?: string) => ipcRenderer.invoke("clients:lister", boutiqueId, terme),
-    creer: (boutiqueId: string, nom: string, telephone?: string, adresse?: string) =>
-      ipcRenderer.invoke("clients:creer", boutiqueId, nom, telephone, adresse),
+    obtenir: (id: string) => ipcRenderer.invoke("clients:obtenir", id),
+    creer: (boutiqueId: string, nom: string, telephone?: string, adresse?: string, estPermanent?: boolean) =>
+      ipcRenderer.invoke("clients:creer", boutiqueId, nom, telephone, adresse, estPermanent),
     modifier: (id: string, champs: unknown) => ipcRenderer.invoke("clients:modifier", id, champs),
+    supprimer: (id: string) => ipcRenderer.invoke("clients:supprimer", id),
   },
   credits: {
     lister: (boutiqueId: string, clientId?: string, statut?: string) =>
@@ -217,5 +224,7 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.on("navigation:notifications", ecouteur);
       return () => ipcRenderer.removeListener("navigation:notifications", ecouteur);
     },
+    exporterPdf: (nomFichierDefaut: string) => ipcRenderer.invoke("systeme:exporterPdf", nomFichierDefaut),
+    ouvrirExterne: (url: string) => ipcRenderer.invoke("systeme:ouvrirExterne", url),
   },
 });

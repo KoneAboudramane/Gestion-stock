@@ -36,9 +36,11 @@ export interface ClientBoutique {
   id: string;
   nom: string;
   telephone: string;
+  adresse: string;
 }
 
-export type ModePaiement = "especes" | "mobile_money" | "carte" | "credit";
+export type ModePaiement = "especes" | "mobile_money" | "credit";
+export type OperateurMobileMoney = "orange_money" | "mtn_money" | "moov_money" | "wave";
 export type StatutVente = "payee" | "credit";
 
 export interface LigneVenteEntree {
@@ -50,6 +52,7 @@ export interface LigneVenteEntree {
 
 export interface PaiementEntree {
   mode: ModePaiement;
+  operateur?: OperateurMobileMoney | "";
   montant: number;
 }
 
@@ -95,9 +98,21 @@ export interface LigneVenteDetail {
   sousTotal: number;
 }
 
+export interface LigneVenteHistorique {
+  venteId: string;
+  venteNumero: string;
+  dateCreation: string;
+  clientNom: string | null;
+  statut: StatutVenteHistorique;
+  quantite: number;
+  prixUnitaire: number;
+  sousTotal: number;
+}
+
 export interface PaiementDetail {
   id: string;
   mode: ModePaiement;
+  operateur?: OperateurMobileMoney | "";
   montant: number;
 }
 
@@ -107,10 +122,12 @@ export interface VenteDetail {
   dateCreation: string;
   depotNom: string;
   clientNom: string | null;
+  clientTelephone: string | null;
   statut: StatutVenteHistorique;
   totalBrut: number;
   remise: number;
   totalNet: number;
+  utilisateurId: string | null;
   lignes: LigneVenteDetail[];
   paiements: PaiementDetail[];
 }
@@ -149,6 +166,7 @@ export interface ValeurAttributResume {
 export interface ProduitResume {
   id: string;
   nom: string;
+  reference: string | null;
   categorieNom: string | null;
   actif: number;
   prixVente: number | null;
@@ -165,6 +183,7 @@ export interface VarianteDetail {
   prixVente: number;
   seuilAlerte: number;
   actif: number;
+  quantiteStock: number;
   valeurs: string[];
 }
 
@@ -172,7 +191,9 @@ export interface ProduitDetail {
   id: string;
   nom: string;
   categorieId: string | null;
+  categorieNom: string | null;
   uniteId: string | null;
+  uniteNom: string | null;
   description: string;
   actif: number;
   variantes: VarianteDetail[];
@@ -461,6 +482,7 @@ export interface ChampsClient {
 export interface CreditResume {
   id: string;
   clientNom: string;
+  clientEstPermanent: number;
   venteNumero: string | null;
   montant: number;
   montantPaye: number;
@@ -728,6 +750,7 @@ export interface WindowApi {
     ): Promise<VenteResume[]>;
     obtenir(id: string): Promise<VenteDetail | undefined>;
     annuler(id: string, utilisateurId: string | null): Promise<ResultatEcriture<void>>;
+    listerParProduit(produitId: string, limite?: number): Promise<LigneVenteHistorique[]>;
   };
   produits: {
     lister(boutiqueId: string, terme?: string): Promise<ProduitResume[]>;
@@ -735,6 +758,7 @@ export interface WindowApi {
     creer(params: ParametresProduit): Promise<ResultatEcriture<{ produitId: string; varianteId: string }>>;
     modifier(id: string, champs: ChampsProduit): Promise<ResultatEcriture<void>>;
     supprimer(id: string): Promise<ResultatEcriture<void>>;
+    prochaineReference(boutiqueId: string): Promise<string>;
   };
   variantes: {
     creer(params: ParametresVarianteEntree): Promise<ResultatEcriture<string>>;
@@ -772,6 +796,7 @@ export interface WindowApi {
   };
   mouvements: {
     lister(boutiqueId: string, depotId?: string, limite?: number): Promise<MouvementResume[]>;
+    listerParProduit(produitId: string, limite?: number): Promise<MouvementResume[]>;
     creer(params: ParametresMouvement): Promise<ResultatEcriture<string>>;
     creerEntreeProduction(params: ParametresEntreeProduction): Promise<ResultatEcriture<string>>;
   };
@@ -816,13 +841,16 @@ export interface WindowApi {
   };
   clients: {
     lister(boutiqueId: string, terme?: string): Promise<ClientDetailResume[]>;
+    obtenir(id: string): Promise<ClientDetailResume | undefined>;
     creer(
       boutiqueId: string,
       nom: string,
       telephone?: string,
       adresse?: string,
+      estPermanent?: boolean,
     ): Promise<ResultatEcriture<string>>;
     modifier(id: string, champs: ChampsClient): Promise<ResultatEcriture<void>>;
+    supprimer(id: string): Promise<ResultatEcriture<void>>;
   };
   credits: {
     lister(boutiqueId: string, clientId?: string, statut?: StatutCredit): Promise<CreditResume[]>;
@@ -900,6 +928,8 @@ export interface WindowApi {
   systeme: {
     /** Retourne une fonction de désabonnement. */
     onNaviguerNotifications(callback: () => void): () => void;
+    exporterPdf(nomFichierDefaut: string): Promise<ResultatExporter>;
+    ouvrirExterne(url: string): Promise<void>;
   };
 }
 

@@ -37,5 +37,5 @@ class LigneVenteAdmin(admin.ModelAdmin):
 
 @admin.register(Paiement)
 class PaiementAdmin(admin.ModelAdmin):
-    list_display = ("vente", "mode", "montant")
-    list_filter = ("mode",)
+    list_display = ("vente", "mode", "operateur", "montant")
+    list_filter = ("mode", "operateur")

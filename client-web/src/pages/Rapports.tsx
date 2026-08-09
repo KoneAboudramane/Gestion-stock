@@ -126,15 +126,17 @@ function OngletTopProduits({ plage }: { plage: PlageDates | null }) {
         <table className="tableau-catalogue">
           <thead>
             <tr>
-              <th>Produit</th>
+              <th>N°</th>
+              <th>Désignation</th>
               <th>Référence</th>
               <th>Quantité vendue</th>
               <th>CA généré</th>
             </tr>
           </thead>
           <tbody>
-            {lignes.map((l) => (
+            {lignes.map((l, index) => (
               <tr key={l.varianteId}>
+                <td>{index + 1}</td>
                 <td>{l.produit}</td>
                 <td>{l.reference || ""}</td>
                 <td>{l.quantiteVendue}</td>
@@ -143,7 +145,7 @@ function OngletTopProduits({ plage }: { plage: PlageDates | null }) {
             ))}
             {lignes.length === 0 && (
               <tr>
-                <td colSpan={4} className="liste-vide">
+                <td colSpan={5} className="liste-vide">
                   Aucune vente sur la période.
                 </td>
               </tr>
@@ -170,14 +172,16 @@ function OngletTopClients({ plage }: { plage: PlageDates | null }) {
       <table className="tableau-catalogue">
         <thead>
           <tr>
+            <th>N°</th>
             <th>Client</th>
             <th>Nombre de ventes</th>
             <th>CA généré</th>
           </tr>
         </thead>
         <tbody>
-          {lignes.map((l) => (
+          {lignes.map((l, index) => (
             <tr key={l.clientId}>
+              <td>{index + 1}</td>
               <td>{l.clientNom}</td>
               <td>{l.nombreVentes}</td>
               <td>{l.totalNet}</td>
@@ -185,7 +189,7 @@ function OngletTopClients({ plage }: { plage: PlageDates | null }) {
           ))}
           {lignes.length === 0 && (
             <tr>
-              <td colSpan={3} className="liste-vide">
+              <td colSpan={4} className="liste-vide">
                 Aucune vente à un client identifié sur la période.
               </td>
             </tr>
@@ -269,6 +273,7 @@ function OngletVentesParVendeur({ plage }: { plage: PlageDates | null }) {
       <table className="tableau-catalogue">
         <thead>
           <tr>
+            <th>N°</th>
             <th>Vendeur</th>
             <th>Nombre de ventes</th>
             <th>Total net</th>
@@ -277,6 +282,7 @@ function OngletVentesParVendeur({ plage }: { plage: PlageDates | null }) {
         <tbody>
           {lignes.map((l, i) => (
             <tr key={i}>
+              <td>{i + 1}</td>
               <td>{l.utilisateur || ""}</td>
               <td>{l.nombreVentes}</td>
               <td>{l.totalNet}</td>
@@ -284,7 +290,7 @@ function OngletVentesParVendeur({ plage }: { plage: PlageDates | null }) {
           ))}
           {lignes.length === 0 && (
             <tr>
-              <td colSpan={3} className="liste-vide">
+              <td colSpan={4} className="liste-vide">
                 Aucune vente sur la période.
               </td>
             </tr>
@@ -310,6 +316,7 @@ function OngletVentesParCategorie({ plage }: { plage: PlageDates | null }) {
       <table className="tableau-catalogue">
         <thead>
           <tr>
+            <th>N°</th>
             <th>Catégorie</th>
             <th>Quantité vendue</th>
             <th>CA généré</th>
@@ -318,6 +325,7 @@ function OngletVentesParCategorie({ plage }: { plage: PlageDates | null }) {
         <tbody>
           {lignes.map((l, i) => (
             <tr key={i}>
+              <td>{i + 1}</td>
               <td>{l.categorie}</td>
               <td>{l.quantiteVendue}</td>
               <td>{l.caGenere}</td>
@@ -325,7 +333,7 @@ function OngletVentesParCategorie({ plage }: { plage: PlageDates | null }) {
           ))}
           {lignes.length === 0 && (
             <tr>
-              <td colSpan={3} className="liste-vide">
+              <td colSpan={4} className="liste-vide">
                 Aucune vente sur la période.
               </td>
             </tr>
@@ -351,6 +359,7 @@ function OngletVentesParModePaiement({ plage }: { plage: PlageDates | null }) {
       <table className="tableau-catalogue">
         <thead>
           <tr>
+            <th>N°</th>
             <th>Mode de paiement</th>
             <th>Total</th>
           </tr>
@@ -358,13 +367,14 @@ function OngletVentesParModePaiement({ plage }: { plage: PlageDates | null }) {
         <tbody>
           {lignes.map((l, i) => (
             <tr key={i}>
+              <td>{i + 1}</td>
               <td>{libelleModePaiement(l.mode)}</td>
               <td>{l.total}</td>
             </tr>
           ))}
           {lignes.length === 0 && (
             <tr>
-              <td colSpan={2} className="liste-vide">
+              <td colSpan={3} className="liste-vide">
                 Aucun paiement sur la période.
               </td>
             </tr>
@@ -379,7 +389,7 @@ function OngletVentesParModePaiement({ plage }: { plage: PlageDates | null }) {
 
 const ONGLETS = [
   { cle: "synthese", label: "Synthèse" },
-  { cle: "topProduits", label: "Top produits" },
+  { cle: "topProduits", label: "Top articles" },
   { cle: "topClients", label: "Top clients" },
   { cle: "valeurStock", label: "Valeur du stock" },
   { cle: "vendeurs", label: "Ventes par vendeur" },

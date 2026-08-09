@@ -4,10 +4,6 @@ import { api } from "../api/client";
 import type { EtatSynchro, Session } from "../api/client";
 
 const INTERVALLE_SYNCHRO_AUTO_MS = 5 * 60 * 1000;
-// Au-delà de ce délai sans synchro réussie, on prévient l'utilisateur : les
-// échecs automatiques sont silencieux (voir plus bas), donc sans ce seuil
-// rien ne signale que des données risquent de ne plus être sauvegardées.
-const SEUIL_ALERTE_RETARD_MS = 24 * 60 * 60 * 1000;
 
 function formaterDate(iso: string | null): string {
   if (!iso) return "jamais";
@@ -21,9 +17,6 @@ export default function BarreSynchro({ session }: { session: Session }) {
   // Garde synchrone (pas de state) pour ignorer un déclenchement automatique
   // si une synchro (manuelle ou auto) est déjà en cours.
   const enCoursRef = useRef(false);
-  // Référence de départ pour évaluer un retard même si aucune synchro n'a
-  // jamais réussi (derniereSynchro est alors null).
-  const debutRef = useRef(Date.now());
 
   async function rafraichirEtat() {
     const nouvelEtat = await api.sync.etat();
@@ -65,24 +58,13 @@ export default function BarreSynchro({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const derniereSynchroMs = etat?.derniereSynchro ? new Date(etat.derniereSynchro).getTime() : debutRef.current;
-  const enRetard = Date.now() - derniereSynchroMs > SEUIL_ALERTE_RETARD_MS;
-
   return (
-    <>
-      {enRetard && (
-        <div className="banniere-synchro-retard">
-          ⚠ Aucune synchronisation réussie depuis plus de 24h — vos données récentes ne sont pas encore
-          sauvegardées en ligne. Vérifiez votre connexion internet.
-        </div>
-      )}
-      <div className="barre-synchro" title={erreur ?? undefined}>
-        <span className={`point ${etat?.enLigne ? "point-en-ligne" : "point-hors-ligne"}`} />
-        {etat?.enLigne ? "En ligne" : "Hors-ligne"} · dernière synchro : {formaterDate(etat?.derniereSynchro ?? null)}
-        <button className="bouton-synchro" onClick={() => synchroniser(false)} disabled={enCours}>
-          {enCours ? "Synchronisation…" : "Synchroniser"}
-        </button>
-      </div>
-    </>
+    <div className="barre-synchro" title={erreur ?? undefined}>
+      <span className={`point ${etat?.enLigne ? "point-en-ligne" : "point-hors-ligne"}`} />
+      {etat?.enLigne ? "En ligne" : "Hors-ligne"} · dernière synchro : {formaterDate(etat?.derniereSynchro ?? null)}
+      <button className="bouton-synchro" onClick={() => synchroniser(false)} disabled={enCours}>
+        {enCours ? "Synchronisation…" : "Synchroniser"}
+      </button>
+    </div>
   );
 }

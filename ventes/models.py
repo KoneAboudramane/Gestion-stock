@@ -56,13 +56,22 @@ class Paiement(ModeleBase):
     class Mode(models.TextChoices):
         ESPECES = "especes", "Espèces"
         MOBILE_MONEY = "mobile_money", "Mobile Money"
-        CARTE = "carte", "Carte"
         CREDIT = "credit", "Crédit"
+
+    class Operateur(models.TextChoices):
+        ORANGE_MONEY = "orange_money", "Orange Money"
+        MTN_MONEY = "mtn_money", "MTN Money"
+        MOOV_MONEY = "moov_money", "Moov Money"
+        WAVE = "wave", "Wave"
 
     vente = models.ForeignKey(
         Vente, on_delete=models.CASCADE, related_name="paiements"
     )
     mode = models.CharField(max_length=20, choices=Mode.choices)
+    # Renseigné uniquement quand mode == mobile_money.
+    operateur = models.CharField(
+        max_length=20, choices=Operateur.choices, blank=True
+    )
     montant = models.DecimalField(max_digits=12, decimal_places=2)
 
     def __str__(self):
