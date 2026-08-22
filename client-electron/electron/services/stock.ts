@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { SqlValue } from "sql.js";
 
 import { dansUneTransaction, executer, tousLesResultats, unResultat } from "../db/helpers";
 import { sauvegarder } from "../db/index";
@@ -224,7 +225,7 @@ export function creerDepot(boutiqueId: string, nom: string, adresse = ""): strin
 
 export function modifierDepot(id: string, champs: Partial<{ nom: string; adresse: string }>): void {
   const colonnes: string[] = [];
-  const valeurs: unknown[] = [];
+  const valeurs: SqlValue[] = [];
   for (const [cle, valeur] of Object.entries(champs)) {
     if (valeur === undefined) continue;
     colonnes.push(`${cle} = ?`);
@@ -267,7 +268,7 @@ export interface LigneStock {
 export function listerStock(boutiqueId: string, depotId?: string, terme = ""): LigneStock[] {
   const motif = `%${terme}%`;
   const conditions = ["d.boutique_id = ?", "p.supprime = 0", "v.supprime = 0", "p.nom LIKE ?"];
-  const params: unknown[] = [boutiqueId, motif];
+  const params: SqlValue[] = [boutiqueId, motif];
   if (depotId) {
     conditions.push("s.depot_id = ?");
     params.push(depotId);
@@ -315,7 +316,7 @@ export interface MouvementResume {
 
 export function listerMouvements(boutiqueId: string, depotId?: string, limite = 100): MouvementResume[] {
   const conditions = ["d.boutique_id = ?", "m.supprime = 0"];
-  const params: unknown[] = [boutiqueId];
+  const params: SqlValue[] = [boutiqueId];
   if (depotId) {
     conditions.push("m.depot_id = ?");
     params.push(depotId);

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { SqlValue } from "sql.js";
 
 import { dansUneTransaction, executer, tousLesResultats, unResultat } from "../db/helpers";
 import { sauvegarder } from "../db/index";
@@ -212,7 +213,7 @@ export function modifierProduit(
     actif: "actif",
   };
   const colonnes: string[] = [];
-  const valeurs: unknown[] = [];
+  const valeurs: SqlValue[] = [];
   for (const [cle, valeur] of Object.entries(champs)) {
     if (valeur === undefined) continue;
     colonnes.push(`${mapping[cle]} = ?`);
@@ -322,7 +323,7 @@ export function modifierVariante(
     actif: "actif",
   };
   const colonnes: string[] = [];
-  const valeurs: unknown[] = [];
+  const valeurs: SqlValue[] = [];
   for (const [cle, valeur] of Object.entries(reste)) {
     if (valeur === undefined) continue;
     colonnes.push(`${mapping[cle]} = ?`);
@@ -351,7 +352,7 @@ export interface ReferenceNommee {
   nom: string;
 }
 
-function creerReferenceNommee(table: string, boutiqueId: string, colonnesSupp: Record<string, unknown> = {}): string {
+function creerReferenceNommee(table: string, boutiqueId: string, colonnesSupp: Record<string, SqlValue> = {}): string {
   const id = randomUUID();
   const maintenant = new Date().toISOString();
   const colonnes = ["id", "boutique_id", ...Object.keys(colonnesSupp), "date_creation", "date_modification"];
