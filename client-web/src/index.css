@@ -2538,6 +2538,15 @@ input.champ-invalide:focus {
   width: 100%;
 }
 
+/* 2 colonnes (.grille-champs) ou 4 (.ajout-produit-groupe) : illisible sur un
+   téléphone, les champs deviennent trop étroits. On empile à la place. */
+@media (max-width: 720px) {
+  .grille-champs,
+  .ajout-produit-groupe {
+    grid-template-columns: 1fr;
+  }
+}
+
 .bouton-ajouter-produit-groupe {
   align-self: end;
   background: var(--degrade-primaire);
@@ -3761,6 +3770,39 @@ input.champ-invalide:focus {
   margin-left: auto;
   align-items: flex-end;
   justify-content: flex-start;
+}
+
+/* Les 3 colonnes de la carte Caisse (article / paiement / totaux) sont côte à
+   côte en nowrap sur desktop, avec des min-width qui dépassent largement un
+   écran de téléphone — on les empile à la place plutôt que de les laisser
+   déborder ou s'écraser. */
+@media (max-width: 720px) {
+  .carte-caisse-principale {
+    flex-wrap: wrap;
+  }
+
+  .colonne-caisse {
+    flex: 1 1 100%;
+    padding: 0 0 0.9rem;
+  }
+
+  .colonne-caisse:last-child {
+    padding-bottom: 0;
+  }
+
+  .colonne-caisse:not(:last-child) {
+    border-right: none;
+    border-bottom: 1px solid var(--bordure-tableau);
+  }
+
+  .colonne-modes-paiement {
+    max-width: none;
+  }
+
+  .colonne-totaux {
+    margin-left: 0;
+    align-items: stretch;
+  }
 }
 
 .recherche-produit-combobox {
