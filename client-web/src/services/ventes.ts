@@ -1,7 +1,9 @@
 import { ouvrirBaseDeDonnees } from "../db";
 import { maintenant, suiviSyncNeuf } from "../db/helpers";
 import type { CreditLocal, LigneVenteLocale, PaiementLocal, VenteLocale } from "../db/schema";
+import { verifierAbonnementActif } from "./abonnement";
 import { appliquerMouvement } from "./stock";
+import { enregistrerMouvement } from "./tresorerie";
 
 /**
  * Port navigateur de client-electron/electron/services/ventes.ts::creerVente
@@ -9,9 +11,6 @@ import { appliquerMouvement } from "./stock";
  * entièrement en local (numéro, lignes, paiements, mouvement de stock,
  * créance éventuelle) — aucun appel réseau ici, la synchronisation
  * (client-web/src/sync) s'en charge séparément, en tâche de fond.
- *
- * Note : la vérification d'abonnement actif (verifierAbonnementActif côté
- * Electron) n'est pas portée ici — hors périmètre de ce premier passage PWA.
  */
 
 export type StatutVente = "payee" | "credit" | "annulee";
@@ -63,6 +62,8 @@ async function genererNumero(boutiqueId: string): Promise<string> {
 
 export async function creerVente(params: ParametresVente): Promise<VenteCreee> {
   const { boutiqueId, depotId, utilisateurId, clientId = null, statut, lignes, paiements, remiseGlobale = 0 } = params;
+
+  await verifierAbonnementActif(boutiqueId);
 
   if (lignes.length === 0) {
     throw new ErreurVente("Une vente doit contenir au moins une ligne.");
@@ -158,8 +159,9 @@ export async function creerVente(params: ParametresVente): Promise<VenteCreee> {
   }
 
   for (const paiement of paiements) {
+    const paiementId = crypto.randomUUID();
     const paiementLocal: PaiementLocal = {
-      id: crypto.randomUUID(),
+      id: paiementId,
       vente_id: venteId,
       mode: paiement.mode,
       operateur: paiement.operateur || "",
@@ -167,6 +169,19 @@ export async function creerVente(params: ParametresVente): Promise<VenteCreee> {
       ...suiviSyncNeuf(),
     };
     await db.put("paiements", paiementLocal);
+
+    if (paiement.mode === "especes") {
+      await enregistrerMouvement({
+        depotId,
+        type: "entree",
+        categorie: "vente_especes",
+        montant: paiement.montant,
+        motif: `Vente ${numero}`,
+        utilisateurId,
+        referenceType: "ventes.Paiement",
+        referenceId: paiementId,
+      });
+    }
   }
 
   if (statut === "credit") {
@@ -211,6 +226,7 @@ export interface VenteDetail {
   id: string;
   numero: string;
   dateCreation: string;
+  depotNom: string;
   clientNom: string | null;
   clientTelephone: string | null;
   statut: StatutVente;
@@ -299,6 +315,22 @@ export async function annulerVente(venteId: string, utilisateurId: string | null
     });
   }
 
+  const paiementsEspeces = (await db.getAllFromIndex("paiements", "vente_id", venteId)).filter(
+    (p) => !p.supprime && p.mode === "especes",
+  );
+  for (const paiement of paiementsEspeces) {
+    await enregistrerMouvement({
+      depotId: vente.depot_id,
+      type: "sortie",
+      categorie: "vente_especes",
+      montant: paiement.montant,
+      motif: `Annulation vente ${vente.numero}`,
+      utilisateurId,
+      referenceType: "ventes.Vente",
+      referenceId: venteId,
+    });
+  }
+
   const maintenantIso = maintenant();
   const credits = (await db.getAll("credits")).filter((c) => c.vente_id === venteId);
   for (const credit of credits) {
@@ -315,6 +347,7 @@ export async function obtenirVenteDetail(venteId: string): Promise<VenteDetail |
   if (!vente) return undefined;
 
   const client = vente.client_id ? await db.get("clients", vente.client_id) : undefined;
+  const depot = await db.get("depots", vente.depot_id);
 
   const lignes = await db.getAllFromIndex("lignes_vente", "vente_id", venteId);
   const lignesDetail: LigneVenteDetail[] = [];
@@ -338,6 +371,7 @@ export async function obtenirVenteDetail(venteId: string): Promise<VenteDetail |
     id: vente.id,
     numero: vente.numero,
     dateCreation: vente.date_creation,
+    depotNom: depot?.nom ?? "",
     clientNom: client?.nom ?? null,
     clientTelephone: client?.telephone ?? null,
     statut: vente.statut,

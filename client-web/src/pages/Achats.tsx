@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 
 import type { Session } from "../api";
 import ChampMontant from "../components/ChampMontant";
@@ -13,6 +14,7 @@ import {
   listerFournisseurs,
   modifierCommande,
   obtenirCommande,
+  obtenirDerniersFournisseurs,
   payerDette,
   receptionnerCommande,
   rechercherVariantesAchat,
@@ -24,15 +26,18 @@ import {
   type StatutDette,
   type VarianteAchat,
 } from "../services/achats";
-import { listerDepotsDetail, type DepotResume } from "../services/stock";
+import { MODES_REGLEMENT } from "../lib/libelles";
+import { creerProduit, ErreurProduit, obtenirProduit } from "../services/produits";
+import { listerDepotsDetail, type DepotResume, type LigneAchatInitiale } from "../services/stock";
 
 /**
  * Port de client-electron/src/pages/Achats.tsx, local d'abord (IndexedDB, voir
  * services/achats.ts), comme le reste de l'application. Accès réservé aux
  * comptes ayant la permission gerer_produits_stock_achats.
  *
- * Non repris ici par rapport à l'Electron : le raccourci "Commander" groupé
- * depuis une rupture de stock du tableau de bord (n'existe pas côté web).
+ * Raccourci "Commander" groupé depuis une rupture de stock (2026-08-22,
+ * parité Electron) : ApercuCommandesGroupees + lignesInitiales/
+ * ouvrirFormulaireInitial, alimentés par Shell.tsx depuis Stock.tsx.
  */
 
 function libelleStatutCommande(statut: StatutCommande): string {
@@ -92,6 +97,21 @@ function FormulaireCommande({
     });
     setTerme("");
     setResultats([]);
+  }
+
+  async function ajouterNouveauProduit() {
+    const nom = terme.trim();
+    if (!nom) return;
+    try {
+      const cree = await creerProduit({ boutiqueId: session.boutiqueId, nom, prixAchat: 0, prixVente: 0 });
+      const produit = await obtenirProduit(cree.id);
+      const reference = produit?.variantes[0]?.reference ?? "";
+      setLignes((actuel) => [...actuel, { varianteId: cree.varianteId, produitNom: nom, reference, quantite: 1, prixAchat: 0 }]);
+      setTerme("");
+      setResultats([]);
+    } catch (e) {
+      setErreur(e instanceof ErreurProduit ? e.message : "Erreur inattendue.");
+    }
   }
 
   function modifierLigne(varianteId: string, champs: Partial<LigneSaisie>) {
@@ -186,7 +206,17 @@ function FormulaireCommande({
                         <span>{v.produitNom}</span>
                       </li>
                     ))}
-                  {resultats.length === 0 && <li className="liste-vide">Aucun article trouvé.</li>}
+                  {resultats.length === 0 && (
+                    <li
+                      className="client-suggestion-ajout"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        ajouterNouveauProduit();
+                      }}
+                    >
+                      + Ajouter « {terme.trim()} » comme nouvel article
+                    </li>
+                  )}
                 </ul>
               )}
             </div>
@@ -253,6 +283,188 @@ function FormulaireCommande({
             </table>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Aperçu de commandes groupées (raccourci "Commander" depuis une/des rupture(s)) ---
+
+interface LigneApercu {
+  varianteId: string;
+  produitNom: string;
+  depotId: string;
+  depotNom: string;
+  quantite: number;
+  prixAchat: number;
+  fournisseurId: string;
+}
+
+function ApercuCommandesGroupees({
+  session,
+  lignes,
+  fournisseurs,
+  onAnnuler,
+  onCreees,
+}: {
+  session: Session;
+  lignes: LigneAchatInitiale[];
+  fournisseurs: FournisseurResume[];
+  onAnnuler: () => void;
+  onCreees: () => void;
+}) {
+  const [lignesEditees, setLignesEditees] = useState<LigneApercu[] | null>(null);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState(false);
+
+  useEffect(() => {
+    obtenirDerniersFournisseurs(
+      session.boutiqueId,
+      lignes.map((l) => l.varianteId),
+    ).then((derniers) => {
+      setLignesEditees(
+        lignes.map((l) => ({
+          varianteId: l.varianteId,
+          produitNom: l.produitNom,
+          depotId: l.depotId,
+          depotNom: l.depotNom,
+          quantite: 1,
+          prixAchat: l.prixAchat,
+          fournisseurId: derniers[l.varianteId]?.id ?? "",
+        })),
+      );
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId]);
+
+  function modifierLigne(varianteId: string, champs: Partial<LigneApercu>) {
+    setLignesEditees((actuel) => (actuel ?? []).map((l) => (l.varianteId === varianteId ? { ...l, ...champs } : l)));
+  }
+
+  function retirerLigne(varianteId: string) {
+    setLignesEditees((actuel) => (actuel ?? []).filter((l) => l.varianteId !== varianteId));
+  }
+
+  if (lignesEditees === null) return <p>Chargement…</p>;
+
+  // Regroupement (dépôt, fournisseur) : une commande par groupe, recalculé à
+  // chaque modification (ex. changement de fournisseur sur une ligne).
+  const groupes = new Map<string, { depotNom: string; fournisseurId: string; lignes: LigneApercu[] }>();
+  for (const ligne of lignesEditees) {
+    const cle = `${ligne.depotId}::${ligne.fournisseurId}`;
+    const groupe = groupes.get(cle);
+    if (groupe) groupe.lignes.push(ligne);
+    else groupes.set(cle, { depotNom: ligne.depotNom, fournisseurId: ligne.fournisseurId, lignes: [ligne] });
+  }
+
+  async function creerLesCommandes() {
+    setErreur(null);
+    if (lignesEditees === null || lignesEditees.length === 0) {
+      setErreur("Aucun article à commander.");
+      return;
+    }
+    if (lignesEditees.some((l) => !l.fournisseurId)) {
+      setErreur("Choisissez un fournisseur pour chaque article avant de créer les commandes.");
+      return;
+    }
+    setEnCours(true);
+    try {
+      for (const groupe of groupes.values()) {
+        try {
+          await creerCommande({
+            boutiqueId: session.boutiqueId,
+            fournisseurId: groupe.fournisseurId,
+            utilisateurId: session.utilisateurId,
+            statut: "brouillon",
+            lignes: groupe.lignes.map((l) => ({ varianteId: l.varianteId, quantite: l.quantite, prixAchat: l.prixAchat })),
+          });
+        } catch (e) {
+          setErreur(e instanceof ErreurAchat ? e.message : "Erreur inattendue.");
+          return;
+        }
+      }
+      onCreees();
+    } finally {
+      setEnCours(false);
+    }
+  }
+
+  return (
+    <div className="detail-produit">
+      <div className="entete-detail entete-fixe">
+        <h3>Commander les produits en rupture ({lignesEditees.length})</h3>
+        <div className="actions-formulaire">
+          <button type="button" onClick={onAnnuler}>
+            Annuler
+          </button>
+          <button
+            type="button"
+            className="bouton-primaire"
+            onClick={creerLesCommandes}
+            disabled={enCours || lignesEditees.length === 0}
+          >
+            {enCours ? "Création…" : `Créer les commandes (${groupes.size})`}
+          </button>
+        </div>
+      </div>
+      {erreur && <div className="message-erreur">{erreur}</div>}
+
+      <div className="zone-tableau-scroll">
+        <table className="tableau-catalogue">
+          <thead>
+            <tr>
+              <th>Désignation</th>
+              <th>Dépôt</th>
+              <th>Qté</th>
+              <th>Prix d'achat</th>
+              <th>Fournisseur</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {lignesEditees.map((l) => (
+              <tr key={l.varianteId}>
+                <td>{l.produitNom}</td>
+                <td>{l.depotNom}</td>
+                <td>
+                  <input
+                    type="number"
+                    min={0.01}
+                    step="any"
+                    value={l.quantite}
+                    onChange={(e) => modifierLigne(l.varianteId, { quantite: Number(e.target.value) })}
+                  />
+                </td>
+                <td>
+                  <ChampMontant
+                    value={String(l.prixAchat)}
+                    onChange={(valeur) => modifierLigne(l.varianteId, { prixAchat: Number(valeur) || 0 })}
+                  />
+                </td>
+                <td>
+                  <select value={l.fournisseurId} onChange={(e) => modifierLigne(l.varianteId, { fournisseurId: e.target.value })}>
+                    <option value="">À choisir…</option>
+                    {fournisseurs.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.nom}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className="bouton-retirer-ligne-groupe"
+                    title="Retirer de la liste"
+                    onClick={() => retirerLigne(l.varianteId)}
+                  >
+                    ✕
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -495,27 +707,55 @@ function DetailCommande({
   );
 }
 
-const ONGLETS = [
-  { cle: "commandes", label: "Commandes" },
-  { cle: "fournisseurs", label: "Fournisseurs" },
-  { cle: "dettes", label: "Dettes" },
+/**
+ * Ronds défilants du fond (même patron que Accueil.tsx) : tailles/vitesses/
+ * délais variés, trajectoire propre à chacun (départ → arrivée en vw/vh),
+ * couleur --cercle-N (index.css — cycle des teintes sémantiques par défaut,
+ * réassorti à l'identité propre de certains thèmes comme Orange).
+ */
+const CERCLES_FOND = [
+  { taille: 90, couleur: "var(--cercle-1)", duree: 26, delai: -4, depart: ["-15vw", "10vh"], arrivee: ["115vw", "60vh"] },
+  { taille: 60, couleur: "var(--cercle-2)", duree: 22, delai: -15, depart: ["115vw", "70vh"], arrivee: ["-15vw", "15vh"] },
+  { taille: 120, couleur: "var(--cercle-3)", duree: 32, delai: -9, depart: ["20vw", "115vh"], arrivee: ["75vw", "-20vh"] },
+  { taille: 50, couleur: "var(--cercle-4)", duree: 24, delai: -2, depart: ["70vw", "-15vh"], arrivee: ["15vw", "115vh"] },
+  { taille: 75, couleur: "var(--cercle-5)", duree: 28, delai: -20, depart: ["-15vw", "90vh"], arrivee: ["110vw", "20vh"] },
+  { taille: 100, couleur: "var(--cercle-6)", duree: 30, delai: -12, depart: ["110vw", "25vh"], arrivee: ["-15vw", "85vh"] },
+  { taille: 40, couleur: "var(--cercle-1)", duree: 20, delai: -7, depart: ["40vw", "-15vh"], arrivee: ["85vw", "115vh"] },
+  { taille: 65, couleur: "var(--cercle-3)", duree: 25, delai: -16, depart: ["105vw", "45vh"], arrivee: ["-10vw", "55vh"] },
+  { taille: 85, couleur: "var(--cercle-4)", duree: 34, delai: -5, depart: ["85vw", "110vh"], arrivee: ["10vw", "-15vh"] },
+  { taille: 55, couleur: "var(--cercle-6)", duree: 23, delai: -10, depart: ["-10vw", "35vh"], arrivee: ["105vw", "90vh"] },
 ] as const;
 
-type Onglet = (typeof ONGLETS)[number]["cle"];
+const SECTIONS = [
+  { cle: "commandes", label: "Commandes", icone: "📦" },
+  { cle: "fournisseurs", label: "Fournisseurs", icone: "🚚" },
+  { cle: "dettes", label: "Dettes", icone: "💰" },
+] as const;
 
-function SelecteurOnglet({ onglet, setOnglet }: { onglet: Onglet; setOnglet: (o: Onglet) => void }) {
+type Section = (typeof SECTIONS)[number]["cle"];
+
+function EnteteModale({ titre, onFermer }: { titre: string; onFermer: () => void }) {
   return (
-    <div className="barre-onglets">
-      {ONGLETS.map((o) => (
-        <button key={o.cle} type="button" className={`onglet ${onglet === o.cle ? "actif" : ""}`} onClick={() => setOnglet(o.cle)}>
-          {o.label}
-        </button>
-      ))}
+    <div className="modale-entete">
+      <h3>{titre}</h3>
+      <button type="button" className="lien bouton-retour" onClick={onFermer}>
+        ← Retour
+      </button>
     </div>
   );
 }
 
-function OngletCommandes({ session, onglet, setOnglet }: { session: Session; onglet: Onglet; setOnglet: (o: Onglet) => void }) {
+function OngletCommandes({
+  session,
+  ouvrirFormulaireInitial,
+  lignesInitiales,
+  onFormulaireInitialConsomme,
+}: {
+  session: Session;
+  ouvrirFormulaireInitial?: boolean;
+  lignesInitiales?: LigneAchatInitiale[];
+  onFormulaireInitialConsomme?: () => void;
+}) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [fournisseurs, setFournisseurs] = useState<FournisseurResume[]>([]);
   const [fournisseurId, setFournisseurId] = useState("");
@@ -523,12 +763,26 @@ function OngletCommandes({ session, onglet, setOnglet }: { session: Session; ong
   const [terme, setTerme] = useState("");
   const [commandes, setCommandes] = useState<CommandeResume[]>([]);
   const [afficherForm, setAfficherForm] = useState(false);
+  // Ne doit servir que pour l'ouverture qui vient du raccourci rupture — pas
+  // être réutilisé si l'utilisateur annule puis ouvre une commande vierge à
+  // la main pendant qu'il est encore sur cette page.
+  const [apercuGroupeActif, setApercuGroupeActif] = useState(false);
   const [commandeSelectionneeId, setCommandeSelectionneeId] = useState<string | null>(null);
 
   useEffect(() => {
     listerFournisseurs(session.boutiqueId).then(setFournisseurs);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Raccourci "Commander" d'une rupture (Stock.tsx via Shell.tsx) : ouvre
+  // directement l'aperçu de commandes groupées.
+  useEffect(() => {
+    if (ouvrirFormulaireInitial) {
+      setApercuGroupeActif(true);
+      onFormulaireInitialConsomme?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ouvrirFormulaireInitial]);
 
   async function rafraichir() {
     setCommandes(await listerCommandes(session.boutiqueId, fournisseurId || undefined, statut || undefined, terme));
@@ -546,6 +800,21 @@ function OngletCommandes({ session, onglet, setOnglet }: { session: Session; ong
         fournisseurs={fournisseurs}
         onRetour={() => {
           setCommandeSelectionneeId(null);
+          rafraichir();
+        }}
+      />
+    );
+  }
+
+  if (apercuGroupeActif) {
+    return (
+      <ApercuCommandesGroupees
+        session={session}
+        lignes={lignesInitiales ?? []}
+        fournisseurs={fournisseurs}
+        onAnnuler={() => setApercuGroupeActif(false)}
+        onCreees={() => {
+          setApercuGroupeActif(false);
           rafraichir();
         }}
       />
@@ -570,7 +839,6 @@ function OngletCommandes({ session, onglet, setOnglet }: { session: Session; ong
         </div>
       )}
       <div className="barre-actions barre-actions-avec-onglets">
-        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         <select value={fournisseurId} onChange={(e) => setFournisseurId(e.target.value)}>
           <option value="">Tous les fournisseurs</option>
           {fournisseurs.map((f) => (
@@ -787,7 +1055,7 @@ function FormulaireFournisseursGroupe({
   );
 }
 
-function OngletFournisseurs({ session, onglet, setOnglet }: { session: Session; onglet: Onglet; setOnglet: (o: Onglet) => void }) {
+function OngletFournisseurs({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [fournisseurs, setFournisseurs] = useState<FournisseurResume[]>([]);
   const [afficherModal, setAfficherModal] = useState(false);
@@ -803,7 +1071,6 @@ function OngletFournisseurs({ session, onglet, setOnglet }: { session: Session; 
   return (
     <div>
       <div className="barre-actions barre-actions-fixe barre-actions-avec-onglets">
-        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         {peutGerer && (
           <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherModal(true)}>
             + Nouveau fournisseur
@@ -859,8 +1126,20 @@ function OngletFournisseurs({ session, onglet, setOnglet }: { session: Session; 
   );
 }
 
-function LignePayer({ dette, onPaye }: { dette: DetteResume; onPaye: () => void }) {
+function LignePayer({
+  dette,
+  session,
+  depots,
+  onPaye,
+}: {
+  dette: DetteResume;
+  session: Session;
+  depots: DepotResume[];
+  onPaye: () => void;
+}) {
   const [montant, setMontant] = useState("");
+  const [mode, setMode] = useState(MODES_REGLEMENT[0].valeur);
+  const [depotId, setDepotId] = useState(session.depotId ?? "");
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
 
@@ -868,7 +1147,7 @@ function LignePayer({ dette, onPaye }: { dette: DetteResume; onPaye: () => void 
     setEnCours(true);
     setErreur(null);
     try {
-      await payerDette(dette.id, Number(montant) || 0);
+      await payerDette(dette.id, Number(montant) || 0, mode, depotId || null, session.utilisateurId);
       setMontant("");
       onPaye();
     } catch (e) {
@@ -879,8 +1158,25 @@ function LignePayer({ dette, onPaye }: { dette: DetteResume; onPaye: () => void 
   }
 
   return (
-    <div>
+    <div className="ligne-payer-dette">
       <ChampMontant placeholder="Montant" value={montant} onChange={setMontant} style={{ width: "100px" }} />
+      <select value={mode} onChange={(e) => setMode(e.target.value)}>
+        {MODES_REGLEMENT.map((m) => (
+          <option key={m.valeur} value={m.valeur}>
+            {m.label}
+          </option>
+        ))}
+      </select>
+      {!session.depotId && (
+        <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
+          <option value="">Dépôt…</option>
+          {depots.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.nom}
+            </option>
+          ))}
+        </select>
+      )}
       <button type="button" className="bouton-primaire" onClick={payer} disabled={enCours}>
         {enCours ? "…" : "Payer"}
       </button>
@@ -889,10 +1185,11 @@ function LignePayer({ dette, onPaye }: { dette: DetteResume; onPaye: () => void 
   );
 }
 
-function OngletDettes({ session, onglet, setOnglet }: { session: Session; onglet: Onglet; setOnglet: (o: Onglet) => void }) {
+function OngletDettes({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [statut, setStatut] = useState<StatutDette | "">("");
   const [dettes, setDettes] = useState<DetteResume[]>([]);
+  const [depots, setDepots] = useState<DepotResume[]>([]);
 
   async function rafraichir() {
     setDettes(await listerDettes(session.boutiqueId, undefined, statut || undefined));
@@ -901,11 +1198,14 @@ function OngletDettes({ session, onglet, setOnglet }: { session: Session; onglet
     rafraichir();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statut]);
+  useEffect(() => {
+    if (!session.depotId) listerDepotsDetail(session.boutiqueId).then(setDepots);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div>
       <div className="barre-actions barre-actions-avec-onglets">
-        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         <select value={statut} onChange={(e) => setStatut(e.target.value as StatutDette | "")}>
           <option value="">Tous les statuts</option>
           <option value="en_cours">En cours</option>
@@ -940,7 +1240,13 @@ function OngletDettes({ session, onglet, setOnglet }: { session: Session; onglet
                 <td>
                   <span className={d.statut === "solde" ? "badge-payee" : "badge-commandee"}>{d.statut === "solde" ? "Soldée" : "En cours"}</span>
                 </td>
-                {peutGerer && <td>{d.statut === "en_cours" && <LignePayer dette={d} onPaye={rafraichir} />}</td>}
+                {peutGerer && (
+                  <td>
+                    {d.statut === "en_cours" && (
+                      <LignePayer dette={d} session={session} depots={depots} onPaye={rafraichir} />
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
             {dettes.length === 0 && (
@@ -957,8 +1263,74 @@ function OngletDettes({ session, onglet, setOnglet }: { session: Session; onglet
   );
 }
 
-export default function Achats({ session }: { session: Session }) {
-  const [onglet, setOnglet] = useState<Onglet>("commandes");
+function ModaleCommandes({
+  session,
+  ouvrirFormulaireInitial,
+  lignesInitiales,
+  onFormulaireInitialConsomme,
+  onFermer,
+}: {
+  session: Session;
+  ouvrirFormulaireInitial?: boolean;
+  lignesInitiales?: LigneAchatInitiale[];
+  onFormulaireInitialConsomme?: () => void;
+  onFermer: () => void;
+}) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Commandes" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletCommandes
+            session={session}
+            ouvrirFormulaireInitial={ouvrirFormulaireInitial}
+            lignesInitiales={lignesInitiales}
+            onFormulaireInitialConsomme={onFormulaireInitialConsomme}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModaleFournisseurs({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Fournisseurs" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletFournisseurs session={session} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModaleDettes({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Dettes" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletDettes session={session} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function Achats({
+  session,
+  ouvrirNouvelleCommande,
+  lignesAchatInitiales,
+  onOuvertureConsommee,
+}: {
+  session: Session;
+  ouvrirNouvelleCommande?: boolean;
+  lignesAchatInitiales?: LigneAchatInitiale[];
+  onOuvertureConsommee?: () => void;
+}) {
+  const [sectionOuverte, setSectionOuverte] = useState<Section | null>(ouvrirNouvelleCommande ? "commandes" : null);
   const peutAcceder = !!session.permissions.gerer_produits_stock_achats;
 
   if (!peutAcceder) {
@@ -970,12 +1342,55 @@ export default function Achats({ session }: { session: Session }) {
   }
 
   return (
-    <div className="page-produits">
-      <div className="contenu-onglet">
-        {onglet === "commandes" && <OngletCommandes session={session} onglet={onglet} setOnglet={setOnglet} />}
-        {onglet === "fournisseurs" && <OngletFournisseurs session={session} onglet={onglet} setOnglet={setOnglet} />}
-        {onglet === "dettes" && <OngletDettes session={session} onglet={onglet} setOnglet={setOnglet} />}
+    <div className="page-produits page-accueil">
+      {CERCLES_FOND.map((c, i) => (
+        <span
+          key={i}
+          aria-hidden="true"
+          className="cercle-fond"
+          style={
+            {
+              width: c.taille,
+              height: c.taille,
+              background: c.couleur,
+              animationDuration: `${c.duree}s`,
+              animationDelay: `${c.delai}s`,
+              "--depart-x": c.depart[0],
+              "--depart-y": c.depart[1],
+              "--arrivee-x": c.arrivee[0],
+              "--arrivee-y": c.arrivee[1],
+            } as CSSProperties
+          }
+        />
+      ))}
+      <div className="grille-documents-comptables">
+        {SECTIONS.map((s) => (
+          <button
+            key={s.cle}
+            type="button"
+            className="carte-document-comptable"
+            onClick={() => setSectionOuverte(s.cle)}
+          >
+            <span className="icone-document-comptable">{s.icone}</span>
+            {s.label}
+          </button>
+        ))}
       </div>
+      {sectionOuverte === "commandes" && (
+        <ModaleCommandes
+          session={session}
+          ouvrirFormulaireInitial={ouvrirNouvelleCommande}
+          lignesInitiales={lignesAchatInitiales}
+          onFormulaireInitialConsomme={onOuvertureConsommee}
+          onFermer={() => setSectionOuverte(null)}
+        />
+      )}
+      {sectionOuverte === "fournisseurs" && (
+        <ModaleFournisseurs session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
+      {sectionOuverte === "dettes" && (
+        <ModaleDettes session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
     </div>
   );
 }

@@ -3,6 +3,11 @@
   --couleur-primaire-fonce: #1d4ed8;
   --couleur-primaire-clair: #eff6ff;
   --couleur-accent: #1f4e79;
+  /* Point d'arrivée des dégradés de survol des boutons primaires (plus foncé
+     que --couleur-primaire-fonce) — variable à part pour que chaque thème
+     puisse le réassortir à sa propre teinte plutôt que de garder le bleu marine
+     fixe d'origine (ce qui jurait, ex. orange→bleu marine, avant ce correctif). */
+  --couleur-primaire-tres-fonce: #163d5c;
 
   --gris-50: #f8fafc;
   --gris-100: #f1f5f9;
@@ -24,6 +29,23 @@
   --avertissement: #d97706;
   --avertissement-fonce: #92400e;
   --avertissement-clair: #fef3c7;
+  --violet: #7c3aed;
+  --violet-fonce: #6d28d9;
+  --violet-clair: #f3e8ff;
+  --indigo: #4f46e5;
+  --indigo-fonce: #4338ca;
+  --indigo-clair: #e0e7ff;
+
+  /* Couleurs des ronds du fond de l'Accueil (voir CERCLES_FOND, Accueil.tsx) —
+     par défaut un cycle des teintes sémantiques ; certains thèmes (ex. Orange,
+     identité "orange/blanc/vert") les réassortissent à leurs propres couleurs
+     de marque plutôt que de garder ce cycle générique. */
+  --cercle-1: var(--couleur-primaire);
+  --cercle-2: var(--couleur-accent);
+  --cercle-3: var(--succes);
+  --cercle-4: var(--avertissement);
+  --cercle-5: var(--violet);
+  --cercle-6: var(--indigo);
 
   --rayon-sm: 8px;
   --rayon-md: 12px;
@@ -47,6 +69,236 @@
   --surface-entete: color-mix(in srgb, var(--surface), var(--gris-300) 35%);
   --bordure-tableau: var(--gris-200);
   --bordure-tableau-forte: var(--gris-300);
+  /* Fond de la carte principale de la Caisse (voir .carte-caisse-principale),
+     distinct du --surface neutre du reste de l'app, teinté vers la couleur de
+     la barre latérale (--barre-fond de ce thème, ici un dégradé bleu très
+     clair réduit à sa couleur moyenne #e6ecf8 puisque color-mix() ne peut pas
+     mélanger un dégradé) pour un air de famille avec la navigation. */
+  --surface-caisse: color-mix(in srgb, #f2d9a8, #e6ecf8 20%);
+
+  /* Barre latérale : suit le thème comme le reste de l'app (voir plus bas pour
+     la variante sombre). Les surbrillances/puces de la barre se calculent via
+     color-mix(--barre-texte-fort, transparent N%) plutôt que des rgba(255,255,255,…)
+     fixes, pour que la même règle produise un survol clair-sur-sombre en thème
+     sombre et sombre-sur-clair en thème clair sans dupliquer chaque opacité. */
+  --barre-fond: linear-gradient(190deg, #eef2fb 0%, #dfe6f5 75%);
+  --barre-texte: var(--gris-600);
+  --barre-texte-fort: var(--gris-900);
+  --barre-texte-desactive: var(--gris-400);
+  --barre-danger-texte: var(--danger-fonce);
+}
+
+/* Thème sombre : bascule explicite via Réglages > Paramètres (voir lib/theme.ts),
+   pas automatique selon les préférences système. L'échelle de gris est inversée
+   terme à terme (gris-50 redevient la teinte la plus sombre, gris-900 la plus
+   claire) : tout composant qui utilise déjà ces variables s'adapte sans y
+   toucher. Les teintes "claires" (bulles/badges de fond) et "foncées" (texte
+   sur ces bulles) des couleurs sémantiques sont réajustées pour rester lisibles
+   sur fond sombre plutôt que d'être simplement réutilisées telles quelles. */
+:root[data-theme="sombre"] {
+  --couleur-primaire: #3b82f6;
+  --couleur-primaire-fonce: #60a5fa;
+  --couleur-primaire-clair: #1e2b45;
+  --couleur-accent: #2f6390;
+
+  --gris-50: #0f172a;
+  --gris-100: #1e293b;
+  --gris-200: #334155;
+  --gris-300: #475569;
+  --gris-400: #64748b;
+  --gris-500: #94a3b8;
+  --gris-600: #cbd5e1;
+  --gris-700: #e2e8f0;
+  --gris-800: #f1f5f9;
+  --gris-900: #f8fafc;
+
+  --succes: #22c55e;
+  --succes-fonce: #4ade80;
+  --succes-clair: #123321;
+  --danger: #ef4444;
+  --danger-fonce: #f87171;
+  --danger-clair: #3a1414;
+  --avertissement: #f59e0b;
+  --avertissement-fonce: #fbbf24;
+  --avertissement-clair: #3a2a0a;
+  --violet: #a78bfa;
+  --violet-fonce: #c4b5fd;
+  --violet-clair: #2a1a45;
+  --indigo: #818cf8;
+  --indigo-fonce: #a5b4fc;
+  --indigo-clair: #221f45;
+
+  --ombre-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --ombre-md: 0 6px 20px -6px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.25);
+  --ombre-lg: 0 24px 56px -20px rgba(0, 0, 0, 0.6);
+
+  --surface: #131c2e;
+  --surface-entete: color-mix(in srgb, var(--surface), var(--gris-300) 35%);
+  --surface-caisse: color-mix(in srgb, #2e2312, #121b32 20%);
+
+  --barre-fond: linear-gradient(190deg, #16213e 0%, #0d1526 75%);
+  --barre-texte: #cbd5e1;
+  --barre-texte-fort: #ffffff;
+  --barre-texte-desactive: #526074;
+  --barre-danger-texte: #fecaca;
+}
+
+/* Même logique que le thème orange : la barre latérale/les boutons ne
+   suffisent pas, les pages et modales doivent aussi montrer l'accent. */
+:root[data-theme="sombre"] .tableau-catalogue th {
+  background: var(--couleur-primaire-clair);
+  color: var(--couleur-primaire-fonce);
+  border-bottom-color: var(--couleur-primaire);
+}
+
+:root[data-theme="sombre"] .modale-entete {
+  background: var(--couleur-primaire-clair);
+  border-bottom: 2px solid var(--couleur-primaire);
+}
+
+:root[data-theme="sombre"] .detail-produit,
+:root[data-theme="sombre"] .carte-document-comptable {
+  border: 1px solid color-mix(in srgb, var(--couleur-primaire), transparent 65%);
+}
+
+:root[data-theme="sombre"] .entete {
+  border-bottom: 2px solid var(--couleur-accent);
+}
+
+/* Thème nuit : troisième option d'Apparence, un sombre chaleureux (ambré/brun)
+   plutôt que le bleu-gris de --theme="sombre" — moins de lumière bleue à
+   l'écran. Même structure de tokens que le thème sombre (échelle de gris
+   inversée, --barre-*), juste une teinte de base chaude au lieu de froide. */
+:root[data-theme="nuit"] {
+  --couleur-primaire: #e0a248;
+  --couleur-primaire-fonce: #f4c476;
+  --couleur-primaire-clair: #1a1207;
+  --couleur-accent: #8a5a1f;
+  --couleur-primaire-tres-fonce: #3d2408;
+
+  --gris-50: #000000;
+  --gris-100: #000000;
+  --gris-200: #201808;
+  --gris-300: #362912;
+  --gris-400: #61502c;
+  --gris-500: #9a8354;
+  --gris-600: #c2ac7c;
+  --gris-700: #ddcca6;
+  --gris-800: #f1e6cc;
+  --gris-900: #fbf6ea;
+
+  --succes: #4ade80;
+  --succes-fonce: #86efac;
+  --succes-clair: #0f1f0f;
+  --danger: #f87171;
+  --danger-fonce: #fca5a5;
+  --danger-clair: #240d0a;
+  --avertissement: #f59e0b;
+  --avertissement-fonce: #fbbf24;
+  --avertissement-clair: #241a05;
+  --violet: #c4b5fd;
+  --violet-fonce: #ddd6fe;
+  --violet-clair: #1a1530;
+  --indigo: #a5b4fc;
+  --indigo-fonce: #c7d2fe;
+  --indigo-clair: #171325;
+
+  --ombre-sm: 0 1px 2px rgba(0, 0, 0, 0.6);
+  --ombre-md: 0 6px 20px -6px rgba(0, 0, 0, 0.75), 0 2px 6px rgba(0, 0, 0, 0.5);
+  --ombre-lg: 0 24px 56px -20px rgba(0, 0, 0, 0.85);
+
+  --surface: #090702;
+  --surface-entete: color-mix(in srgb, var(--surface), var(--gris-300) 35%);
+  --surface-caisse: color-mix(in srgb, #1f1305, #050302 20%);
+
+  --barre-fond: linear-gradient(190deg, #0a0704 0%, #000000 75%);
+  --barre-texte: #c2ac7c;
+  --barre-texte-fort: #fbf6ea;
+  --barre-texte-desactive: #61502c;
+  --barre-danger-texte: #fca5a5;
+}
+
+/* Même logique que le thème orange : la barre latérale/les boutons ne
+   suffisent pas, les pages et modales doivent aussi montrer l'accent. */
+:root[data-theme="nuit"] .tableau-catalogue th {
+  background: var(--couleur-primaire-clair);
+  color: var(--couleur-primaire-fonce);
+  border-bottom-color: var(--couleur-primaire);
+}
+
+:root[data-theme="nuit"] .modale-entete {
+  background: var(--couleur-primaire-clair);
+  border-bottom: 2px solid var(--couleur-primaire);
+}
+
+:root[data-theme="nuit"] .detail-produit,
+:root[data-theme="nuit"] .carte-document-comptable {
+  border: 1px solid color-mix(in srgb, var(--couleur-primaire), transparent 65%);
+}
+
+:root[data-theme="nuit"] .entete {
+  border-bottom: 2px solid var(--couleur-accent);
+}
+
+/* Thème orange : quatrième option d'Apparence, un thème clair (fonds blancs,
+   échelle de gris du thème clair réutilisée telle quelle — non redéfinie ici)
+   mais en couleurs franches et PLATES (pas de dégradé orange→vert comme le
+   premier essai) : orange plein en primaire (donc --degrade-primaire/-succes
+   redéfinis en couleur unie, pas en dégradé), barre latérale vert plein avec
+   texte blanc — un vrai bloc de couleur, pas juste un blanc légèrement teinté. */
+:root[data-theme="orange"] {
+  --couleur-primaire: #f77f00;
+  --couleur-primaire-fonce: #d96a00;
+  --couleur-primaire-clair: #fef0dc;
+  --couleur-accent: #f77f00;
+  --couleur-primaire-tres-fonce: #7a3d00;
+  --degrade-primaire: #f77f00;
+  --degrade-succes: #128a3e;
+
+  --barre-fond: #0d6b34;
+  --barre-texte: #cdeed9;
+  --barre-texte-fort: #ffffff;
+  --barre-texte-desactive: #6fae82;
+  --barre-danger-texte: #ffd7d7;
+
+  /* Comme les autres thèmes : fond de la Caisse teinté vers la couleur de la
+     barre latérale (ici --barre-fond est déjà une couleur unie, pas un
+     dégradé, donc mélangée directement). */
+  --surface-caisse: color-mix(in srgb, #f2d9a8, #0d6b34 20%);
+
+  /* Identité du thème (orange/blanc/vert) plutôt que le cycle générique des
+     couleurs sémantiques — voir --cercle-1..6 dans :root. */
+  --cercle-1: #f77f00;
+  --cercle-2: #ffffff;
+  --cercle-3: #128a3e;
+  --cercle-4: #f77f00;
+  --cercle-5: #ffffff;
+  --cercle-6: #128a3e;
+}
+
+/* La barre latérale et les boutons ne suffisaient pas à "colorer" le thème
+   orange : les pages et modales restaient des cartes blanches quasi neutres.
+   Ce bloc ajoute la couleur là où l'utilisateur la remarque le plus — en-têtes
+   de tableau, en-têtes de modale, contour des cartes — toujours en teinte
+   PLEINE/unie (jamais un dégradé), scopé à ce thème uniquement. */
+:root[data-theme="orange"] .tableau-catalogue th {
+  background: var(--couleur-primaire-clair);
+  color: var(--couleur-primaire-fonce);
+  border-bottom-color: var(--couleur-primaire);
+}
+
+:root[data-theme="orange"] .modale-entete {
+  background: var(--couleur-primaire-clair);
+  border-bottom: 2px solid var(--couleur-primaire);
+}
+
+:root[data-theme="orange"] .detail-produit,
+:root[data-theme="orange"] .carte-document-comptable {
+  border: 1px solid color-mix(in srgb, var(--couleur-primaire), transparent 70%);
+}
+
+:root[data-theme="orange"] .entete {
+  border-bottom: 2px solid var(--couleur-accent);
 }
 
 * {
@@ -78,23 +330,32 @@ button {
   font-family: inherit;
   font-size: 0.78rem;
   font-weight: 600;
-  padding: 0.42rem 0.8rem;
-  border-radius: var(--rayon-sm);
+  letter-spacing: 0.01em;
+  padding: 0.5rem 0.95rem;
+  border-radius: var(--rayon-md);
   border: 1px solid var(--gris-300);
-  background: white;
+  background: var(--surface);
   color: var(--gris-700);
-  transition: background var(--transition), border-color var(--transition), transform var(--transition),
-    box-shadow var(--transition), opacity var(--transition);
+  box-shadow: var(--ombre-sm);
+  transition: background var(--transition), border-color var(--transition), transform var(--transition-lente),
+    box-shadow var(--transition-lente), opacity var(--transition);
 }
 
 button:hover:not(:disabled) {
   background: var(--gris-50);
   border-color: var(--gris-400);
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: var(--ombre-md);
 }
 
 button:active:not(:disabled) {
-  transform: translateY(0);
+  transform: translateY(0) scale(0.97);
+  box-shadow: var(--ombre-sm);
+}
+
+button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--couleur-primaire), transparent 70%);
 }
 
 button:disabled {
@@ -109,14 +370,19 @@ button:disabled {
   background: var(--degrade-primaire);
   border-color: transparent;
   color: white;
-  box-shadow: 0 8px 18px -8px rgba(37, 99, 235, 0.55);
+  box-shadow: 0 8px 18px -8px rgba(37, 99, 235, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .actions-formulaire button[type="submit"]:hover:not(:disabled),
 .formulaire-inline button[type="submit"]:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--couleur-primaire-fonce), #163d5c);
+  background: linear-gradient(135deg, var(--couleur-primaire-fonce), var(--couleur-primaire-tres-fonce));
   border-color: transparent;
-  box-shadow: 0 12px 22px -8px rgba(37, 99, 235, 0.65);
+  box-shadow: 0 14px 26px -10px rgba(37, 99, 235, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.actions-formulaire button[type="submit"]:focus-visible,
+.formulaire-inline button[type="submit"]:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--couleur-primaire), transparent 55%);
 }
 
 input,
@@ -127,7 +393,7 @@ textarea {
   padding: 0.4rem 0.6rem;
   border: 1px solid var(--gris-300);
   border-radius: var(--rayon-sm);
-  background: white;
+  background: var(--surface);
   color: var(--gris-800);
   transition: border-color var(--transition), box-shadow var(--transition);
 }
@@ -350,7 +616,7 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 
 .carte-auth {
-  background: white;
+  background: var(--surface);
   padding: 3rem 3.2rem;
   border-radius: 20px;
   box-shadow: 0 24px 60px -24px rgba(15, 23, 42, 0.22), 0 2px 10px rgba(15, 23, 42, 0.04);
@@ -415,7 +681,7 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 
 .carte-auth > button:not(.lien):hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--couleur-primaire-fonce), #163d5c);
+  background: linear-gradient(135deg, var(--couleur-primaire-fonce), var(--couleur-primaire-tres-fonce));
   transform: translateY(-1px);
   box-shadow: 0 14px 26px -10px rgba(29, 78, 216, 0.7);
 }
@@ -473,13 +739,13 @@ input[type="number"]::-webkit-outer-spin-button {
 .barre-laterale {
   position: relative;
   width: 246px;
-  background: linear-gradient(190deg, #16213e 0%, #0d1526 75%);
-  color: #cbd5e1;
+  background: var(--barre-fond);
+  color: var(--barre-texte);
   display: flex;
   flex-direction: column;
   padding: 1.5rem 0.85rem;
   overflow: hidden;
-  transition: width var(--transition), padding var(--transition);
+  transition: width var(--transition), padding var(--transition), background var(--transition);
   flex-shrink: 0;
 }
 
@@ -496,24 +762,30 @@ input[type="number"]::-webkit-outer-spin-button {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: color-mix(in srgb, var(--barre-texte-fort), transparent 92%);
+  border: 1px solid color-mix(in srgb, var(--barre-texte-fort), transparent 86%);
   border-radius: 8px;
-  color: #cbd5e1;
+  color: var(--barre-texte);
   font-size: 0.9rem;
   line-height: 1;
   transition: background var(--transition), color var(--transition);
 }
 
 .barre-laterale .bouton-reduire-barre:hover {
-  background: rgba(255, 255, 255, 0.16);
-  color: white;
+  background: color-mix(in srgb, var(--barre-texte-fort), transparent 84%);
+  color: var(--barre-texte-fort);
 }
 
 .barre-laterale.reduite .logo {
+  flex-direction: column;
   justify-content: center;
+  gap: 0.5rem;
   padding-left: 0;
   padding-right: 0;
+}
+
+.barre-laterale.reduite .bouton-logo-accueil {
+  flex: none;
 }
 
 .barre-laterale.reduite .texte-logo {
@@ -560,8 +832,32 @@ input[type="number"]::-webkit-outer-spin-button {
   padding: 0.2rem 0.4rem 2.75rem;
   font-size: 1.1rem;
   letter-spacing: -0.01em;
-  color: white;
+  color: var(--barre-texte-fort);
   white-space: nowrap;
+}
+
+.bouton-logo-accueil {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bouton-logo-accueil:hover:not(:disabled) {
+  background: none;
+  color: inherit;
+  border-color: transparent;
+  box-shadow: none;
+  transform: translateX(2px);
 }
 
 .texte-logo {
@@ -585,6 +881,31 @@ input[type="number"]::-webkit-outer-spin-button {
   flex-direction: column;
   gap: 0.2rem;
   flex: 1;
+  /* min-height:0 est nécessaire pour qu'un enfant flex en colonne accepte de
+     rétrécir sous sa taille de contenu : sans lui, overflow-y n'a aucun effet
+     et les derniers onglets sont simplement coupés (le bouton Déconnexion,
+     lui, reste fixe puisque c'est un frère de nav, en dehors de ce scroll). */
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+.barre-laterale nav::-webkit-scrollbar {
+  display: block;
+  height: 3px;
+}
+
+.barre-laterale nav::-webkit-scrollbar:vertical {
+  display: none;
+}
+
+.barre-laterale nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.barre-laterale nav::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--barre-texte-fort), transparent 75%);
+  border-radius: 2px;
 }
 
 .item-nav {
@@ -604,8 +925,8 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 
 .item-nav:hover:not(:disabled):not(.actif) {
-  background: rgba(255, 255, 255, 0.07);
-  color: white;
+  background: color-mix(in srgb, var(--barre-texte-fort), transparent 93%);
+  color: var(--barre-texte-fort);
   transform: translateX(2px);
 }
 
@@ -623,7 +944,7 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 
 .item-nav:disabled {
-  color: #526074;
+  color: var(--barre-texte-desactive);
   cursor: not-allowed;
 }
 
@@ -638,15 +959,15 @@ input[type="number"]::-webkit-outer-spin-button {
   align-items: center;
   justify-content: center;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.15);
-  color: white;
+  background: color-mix(in srgb, var(--barre-texte-fort), transparent 85%);
+  color: var(--barre-texte-fort);
   font-size: 1.1rem;
   font-weight: 700;
 }
 
 .badge {
   font-size: 0.62rem;
-  background: rgba(255, 255, 255, 0.12);
+  background: color-mix(in srgb, var(--barre-texte-fort), transparent 88%);
   padding: 0.15rem 0.5rem;
   border-radius: var(--rayon-pilule);
 }
@@ -658,13 +979,13 @@ input[type="number"]::-webkit-outer-spin-button {
   width: 24px;
   height: 24px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--barre-texte-fort), transparent 94%);
   font-size: 0.85rem;
   flex-shrink: 0;
 }
 
 .item-nav.actif .icone-nav {
-  background: rgba(255, 255, 255, 0.2);
+  background: color-mix(in srgb, var(--barre-texte-fort), transparent 80%);
 }
 
 .cloche {
@@ -675,13 +996,13 @@ input[type="number"]::-webkit-outer-spin-button {
   width: 24px;
   height: 24px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--barre-texte-fort), transparent 94%);
   font-size: 0.85rem;
   flex-shrink: 0;
 }
 
 .item-nav.actif .cloche {
-  background: rgba(255, 255, 255, 0.2);
+  background: color-mix(in srgb, var(--barre-texte-fort), transparent 80%);
 }
 
 .cloche-agitee {
@@ -720,8 +1041,8 @@ input[type="number"]::-webkit-outer-spin-button {
   z-index: 1;
   margin: 0.75rem 0.15rem 0;
   background: none;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  color: #cbd5e1;
+  border: 1px solid color-mix(in srgb, var(--barre-texte-fort), transparent 86%);
+  color: var(--barre-texte);
   padding: 0.55rem;
   border-radius: 10px;
   font-weight: 500;
@@ -735,7 +1056,7 @@ input[type="number"]::-webkit-outer-spin-button {
 .lien-deconnexion:hover:not(:disabled) {
   background: rgba(220, 38, 38, 0.15);
   border-color: rgba(220, 38, 38, 0.4);
-  color: #fecaca;
+  color: var(--barre-danger-texte);
   transform: none;
 }
 
@@ -747,7 +1068,7 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 
 .entete {
-  background: white;
+  background: var(--surface);
   padding: 1rem 1.9rem;
   display: flex;
   justify-content: space-between;
@@ -797,7 +1118,7 @@ input[type="number"]::-webkit-outer-spin-button {
   padding: 0.3rem 0.7rem;
   border-radius: var(--rayon-sm);
   border: 1px solid var(--gris-300);
-  background: white;
+  background: var(--surface);
 }
 
 .bouton-synchro:disabled {
@@ -806,6 +1127,7 @@ input[type="number"]::-webkit-outer-spin-button {
 
 .zone-contenu {
   flex: 1;
+  min-width: 0;
   overflow: auto;
   padding: 1.75rem;
 }
@@ -849,12 +1171,14 @@ input[type="number"]::-webkit-outer-spin-button {
 
   .barre-laterale nav {
     flex-direction: row;
-    /* 12x la part de .lien-deconnexion (flex:1 juste après) : les 13 destinations
-       au maximum (12 onglets + déconnexion, "Achats" n'étant visible que pour
-       les comptes avec la permission gerer_produits_stock_achats) se
-       partagent la largeur à parts égales. */
-    flex: 12;
+    /* 13x la part de .lien-deconnexion (flex:1 juste après) : les 14 destinations
+       au maximum (13 onglets + déconnexion, "Achats" et "Trésorerie" n'étant
+       visibles que sous permission) se partagent la largeur à parts égales. */
+    flex: 13;
     gap: 0.15rem;
+    /* Le scroll vertical de la version bureau (.barre-laterale nav de base)
+       n'a pas lieu d'être ici : la barre devient une rangée horizontale. */
+    overflow-y: visible;
   }
 
   .item-nav {
@@ -959,7 +1283,7 @@ input[type="number"]::-webkit-outer-spin-button {
   flex-direction: column;
   gap: 0.7rem;
   min-height: 0;
-  background: white;
+  background: var(--surface);
   padding: 1.4rem;
   border-radius: var(--rayon-lg);
   box-shadow: var(--ombre-md);
@@ -969,6 +1293,44 @@ input[type="number"]::-webkit-outer-spin-button {
   width: 100%;
   font-size: 1rem;
   padding: 0.65rem 0.8rem;
+}
+
+.barre-actions .champ-recherche-stock {
+  flex: 1;
+  min-width: 80px;
+  max-width: 300px;
+}
+
+.colonne-statut-stock,
+.colonne-actions-stock {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.entete-actions-stock {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.case-selection {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--couleur-primaire);
+  cursor: pointer;
+}
+
+.bouton-commander-stock {
+  background: var(--degrade-primaire);
+  border-color: transparent;
+  color: white;
+  font-size: 0.78rem;
+  padding: 0.35rem 0.7rem;
+  box-shadow: 0 8px 18px -8px rgba(37, 99, 235, 0.55);
+}
+
+.bouton-commander-stock:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--couleur-primaire-fonce), var(--couleur-primaire-tres-fonce));
 }
 
 .catalogue-caisse {
@@ -982,7 +1344,7 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 
 .catalogue-caisse .tableau-catalogue tbody tr:hover {
-  background: linear-gradient(90deg, var(--couleur-primaire-clair), white);
+  background: linear-gradient(90deg, var(--couleur-primaire-clair), var(--surface));
 }
 
 .catalogue-caisse .tableau-catalogue tbody tr.ligne-rupture {
@@ -998,7 +1360,7 @@ input[type="number"]::-webkit-outer-spin-button {
   list-style: none;
   margin: 0;
   padding: 0;
-  background: white;
+  background: var(--surface);
   border-radius: var(--rayon-md);
   overflow: hidden;
   box-shadow: var(--ombre-md);
@@ -1027,7 +1389,7 @@ input[type="number"]::-webkit-outer-spin-button {
   gap: 1rem;
   border-radius: var(--rayon-lg);
   padding: 1.4rem;
-  background: white;
+  background: var(--surface);
   box-shadow: var(--ombre-md);
   min-height: 0;
   overflow: hidden;
@@ -1068,7 +1430,7 @@ input[type="number"]::-webkit-outer-spin-button {
   border-bottom: 2px solid var(--couleur-primaire-clair);
   position: sticky;
   top: 0;
-  background: linear-gradient(180deg, white, var(--gris-50));
+  background: linear-gradient(180deg, var(--surface), var(--gris-50));
   z-index: 1;
 }
 
@@ -1082,7 +1444,7 @@ input[type="number"]::-webkit-outer-spin-button {
   border-radius: 50%;
   border: 1px solid var(--couleur-primaire);
   color: var(--couleur-primaire);
-  background: white;
+  background: var(--surface);
   font-size: 0.7rem;
   font-weight: 700;
   line-height: 1;
@@ -1204,7 +1566,7 @@ input.champ-invalide:focus {
   list-style: none;
   margin: 0.2rem 0 0;
   padding: 0;
-  background: white;
+  background: var(--surface);
   border-radius: var(--rayon-md);
   overflow: hidden;
   box-shadow: var(--ombre-md);
@@ -1250,7 +1612,7 @@ input.champ-invalide:focus {
   z-index: 10;
   margin: 0.2rem 0 0;
   padding: 0.75rem;
-  background: white;
+  background: var(--surface);
   border-radius: var(--rayon-md);
   box-shadow: var(--ombre-md);
   display: flex;
@@ -1450,6 +1812,7 @@ input.champ-invalide:focus {
   color: var(--gris-500);
   font-weight: 600;
   font-size: 0.82rem;
+  box-shadow: none;
   transition: color var(--transition), background var(--transition), box-shadow var(--transition);
 }
 
@@ -1460,15 +1823,71 @@ input.champ-invalide:focus {
 }
 
 .onglet.actif {
-  background: white;
+  background: var(--surface);
   color: var(--couleur-accent);
   font-weight: 700;
   box-shadow: var(--ombre-sm);
 }
 
 .onglet.actif:hover:not(:disabled) {
-  background: white;
+  background: var(--surface);
   color: var(--couleur-accent);
+}
+
+/* Paramètres (modale Informations boutique > Paramètres) : navigation en
+   barre latérale plutôt qu'en onglets horizontaux — Général/Unités/Attributs/
+   Dépôts tiennent mieux verticalement, notamment si d'autres sous-sections
+   s'ajoutent plus tard. */
+.disposition-parametres {
+  display: flex;
+  gap: 1.5rem;
+  flex: 1;
+  min-height: 0;
+}
+
+.barre-laterale-parametres {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  width: 190px;
+  padding: 0.75rem;
+  background: color-mix(in srgb, var(--gris-500), transparent 93%);
+  border: 1px solid color-mix(in srgb, var(--gris-500), transparent 82%);
+  border-radius: var(--rayon-md);
+  overflow-y: auto;
+}
+
+.item-nav-parametres {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  padding: 0.62rem 0.85rem;
+  color: var(--gris-500);
+  font-weight: 600;
+  font-size: 0.85rem;
+  transition: background var(--transition), color var(--transition);
+}
+
+.item-nav-parametres:hover:not(:disabled) {
+  background: var(--gris-100);
+  color: var(--gris-900);
+}
+
+.item-nav-parametres.actif {
+  background: color-mix(in srgb, var(--couleur-accent), transparent 90%);
+  color: var(--couleur-accent);
+  font-weight: 700;
+}
+
+.contenu-parametres {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .barre-actions {
@@ -1572,8 +1991,8 @@ input.champ-invalide:focus {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  background: white;
-  border: 1px solid var(--gris-300);
+  background: var(--surface);
+  border: 1.5px solid var(--gris-400);
   border-radius: var(--rayon-md);
   overflow: hidden;
   box-shadow: var(--ombre-md);
@@ -1588,8 +2007,8 @@ input.champ-invalide:focus {
   font-weight: 700;
   padding: 0.75rem 0.9rem;
   background: var(--gris-50);
-  border-bottom: 1px solid var(--gris-300);
-  border-right: 1px solid var(--gris-300);
+  border-bottom: 1.5px solid var(--gris-400);
+  border-right: 1px solid var(--gris-400);
   position: sticky;
   top: 0;
   z-index: 1;
@@ -1641,8 +2060,8 @@ input.champ-invalide:focus {
 
 .tableau-catalogue td {
   padding: 0.7rem 0.9rem;
-  border-bottom: 1px solid var(--gris-300);
-  border-right: 1px solid var(--gris-300);
+  border-bottom: 1px solid var(--gris-400);
+  border-right: 1px solid var(--gris-400);
   font-size: 0.875rem;
 }
 
@@ -1682,8 +2101,18 @@ input.champ-invalide:focus {
   cursor: default !important;
 }
 
+/* Variante de .liste-vide à hauteur de ligne normale : utilisée quand le
+   tableau doit rester visuellement tracé (colonnes/lignes visibles) même
+   sans donnée, au lieu d'un message centré qui écraserait la grille
+   pré-tracée en dessous (Trésorerie, Dépenses). */
+.liste-vide-compacte {
+  text-align: center;
+  color: var(--gris-400);
+  cursor: default !important;
+}
+
 .formulaire-catalogue {
-  background: white;
+  background: var(--surface);
   padding: 1.4rem;
   border-radius: var(--rayon-lg);
   box-shadow: var(--ombre-md);
@@ -1776,8 +2205,187 @@ input.champ-invalide:focus {
   color: var(--gris-700);
 }
 
+/* Formulaire rapide suivi d'un tableau (Trésorerie, Dépenses) : la carte
+   .formulaire-catalogue seule ne laisse pas d'espace avant l'élément suivant,
+   et sa largeur par défaut (max-width:600px) est pensée pour un formulaire
+   isolé, pas pour occuper toute la largeur de la page comme ici. */
+.formulaire-tresorerie {
+  max-width: none;
+  margin-bottom: 1.25rem;
+}
+
+/* Dépenses en attente (saisie groupée) : hauteur fixe, pas juste un plafond
+   (max-height) — le tableau ne doit pas changer de taille selon le nombre de
+   lignes ajoutées, seules ses lignes défilent dedans. */
+.tableau-depenses-groupe {
+  height: 360px;
+  max-height: 360px;
+}
+
+/* Champs + bouton sur une seule ligne, sans jamais passer le bouton en
+   dessous : pas de flex-wrap (les champs rétrécissent plutôt que de casser
+   la ligne), min-width:0 sur les labels ET leurs select/input pour autoriser
+   ce rétrécissement (comportement par défaut d'un select/input dans une
+   ligne flex : il refuse de rétrécir sous sa largeur de contenu). */
+.ligne-champs-tresorerie {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.ligne-champs-tresorerie label {
+  flex: 1;
+  min-width: 0;
+}
+
+.ligne-champs-tresorerie label select,
+.ligne-champs-tresorerie label input {
+  width: 100%;
+  min-width: 0;
+}
+
+.ligne-champs-tresorerie button {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* Trésorerie > Solde : chaîne flex dédiée (scopée à .page-tresorerie, sans
+   toucher .page-produits/.contenu-onglet partagés par les autres pages) pour
+   que la colonne de gauche occupe toute la hauteur visible — indispensable
+   pour que la barre d'actions se colle en bas même quand le contenu au-dessus
+   est court (margin-top:auto ne "pousse" que dans un conteneur déjà aussi
+   haut que l'espace disponible, contrairement à position:sticky qui ne colle
+   qu'après avoir défilé). */
+.page-tresorerie,
+.page-tresorerie .contenu-onglet,
+.onglet-solde {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.page-tresorerie {
+  min-height: 100%;
+}
+
+/* Retrait/Mise de fonds/Ajustement + Historique restent groupés, collés en
+   bas de la colonne de gauche (donc de la page, puisqu'elle occupe toute la
+   hauteur visible) plutôt que de suivre le solde choisi juste au-dessus. */
+.barre-actions-fixe-bas {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem 1rem;
+  border-top: 1px solid var(--bordure-tableau);
+  padding-top: 0.75rem;
+  margin-top: auto;
+}
+
+/* Trésorerie > Solde : le solde choisi (avec ses actions pour la caisse)
+   s'affiche en grand à gauche ; les autres soldes, cliquables pour basculer
+   dessus, restent en liste à droite. */
+.disposition-solde {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+  gap: 1.5rem;
+}
+
+.detail-solde {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Le solde choisi doit dominer visuellement la colonne de gauche (repère
+   immédiat pour l'utilisateur) : occupe tout l'espace vertical disponible
+   entre le titre et la barre d'actions collée en bas, contenu centré et
+   agrandi plutôt que la petite carte compacte de la liste de droite. */
+.carte-stat-solde-principal {
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0.75rem;
+  padding: 2.5rem;
+}
+
+.carte-stat-solde-principal .carte-stat-label {
+  font-size: 1rem;
+}
+
+.carte-stat-solde-principal .carte-stat-valeur {
+  font-size: 3.4rem;
+}
+
+/* Action ponctuelle et importante (pas une opération courante comme
+   Retrait/Mise de fonds/Ajustement) : posée en haut de la carte du solde,
+   pleine couleur + halo pulsé pour vraiment attirer l'œil, plutôt que noyée
+   dans la barre du bas. */
+.bouton-cloture-coin {
+  position: absolute;
+  top: 1.1rem;
+  right: 1.35rem;
+  padding: 0.6rem 1.3rem;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(135deg, var(--accent-carte), var(--accent-carte-fonce));
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--accent-carte), transparent 30%);
+  animation: pouls-attention 2.2s ease-in-out infinite;
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+
+.bouton-cloture-coin:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--accent-carte), var(--accent-carte-fonce));
+  color: white;
+  transform: translateY(-2px) scale(1.03);
+  animation-play-state: paused;
+  box-shadow: 0 10px 22px -8px color-mix(in srgb, var(--accent-carte), transparent 20%);
+}
+
+@keyframes pouls-attention {
+  0%, 100% {
+    box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--accent-carte), transparent 30%),
+      0 0 0 0 color-mix(in srgb, var(--accent-carte), transparent 55%);
+  }
+  50% {
+    box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--accent-carte), transparent 30%),
+      0 0 0 9px color-mix(in srgb, var(--accent-carte), transparent 88%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bouton-cloture-coin {
+    animation: none;
+  }
+}
+
+.menu-solde {
+  display: flex;
+  flex-direction: column;
+  align-self: flex-start;
+  gap: 0.75rem;
+  width: 260px;
+  flex-shrink: 0;
+}
+
+.menu-solde-item {
+  border: 1px solid transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+
 .formulaire-mouvement-groupe {
-  background: white;
+  background: var(--surface);
   padding: 1.4rem;
   border-radius: var(--rayon-lg);
   box-shadow: var(--ombre-md);
@@ -1828,7 +2436,7 @@ input.champ-invalide:focus {
   position: sticky;
   top: 0;
   z-index: 5;
-  background: white;
+  background: var(--surface);
   padding-top: 0.2rem;
   margin-top: -0.2rem;
 }
@@ -1864,7 +2472,7 @@ input.champ-invalide:focus {
 }
 
 .formulaire-produits-groupe {
-  background: white;
+  background: var(--surface);
   padding: 1.4rem;
   border-radius: var(--rayon-lg);
   box-shadow: var(--ombre-md);
@@ -1939,7 +2547,7 @@ input.champ-invalide:focus {
 }
 
 .bouton-ajouter-produit-groupe:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--couleur-primaire-fonce), #163d5c);
+  background: linear-gradient(135deg, var(--couleur-primaire-fonce), var(--couleur-primaire-tres-fonce));
 }
 
 /* Empilé verticalement (champs en haut, tableau en bas qui remplit le reste) —
@@ -2008,10 +2616,44 @@ input.champ-invalide:focus {
 }
 
 .detail-produit {
-  background: white;
+  background: var(--surface);
   padding: 1.4rem;
   border-radius: var(--rayon-lg);
   box-shadow: var(--ombre-md);
+}
+
+/* Distingue la carte "phare" d'une page (ex. le graphique de CA du Tableau
+   de bord) des cartes secondaires qui l'entourent, par un fin liseré dégradé
+   en haut. */
+.detail-produit--hero {
+  position: relative;
+  overflow: hidden;
+}
+
+.detail-produit--hero::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--couleur-primaire),
+    var(--couleur-accent),
+    var(--couleur-primaire)
+  );
+  background-size: 200% 100%;
+  animation: glissement-liseret-hero 6s linear infinite;
+}
+
+@keyframes glissement-liseret-hero {
+  from { background-position: 0% 0; }
+  to { background-position: 200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .detail-produit--hero::before { animation: none; }
 }
 
 .entete-detail {
@@ -2058,7 +2700,7 @@ input.champ-invalide:focus {
   color: var(--couleur-primaire);
   font-weight: 600;
   text-decoration: none;
-  background: white;
+  background: var(--surface);
 }
 
 .lien.bouton-retour:hover:not(:disabled) {
@@ -2074,6 +2716,52 @@ input.champ-invalide:focus {
   max-width: 500px;
 }
 
+.bloc-apparence {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--gris-200);
+}
+
+.bloc-apparence h3 {
+  margin: 0 0 0.6rem;
+  font-size: 0.95rem;
+}
+
+.groupe-theme {
+  display: inline-flex;
+  border: 1px solid var(--gris-300);
+  border-radius: var(--rayon-pilule);
+  padding: 3px;
+  gap: 3px;
+}
+
+.bouton-theme {
+  border: none;
+  background: none;
+  padding: 0.4rem 1rem;
+  border-radius: var(--rayon-pilule);
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--gris-600);
+  cursor: pointer;
+  transform: none;
+  box-shadow: none;
+}
+
+.bouton-theme:hover:not(:disabled) {
+  background: var(--gris-100);
+  color: var(--gris-800);
+  transform: none;
+  box-shadow: none;
+}
+
+.bouton-theme.actif,
+.bouton-theme.actif:hover:not(:disabled) {
+  background: var(--degrade-primaire);
+  color: white;
+  box-shadow: var(--ombre-sm);
+}
+
 .sous-sections-parametres h3 {
   margin: 1.5rem 0 0.6rem;
 }
@@ -2086,7 +2774,7 @@ input.champ-invalide:focus {
   list-style: none;
   margin: 0 0 1rem;
   padding: 0;
-  background: white;
+  background: var(--surface);
   border-radius: var(--rayon-md);
   box-shadow: var(--ombre-md);
   overflow: hidden;
@@ -2211,6 +2899,134 @@ input.champ-invalide:focus {
   color: var(--gris-500);
 }
 
+.disposition-deux-colonnes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 720px) {
+  .disposition-deux-colonnes {
+    grid-template-columns: 1fr;
+  }
+}
+
+.grille-documents-comptables {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-top: 0.6rem;
+}
+
+.carte-document-comptable {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1.6rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--gris-200);
+  border-radius: var(--rayon-lg);
+  box-shadow: var(--ombre-md);
+  font: inherit;
+  font-weight: 600;
+  color: var(--gris-700);
+  cursor: pointer;
+  text-align: center;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.carte-document-comptable:hover {
+  transform: translateY(-2px);
+  border-color: var(--couleur-primaire-fonce);
+}
+
+/* Page d'accueil seulement (voir grille-accueil dans Accueil.tsx) : entrée en
+   cascade des cartes de raccourci, pour donner un peu de vie au premier écran
+   sans que ce mouvement se répète à chaque navigation (les autres grilles de
+   cartes — Comptabilité, Rapports... — n'ont pas cette classe). */
+.grille-accueil .carte-document-comptable {
+  animation: entree-tableau-bord 0.35s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grille-accueil .carte-document-comptable {
+    animation: none;
+  }
+}
+
+/* Fond animé : des ronds pleins (pas de flou, pas de dégradé) qui défilent en
+   continu derrière le contenu, trajectoires/tailles/vitesses variées pour ne
+   pas paraître synchronisés — classe page-accueil, appliquée à Accueil.tsx ET
+   TableauDeBord.tsx (chacun avec son propre CERCLES_FOND dupliqué dans le
+   composant, même patron). */
+.page-accueil {
+  position: relative;
+  overflow: hidden;
+  /* Sans ça, la boîte s'arrête à la hauteur du contenu (l'en-tête + la grille
+     de cartes) — les ronds positionnés en % (voir top: 55%/70%/85% dans
+     CERCLES_FOND) restaient coincés dans cette hauteur réduite et la zone vide
+     sous la grille (surtout avec peu de raccourcis visibles) restait sans
+     rond. min-height: 100% étire la boîte jusqu'au bas de .zone-contenu. */
+  min-height: 100%;
+}
+
+.cercle-fond {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 50%;
+  /* --gris-500 est toujours à mi-chemin entre le fond de page et le texte,
+     dans les deux sens (l'échelle est inversée en thème sombre) : le contour
+     reste visible quelle que soit la couleur de remplissage — y compris un
+     rond "blanc" du thème Orange, qui sans ce contour se fondait dans un fond
+     de page déjà quasi blanc. */
+  border: 1.5px solid color-mix(in srgb, var(--gris-500), transparent 35%);
+  opacity: 0.28;
+  pointer-events: none;
+  animation-name: defiler-cercle;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+/* Départ/arrivée fournis par carte (--depart-x/-y, --arrivee-x/-y, voir
+   CERCLES_FOND dans Accueil.tsx) : chaque rond a sa propre trajectoire — pas
+   toujours de gauche à droite, certains montent, descendent ou vont à
+   l'inverse, pour ne pas donner l'impression d'un seul et même défilé. */
+@keyframes defiler-cercle {
+  from {
+    transform: translate(var(--depart-x), var(--depart-y));
+  }
+  to {
+    transform: translate(var(--arrivee-x), var(--arrivee-y));
+  }
+}
+
+/* Tout enfant direct de .page-accueil AUTRE que les ronds eux-mêmes passe
+   au-dessus (les éléments positionnés se peignent après les éléments non
+   positionnés du même niveau — sans ceci, les ronds, en position:absolute,
+   recouvriraient le contenu). Générique plutôt qu'une liste de classes, pour
+   que ça marche sur n'importe quelle page qui adopte .page-accueil (Accueil,
+   Tableau de bord, Articles, Stock...) sans avoir à lister son contenu à
+   chaque fois. .fond-modale exclu exprès : plusieurs de ces pages rendent
+   leur modale comme enfant direct de ce même conteneur, et .fond-modale a
+   besoin de rester position:fixed (plein écran, z-index:50) — cette règle
+   plus spécifique l'aurait sinon fait repasser en position:relative. */
+.page-accueil > *:not(.cercle-fond):not(.fond-modale) {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cercle-fond {
+    display: none;
+  }
+}
+
+.icone-document-comptable {
+  font-size: 2rem;
+}
+
 .barre-export {
   display: flex;
   align-items: center;
@@ -2236,7 +3052,7 @@ input.champ-invalide:focus {
   max-width: 400px;
   margin: 2rem auto;
   text-align: center;
-  background: white;
+  background: var(--surface);
   padding: 2.2rem;
   border-radius: var(--rayon-lg);
   box-shadow: var(--ombre-lg);
@@ -2250,11 +3066,79 @@ input.champ-invalide:focus {
 }
 
 /* --- Tableau de bord --- */
+
+@keyframes entree-tableau-bord {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entete-tableau-bord,
+  .grille-tableau-bord .carte-stat,
+  .page-tableau-bord > .detail-produit,
+  .page-tableau-bord .deux-colonnes > .detail-produit {
+    animation: none !important;
+  }
+}
+
+.entete-tableau-bord {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 1.25rem;
+  animation: entree-tableau-bord var(--transition-lente) both;
+}
+
+.entete-tableau-bord h2 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.entete-tableau-bord .date-tableau-bord {
+  color: var(--gris-500);
+  font-size: 0.9rem;
+  text-transform: capitalize;
+}
+
 .grille-tableau-bord {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 1rem;
   margin-bottom: 1.25rem;
+}
+
+/* Décale l'entrée de chaque carte/section pour un effet de vague plutôt
+   qu'un bloc qui apparaît d'un coup — délais courts, purement au premier
+   affichage de la page. Scopé à .grille-tableau-bord : .carte-stat est
+   réutilisée telle quelle (sans cette animation) par Trésorerie. */
+.grille-tableau-bord .carte-stat {
+  animation: entree-tableau-bord var(--transition-lente) both;
+  border: 1px solid color-mix(in srgb, var(--accent-carte), transparent 88%);
+  background:
+    radial-gradient(120% 160% at 100% -20%, color-mix(in srgb, var(--accent-carte-clair), transparent 25%), transparent 60%),
+    var(--surface);
+}
+
+.grille-tableau-bord .carte-stat:nth-child(1) { animation-delay: 0ms; }
+.grille-tableau-bord .carte-stat:nth-child(2) { animation-delay: 50ms; }
+.grille-tableau-bord .carte-stat:nth-child(3) { animation-delay: 100ms; }
+.grille-tableau-bord .carte-stat:nth-child(4) { animation-delay: 150ms; }
+.grille-tableau-bord .carte-stat:nth-child(5) { animation-delay: 200ms; }
+
+.page-tableau-bord > .detail-produit,
+.page-tableau-bord .deux-colonnes > .detail-produit {
+  animation: entree-tableau-bord var(--transition-lente) both;
+  animation-delay: 220ms;
+}
+
+.page-tableau-bord .deux-colonnes > .detail-produit:nth-child(2) {
+  animation-delay: 280ms;
 }
 
 .ligne-total-inventaire td {
@@ -2265,7 +3149,12 @@ input.champ-invalide:focus {
 }
 
 .carte-stat {
-  background: white;
+  --accent-carte: var(--couleur-primaire);
+  --accent-carte-clair: var(--couleur-primaire-clair);
+  --accent-carte-fonce: var(--couleur-primaire-fonce);
+  position: relative;
+  overflow: hidden;
+  background: var(--surface);
   border-radius: var(--rayon-lg);
   box-shadow: var(--ombre-md);
   padding: 1.15rem 1.35rem;
@@ -2275,23 +3164,171 @@ input.champ-invalide:focus {
   transition: transform var(--transition-lente), box-shadow var(--transition-lente);
 }
 
+/* Liseret dégradé assorti à la couleur de la carte, en écho au bandeau
+   animé de la carte "hero" du graphique, pour une identité visuelle
+   cohérente entre les deux styles de cartes du tableau de bord. */
+.grille-tableau-bord .carte-stat::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent-carte), var(--accent-carte-fonce));
+}
+
+/* Cartes du Tableau de bord uniquement : celles de Trésorerie n'ont pas
+   d'icône, donc restent dans la disposition en colonne ci-dessus. */
+.carte-stat:has(.carte-stat-icone) {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.9rem;
+}
+
 .carte-stat:hover {
-  transform: translateY(-3px);
-  box-shadow: var(--ombre-lg);
+  transform: translateY(-4px) scale(1.015);
+  box-shadow: 0 20px 40px -18px color-mix(in srgb, var(--accent-carte), transparent 55%), var(--ombre-lg);
+}
+
+.carte-stat--bleu { --accent-carte: var(--couleur-primaire); --accent-carte-clair: var(--couleur-primaire-clair); --accent-carte-fonce: var(--couleur-primaire-fonce); }
+.carte-stat--vert { --accent-carte: var(--succes); --accent-carte-clair: var(--succes-clair); --accent-carte-fonce: var(--succes-fonce); }
+.carte-stat--violet { --accent-carte: var(--violet); --accent-carte-clair: var(--violet-clair); --accent-carte-fonce: var(--violet-fonce); }
+.carte-stat--ambre { --accent-carte: var(--avertissement); --accent-carte-clair: var(--avertissement-clair); --accent-carte-fonce: var(--avertissement-fonce); }
+.carte-stat--indigo { --accent-carte: var(--indigo); --accent-carte-clair: var(--indigo-clair); --accent-carte-fonce: var(--indigo-fonce); }
+
+/* L'état d'alerte prime sur la couleur thématique de la carte : cette règle
+   doit rester après les modificateurs de couleur ci-dessus pour l'emporter
+   (même spécificité, une seule classe — l'ordre dans la feuille décide). */
+.carte-stat--alerte {
+  --accent-carte: var(--danger);
+  --accent-carte-clair: var(--danger-clair);
+  --accent-carte-fonce: var(--danger-fonce);
+}
+
+.carte-stat-icone {
+  flex-shrink: 0;
+  width: 46px;
+  height: 46px;
+  border-radius: var(--rayon-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  background: linear-gradient(145deg, var(--accent-carte-clair), color-mix(in srgb, var(--accent-carte), var(--accent-carte-clair) 55%));
+  box-shadow:
+    0 10px 20px -8px color-mix(in srgb, var(--accent-carte), transparent 25%),
+    inset 0 1px 0 color-mix(in srgb, white, transparent 15%);
+  transition: background var(--transition-lente), transform var(--transition-lente), box-shadow var(--transition-lente);
+}
+
+.carte-stat:hover .carte-stat-icone {
+  transform: scale(1.12) rotate(-4deg);
+  box-shadow:
+    0 12px 24px -6px color-mix(in srgb, var(--accent-carte), transparent 12%),
+    inset 0 1px 0 color-mix(in srgb, white, transparent 15%);
+}
+
+/* Petit "pop" à l'apparition de chaque icône, décalé après l'entrée en
+   fondu de sa carte. */
+@keyframes apparition-icone-stat {
+  from { opacity: 0; transform: scale(0.4) rotate(-18deg); }
+  to { opacity: 1; transform: scale(1) rotate(0deg); }
+}
+
+.grille-tableau-bord .carte-stat-icone {
+  animation: apparition-icone-stat 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.grille-tableau-bord .carte-stat:nth-child(1) .carte-stat-icone { animation-delay: 160ms; }
+.grille-tableau-bord .carte-stat:nth-child(2) .carte-stat-icone { animation-delay: 210ms; }
+.grille-tableau-bord .carte-stat:nth-child(3) .carte-stat-icone { animation-delay: 260ms; }
+.grille-tableau-bord .carte-stat:nth-child(4) .carte-stat-icone { animation-delay: 310ms; }
+.grille-tableau-bord .carte-stat:nth-child(5) .carte-stat-icone { animation-delay: 360ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .grille-tableau-bord .carte-stat-icone { animation: none; }
+}
+
+.carte-stat-corps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+/* Petit point vivant à côté de "Ventes du jour" : signale que la carte lit le
+   jour en cours (contrairement aux autres écrans qui affichent un historique). */
+.point-vivant {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--succes);
+  margin-left: 0.4rem;
+  animation: pouls-vivant 2s ease-in-out infinite;
+}
+
+@keyframes pouls-vivant {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.8); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .point-vivant { animation: none; }
 }
 
 .carte-stat-label {
   font-size: 0.78rem;
-  color: var(--gris-500);
+  color: color-mix(in srgb, var(--accent-carte-fonce, var(--gris-500)), var(--gris-500) 45%);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-weight: 600;
 }
 
 .carte-stat-valeur {
-  font-size: 1.6rem;
+  font-size: 1.7rem;
   font-weight: 700;
-  color: var(--gris-900);
+  letter-spacing: -0.01em;
+  color: color-mix(in srgb, var(--gris-900), var(--accent-carte-fonce, var(--gris-900)) 18%);
+}
+
+.carte-stat-valeur-ligne {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* Variation vs hier (ex. CA du jour) : badge discret, pas un graphique — juste
+   de quoi juger d'un coup d'œil si la journée est meilleure ou moins bonne. */
+.badge-variation {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--rayon-pilule);
+  white-space: nowrap;
+}
+
+.badge-variation--hausse {
+  color: var(--succes-fonce, var(--succes));
+  background: color-mix(in srgb, var(--succes), transparent 85%);
+}
+
+.badge-variation--baisse {
+  color: var(--danger-fonce, var(--danger));
+  background: color-mix(in srgb, var(--danger), transparent 85%);
+}
+
+.badge-variation--stable {
+  color: var(--gris-500);
+  background: color-mix(in srgb, var(--gris-500), transparent 85%);
+}
+
+.badge-variation--nouveau {
+  color: var(--couleur-primaire-fonce, var(--couleur-primaire));
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 85%);
 }
 
 .deux-colonnes {
@@ -2390,10 +3427,18 @@ input.champ-invalide:focus {
   transform: translateX(2px);
 }
 
+/* Le graphique "se dessine" à l'ouverture de la page : la ligne se trace
+   d'abord (stroke-dashoffset, voir pathLength=1 sur le <path> en JSX), puis
+   l'aire sous la courbe s'éclaircit, puis les points apparaissent. */
 .aire-vente-jour {
   fill: var(--couleur-primaire);
-  opacity: 0.12;
   stroke: none;
+  opacity: 0;
+  animation: apparition-aire-vente 0.7s ease-out 1.05s both;
+}
+
+@keyframes apparition-aire-vente {
+  to { opacity: 0.12; }
 }
 
 .ligne-vente-jour {
@@ -2401,12 +3446,40 @@ input.champ-invalide:focus {
   stroke-width: 2;
   stroke-linejoin: round;
   stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: dessin-ligne-vente 1.1s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
+}
+
+@keyframes dessin-ligne-vente {
+  to { stroke-dashoffset: 0; }
 }
 
 .point-vente-jour {
-  fill: white;
+  fill: var(--surface);
   stroke: var(--couleur-primaire);
   stroke-width: 1.5;
+  opacity: 0;
+  animation: apparition-point-vente 0.4s ease-out 1.15s both;
+}
+
+@keyframes apparition-point-vente {
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aire-vente-jour,
+  .ligne-vente-jour,
+  .point-vente-jour {
+    animation: none;
+    opacity: 1;
+  }
+  .ligne-vente-jour {
+    stroke-dashoffset: 0;
+  }
+  .aire-vente-jour {
+    opacity: 0.12;
+  }
 }
 
 .etiquette-jour-graphique {
@@ -2458,7 +3531,7 @@ input.champ-invalide:focus {
   padding: 0.3rem 0.7rem;
   border-radius: var(--rayon-sm);
   border: 1px solid var(--gris-300);
-  background: white;
+  background: var(--surface);
   color: var(--couleur-primaire-fonce);
 }
 
@@ -2553,6 +3626,33 @@ input.champ-invalide:focus {
   min-height: 0;
 }
 
+/* Titre de section + bouton d'action sur une même ligne (ex. "Règlements" +
+   "+ Nouveau règlement") : sans align-items:center, .barre-actions étire le
+   bouton à la hauteur du <h4> (marges par défaut du navigateur incluses),
+   ce qui le fait paraître beaucoup trop gros. */
+.modale-corps .barre-actions {
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+
+.modale-corps .barre-actions h4 {
+  margin: 0;
+}
+
+/* Formulaire d'un mouvement de caisse (Retrait/Mise de fonds/Ajustement) :
+   son historique respectif vit dans la même modale à dimension fixe que les
+   autres (.modale-selection-produits), juste sous le formulaire. */
+.formulaire-mouvement-caisse-modale {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.formulaire-mouvement-caisse-modale h4 {
+  margin: 0;
+}
+
 .modale-corps .champ-recherche {
   width: 60%;
   font-size: 0.82rem;
@@ -2581,11 +3681,16 @@ input.champ-invalide:focus {
   background: var(--degrade-primaire);
   border-color: transparent;
   color: white;
-  box-shadow: 0 8px 18px -8px rgba(37, 99, 235, 0.55);
+  box-shadow: 0 8px 18px -8px rgba(37, 99, 235, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .bouton-primaire:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--couleur-primaire-fonce), #163d5c);
+  background: linear-gradient(135deg, var(--couleur-primaire-fonce), var(--couleur-primaire-tres-fonce));
+  box-shadow: 0 14px 26px -10px rgba(37, 99, 235, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.bouton-primaire:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--couleur-primaire), transparent 55%);
 }
 
 .lien-icone-danger {
@@ -2611,7 +3716,7 @@ input.champ-invalide:focus {
   display: flex;
   flex-wrap: nowrap;
   gap: 0;
-  background: #f2d9a8;
+  background: var(--surface-caisse);
   padding: 0.8rem 0.9rem;
   border-radius: var(--rayon-lg);
   box-shadow: var(--ombre-md);
@@ -2892,7 +3997,7 @@ input.champ-invalide:focus {
 }
 
 .catalogue-caisse .tableau-catalogue tbody tr:hover {
-  background: linear-gradient(90deg, var(--couleur-primaire-clair), white);
+  background: linear-gradient(90deg, var(--couleur-primaire-clair), var(--surface));
 }
 
 .catalogue-caisse .tableau-catalogue tbody tr.ligne-rupture {
@@ -3114,7 +4219,7 @@ input.champ-invalide:focus {
   font-weight: 800;
   font-size: 1.6rem;
   color: var(--couleur-primaire-fonce);
-  background: #ffffff;
+  background: var(--surface);
   border: 2px solid var(--couleur-primaire-fonce);
   padding: 0.4rem 1.1rem;
   border-radius: var(--rayon-md);
@@ -3393,7 +4498,7 @@ input.champ-invalide:focus {
 }
 
 .bouton-ajouter-variante:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--couleur-primaire-fonce), #163d5c);
+  background: linear-gradient(135deg, var(--couleur-primaire-fonce), var(--couleur-primaire-tres-fonce));
 }
 
 .colonne-actions-variante {
@@ -3420,7 +4525,7 @@ input.champ-invalide:focus {
 }
 
 .colonne-actions-variante .actions-ligne button:not(.lien):hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--couleur-primaire-fonce), #163d5c);
+  background: linear-gradient(135deg, var(--couleur-primaire-fonce), var(--couleur-primaire-tres-fonce));
 }
 
 .colonne-actions-variante .actions-ligne .bouton-ajouter-stock-ligne {
@@ -3504,14 +4609,222 @@ input.champ-invalide:focus {
   margin-top: 0.6rem;
 }
 
+/* Transfert mobile money -> caisse : modale compacte et centrée sur le geste
+   (montant + valider), façon appli mobile money — bandeau dégradé identifiant
+   l'opérateur, montant en grand, raccourcis de pourcentage. L'historique est
+   ailleurs (ModaleHistoriqueTransferts), pas mêlé au formulaire. */
+.modale-transfert-mobile-money {
+  --accent-transfert: var(--couleur-primaire);
+  --accent-transfert-fonce: var(--couleur-primaire-fonce);
+  --texte-bandeau: #ffffff;
+  width: 420px;
+  max-width: 90vw;
+  background: var(--surface);
+  border-radius: var(--rayon-lg);
+  box-shadow: var(--ombre-lg);
+  overflow: hidden;
+  animation: entree-carte var(--transition-lente) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modale-transfert-mobile-money {
+    animation: none;
+  }
+}
+
+.bandeau-transfert--orange_money { --accent-transfert: #ff7a00; --accent-transfert-fonce: #cc5f00; }
+.bandeau-transfert--mtn_money { --accent-transfert: #ffcb05; --accent-transfert-fonce: #e0ac00; --texte-bandeau: #1a1a1a; }
+.bandeau-transfert--moov_money { --accent-transfert: #0057b8; --accent-transfert-fonce: #003d82; }
+.bandeau-transfert--wave { --accent-transfert: #00a9e0; --accent-transfert-fonce: #0087b3; }
+
+.bandeau-transfert {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 1.4rem 1.5rem;
+  background: linear-gradient(135deg, var(--accent-transfert), var(--accent-transfert-fonce));
+  color: var(--texte-bandeau);
+  overflow: hidden;
+}
+
+.bandeau-transfert::after {
+  content: "";
+  position: absolute;
+  top: -60%;
+  right: -15%;
+  width: 55%;
+  height: 220%;
+  background: radial-gradient(circle, color-mix(in srgb, white, transparent 72%), transparent 65%);
+  pointer-events: none;
+}
+
+.badge-operateur-transfert {
+  position: relative;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
+  font-weight: 700;
+  background: color-mix(in srgb, white, transparent 78%);
+  border: 1px solid color-mix(in srgb, white, transparent 55%);
+}
+
+.bandeau-transfert-titres {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.bandeau-transfert-titre {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.bandeau-transfert-sous-titre {
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+
+.pastille-disponible {
+  position: relative;
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, white, transparent 78%);
+  white-space: nowrap;
+}
+
+.corps-transfert {
+  padding: 1.4rem 1.5rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.champ-montant-transfert {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--gris-700);
+}
+
+.saisie-montant-transfert {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--bordure-tableau);
+  border-radius: var(--rayon-md);
+  padding: 0.3rem 0.9rem;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.saisie-montant-transfert:focus-within {
+  border-color: var(--accent-transfert);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-transfert), transparent 80%);
+}
+
+/* Retour immédiat dès que le montant dépasse le disponible, plutôt que
+   d'attendre l'échec de la soumission (voir montantDepasseDisponible) —
+   l'emporte sur :focus-within (déclarée après, même spécificité). */
+.saisie-montant-transfert--erreur,
+.saisie-montant-transfert--erreur:focus-within {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger), transparent 80%);
+}
+
+.aide-montant-erreur {
+  font-size: 0.75rem;
+  color: var(--danger);
+}
+
+.saisie-montant-transfert input {
+  border: none;
+  outline: none;
+  flex: 1;
+  min-width: 0;
+  font-size: 2rem;
+  font-weight: 700;
+  padding: 0.4rem 0;
+  background: transparent;
+}
+
+.devise-inline {
+  flex-shrink: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--gris-500);
+}
+
+.raccourcis-montant-transfert {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.raccourcis-montant-transfert button {
+  flex: 1;
+  padding: 0.45rem 0;
+  border-radius: 999px;
+  border: 1px solid var(--bordure-tableau);
+  background: var(--gris-100);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), transform var(--transition);
+}
+
+.raccourcis-montant-transfert button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-transfert), var(--surface) 85%);
+  border-color: var(--accent-transfert);
+  transform: translateY(-1px);
+}
+
+.raccourcis-montant-transfert button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.corps-transfert .actions-formulaire {
+  margin-top: 0.4rem;
+}
+
+/* Après .bouton-primaire dans la cascade : même spécificité (une classe),
+   doit gagner pour appliquer le dégradé propre à l'opérateur sélectionné. */
+.bouton-transferer {
+  flex: 1;
+  background: linear-gradient(135deg, var(--accent-transfert), var(--accent-transfert-fonce));
+  font-weight: 700;
+  font-size: 0.9rem;
+  padding: 0.65rem 0;
+}
+
+.bouton-transferer:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--accent-transfert-fonce), var(--accent-transfert));
+}
+
 .bouton-danger {
   background: var(--danger);
   border-color: transparent;
   color: white;
+  box-shadow: 0 8px 18px -8px rgba(220, 38, 38, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .bouton-danger:hover:not(:disabled) {
   background: var(--danger-fonce);
+  box-shadow: 0 14px 26px -10px rgba(220, 38, 38, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.bouton-danger:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger), transparent 55%);
 }
 
 .zone-tableau-scroll-client {
@@ -3535,7 +4848,7 @@ input.champ-invalide:focus {
 
 .total-net-commande {
   margin-left: auto;
-  background: #ffffff;
+  background: var(--surface);
   border: 2px solid var(--couleur-primaire-fonce);
   border-radius: var(--rayon-md);
   padding: 0.5rem 1rem;

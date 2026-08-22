@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 
 import type { Session } from "../api";
 import ChampMontant from "../components/ChampMontant";
@@ -8,12 +9,17 @@ import { listerDepots, type DepotResume } from "../services/catalogue";
 import {
   creerCategorie,
   creerProduit,
+  creerValeurAttribut,
+  creerVariante,
   ErreurProduit,
+  listerAttributs,
   listerCategories,
+  listerValeursAttribut,
   modifierCategorie,
   modifierProduit,
   modifierVariante,
   obtenirProduit,
+  prochaineReferenceProduit,
   supprimerCategorie,
   supprimerProduit,
   listerProduits as listerProduitsLocal,
@@ -22,6 +28,7 @@ import {
   type ProduitResume,
   type ReferenceNommee,
   type UniteResume,
+  type ValeurAttributResume,
   type VarianteResume,
 } from "../services/produits";
 import { appliquerMouvement, ErreurStock } from "../services/stock";
@@ -32,9 +39,15 @@ import { appliquerMouvement, ErreurStock } from "../services/stock";
  * synchronisé en tâche de fond comme le reste de l'application (voir
  * services/produits.ts, miroir de electron/services/produits.ts).
  *
+ * Variantes multi-attributs (Taille/Couleur...) + aperçu de référence
+ * (2026-08-22, parité Electron) : LigneNouvelleVariante dans DetailProduit,
+ * colonnes Code-barres/Attributs affichées seulement si au moins une variante
+ * du produit les utilise (comme côté Electron), et referenceApercu dans
+ * FormulaireProduitsGroupe.
+ *
  * Non repris ici par rapport à l'Electron (à ajouter dans une phase ultérieure si
- * besoin) : variantes multi-attributs (Taille/Couleur...) dans l'UI de création
- * groupée, historique des mouvements/ventes dans la fiche produit.
+ * besoin) : historique des mouvements/ventes dans la fiche produit (onglets
+ * "Historique des mouvements de stock" / "Historique des ventes").
  */
 
 function FormulaireEditionProduit({
@@ -195,11 +208,168 @@ function FormulaireAjoutStock({
   );
 }
 
+function LigneNouvelleVariante({
+  produitId,
+  session,
+  afficherCodeBarres,
+  afficherAttributs,
+  peutVoirCout,
+  nombreColonnes,
+  onAnnuler,
+  onCree,
+}: {
+  produitId: string;
+  session: Session;
+  afficherCodeBarres: boolean;
+  afficherAttributs: boolean;
+  peutVoirCout: boolean;
+  nombreColonnes: number;
+  onAnnuler: () => void;
+  onCree: () => void;
+}) {
+  const peutModifierPrix = !!session.permissions.modifier_prix;
+
+  const [attributs, setAttributs] = useState<ReferenceNommee[]>([]);
+  const [valeursParAttribut, setValeursParAttribut] = useState<Record<string, ValeurAttributResume[]>>({});
+  const [selection, setSelection] = useState<Record<string, string>>({});
+  const [nouvelleValeur, setNouvelleValeur] = useState<Record<string, string>>({});
+  const [codeBarres, setCodeBarres] = useState("");
+  const [prixAchat, setPrixAchat] = useState("0");
+  const [prixVente, setPrixVente] = useState("0");
+  const [seuilAlerte, setSeuilAlerte] = useState("0");
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState(false);
+  const sousPrixAchat = Number(prixVente) > 0 && Number(prixAchat) > 0 && Number(prixVente) < Number(prixAchat);
+
+  useEffect(() => {
+    listerAttributs(session.boutiqueId).then(async (liste) => {
+      setAttributs(liste);
+      const valeurs: Record<string, ValeurAttributResume[]> = {};
+      for (const a of liste) {
+        valeurs[a.id] = await listerValeursAttribut(a.id);
+      }
+      setValeursParAttribut(valeurs);
+    });
+  }, [session.boutiqueId]);
+
+  async function ajouterValeur(attributId: string) {
+    const valeur = (nouvelleValeur[attributId] || "").trim();
+    if (!valeur) return;
+    const id = await creerValeurAttribut(attributId, valeur);
+    const liste = await listerValeursAttribut(attributId);
+    setValeursParAttribut((actuel) => ({ ...actuel, [attributId]: liste }));
+    setSelection((actuel) => ({ ...actuel, [attributId]: id }));
+    setNouvelleValeur((actuel) => ({ ...actuel, [attributId]: "" }));
+  }
+
+  async function creer() {
+    setErreur(null);
+    setEnCours(true);
+    try {
+      const valeurAttributIds = Object.values(selection).filter(Boolean);
+      await creerVariante({
+        produitId,
+        codeBarres,
+        prixAchat: Number(prixAchat) || 0,
+        prixVente: Number(prixVente) || 0,
+        seuilAlerte: Number(seuilAlerte) || 0,
+        valeurAttributIds,
+      });
+      onCree();
+    } catch (e) {
+      setErreur(e instanceof ErreurProduit ? e.message : "Erreur inattendue.");
+    } finally {
+      setEnCours(false);
+    }
+  }
+
+  return (
+    <>
+      <tr className="ligne-edition">
+        <td className="reference-auto">Auto</td>
+        {afficherCodeBarres && (
+          <td>
+            <input value={codeBarres} onChange={(e) => setCodeBarres(e.target.value)} autoFocus />
+          </td>
+        )}
+        {afficherAttributs && <td className="reference-auto">Auto</td>}
+        {peutVoirCout && (
+          <td>
+            <ChampMontant value={prixAchat} disabled={!peutModifierPrix} onChange={setPrixAchat} />
+          </td>
+        )}
+        <td>
+          <ChampMontant
+            className={sousPrixAchat ? "champ-invalide" : undefined}
+            value={prixVente}
+            disabled={!peutModifierPrix}
+            onChange={setPrixVente}
+          />
+          {sousPrixAchat && (
+            <span className="badge-rupture" title="Le prix de vente est inférieur au prix d'achat">
+              ⚠
+            </span>
+          )}
+        </td>
+        <td>
+          <input type="number" min={0} step="any" value={seuilAlerte} onChange={(e) => setSeuilAlerte(e.target.value)} />
+        </td>
+        <td className="reference-auto">0</td>
+        <td className="colonne-actions-variante">
+          {erreur && <div className="message-erreur">{erreur}</div>}
+          <span className="actions-ligne">
+            <button type="button" className="bouton-primaire" onClick={creer} disabled={enCours}>
+              {enCours ? "Création…" : "Créer"}
+            </button>
+            <button type="button" className="lien" onClick={onAnnuler}>
+              Annuler
+            </button>
+          </span>
+        </td>
+      </tr>
+      {attributs.length > 0 && (
+        <tr>
+          <td colSpan={nombreColonnes}>
+            {attributs.map((a) => (
+              <div key={a.id} className="ligne-attribut">
+                <label>
+                  {a.nom}
+                  <select
+                    value={selection[a.id] || ""}
+                    onChange={(e) => setSelection((s) => ({ ...s, [a.id]: e.target.value }))}
+                  >
+                    <option value=""></option>
+                    {(valeursParAttribut[a.id] || []).map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.valeur}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <input
+                  placeholder={`Nouvelle valeur (${a.nom})`}
+                  value={nouvelleValeur[a.id] || ""}
+                  onChange={(e) => setNouvelleValeur((n) => ({ ...n, [a.id]: e.target.value }))}
+                />
+                <button type="button" className="bouton-primaire" onClick={() => ajouterValeur(a.id)}>
+                  + Ajouter
+                </button>
+              </div>
+            ))}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
 function LigneEditionVariante({
   index,
   variante,
   peutVoirCout,
   peutModifierPrix,
+  afficherCodeBarres,
+  afficherAttributs,
   onAnnuler,
   onModifie,
 }: {
@@ -207,6 +377,8 @@ function LigneEditionVariante({
   variante: VarianteResume;
   peutVoirCout: boolean;
   peutModifierPrix: boolean;
+  afficherCodeBarres: boolean;
+  afficherAttributs: boolean;
   onAnnuler: () => void;
   onModifie: () => void;
 }) {
@@ -244,9 +416,12 @@ function LigneEditionVariante({
       <td>
         <input value={reference} onChange={(e) => setReference(e.target.value)} autoFocus />
       </td>
-      <td>
-        <input value={codeBarres} onChange={(e) => setCodeBarres(e.target.value)} />
-      </td>
+      {afficherCodeBarres && (
+        <td>
+          <input value={codeBarres} onChange={(e) => setCodeBarres(e.target.value)} />
+        </td>
+      )}
+      {afficherAttributs && <td>{variante.valeurs.join(", ") || ""}</td>}
       {peutVoirCout && (
         <td>
           <ChampMontant value={prixAchat} disabled={!peutModifierPrix} onChange={setPrixAchat} />
@@ -305,6 +480,7 @@ function DetailProduit({
 
   const [produit, setProduit] = useState<ProduitDetail | null>(null);
   const [modifierInfos, setModifierInfos] = useState(false);
+  const [afficherFormVariante, setAfficherFormVariante] = useState(false);
   const [varianteEnEdition, setVarianteEnEdition] = useState<string | null>(null);
   const [varianteAjoutStock, setVarianteAjoutStock] = useState<string | null>(null);
   const [messageStock, setMessageStock] = useState<string | null>(null);
@@ -319,7 +495,18 @@ function DetailProduit({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [produitId]);
 
-  const nombreColonnes = 1 + 1 + 1 + (peutVoirCout ? 1 : 0) + 1 + 1 + 1 + (peutGerer ? 1 : 0);
+  const afficherCodeBarres = !!produit?.variantes.some((v) => v.codeBarres);
+  const afficherAttributs = !!produit?.variantes.some((v) => v.valeurs.length > 0);
+  const nombreColonnes =
+    1 + // N°
+    1 + // Référence
+    (afficherCodeBarres ? 1 : 0) +
+    (afficherAttributs ? 1 : 0) +
+    (peutVoirCout ? 1 : 0) +
+    1 + // Prix de vente
+    1 + // Seuil
+    1 + // Stock
+    (peutGerer ? 1 : 0);
 
   return (
     <div className="fond-modale" onClick={onFermer}>
@@ -379,7 +566,12 @@ function DetailProduit({
               </div>
 
               <div className="entete-section-tableau">
-                <h4>Variante</h4>
+                <h4>Variantes</h4>
+                {peutGerer && !afficherFormVariante && (
+                  <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherFormVariante(true)}>
+                    + Ajouter une variante
+                  </button>
+                )}
               </div>
               {messageStock && <p className="note-aide">{messageStock}</p>}
               <div className="zone-tableau-scroll zone-tableau-scroll-modale">
@@ -388,7 +580,8 @@ function DetailProduit({
                     <tr>
                       <th>N°</th>
                       <th>Référence</th>
-                      <th>Code-barres</th>
+                      {afficherCodeBarres && <th>Code-barres</th>}
+                      {afficherAttributs && <th>Attributs</th>}
                       {peutVoirCout && <th>Prix d'achat</th>}
                       <th>Prix de vente</th>
                       <th>Seuil</th>
@@ -406,6 +599,8 @@ function DetailProduit({
                             variante={v}
                             peutVoirCout={peutVoirCout}
                             peutModifierPrix={peutModifierPrix}
+                            afficherCodeBarres={afficherCodeBarres}
+                            afficherAttributs={afficherAttributs}
                             onAnnuler={() => setVarianteEnEdition(null)}
                             onModifie={() => {
                               setVarianteEnEdition(null);
@@ -418,7 +613,8 @@ function DetailProduit({
                         <tr key={v.id}>
                           <td>{index + 1}</td>
                           <td>{v.reference || ""}</td>
-                          <td>{v.codeBarres || ""}</td>
+                          {afficherCodeBarres && <td>{v.codeBarres || ""}</td>}
+                          {afficherAttributs && <td>{v.valeurs.join(", ") || ""}</td>}
                           {peutVoirCout && <td>{formaterMontant(v.prixAchat ?? 0)}</td>}
                           <td>{formaterMontant(v.prixVente)}</td>
                           <td>{v.seuilAlerte}</td>
@@ -448,6 +644,21 @@ function DetailProduit({
                         </tr>
                       );
                     })}
+                    {afficherFormVariante && (
+                      <LigneNouvelleVariante
+                        produitId={produit.id}
+                        session={session}
+                        afficherCodeBarres={afficherCodeBarres}
+                        afficherAttributs={afficherAttributs}
+                        peutVoirCout={peutVoirCout}
+                        nombreColonnes={nombreColonnes}
+                        onAnnuler={() => setAfficherFormVariante(false)}
+                        onCree={() => {
+                          setAfficherFormVariante(false);
+                          rafraichir();
+                        }}
+                      />
+                    )}
                     {varianteAjoutStock &&
                       produit.variantes.some((v) => v.id === varianteAjoutStock) && (
                         <tr>
@@ -531,7 +742,20 @@ function FormulaireProduitsGroupe({
   const [lignes, setLignes] = useState<LigneProduitGroupe[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  const [prochaineRefBase, setProchaineRefBase] = useState<number | null>(null);
   const sousPrixAchat = Number(prixVente) > 0 && Number(prixAchat) > 0 && Number(prixVente) < Number(prixAchat);
+
+  useEffect(() => {
+    prochaineReferenceProduit(session.boutiqueId).then((ref) => {
+      const n = Number(ref.replace(/^REF-/, ""));
+      setProchaineRefBase(Number.isFinite(n) ? n : null);
+    });
+  }, [session.boutiqueId]);
+
+  function referenceApercu(index: number): string {
+    if (prochaineRefBase === null) return "Auto";
+    return `REF-${String(prochaineRefBase + index).padStart(6, "0")}`;
+  }
 
   function ajouterProduit() {
     if (!nom.trim()) return;
@@ -746,6 +970,7 @@ function FormulaireProduitsGroupe({
               <thead>
                 <tr>
                   <th className="colonne-numero-groupe">N°</th>
+                  <th>Référence</th>
                   <th className="col-designation-groupe">Désignation</th>
                   <th>Catégorie</th>
                   <th>Unité</th>
@@ -761,10 +986,11 @@ function FormulaireProduitsGroupe({
                 {lignes.map((l, index) => (
                   <tr key={l.id}>
                     <td className="colonne-numero-groupe">{index + 1}</td>
+                    <td className="reference-auto">{referenceApercu(index)}</td>
                     <td className="col-designation-groupe">{l.nom}</td>
                     <td>{l.categorieNom}</td>
                     <td>{l.uniteNom}</td>
-                    <td>{l.codeBarres || "—"}</td>
+                    <td>{l.codeBarres || ""}</td>
                     <td>{formaterMontant(l.prixAchat)}</td>
                     <td>{formaterMontant(l.prixVente)}</td>
                     <td>{l.seuilAlerte}</td>
@@ -786,6 +1012,7 @@ function FormulaireProduitsGroupe({
                 {Array.from({ length: Math.max(0, 10 - lignes.length) }).map((_, i) => (
                   <tr key={`vide-${i}`} className="ligne-groupe-vide">
                     <td className="colonne-numero-groupe">&nbsp;</td>
+                    <td>&nbsp;</td>
                     <td className="col-designation-groupe">&nbsp;</td>
                     <td>&nbsp;</td>
                     <td>&nbsp;</td>
@@ -808,26 +1035,44 @@ function FormulaireProduitsGroupe({
 
 type ColonneTriProduit = "nom" | "prixVente" | "enStock";
 
-const ONGLETS = [
-  { cle: "produits", label: "Articles" },
-  { cle: "categories", label: "Catégories" },
+/**
+ * Ronds défilants du fond (même patron que Accueil.tsx) : tailles/vitesses/
+ * délais variés, trajectoire propre à chacun (départ → arrivée en vw/vh),
+ * couleur --cercle-N (index.css — cycle des teintes sémantiques par défaut,
+ * réassorti à l'identité propre de certains thèmes comme Orange).
+ */
+const CERCLES_FOND = [
+  { taille: 90, couleur: "var(--cercle-1)", duree: 26, delai: -4, depart: ["-15vw", "10vh"], arrivee: ["115vw", "60vh"] },
+  { taille: 60, couleur: "var(--cercle-2)", duree: 22, delai: -15, depart: ["115vw", "70vh"], arrivee: ["-15vw", "15vh"] },
+  { taille: 120, couleur: "var(--cercle-3)", duree: 32, delai: -9, depart: ["20vw", "115vh"], arrivee: ["75vw", "-20vh"] },
+  { taille: 50, couleur: "var(--cercle-4)", duree: 24, delai: -2, depart: ["70vw", "-15vh"], arrivee: ["15vw", "115vh"] },
+  { taille: 75, couleur: "var(--cercle-5)", duree: 28, delai: -20, depart: ["-15vw", "90vh"], arrivee: ["110vw", "20vh"] },
+  { taille: 100, couleur: "var(--cercle-6)", duree: 30, delai: -12, depart: ["110vw", "25vh"], arrivee: ["-15vw", "85vh"] },
+  { taille: 40, couleur: "var(--cercle-1)", duree: 20, delai: -7, depart: ["40vw", "-15vh"], arrivee: ["85vw", "115vh"] },
+  { taille: 65, couleur: "var(--cercle-3)", duree: 25, delai: -16, depart: ["105vw", "45vh"], arrivee: ["-10vw", "55vh"] },
+  { taille: 85, couleur: "var(--cercle-4)", duree: 34, delai: -5, depart: ["85vw", "110vh"], arrivee: ["10vw", "-15vh"] },
+  { taille: 55, couleur: "var(--cercle-6)", duree: 23, delai: -10, depart: ["-10vw", "35vh"], arrivee: ["105vw", "90vh"] },
 ] as const;
 
-type Onglet = (typeof ONGLETS)[number]["cle"];
+const SECTIONS = [
+  { cle: "produits", label: "Articles", icone: "🏷️" },
+  { cle: "categories", label: "Catégories", icone: "🗂️" },
+] as const;
 
-function SelecteurOnglet({ onglet, setOnglet }: { onglet: Onglet; setOnglet: (o: Onglet) => void }) {
+type Section = (typeof SECTIONS)[number]["cle"];
+
+function EnteteModale({ titre, onFermer }: { titre: string; onFermer: () => void }) {
   return (
-    <div className="barre-onglets">
-      {ONGLETS.map((o) => (
-        <button key={o.cle} type="button" className={`onglet ${onglet === o.cle ? "actif" : ""}`} onClick={() => setOnglet(o.cle)}>
-          {o.label}
-        </button>
-      ))}
+    <div className="modale-entete">
+      <h3>{titre}</h3>
+      <button type="button" className="lien bouton-retour" onClick={onFermer}>
+        ← Retour
+      </button>
     </div>
   );
 }
 
-function OngletProduits({ session, onglet, setOnglet }: { session: Session; onglet: Onglet; setOnglet: (o: Onglet) => void }) {
+function OngletProduits({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const peutVoirCout = !!session.permissions.voir_benefices_achat;
 
@@ -940,7 +1185,6 @@ function OngletProduits({ session, onglet, setOnglet }: { session: Session; ongl
       )}
       <div>
         <div className="barre-actions barre-actions-fixe barre-actions-avec-onglets">
-          <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
           <input className="champ-recherche" placeholder="Rechercher un article…" value={terme} onChange={(e) => setTerme(e.target.value)} />
           {peutGerer && (
             <span className="actions-ligne">
@@ -974,7 +1218,7 @@ function OngletProduits({ session, onglet, setOnglet }: { session: Session; ongl
               {produitsTries.map((p, index) => (
                 <tr key={p.id} onClick={() => setProduitSelectionneId(p.id)}>
                   <td>{index + 1}</td>
-                  <td>{p.reference || "—"}</td>
+                  <td>{p.reference || ""}</td>
                   <td>{p.nom}</td>
                   <td className="colonne-categorie-articles">{p.categorieNom ?? ""}</td>
                   {peutVoirCout && <td>{p.prixAchat !== null ? formaterMontant(p.prixAchat) : ""}</td>}
@@ -1017,7 +1261,7 @@ function OngletProduits({ session, onglet, setOnglet }: { session: Session; ongl
   );
 }
 
-function OngletCategories({ session, onglet, setOnglet }: { session: Session; onglet: Onglet; setOnglet: (o: Onglet) => void }) {
+function OngletCategories({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [categories, setCategories] = useState<ReferenceNommee[]>([]);
   const [nom, setNom] = useState("");
@@ -1077,7 +1321,6 @@ function OngletCategories({ session, onglet, setOnglet }: { session: Session; on
   return (
     <div className="reglage-catalogue">
       <div className="barre-actions barre-actions-fixe barre-actions-avec-onglets">
-        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         {peutGerer && (
           <form onSubmit={ajouter} className="formulaire-inline">
             <input placeholder="Nouvelle catégorie" value={nom} onChange={(e) => setNom(e.target.value)} />
@@ -1136,15 +1379,76 @@ function OngletCategories({ session, onglet, setOnglet }: { session: Session; on
   );
 }
 
+function ModaleProduits({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Articles" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletProduits session={session} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModaleCategories({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Catégories" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletCategories session={session} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Produits({ session }: { session: Session }) {
-  const [onglet, setOnglet] = useState<Onglet>("produits");
+  const [sectionOuverte, setSectionOuverte] = useState<Section | null>(null);
 
   return (
-    <div className="page-produits">
-      <div className="contenu-onglet">
-        {onglet === "produits" && <OngletProduits session={session} onglet={onglet} setOnglet={setOnglet} />}
-        {onglet === "categories" && <OngletCategories session={session} onglet={onglet} setOnglet={setOnglet} />}
+    <div className="page-produits page-accueil">
+      {CERCLES_FOND.map((c, i) => (
+        <span
+          key={i}
+          aria-hidden="true"
+          className="cercle-fond"
+          style={
+            {
+              width: c.taille,
+              height: c.taille,
+              background: c.couleur,
+              animationDuration: `${c.duree}s`,
+              animationDelay: `${c.delai}s`,
+              "--depart-x": c.depart[0],
+              "--depart-y": c.depart[1],
+              "--arrivee-x": c.arrivee[0],
+              "--arrivee-y": c.arrivee[1],
+            } as CSSProperties
+          }
+        />
+      ))}
+      <div className="grille-documents-comptables">
+        {SECTIONS.map((s) => (
+          <button
+            key={s.cle}
+            type="button"
+            className="carte-document-comptable"
+            onClick={() => setSectionOuverte(s.cle)}
+          >
+            <span className="icone-document-comptable">{s.icone}</span>
+            {s.label}
+          </button>
+        ))}
       </div>
+      {sectionOuverte === "produits" && (
+        <ModaleProduits session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
+      {sectionOuverte === "categories" && (
+        <ModaleCategories session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
     </div>
   );
 }

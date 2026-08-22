@@ -1,7 +1,15 @@
 import { ouvrirBaseDeDonnees } from "../db";
 import { ecrireLigne, maintenant, obtenirLigne, suiviSyncNeuf } from "../db/helpers";
-import type { CommandeAchatLocale, DetteFournisseurLocale, FournisseurLocal, LigneAchatLocale, ReceptionLocale } from "../db/schema";
+import type {
+  CommandeAchatLocale,
+  DetteFournisseurLocale,
+  FournisseurLocal,
+  LigneAchatLocale,
+  PaiementDetteFournisseurLocale,
+  ReceptionLocale,
+} from "../db/schema";
 import { appliquerMouvement } from "./stock";
+import { enregistrerMouvement } from "./tresorerie";
 
 /**
  * Port navigateur de client-electron/electron/services/achats.ts : une
@@ -30,6 +38,40 @@ export async function listerFournisseurs(boutiqueId: string): Promise<Fournisseu
   return fournisseurs
     .map((f) => ({ id: f.id, nom: f.nom, telephone: f.telephone, adresse: f.adresse, contact: f.contact }))
     .sort((a, b) => a.nom.localeCompare(b.nom));
+}
+
+/**
+ * Port de client-electron/electron/services/achats.ts::obtenirDerniersFournisseurs :
+ * pour chaque variante, le fournisseur de sa commande la plus récente (pour
+ * pré-remplir "Commander" depuis une rupture). Pas d'index par variante_id sur
+ * lignes_achat, donc on parcourt les commandes de la boutique triées par date
+ * (même patron "itérer et filtrer en JS" que services/stock.ts).
+ */
+export async function obtenirDerniersFournisseurs(
+  boutiqueId: string,
+  varianteIds: string[],
+): Promise<Record<string, { id: string; nom: string }>> {
+  const resultat: Record<string, { id: string; nom: string }> = {};
+  if (varianteIds.length === 0) return resultat;
+  const idsRestants = new Set(varianteIds);
+
+  const db = await ouvrirBaseDeDonnees();
+  const commandes = (await db.getAllFromIndex("commandes_achat", "boutique_id", boutiqueId))
+    .filter((c) => !c.supprime)
+    .sort((a, b) => (a.date_creation < b.date_creation ? 1 : -1));
+
+  for (const commande of commandes) {
+    if (idsRestants.size === 0) break;
+    const fournisseur = await obtenirLigne("fournisseurs", commande.fournisseur_id);
+    if (!fournisseur) continue;
+    const lignes = (await db.getAllFromIndex("lignes_achat", "commande_id", commande.id)).filter((l) => !l.supprime);
+    for (const ligne of lignes) {
+      if (!idsRestants.has(ligne.variante_id)) continue;
+      resultat[ligne.variante_id] = { id: fournisseur.id, nom: fournisseur.nom };
+      idsRestants.delete(ligne.variante_id);
+    }
+  }
+  return resultat;
 }
 
 export async function creerFournisseur(
@@ -451,7 +493,30 @@ export async function listerDettes(boutiqueId: string, fournisseurId?: string, s
   return resultat.sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));
 }
 
-export async function payerDette(detteId: string, montant: number): Promise<void> {
+export interface PaiementDetteDetail {
+  id: string;
+  montant: number;
+  mode: string;
+  dateCreation: string;
+}
+
+export async function listerPaiementsDette(detteId: string): Promise<PaiementDetteDetail[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const paiements = (await db.getAllFromIndex("paiements_dette_fournisseur", "dette_id", detteId)).filter(
+    (p) => !p.supprime,
+  );
+  return paiements
+    .map((p) => ({ id: p.id, montant: p.montant, mode: p.mode, dateCreation: p.date_creation }))
+    .sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));
+}
+
+export async function payerDette(
+  detteId: string,
+  montant: number,
+  mode = "",
+  depotId: string | null = null,
+  utilisateurId: string | null = null,
+): Promise<void> {
   const db = await ouvrirBaseDeDonnees();
   const dette = await db.get("dettes_fournisseur", detteId);
   if (!dette) throw new ErreurAchat("Dette introuvable.");
@@ -461,6 +526,16 @@ export async function payerDette(detteId: string, montant: number): Promise<void
   if (montant > dette.solde) {
     throw new ErreurAchat("Le montant payé ne peut pas dépasser le solde restant.");
   }
+
+  const paiementId = crypto.randomUUID();
+  const paiement: PaiementDetteFournisseurLocale = {
+    id: paiementId,
+    dette_id: detteId,
+    montant,
+    mode,
+    ...suiviSyncNeuf(),
+  };
+  await db.put("paiements_dette_fournisseur", paiement);
 
   const nouveauMontantPaye = dette.montant_paye + montant;
   const nouveauSolde = dette.solde - montant;
@@ -472,4 +547,18 @@ export async function payerDette(detteId: string, montant: number): Promise<void
     synchronise: 0,
     date_modification: maintenant(),
   });
+
+  if (mode === "especes" && depotId) {
+    const fournisseur = await db.get("fournisseurs", dette.fournisseur_id);
+    await enregistrerMouvement({
+      depotId,
+      type: "sortie",
+      categorie: "paiement_dette_fournisseur",
+      montant,
+      motif: `Paiement dette ${fournisseur?.nom ?? ""}`,
+      utilisateurId,
+      referenceType: "fournisseurs.PaiementDetteFournisseur",
+      referenceId: paiementId,
+    });
+  }
 }

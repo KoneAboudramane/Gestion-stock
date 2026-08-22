@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 
 import type { Session } from "../api";
 import FactureVente from "../components/FactureVente";
@@ -101,7 +102,7 @@ function PaiementMobileMoney({ paiement }: { paiement: PaiementDetail }) {
   );
 }
 
-function DetailVente({ venteId, session, onRetour }: { venteId: string; session: Session; onRetour: () => void }) {
+export function DetailVente({ venteId, session, onRetour }: { venteId: string; session: Session; onRetour: () => void }) {
   const peutAnnuler = !!session.permissions.annuler_vente;
   const devise = useDevise();
   const [vente, setVente] = useState<VenteDetail | null>(null);
@@ -157,7 +158,7 @@ function DetailVente({ venteId, session, onRetour }: { venteId: string; session:
       </div>
       <div className="modale-corps">
         <p>
-          Client : {vente.clientNom ?? ""} · {new Date(vente.dateCreation).toLocaleString("fr-FR")}
+          Dépôt : {vente.depotNom} · Client : {vente.clientNom ?? ""} · {new Date(vente.dateCreation).toLocaleString("fr-FR")}
         </p>
         {erreur && <div className="message-erreur">{erreur}</div>}
 
@@ -236,6 +237,19 @@ function DetailVente({ venteId, session, onRetour }: { venteId: string; session:
   );
 }
 
+const CERCLES_FOND = [
+  { taille: 90, couleur: "var(--cercle-1)", duree: 26, delai: -4, depart: ["-15vw", "10vh"], arrivee: ["115vw", "60vh"] },
+  { taille: 60, couleur: "var(--cercle-2)", duree: 22, delai: -15, depart: ["115vw", "70vh"], arrivee: ["-15vw", "15vh"] },
+  { taille: 120, couleur: "var(--cercle-3)", duree: 32, delai: -9, depart: ["20vw", "115vh"], arrivee: ["75vw", "-20vh"] },
+  { taille: 50, couleur: "var(--cercle-4)", duree: 24, delai: -2, depart: ["70vw", "-15vh"], arrivee: ["15vw", "115vh"] },
+  { taille: 75, couleur: "var(--cercle-5)", duree: 28, delai: -20, depart: ["-15vw", "90vh"], arrivee: ["110vw", "20vh"] },
+  { taille: 100, couleur: "var(--cercle-6)", duree: 30, delai: -12, depart: ["110vw", "25vh"], arrivee: ["-15vw", "85vh"] },
+  { taille: 40, couleur: "var(--cercle-1)", duree: 20, delai: -7, depart: ["40vw", "-15vh"], arrivee: ["85vw", "115vh"] },
+  { taille: 65, couleur: "var(--cercle-3)", duree: 25, delai: -16, depart: ["105vw", "45vh"], arrivee: ["-10vw", "55vh"] },
+  { taille: 85, couleur: "var(--cercle-4)", duree: 34, delai: -5, depart: ["85vw", "110vh"], arrivee: ["10vw", "-15vh"] },
+  { taille: 55, couleur: "var(--cercle-6)", duree: 23, delai: -10, depart: ["-10vw", "35vh"], arrivee: ["105vw", "90vh"] },
+] as const;
+
 export default function Ventes({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [depots, setDepots] = useState<DepotResume[]>([]);
@@ -259,7 +273,27 @@ export default function Ventes({ session }: { session: Session }) {
   }, [depotId, statut, terme]);
 
   return (
-    <div className="page-produits">
+    <div className="page-produits page-accueil">
+      {CERCLES_FOND.map((c, i) => (
+        <span
+          key={i}
+          aria-hidden="true"
+          className="cercle-fond"
+          style={
+            {
+              width: c.taille,
+              height: c.taille,
+              background: c.couleur,
+              animationDuration: `${c.duree}s`,
+              animationDelay: `${c.delai}s`,
+              "--depart-x": c.depart[0],
+              "--depart-y": c.depart[1],
+              "--arrivee-x": c.arrivee[0],
+              "--arrivee-y": c.arrivee[1],
+            } as CSSProperties
+          }
+        />
+      ))}
       {venteSelectionneeId && (
         <div className="fond-modale" onClick={() => setVenteSelectionneeId(null)}>
           <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
