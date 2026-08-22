@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("auth:inscription", params),
     session: () => ipcRenderer.invoke("auth:session"),
     deconnexion: () => ipcRenderer.invoke("auth:deconnexion"),
+    rafraichirPermissions: (session: unknown) => ipcRenderer.invoke("auth:rafraichirPermissions", session),
     demanderReinitialisationMotDePasse: (email: string) =>
       ipcRenderer.invoke("auth:demanderReinitialisationMotDePasse", email),
     reinitialiserMotDePasse: (email: string, code: string, nouveauMotDePasse: string) =>
@@ -127,7 +128,9 @@ contextBridge.exposeInMainWorld("api", {
   dettes: {
     lister: (boutiqueId: string, fournisseurId?: string, statut?: string) =>
       ipcRenderer.invoke("dettes:lister", boutiqueId, fournisseurId, statut),
-    payer: (id: string, montant: number) => ipcRenderer.invoke("dettes:payer", id, montant),
+    payer: (id: string, montant: number, mode?: string, depotId?: string | null, utilisateurId?: string | null) =>
+      ipcRenderer.invoke("dettes:payer", id, montant, mode, depotId, utilisateurId),
+    listerPaiements: (detteId: string) => ipcRenderer.invoke("dettes:listerPaiements", detteId),
   },
   clients: {
     lister: (boutiqueId: string, terme?: string) => ipcRenderer.invoke("clients:lister", boutiqueId, terme),
@@ -141,8 +144,8 @@ contextBridge.exposeInMainWorld("api", {
     lister: (boutiqueId: string, clientId?: string, statut?: string) =>
       ipcRenderer.invoke("credits:lister", boutiqueId, clientId, statut),
     obtenir: (id: string) => ipcRenderer.invoke("credits:obtenir", id),
-    rembourser: (id: string, montant: number, mode?: string) =>
-      ipcRenderer.invoke("credits:rembourser", id, montant, mode),
+    rembourser: (id: string, montant: number, mode?: string, depotId?: string | null, utilisateurId?: string | null) =>
+      ipcRenderer.invoke("credits:rembourser", id, montant, mode, depotId, utilisateurId),
   },
   rapports: {
     plageDates: (periode?: string, dateDebut?: string, dateFin?: string) =>
@@ -170,6 +173,28 @@ contextBridge.exposeInMainWorld("api", {
       format: string,
       cheminForce?: string,
     ) => ipcRenderer.invoke("rapports:exporter", titre, colonnes, lignes, format, cheminForce),
+  },
+  comptabilite: {
+    planComptable: () => ipcRenderer.invoke("comptabilite:planComptable"),
+    journal: (boutiqueId: string, debut: string, fin: string, journalCode?: string) =>
+      ipcRenderer.invoke("comptabilite:journal", boutiqueId, debut, fin, journalCode),
+    grandLivre: (boutiqueId: string, compte: string, debut: string, fin: string) =>
+      ipcRenderer.invoke("comptabilite:grandLivre", boutiqueId, compte, debut, fin),
+    balance: (boutiqueId: string, debut: string, fin: string) =>
+      ipcRenderer.invoke("comptabilite:balance", boutiqueId, debut, fin),
+    compteDeResultat: (boutiqueId: string, debut: string, fin: string) =>
+      ipcRenderer.invoke("comptabilite:compteDeResultat", boutiqueId, debut, fin),
+    bilan: (boutiqueId: string, dateFin: string) => ipcRenderer.invoke("comptabilite:bilan", boutiqueId, dateFin),
+    journalOfficiel: (session: unknown, debut: string, fin: string, journalCode?: string) =>
+      ipcRenderer.invoke("comptabilite:journalOfficiel", session, debut, fin, journalCode),
+    grandLivreOfficiel: (session: unknown, compte: string, debut: string, fin: string) =>
+      ipcRenderer.invoke("comptabilite:grandLivreOfficiel", session, compte, debut, fin),
+    balanceOfficielle: (session: unknown, debut: string, fin: string) =>
+      ipcRenderer.invoke("comptabilite:balanceOfficielle", session, debut, fin),
+    compteDeResultatOfficiel: (session: unknown, debut: string, fin: string) =>
+      ipcRenderer.invoke("comptabilite:compteDeResultatOfficiel", session, debut, fin),
+    bilanOfficiel: (session: unknown, dateFin: string) =>
+      ipcRenderer.invoke("comptabilite:bilanOfficiel", session, dateFin),
   },
   reglages: {
     obtenirBoutique: (boutiqueId: string) => ipcRenderer.invoke("reglages:obtenirBoutique", boutiqueId),
@@ -213,6 +238,35 @@ contextBridge.exposeInMainWorld("api", {
     genererTicketWhatsapp: (venteId: string) => ipcRenderer.invoke("messages:genererTicketWhatsapp", venteId),
     envoyer: (id: string) => ipcRenderer.invoke("messages:envoyer", id),
   },
+  tresorerie: {
+    solde: (depotId: string, jusqua?: string) => ipcRenderer.invoke("tresorerie:solde", depotId, jusqua),
+    listerMouvements: (depotId: string, limite?: number) =>
+      ipcRenderer.invoke("tresorerie:listerMouvements", depotId, limite),
+    listerDepenses: (depotId: string, limite?: number) =>
+      ipcRenderer.invoke("tresorerie:listerDepenses", depotId, limite),
+    enregistrerDepense: (
+      depotId: string,
+      categorie: string,
+      montant: number,
+      description?: string,
+      utilisateurId?: string | null,
+    ) => ipcRenderer.invoke("tresorerie:enregistrerDepense", depotId, categorie, montant, description, utilisateurId),
+    effectuerRetrait: (depotId: string, montant: number, motif?: string, utilisateurId?: string | null) =>
+      ipcRenderer.invoke("tresorerie:effectuerRetrait", depotId, montant, motif, utilisateurId),
+    enregistrerApport: (depotId: string, montant: number, motif?: string, utilisateurId?: string | null) =>
+      ipcRenderer.invoke("tresorerie:enregistrerApport", depotId, montant, motif, utilisateurId),
+    ajusterCaisse: (depotId: string, montantSigne: number, motif: string, utilisateurId?: string | null) =>
+      ipcRenderer.invoke("tresorerie:ajusterCaisse", depotId, montantSigne, motif, utilisateurId),
+    soldeMobileMoneyDisponible: (boutiqueId: string, utilisateurSourceId: string, operateur: string) =>
+      ipcRenderer.invoke("tresorerie:soldeMobileMoneyDisponible", boutiqueId, utilisateurSourceId, operateur),
+    effectuerTransfert: (params: unknown) => ipcRenderer.invoke("tresorerie:effectuerTransfert", params),
+    listerTransferts: (depotId: string, limite?: number) =>
+      ipcRenderer.invoke("tresorerie:listerTransferts", depotId, limite),
+    listerClotures: (depotId: string, limite?: number) =>
+      ipcRenderer.invoke("tresorerie:listerClotures", depotId, limite),
+    cloturer: (depotId: string, soldeCompte: number, utilisateurId?: string | null) =>
+      ipcRenderer.invoke("tresorerie:cloturer", depotId, soldeCompte, utilisateurId),
+  },
   sync: {
     executer: (session: unknown) => ipcRenderer.invoke("sync:executer", session),
     etat: () => ipcRenderer.invoke("sync:etat"),
@@ -226,5 +280,6 @@ contextBridge.exposeInMainWorld("api", {
     },
     exporterPdf: (nomFichierDefaut: string) => ipcRenderer.invoke("systeme:exporterPdf", nomFichierDefaut),
     ouvrirExterne: (url: string) => ipcRenderer.invoke("systeme:ouvrirExterne", url),
+    version: () => ipcRenderer.invoke("systeme:version"),
   },
 });

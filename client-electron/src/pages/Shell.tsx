@@ -5,10 +5,13 @@ import type { LigneAchatInitiale, Session } from "../api/client";
 import BarreSynchro from "../components/BarreSynchro";
 import { useLogoBoutique } from "../contexts/LogoContext";
 import { useNomBoutique } from "../contexts/NomBoutiqueContext";
+import Accueil from "./Accueil";
 import Achats from "./Achats";
 import Caisse from "./Caisse";
 import Clients from "./Clients";
 import type { OngletClients } from "./Clients";
+import Comptabilite from "./Comptabilite";
+import Depense from "./Depense";
 import Produits from "./Produits";
 import Messages from "./Messages";
 import Notifications from "./Notifications";
@@ -18,6 +21,7 @@ import type { Periode, StatutCredit } from "../api/client";
 import Reglages from "./Reglages";
 import Stock from "./Stock";
 import TableauDeBord from "./TableauDeBord";
+import Tresorerie from "./Tresorerie";
 import Ventes from "./Ventes";
 
 const ZONES = [
@@ -28,15 +32,19 @@ const ZONES = [
   { cle: "ventes", label: "Historique des ventes", icone: "📜", disponible: true },
   { cle: "achats", label: "Achats & fournisseurs", icone: "🚚", disponible: true },
   { cle: "clients", label: "Clients & crédit", icone: "👥", disponible: true },
+  { cle: "tresorerie", label: "Trésorerie", icone: "💰", disponible: true },
+  { cle: "depense", label: "Dépenses", icone: "💸", disponible: true },
   { cle: "rapports", label: "Rapports", icone: "📈", disponible: true },
+  { cle: "comptabilite", label: "Comptabilité", icone: "📒", disponible: true },
   { cle: "notifications", label: "Notifications", icone: "🔔", disponible: true },
   { cle: "messages", label: "Messages", icone: "💬", disponible: true },
   { cle: "reglages", label: "Informations boutique", icone: "🏪", disponible: true },
 ] as const;
 
-export type Zone = (typeof ZONES)[number]["cle"];
+export type Zone = (typeof ZONES)[number]["cle"] | "accueil";
 
 const TITRES_PAGE: Record<Zone, string> = {
+  accueil: "Accueil",
   tableauDeBord: "Tableau de bord",
   caisse: "Caisse",
   produits: "Articles",
@@ -44,7 +52,10 @@ const TITRES_PAGE: Record<Zone, string> = {
   ventes: "Historique des ventes",
   achats: "Achats & fournisseurs",
   clients: "Clients & crédit",
+  tresorerie: "Trésorerie",
+  depense: "Dépenses",
   rapports: "Rapports",
+  comptabilite: "Comptabilité",
   notifications: "Notifications",
   messages: "Messages",
   reglages: "Informations boutique",
@@ -53,14 +64,21 @@ const TITRES_PAGE: Record<Zone, string> = {
 export default function Shell({
   session,
   onDeconnexion,
+  onSessionMiseAJour,
 }: {
   session: Session;
   onDeconnexion: () => void;
+  onSessionMiseAJour: (session: Session) => void;
 }) {
-  const [zone, setZone] = useState<Zone>("tableauDeBord");
+  const [zone, setZone] = useState<Zone>("accueil");
   const [barreReduite, setBarreReduite] = useState(
     () => localStorage.getItem("gs_barre_laterale_reduite") === "1",
   );
+  const [version, setVersion] = useState("");
+
+  useEffect(() => {
+    api.systeme.version().then(setVersion);
+  }, []);
   const [notificationsNonLues, setNotificationsNonLues] = useState(0);
   const [ouvrirNouvelleCommande, setOuvrirNouvelleCommande] = useState(false);
   const [ongletRapportsInitial, setOngletRapportsInitial] = useState<OngletRapports | undefined>(undefined);
@@ -158,16 +176,22 @@ export default function Shell({
 
   return (
     <div className="shell">
+      {zone !== "accueil" && (
       <aside className={`barre-laterale ${barreReduite ? "reduite" : ""}`}>
         <div className="logo">
-          {logo ? (
-            <img src={logo} alt="" className="logo-boutique-entete" />
-          ) : (
-            <span className="logo-boutique-entete logo-boutique-nav-vide">
-              {nomBoutique.charAt(0).toUpperCase()}
+          <button type="button" className="bouton-logo-accueil" onClick={() => setZone("accueil")} title="Accueil">
+            {logo ? (
+              <img src={logo} alt="" className="logo-boutique-entete" />
+            ) : (
+              <span className="logo-boutique-entete logo-boutique-nav-vide">
+                {nomBoutique.charAt(0).toUpperCase()}
+              </span>
+            )}
+            <span className="texte-logo">
+              Gestion Stock
+              {version && <span className="version-app">v{version}</span>}
             </span>
-          )}
-          <span className="texte-logo">Gestion Stock</span>
+          </button>
           <button
             className="bouton-reduire-barre"
             onClick={basculerBarreLaterale}
@@ -209,6 +233,7 @@ export default function Shell({
           <span className="texte-deconnexion">Déconnexion</span>
         </button>
       </aside>
+      )}
       <div className="contenu-principal">
         <header className="entete">
           <div className="entete-gauche">
@@ -221,6 +246,9 @@ export default function Shell({
           <BarreSynchro session={session} />
         </header>
         <main className="zone-contenu">
+          {zone === "accueil" && (
+            <Accueil session={session} raccourcis={ZONES} onNaviguer={naviguer} />
+          )}
           {zone === "tableauDeBord" && (
             <TableauDeBord session={session} onNaviguer={naviguer} />
           )}
@@ -250,6 +278,8 @@ export default function Shell({
               statutCreditsInitial={statutCreditsInitial}
             />
           )}
+          {zone === "tresorerie" && <Tresorerie session={session} />}
+          {zone === "depense" && <Depense session={session} />}
           {zone === "rapports" && (
             <Rapports
               session={session}
@@ -257,7 +287,8 @@ export default function Shell({
               periodeInitiale={periodeRapportsInitiale}
             />
           )}
-          {zone === "reglages" && <Reglages session={session} />}
+          {zone === "comptabilite" && <Comptabilite session={session} />}
+          {zone === "reglages" && <Reglages session={session} onSessionMiseAJour={onSessionMiseAJour} />}
           {zone === "notifications" && (
             <Notifications
               session={session}

@@ -463,6 +463,13 @@ export interface DetteResume {
   dateCreation: string;
 }
 
+export interface PaiementDetteDetail {
+  id: string;
+  montant: number;
+  mode: string;
+  dateCreation: string;
+}
+
 export type StatutCredit = "en_cours" | "solde";
 
 export interface ClientDetailResume {
@@ -567,6 +574,76 @@ export interface LigneTopClient {
   clientNom: string;
   nombreVentes: number;
   totalNet: number;
+}
+
+export interface CompteSyscohada {
+  numero: string;
+  libelle: string;
+  classe: number;
+}
+
+export interface LigneJournalLocal {
+  date: string;
+  journal: string;
+  libelleEcriture: string;
+  compte: string;
+  libelleCompte: string;
+  debit: number;
+  credit: number;
+}
+
+export interface LigneGrandLivreLocal {
+  date: string;
+  journal: string;
+  libelle: string;
+  debit: number;
+  credit: number;
+  soldeCumule: number;
+}
+
+export interface GrandLivreLocal {
+  compte: string;
+  libelle: string;
+  lignes: LigneGrandLivreLocal[];
+  soldeFinal: number;
+}
+
+export interface LigneBalanceLocale {
+  compte: string;
+  libelle: string;
+  classe: number;
+  totalDebit: number;
+  totalCredit: number;
+  soldeDebiteur: number;
+  soldeCrediteur: number;
+}
+
+export interface BalanceLocale {
+  lignes: LigneBalanceLocale[];
+  totalDebit: number;
+  totalCredit: number;
+}
+
+export interface LigneResultatLocale {
+  compte: string;
+  libelle: string;
+  montant: number;
+}
+
+export interface CompteDeResultatLocal {
+  charges: LigneResultatLocale[];
+  produits: LigneResultatLocale[];
+  totalCharges: number;
+  totalProduits: number;
+  resultatNet: number;
+}
+
+export interface BilanLocal {
+  date: string;
+  actif: LigneResultatLocale[];
+  passif: LigneResultatLocale[];
+  totalActif: number;
+  totalPassif: number;
 }
 
 export type FormatExport = "csv" | "xlsx" | "pdf";
@@ -713,6 +790,73 @@ export interface FiltresMessages {
   utilisateurId?: string;
 }
 
+// --- Trésorerie ---
+
+export type TypeMouvementCaisse = "entree" | "sortie" | "ajustement";
+export type CategorieMouvementCaisse =
+  | "vente_especes"
+  | "remboursement_credit"
+  | "transfert_mobile_money"
+  | "apport"
+  | "depense"
+  | "retrait"
+  | "paiement_dette_fournisseur"
+  | "ajustement";
+export type CategorieDepense =
+  | "transport"
+  | "reparation"
+  | "achat_marchandise"
+  | "achat_divers"
+  | "remboursement_client"
+  | "autre"
+  | (string & {});
+
+export interface MouvementCaisseResume {
+  id: string;
+  type: TypeMouvementCaisse;
+  categorie: CategorieMouvementCaisse;
+  montant: number;
+  motif: string;
+  utilisateurId: string | null;
+  dateCreation: string;
+}
+
+export interface DepenseResume {
+  id: string;
+  categorie: CategorieDepense;
+  montant: number;
+  description: string;
+  utilisateurId: string | null;
+  dateCreation: string;
+}
+
+export interface ParametresTransfertCaisse {
+  boutiqueId: string;
+  depotId: string;
+  utilisateurSourceId: string;
+  operateur: OperateurMobileMoney;
+  montant: number;
+  utilisateurId?: string | null;
+}
+
+export interface TransfertCaisseResume {
+  id: string;
+  utilisateurSourceId: string | null;
+  operateur: OperateurMobileMoney;
+  montant: number;
+  utilisateurId: string | null;
+  dateCreation: string;
+}
+
+export interface ClotureCaisseResume {
+  id: string;
+  soldeTheorique: number;
+  soldeCompte: number;
+  ecart: number;
+  utilisateurId: string | null;
+  dateCreation: string;
+}
+
 export interface WindowApi {
   auth: {
     connexion(username: string, password: string): Promise<ResultatEcriture<Session>>;
@@ -724,6 +868,7 @@ export interface WindowApi {
     }): Promise<ResultatEcriture<void>>;
     session(): Promise<Session | null>;
     deconnexion(): Promise<void>;
+    rafraichirPermissions(session: Session): Promise<Session>;
     demanderReinitialisationMotDePasse(email: string): Promise<ResultatEcriture<void>>;
     reinitialiserMotDePasse(
       email: string,
@@ -837,7 +982,14 @@ export interface WindowApi {
   };
   dettes: {
     lister(boutiqueId: string, fournisseurId?: string, statut?: StatutDette): Promise<DetteResume[]>;
-    payer(id: string, montant: number): Promise<ResultatEcriture<void>>;
+    payer(
+      id: string,
+      montant: number,
+      mode?: string,
+      depotId?: string | null,
+      utilisateurId?: string | null,
+    ): Promise<ResultatEcriture<void>>;
+    listerPaiements(detteId: string): Promise<PaiementDetteDetail[]>;
   };
   clients: {
     lister(boutiqueId: string, terme?: string): Promise<ClientDetailResume[]>;
@@ -855,7 +1007,13 @@ export interface WindowApi {
   credits: {
     lister(boutiqueId: string, clientId?: string, statut?: StatutCredit): Promise<CreditResume[]>;
     obtenir(id: string): Promise<CreditDetail | undefined>;
-    rembourser(id: string, montant: number, mode?: string): Promise<ResultatEcriture<void>>;
+    rembourser(
+      id: string,
+      montant: number,
+      mode?: string,
+      depotId?: string | null,
+      utilisateurId?: string | null,
+    ): Promise<ResultatEcriture<void>>;
   };
   rapports: {
     plageDates(periode?: Periode, dateDebut?: string, dateFin?: string): Promise<PlageDates>;
@@ -880,6 +1038,25 @@ export interface WindowApi {
       format: FormatExport,
       cheminForce?: string,
     ): Promise<ResultatExporter>;
+  };
+  comptabilite: {
+    planComptable(): Promise<CompteSyscohada[]>;
+    journal(boutiqueId: string, debut: string, fin: string, journalCode?: string): Promise<LigneJournalLocal[]>;
+    grandLivre(boutiqueId: string, compte: string, debut: string, fin: string): Promise<GrandLivreLocal>;
+    balance(boutiqueId: string, debut: string, fin: string): Promise<BalanceLocale>;
+    compteDeResultat(boutiqueId: string, debut: string, fin: string): Promise<CompteDeResultatLocal>;
+    bilan(boutiqueId: string, dateFin: string): Promise<BilanLocal>;
+    journalOfficiel(
+      session: Session, debut: string, fin: string, journalCode?: string,
+    ): Promise<ResultatEcriture<LigneJournalLocal[]>>;
+    grandLivreOfficiel(
+      session: Session, compte: string, debut: string, fin: string,
+    ): Promise<ResultatEcriture<GrandLivreLocal>>;
+    balanceOfficielle(session: Session, debut: string, fin: string): Promise<ResultatEcriture<BalanceLocale>>;
+    compteDeResultatOfficiel(
+      session: Session, debut: string, fin: string,
+    ): Promise<ResultatEcriture<CompteDeResultatLocal>>;
+    bilanOfficiel(session: Session, dateFin: string): Promise<ResultatEcriture<BilanLocal>>;
   };
   reglages: {
     obtenirBoutique(boutiqueId: string): Promise<BoutiqueDetail | undefined>;
@@ -921,6 +1098,45 @@ export interface WindowApi {
     genererTicketWhatsapp(venteId: string): Promise<ResultatEcriture<string>>;
     envoyer(id: string): Promise<ResultatEcriture<void>>;
   };
+  tresorerie: {
+    solde(depotId: string, jusqua?: string): Promise<number>;
+    listerMouvements(depotId: string, limite?: number): Promise<MouvementCaisseResume[]>;
+    listerDepenses(depotId: string, limite?: number): Promise<DepenseResume[]>;
+    enregistrerDepense(
+      depotId: string,
+      categorie: CategorieDepense,
+      montant: number,
+      description?: string,
+      utilisateurId?: string | null,
+    ): Promise<ResultatEcriture<string>>;
+    effectuerRetrait(
+      depotId: string,
+      montant: number,
+      motif?: string,
+      utilisateurId?: string | null,
+    ): Promise<ResultatEcriture<string>>;
+    enregistrerApport(
+      depotId: string,
+      montant: number,
+      motif?: string,
+      utilisateurId?: string | null,
+    ): Promise<ResultatEcriture<string>>;
+    ajusterCaisse(
+      depotId: string,
+      montantSigne: number,
+      motif: string,
+      utilisateurId?: string | null,
+    ): Promise<ResultatEcriture<string>>;
+    soldeMobileMoneyDisponible(
+      boutiqueId: string,
+      utilisateurSourceId: string,
+      operateur: OperateurMobileMoney,
+    ): Promise<number>;
+    effectuerTransfert(params: ParametresTransfertCaisse): Promise<ResultatEcriture<string>>;
+    listerTransferts(depotId: string, limite?: number): Promise<TransfertCaisseResume[]>;
+    listerClotures(depotId: string, limite?: number): Promise<ClotureCaisseResume[]>;
+    cloturer(depotId: string, soldeCompte: number, utilisateurId?: string | null): Promise<ResultatEcriture<string>>;
+  };
   sync: {
     executer(session: Session): Promise<ResultatSynchro>;
     etat(): Promise<EtatSynchro>;
@@ -930,6 +1146,7 @@ export interface WindowApi {
     onNaviguerNotifications(callback: () => void): () => void;
     exporterPdf(nomFichierDefaut: string): Promise<ResultatExporter>;
     ouvrirExterne(url: string): Promise<void>;
+    version(): Promise<string>;
   };
 }
 

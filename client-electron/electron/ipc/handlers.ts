@@ -1,9 +1,10 @@
-import { ipcMain, shell } from "electron";
+import { app, ipcMain, shell } from "electron";
 
 import * as achats from "../services/achats";
 import * as alertesSysteme from "../services/alertesSysteme";
 import * as auth from "../services/auth";
 import * as clients from "../services/clients";
+import * as comptabilite from "../services/comptabilite";
 import * as comptes from "../services/comptes";
 import * as exportService from "../services/export";
 import * as messages from "../services/messages";
@@ -15,6 +16,7 @@ import * as catalogue from "../services/catalogue";
 import * as produits from "../services/produits";
 import * as stock from "../services/stock";
 import * as sync from "../services/sync";
+import * as tresorerie from "../services/tresorerie";
 import * as ventes from "../services/ventes";
 
 /** Popup système "best-effort" : une panne ici ne doit jamais faire échouer l'opération métier qui vient de réussir. */
@@ -90,6 +92,7 @@ export function enregistrerLesHandlers(): void {
 
   ipcMain.handle("auth:session", () => auth.sessionActuelle());
   ipcMain.handle("auth:deconnexion", () => auth.deconnexion());
+  ipcMain.handle("auth:rafraichirPermissions", (_evt, session: auth.Session) => auth.rafraichirPermissions(session));
   ipcMain.handle("auth:demanderReinitialisationMotDePasse", async (_evt, email: string) => {
     try {
       return { succes: true as const, resultat: await auth.demanderReinitialisationMotDePasse(email) };
@@ -313,9 +316,12 @@ export function enregistrerLesHandlers(): void {
     (_evt, boutiqueId: string, fournisseurId?: string, statut?: achats.StatutDette) =>
       achats.listerDettes(boutiqueId, fournisseurId, statut),
   );
-  ipcMain.handle("dettes:payer", (_evt, id: string, montant: number) =>
-    executerEnSecurite(() => achats.payerDette(id, montant)),
+  ipcMain.handle(
+    "dettes:payer",
+    (_evt, id: string, montant: number, mode?: string, depotId?: string | null, utilisateurId?: string | null) =>
+      executerEnSecurite(() => achats.payerDette(id, montant, mode, depotId ?? null, utilisateurId ?? null)),
   );
+  ipcMain.handle("dettes:listerPaiements", (_evt, detteId: string) => achats.listerPaiementsDette(detteId));
 
   ipcMain.handle("clients:lister", (_evt, boutiqueId: string, terme?: string) =>
     clients.listerClientsDetail(boutiqueId, terme),
@@ -339,8 +345,10 @@ export function enregistrerLesHandlers(): void {
       clients.listerCredits(boutiqueId, clientId, statut),
   );
   ipcMain.handle("credits:obtenir", (_evt, id: string) => clients.obtenirCredit(id));
-  ipcMain.handle("credits:rembourser", (_evt, id: string, montant: number, mode?: string) =>
-    executerEnSecurite(() => clients.rembourserCredit(id, montant, mode)),
+  ipcMain.handle(
+    "credits:rembourser",
+    (_evt, id: string, montant: number, mode?: string, depotId?: string | null, utilisateurId?: string | null) =>
+      executerEnSecurite(() => clients.rembourserCredit(id, montant, mode, depotId ?? null, utilisateurId ?? null)),
   );
 
   ipcMain.handle(
@@ -381,6 +389,43 @@ export function enregistrerLesHandlers(): void {
     "rapports:topClients",
     (_evt, boutiqueId: string, debut: string, fin: string, limite?: number) =>
       rapports.topClients(boutiqueId, debut, fin, limite),
+  );
+  ipcMain.handle("comptabilite:planComptable", () => comptabilite.PLAN_COMPTABLE_SYSCOHADA);
+  ipcMain.handle("comptabilite:journal", (_evt, boutiqueId: string, debut: string, fin: string, journalCode?: string) =>
+    comptabilite.journalLocal(comptabilite.genererEcrituresLocales(boutiqueId), debut, fin, journalCode),
+  );
+  ipcMain.handle("comptabilite:grandLivre", (_evt, boutiqueId: string, compte: string, debut: string, fin: string) =>
+    comptabilite.grandLivreLocal(comptabilite.genererEcrituresLocales(boutiqueId), compte, debut, fin),
+  );
+  ipcMain.handle("comptabilite:balance", (_evt, boutiqueId: string, debut: string, fin: string) =>
+    comptabilite.balanceGeneraleLocale(comptabilite.genererEcrituresLocales(boutiqueId), debut, fin),
+  );
+  ipcMain.handle("comptabilite:compteDeResultat", (_evt, boutiqueId: string, debut: string, fin: string) =>
+    comptabilite.compteDeResultatLocal(comptabilite.genererEcrituresLocales(boutiqueId), debut, fin),
+  );
+  ipcMain.handle("comptabilite:bilan", (_evt, boutiqueId: string, dateFin: string) =>
+    comptabilite.bilanLocal(comptabilite.genererEcrituresLocales(boutiqueId), dateFin),
+  );
+  ipcMain.handle(
+    "comptabilite:journalOfficiel",
+    (_evt, session: auth.Session, debut: string, fin: string, journalCode?: string) =>
+      executerEnSecuriteAsync(() => comptabilite.journalOfficiel(session, debut, fin, journalCode)),
+  );
+  ipcMain.handle(
+    "comptabilite:grandLivreOfficiel",
+    (_evt, session: auth.Session, compte: string, debut: string, fin: string) =>
+      executerEnSecuriteAsync(() => comptabilite.grandLivreOfficiel(session, compte, debut, fin)),
+  );
+  ipcMain.handle("comptabilite:balanceOfficielle", (_evt, session: auth.Session, debut: string, fin: string) =>
+    executerEnSecuriteAsync(() => comptabilite.balanceOfficielle(session, debut, fin)),
+  );
+  ipcMain.handle(
+    "comptabilite:compteDeResultatOfficiel",
+    (_evt, session: auth.Session, debut: string, fin: string) =>
+      executerEnSecuriteAsync(() => comptabilite.compteDeResultatOfficiel(session, debut, fin)),
+  );
+  ipcMain.handle("comptabilite:bilanOfficiel", (_evt, session: auth.Session, dateFin: string) =>
+    executerEnSecuriteAsync(() => comptabilite.bilanOfficiel(session, dateFin)),
   );
   ipcMain.handle(
     "rapports:exporter",
@@ -499,6 +544,55 @@ export function enregistrerLesHandlers(): void {
   );
   ipcMain.handle("messages:envoyer", (_evt, id: string) => executerEnSecurite(() => messages.envoyerMessage(id)));
 
+  ipcMain.handle("tresorerie:solde", (_evt, depotId: string, jusqua?: string) =>
+    tresorerie.soldeCaisse(depotId, jusqua),
+  );
+  ipcMain.handle("tresorerie:listerMouvements", (_evt, depotId: string, limite?: number) =>
+    tresorerie.listerMouvements(depotId, limite),
+  );
+  ipcMain.handle("tresorerie:listerDepenses", (_evt, depotId: string, limite?: number) =>
+    tresorerie.listerDepenses(depotId, limite),
+  );
+  ipcMain.handle(
+    "tresorerie:enregistrerDepense",
+    (_evt, depotId: string, categorie: tresorerie.CategorieDepense, montant: number, description?: string, utilisateurId?: string | null) =>
+      executerEnSecurite(() => tresorerie.enregistrerDepense(depotId, categorie, montant, description, utilisateurId)),
+  );
+  ipcMain.handle(
+    "tresorerie:effectuerRetrait",
+    (_evt, depotId: string, montant: number, motif?: string, utilisateurId?: string | null) =>
+      executerEnSecurite(() => tresorerie.effectuerRetrait(depotId, montant, motif, utilisateurId)),
+  );
+  ipcMain.handle(
+    "tresorerie:enregistrerApport",
+    (_evt, depotId: string, montant: number, motif?: string, utilisateurId?: string | null) =>
+      executerEnSecurite(() => tresorerie.enregistrerApport(depotId, montant, motif, utilisateurId)),
+  );
+  ipcMain.handle(
+    "tresorerie:ajusterCaisse",
+    (_evt, depotId: string, montantSigne: number, motif: string, utilisateurId?: string | null) =>
+      executerEnSecurite(() => tresorerie.ajusterCaisse(depotId, montantSigne, motif, utilisateurId)),
+  );
+  ipcMain.handle(
+    "tresorerie:soldeMobileMoneyDisponible",
+    (_evt, boutiqueId: string, utilisateurSourceId: string, operateur: tresorerie.OperateurMobileMoney) =>
+      tresorerie.soldeMobileMoneyDisponible(boutiqueId, utilisateurSourceId, operateur),
+  );
+  ipcMain.handle("tresorerie:effectuerTransfert", (_evt, params: tresorerie.ParametresTransfertCaisse) =>
+    executerEnSecurite(() => tresorerie.effectuerTransfert(params)),
+  );
+  ipcMain.handle("tresorerie:listerTransferts", (_evt, depotId: string, limite?: number) =>
+    tresorerie.listerTransferts(depotId, limite),
+  );
+  ipcMain.handle("tresorerie:listerClotures", (_evt, depotId: string, limite?: number) =>
+    tresorerie.listerClotures(depotId, limite),
+  );
+  ipcMain.handle(
+    "tresorerie:cloturer",
+    (_evt, depotId: string, soldeCompte: number, utilisateurId?: string | null) =>
+      executerEnSecurite(() => tresorerie.cloturerCaisse(depotId, soldeCompte, utilisateurId)),
+  );
+
   ipcMain.handle("sync:executer", async (_evt, session: auth.Session) => {
     try {
       const resume = await sync.synchroniser(session);
@@ -532,4 +626,6 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("systeme:ouvrirExterne", async (_evt, url: string) => {
     await shell.openExternal(url);
   });
+
+  ipcMain.handle("systeme:version", () => app.getVersion());
 }
