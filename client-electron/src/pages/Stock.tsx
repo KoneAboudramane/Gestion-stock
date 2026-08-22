@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 
 import { api } from "../api/client";
 import ChampMontant from "../components/ChampMontant";
@@ -33,28 +34,22 @@ function versLigneAchatInitiale(l: LigneStock): LigneAchatInitiale {
   };
 }
 
-const ONGLETS = [
-  { cle: "stock", label: "Stock" },
-  { cle: "mouvements", label: "Mouvements" },
-  { cle: "transferts", label: "Transferts" },
-  { cle: "inventaire", label: "Inventaire" },
+const SECTIONS = [
+  { cle: "stock", label: "Stock", icone: "📦" },
+  { cle: "mouvements", label: "Mouvements", icone: "🔄" },
+  { cle: "transferts", label: "Transferts", icone: "🚚" },
+  { cle: "inventaire", label: "Inventaire", icone: "📋" },
 ] as const;
 
-type Onglet = (typeof ONGLETS)[number]["cle"];
+type Onglet = (typeof SECTIONS)[number]["cle"];
 
-function SelecteurOnglet({ onglet, setOnglet }: { onglet: Onglet; setOnglet: (o: Onglet) => void }) {
+function EnteteModale({ titre, onFermer }: { titre: string; onFermer: () => void }) {
   return (
-    <div className="barre-onglets">
-      {ONGLETS.map((o) => (
-        <button
-          key={o.cle}
-          type="button"
-          className={`onglet ${onglet === o.cle ? "actif" : ""}`}
-          onClick={() => setOnglet(o.cle)}
-        >
-          {o.label}
-        </button>
-      ))}
+    <div className="modale-entete">
+      <h3>{titre}</h3>
+      <button type="button" className="lien bouton-retour" onClick={onFermer}>
+        ← Retour
+      </button>
     </div>
   );
 }
@@ -63,14 +58,10 @@ function OngletStockNiveau({
   session,
   filtreRuptureInitial,
   onCommander,
-  onglet,
-  setOnglet,
 }: {
   session: Session;
   filtreRuptureInitial?: boolean;
   onCommander?: (lignes: LigneAchatInitiale[]) => void;
-  onglet: Onglet;
-  setOnglet: (o: Onglet) => void;
 }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [depots, setDepots] = useState<DepotResume[]>([]);
@@ -115,7 +106,6 @@ function OngletStockNiveau({
   return (
     <div>
       <div className="barre-actions barre-actions-avec-onglets">
-        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         {peutGerer ? (
           <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
             <option value="">Tous les dépôts</option>
@@ -458,15 +448,7 @@ function FormulaireMouvementGroupe({
   );
 }
 
-function OngletMouvements({
-  session,
-  onglet,
-  setOnglet,
-}: {
-  session: Session;
-  onglet: Onglet;
-  setOnglet: (o: Onglet) => void;
-}) {
+function OngletMouvements({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [depots, setDepots] = useState<DepotResume[]>([]);
   const [depotId, setDepotId] = useState(peutGerer ? "" : (session.depotId ?? ""));
@@ -504,7 +486,6 @@ function OngletMouvements({
         </div>
       )}
       <div className="barre-actions barre-actions-avec-onglets">
-        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         {peutGerer ? (
           <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
             <option value="">Tous les dépôts</option>
@@ -796,15 +777,7 @@ function FormulaireTransfert({
   );
 }
 
-function OngletTransferts({
-  session,
-  onglet,
-  setOnglet,
-}: {
-  session: Session;
-  onglet: Onglet;
-  setOnglet: (o: Onglet) => void;
-}) {
+function OngletTransferts({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [depots, setDepots] = useState<DepotResume[]>([]);
   const [transferts, setTransferts] = useState<TransfertResume[]>([]);
@@ -829,7 +802,6 @@ function OngletTransferts({
   return (
     <div>
       <div className="barre-actions barre-actions-avec-onglets">
-        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         {peutGerer && !afficherForm && (
           <span className="actions-ligne">
             <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherForm(true)}>
@@ -1103,15 +1075,7 @@ function DetailInventaire({
   );
 }
 
-function OngletInventaire({
-  session,
-  onglet,
-  setOnglet,
-}: {
-  session: Session;
-  onglet: Onglet;
-  setOnglet: (o: Onglet) => void;
-}) {
+function OngletInventaire({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [vue, setVue] = useState<"liste" | "detail">("liste");
   const [inventaires, setInventaires] = useState<InventaireResume[]>([]);
@@ -1170,7 +1134,6 @@ function OngletInventaire({
       )}
       {erreur && <div className="message-erreur">{erreur}</div>}
       <div className="barre-actions barre-actions-avec-onglets">
-        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         {peutGerer && (
           <>
             <select value={depotChoisi} onChange={(e) => setDepotChoisi(e.target.value)}>
@@ -1400,9 +1363,81 @@ function EntreeGroupeeDepuisSelection({
 
 // --- Page principale ---
 // Dépôts se gère désormais depuis Réglages (voir Reglages.tsx) — ici on ne
-// fait que les consommer (sélecteurs de filtre par dépôt).
-// L'onglet est affiché dans la même ligne que la recherche et les actions de
-// chaque onglet (voir SelecteurOnglet) plutôt que dans une en-tête séparée.
+// fait que les consommer (sélecteurs de filtre par dépôt). Chaque section
+// (Stock / Mouvements / Transferts / Inventaire) est un bouton-carte qui
+// ouvre sa propre modale, même patron que Comptabilite.tsx/Rapports.tsx.
+
+function ModaleStockNiveau({
+  session, filtreRuptureInitial, onCommander, onFermer,
+}: {
+  session: Session;
+  filtreRuptureInitial?: boolean;
+  onCommander?: (lignes: LigneAchatInitiale[]) => void;
+  onFermer: () => void;
+}) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Stock" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletStockNiveau session={session} filtreRuptureInitial={filtreRuptureInitial} onCommander={onCommander} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModaleMouvements({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Mouvements" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletMouvements session={session} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModaleTransferts({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Transferts" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletTransferts session={session} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModaleInventaire({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Inventaire" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletInventaire session={session} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const CERCLES_FOND = [
+  { taille: 90, couleur: "var(--cercle-1)", duree: 26, delai: -4, depart: ["-15vw", "10vh"], arrivee: ["115vw", "60vh"] },
+  { taille: 60, couleur: "var(--cercle-2)", duree: 22, delai: -15, depart: ["115vw", "70vh"], arrivee: ["-15vw", "15vh"] },
+  { taille: 120, couleur: "var(--cercle-3)", duree: 32, delai: -9, depart: ["20vw", "115vh"], arrivee: ["75vw", "-20vh"] },
+  { taille: 50, couleur: "var(--cercle-4)", duree: 24, delai: -2, depart: ["70vw", "-15vh"], arrivee: ["15vw", "115vh"] },
+  { taille: 75, couleur: "var(--cercle-5)", duree: 28, delai: -20, depart: ["-15vw", "90vh"], arrivee: ["110vw", "20vh"] },
+  { taille: 100, couleur: "var(--cercle-6)", duree: 30, delai: -12, depart: ["110vw", "25vh"], arrivee: ["-15vw", "85vh"] },
+  { taille: 40, couleur: "var(--cercle-1)", duree: 20, delai: -7, depart: ["40vw", "-15vh"], arrivee: ["85vw", "115vh"] },
+  { taille: 65, couleur: "var(--cercle-3)", duree: 25, delai: -16, depart: ["105vw", "45vh"], arrivee: ["-10vw", "55vh"] },
+  { taille: 85, couleur: "var(--cercle-4)", duree: 34, delai: -5, depart: ["85vw", "110vh"], arrivee: ["10vw", "-15vh"] },
+  { taille: 55, couleur: "var(--cercle-6)", duree: 23, delai: -10, depart: ["-10vw", "35vh"], arrivee: ["105vw", "90vh"] },
+] as const;
 
 export default function Stock({
   session,
@@ -1415,7 +1450,7 @@ export default function Stock({
   lignesEntreeInitiales?: LigneAchatInitiale[];
   onCommander?: (lignes: LigneAchatInitiale[]) => void;
 }) {
-  const [onglet, setOnglet] = useState<Onglet>("stock");
+  const [sectionOuverte, setSectionOuverte] = useState<Onglet | null>(filtreRuptureInitial ? "stock" : null);
   const [entreeGroupeeActive, setEntreeGroupeeActive] = useState(false);
 
   // Raccourci "Commander" sur une rupture, boutique sans fournisseur : ouvre
@@ -1441,21 +1476,57 @@ export default function Stock({
   }
 
   return (
-    <div className="page-produits">
-      <div className="contenu-onglet">
-        {onglet === "stock" && (
-          <OngletStockNiveau
-            session={session}
-            filtreRuptureInitial={filtreRuptureInitial}
-            onCommander={onCommander}
-            onglet={onglet}
-            setOnglet={setOnglet}
-          />
-        )}
-        {onglet === "mouvements" && <OngletMouvements session={session} onglet={onglet} setOnglet={setOnglet} />}
-        {onglet === "transferts" && <OngletTransferts session={session} onglet={onglet} setOnglet={setOnglet} />}
-        {onglet === "inventaire" && <OngletInventaire session={session} onglet={onglet} setOnglet={setOnglet} />}
+    <div className="page-produits page-accueil">
+      {CERCLES_FOND.map((c, i) => (
+        <span
+          key={i}
+          aria-hidden="true"
+          className="cercle-fond"
+          style={
+            {
+              width: c.taille,
+              height: c.taille,
+              background: c.couleur,
+              animationDuration: `${c.duree}s`,
+              animationDelay: `${c.delai}s`,
+              "--depart-x": c.depart[0],
+              "--depart-y": c.depart[1],
+              "--arrivee-x": c.arrivee[0],
+              "--arrivee-y": c.arrivee[1],
+            } as CSSProperties
+          }
+        />
+      ))}
+      <div className="grille-documents-comptables">
+        {SECTIONS.map((s) => (
+          <button
+            key={s.cle}
+            type="button"
+            className="carte-document-comptable"
+            onClick={() => setSectionOuverte(s.cle)}
+          >
+            <span className="icone-document-comptable">{s.icone}</span>
+            {s.label}
+          </button>
+        ))}
       </div>
+      {sectionOuverte === "stock" && (
+        <ModaleStockNiveau
+          session={session}
+          filtreRuptureInitial={filtreRuptureInitial}
+          onCommander={onCommander}
+          onFermer={() => setSectionOuverte(null)}
+        />
+      )}
+      {sectionOuverte === "mouvements" && (
+        <ModaleMouvements session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
+      {sectionOuverte === "transferts" && (
+        <ModaleTransferts session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
+      {sectionOuverte === "inventaire" && (
+        <ModaleInventaire session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
     </div>
   );
 }

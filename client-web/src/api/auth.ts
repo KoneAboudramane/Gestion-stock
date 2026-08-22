@@ -79,10 +79,46 @@ export function connexion(username: string, password: string): Promise<ResultatE
   return executerEnSecurite(() => connexionBrute(username, password));
 }
 
-/** Vérifie qu'une session restaurée depuis localStorage est toujours valide côté serveur. */
-export async function sessionValide(): Promise<boolean> {
+/**
+ * Rôle/permissions/dépôt sont figés dans le JWT depuis la dernière connexion
+ * (voir ConnexionSerializer.get_token côté Django) : un changement côté
+ * serveur (migration, modification du rôle...) ne s'appliquait donc qu'à la
+ * prochaine connexion manuelle. Appelée au démarrage (App.tsx) avec la
+ * session restaurée depuis localStorage, elle relit /auth/moi/ pour la
+ * rafraîchir sans exiger de déconnexion. Renvoie null si le token n'est plus
+ * valide (à distinguer d'une erreur réseau, gérée par l'appelant).
+ */
+export async function rafraichirPermissions(session: Session): Promise<Session | null> {
   const reponse = await apiFetch("/auth/moi/");
-  return reponse.ok;
+  if (!reponse.ok) return null;
+  const donnees = await reponse.json();
+  return {
+    ...session,
+    role: donnees.role?.nom ?? null,
+    permissions: donnees.role?.permissions ?? {},
+    depotId: donnees.depot_id ?? null,
+    depotNom: donnees.depot_nom ?? null,
+  };
+}
+
+export function inscription(donnees: {
+  boutiqueNom: string;
+  username: string;
+  password: string;
+  email: string;
+}): Promise<ResultatEcriture<void>> {
+  return executerEnSecurite(async () => {
+    const reponse = await apiFetch("/auth/inscription/", {
+      method: "POST",
+      body: JSON.stringify({
+        boutique_nom: donnees.boutiqueNom,
+        username: donnees.username,
+        password: donnees.password,
+        email: donnees.email,
+      }),
+    });
+    if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
+  });
 }
 
 export function demanderReinitialisationMotDePasse(email: string): Promise<ResultatEcriture<void>> {

@@ -628,7 +628,7 @@ export default function Caisse({ session }: { session: Session }) {
                           }}
                         >
                           <td>{index + 1}</td>
-                          <td>{v.reference || "—"}</td>
+                          <td>{v.reference || ""}</td>
                           <td>{v.produitNom}</td>
                           <td>{quantiteAjustee <= v.seuilAlerte ? <span className="badge-rupture">{quantiteAjustee}</span> : quantiteAjustee}</td>
                           <td onClick={selection ? (e) => e.stopPropagation() : undefined}>
@@ -664,7 +664,7 @@ export default function Caisse({ session }: { session: Session }) {
                               0
                             )}
                           </td>
-                          <td>{selection ? `${formaterMontant(Math.round(selection.quantite * selection.prixUnitaire))} ${devise}` : "—"}</td>
+                          <td>{selection ? `${formaterMontant(Math.round(selection.quantite * selection.prixUnitaire))} ${devise}` : ""}</td>
                         </tr>
                       );
                     })}
@@ -734,8 +734,8 @@ export default function Caisse({ session }: { session: Session }) {
                           <tr key={c.id} onClick={() => choisirClient(c)}>
                             <td>{index + 1}</td>
                             <td>{c.nom}</td>
-                            <td>{c.telephone || "—"}</td>
-                            <td>{c.adresse || "—"}</td>
+                            <td>{c.telephone || ""}</td>
+                            <td>{c.adresse || ""}</td>
                           </tr>
                         ))}
                         {clientsFiltres.length === 0 && (
@@ -799,7 +799,7 @@ export default function Caisse({ session }: { session: Session }) {
               {[...lignesCalculees].reverse().map((l, index) => (
                 <tr key={l.varianteId}>
                   <td>{index + 1}</td>
-                  <td>{l.reference || "—"}</td>
+                  <td>{l.reference || ""}</td>
                   <td>{l.produitNom}</td>
                   <td>
                     <input

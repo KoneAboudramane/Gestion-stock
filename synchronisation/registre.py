@@ -3,7 +3,9 @@ Registre déclaratif des tables synchronisables, dans l'ordre imposé par le
 cahier des charges §9.2 (parent avant enfant).
 
 `stock.Stock` est volontairement absent : recalculé à partir des
-`MouvementStock`, jamais synchronisé directement (§9.3). `catalogue.VarianteValeur`
+`MouvementStock`, jamais synchronisé directement (§9.3). De même, la
+trésorerie n'a pas de table de solde à exclure : `tresorerie.solde_caisse()`
+est un agrégat pur sur `MouvementCaisse`, jamais stocké. `catalogue.VarianteValeur`
 a sa propre entrée (le moteur générique n'itère que les champs concrets du
 modèle réel : `valeur_attribut_ids` de l'API interactive est un concept du
 serializer, pas un champ de `Variante`, donc ne peut pas être synchronisé de
@@ -55,6 +57,11 @@ REGISTRE = [
     EntreeRegistre("clients", "Credit", "client__boutique"),
     EntreeRegistre("clients", "PaiementCredit", "credit__client__boutique"),
     EntreeRegistre("fournisseurs", "DetteFournisseur", "fournisseur__boutique"),
+    EntreeRegistre("fournisseurs", "PaiementDetteFournisseur", "dette__fournisseur__boutique"),
+    EntreeRegistre("tresorerie", "Depense", "depot__boutique", ajout_seul=True),
+    EntreeRegistre("tresorerie", "Transfert", "depot__boutique", ajout_seul=True),
+    EntreeRegistre("tresorerie", "ClotureCaisse", "depot__boutique", ajout_seul=True),
+    EntreeRegistre("tresorerie", "MouvementCaisse", "depot__boutique", ajout_seul=True),
     EntreeRegistre("paiements", "TransactionMobileMoney", "paiement__vente__boutique"),
     EntreeRegistre("notifications", "Notification", "boutique"),
     EntreeRegistre("notifications", "Message", "boutique"),

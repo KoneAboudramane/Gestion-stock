@@ -278,6 +278,64 @@ CREATE TABLE IF NOT EXISTS dettes_fournisseur (
   ${SUIVI_SYNC}
 );
 
+CREATE TABLE IF NOT EXISTS paiements_dette_fournisseur (
+  id TEXT PRIMARY KEY,
+  dette_id TEXT NOT NULL,
+  montant REAL NOT NULL,
+  mode TEXT DEFAULT '',
+  ${SUIVI_SYNC}
+);
+
+-- Trésorerie (suivi de caisse, séparé de l'écran de vente "Caisse") --
+-- Le solde d'un dépôt n'est jamais stocké : agrégat à la volée sur
+-- mouvements_caisse (voir services/tresorerie.ts::soldeCaisse), même règle
+-- que "stocks" côté stock mais sans table dérivée à tenir à jour ici.
+
+CREATE TABLE IF NOT EXISTS depenses (
+  id TEXT PRIMARY KEY,
+  depot_id TEXT NOT NULL,
+  categorie TEXT NOT NULL,
+  montant REAL NOT NULL,
+  description TEXT DEFAULT '',
+  utilisateur_id TEXT,
+  ${SUIVI_SYNC}
+);
+
+CREATE TABLE IF NOT EXISTS transferts_caisse (
+  id TEXT PRIMARY KEY,
+  depot_id TEXT NOT NULL,
+  utilisateur_source_id TEXT,
+  operateur TEXT NOT NULL,
+  montant REAL NOT NULL,
+  utilisateur_id TEXT,
+  ${SUIVI_SYNC}
+);
+
+CREATE TABLE IF NOT EXISTS clotures_caisse (
+  id TEXT PRIMARY KEY,
+  depot_id TEXT NOT NULL,
+  solde_theorique REAL NOT NULL,
+  solde_compte REAL NOT NULL,
+  ecart REAL DEFAULT 0,
+  utilisateur_id TEXT,
+  ${SUIVI_SYNC}
+);
+
+-- reference_id : UUID libre (pas une FK, comme mouvements_stock.reference_id) —
+-- absent de champsFK dans registre.ts.
+CREATE TABLE IF NOT EXISTS mouvements_caisse (
+  id TEXT PRIMARY KEY,
+  depot_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  categorie TEXT NOT NULL,
+  montant REAL NOT NULL,
+  motif TEXT DEFAULT '',
+  reference_type TEXT DEFAULT '',
+  reference_id TEXT,
+  utilisateur_id TEXT,
+  ${SUIVI_SYNC}
+);
+
 CREATE TABLE IF NOT EXISTS parametres (
   id TEXT PRIMARY KEY,
   boutique_id TEXT NOT NULL,

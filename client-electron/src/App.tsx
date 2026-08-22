@@ -20,12 +20,25 @@ export default function App() {
     api.auth.session().then((s) => {
       setSession(s);
       setEcran(s ? "shell" : "connexion");
+      // Rôle/permissions/dépôt sont figés dans le JWT depuis la dernière
+      // connexion : on les rafraîchit en tâche de fond (sans bloquer l'écran
+      // de chargement) pour qu'un changement de permission côté serveur
+      // s'applique sans obliger l'utilisateur à se déconnecter/reconnecter.
+      if (s) api.auth.rafraichirPermissions(s).then(setSession);
     });
   }, []);
 
   function surConnecte(s: Session) {
     setSession(s);
     setEcran("shell");
+  }
+
+  // Propage un changement de session (ex. dépôt de vente modifié dans
+  // Informations boutique) à toutes les pages qui la reçoivent en prop —
+  // sans quoi Trésorerie/Caisse gardaient l'ancien dépôt jusqu'au prochain
+  // démarrage de l'appli (voir rafraichirPermissions, même mécanisme).
+  function surSessionMiseAJour(s: Session) {
+    setSession(s);
   }
 
   async function surDeconnexion() {
@@ -56,7 +69,7 @@ export default function App() {
     <DeviseProvider session={session!}>
       <LogoProvider session={session!}>
         <NomBoutiqueProvider session={session!}>
-          <Shell session={session!} onDeconnexion={surDeconnexion} />
+          <Shell session={session!} onDeconnexion={surDeconnexion} onSessionMiseAJour={surSessionMiseAJour} />
         </NomBoutiqueProvider>
       </LogoProvider>
     </DeviseProvider>

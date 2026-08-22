@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 
 import { api } from "../api/client";
 import type {
@@ -212,7 +213,7 @@ function LigneNouvelleVariante({
             <input value={codeBarres} onChange={(e) => setCodeBarres(e.target.value)} autoFocus />
           </td>
         )}
-        {afficherAttributs && <td className="reference-auto">—</td>}
+        {afficherAttributs && <td className="reference-auto">Auto</td>}
         {peutVoirCout && (
           <td>
             <ChampMontant value={prixAchat} disabled={!peutModifierPrix} onChange={setPrixAchat} />
@@ -1124,7 +1125,7 @@ function FormulaireProduitsGroupe({
                     <td className="col-designation-groupe">{l.nom}</td>
                     <td>{l.categorieNom}</td>
                     <td>{l.uniteNom}</td>
-                    <td>{l.codeBarres || "—"}</td>
+                    <td>{l.codeBarres || ""}</td>
                     <td>{formaterMontant(l.prixAchat)}</td>
                     <td>{formaterMontant(l.prixVente)}</td>
                     <td>{l.seuilAlerte}</td>
@@ -1167,39 +1168,44 @@ function FormulaireProduitsGroupe({
 
 type ColonneTriProduit = "nom" | "prixVente" | "enStock";
 
-const ONGLETS = [
-  { cle: "produits", label: "Articles" },
-  { cle: "categories", label: "Catégories" },
+/**
+ * Ronds défilants du fond (même patron que Accueil.tsx) : tailles/vitesses/
+ * délais variés, trajectoire propre à chacun (départ → arrivée en vw/vh),
+ * couleur --cercle-N (index.css — cycle des teintes sémantiques par défaut,
+ * réassorti à l'identité propre de certains thèmes comme Orange).
+ */
+const CERCLES_FOND = [
+  { taille: 90, couleur: "var(--cercle-1)", duree: 26, delai: -4, depart: ["-15vw", "10vh"], arrivee: ["115vw", "60vh"] },
+  { taille: 60, couleur: "var(--cercle-2)", duree: 22, delai: -15, depart: ["115vw", "70vh"], arrivee: ["-15vw", "15vh"] },
+  { taille: 120, couleur: "var(--cercle-3)", duree: 32, delai: -9, depart: ["20vw", "115vh"], arrivee: ["75vw", "-20vh"] },
+  { taille: 50, couleur: "var(--cercle-4)", duree: 24, delai: -2, depart: ["70vw", "-15vh"], arrivee: ["15vw", "115vh"] },
+  { taille: 75, couleur: "var(--cercle-5)", duree: 28, delai: -20, depart: ["-15vw", "90vh"], arrivee: ["110vw", "20vh"] },
+  { taille: 100, couleur: "var(--cercle-6)", duree: 30, delai: -12, depart: ["110vw", "25vh"], arrivee: ["-15vw", "85vh"] },
+  { taille: 40, couleur: "var(--cercle-1)", duree: 20, delai: -7, depart: ["40vw", "-15vh"], arrivee: ["85vw", "115vh"] },
+  { taille: 65, couleur: "var(--cercle-3)", duree: 25, delai: -16, depart: ["105vw", "45vh"], arrivee: ["-10vw", "55vh"] },
+  { taille: 85, couleur: "var(--cercle-4)", duree: 34, delai: -5, depart: ["85vw", "110vh"], arrivee: ["10vw", "-15vh"] },
+  { taille: 55, couleur: "var(--cercle-6)", duree: 23, delai: -10, depart: ["-10vw", "35vh"], arrivee: ["105vw", "90vh"] },
 ] as const;
 
-type Onglet = (typeof ONGLETS)[number]["cle"];
+const SECTIONS = [
+  { cle: "produits", label: "Articles", icone: "🏷️" },
+  { cle: "categories", label: "Catégories", icone: "🗂️" },
+] as const;
 
-function SelecteurOnglet({ onglet, setOnglet }: { onglet: Onglet; setOnglet: (o: Onglet) => void }) {
+type Section = (typeof SECTIONS)[number]["cle"];
+
+function EnteteModale({ titre, onFermer }: { titre: string; onFermer: () => void }) {
   return (
-    <div className="barre-onglets">
-      {ONGLETS.map((o) => (
-        <button
-          key={o.cle}
-          type="button"
-          className={`onglet ${onglet === o.cle ? "actif" : ""}`}
-          onClick={() => setOnglet(o.cle)}
-        >
-          {o.label}
-        </button>
-      ))}
+    <div className="modale-entete">
+      <h3>{titre}</h3>
+      <button type="button" className="lien bouton-retour" onClick={onFermer}>
+        ← Retour
+      </button>
     </div>
   );
 }
 
-function OngletProduits({
-  session,
-  onglet,
-  setOnglet,
-}: {
-  session: Session;
-  onglet: Onglet;
-  setOnglet: (o: Onglet) => void;
-}) {
+function OngletProduits({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const peutVoirCout = !!session.permissions.voir_benefices_achat;
 
@@ -1298,7 +1304,6 @@ function OngletProduits({
     )}
     <div>
       <div className="barre-actions barre-actions-fixe barre-actions-avec-onglets">
-        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         <input
           className="champ-recherche"
           placeholder="Rechercher un article…"
@@ -1340,7 +1345,7 @@ function OngletProduits({
               onClick={() => setProduitSelectionneId(p.id)}
             >
               <td>{index + 1}</td>
-              <td>{p.reference || "—"}</td>
+              <td>{p.reference || ""}</td>
               <td>{p.nom}</td>
               <td className="colonne-categorie-articles">{p.categorieNom ?? ""}</td>
               {peutVoirCout && <td>{p.prixAchat ?? ""}</td>}
@@ -1413,15 +1418,7 @@ function OngletProduits({
 
 // --- Onglets Réglages catalogue : catégories, unités, attributs ---
 
-function OngletCategories({
-  session,
-  onglet,
-  setOnglet,
-}: {
-  session: Session;
-  onglet: Onglet;
-  setOnglet: (o: Onglet) => void;
-}) {
+function OngletCategories({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [categories, setCategories] = useState<ReferenceNommee[]>([]);
   const [nom, setNom] = useState("");
@@ -1477,7 +1474,6 @@ function OngletCategories({
   return (
     <div className="reglage-catalogue">
       <div className="barre-actions barre-actions-fixe barre-actions-avec-onglets">
-        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         {peutGerer && (
           <form onSubmit={ajouter} className="formulaire-inline">
             <input placeholder="Nouvelle catégorie" value={nom} onChange={(e) => setNom(e.target.value)} />
@@ -1543,15 +1539,76 @@ function OngletCategories({
 // recherche et les actions de chaque onglet (voir SelecteurOnglet) plutôt que
 // dans une en-tête séparée.
 
+function ModaleProduits({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Articles" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletProduits session={session} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModaleCategories({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Catégories" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletCategories session={session} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Produits({ session }: { session: Session }) {
-  const [onglet, setOnglet] = useState<Onglet>("produits");
+  const [sectionOuverte, setSectionOuverte] = useState<Section | null>(null);
 
   return (
-    <div className="page-produits">
-      <div className="contenu-onglet">
-        {onglet === "produits" && <OngletProduits session={session} onglet={onglet} setOnglet={setOnglet} />}
-        {onglet === "categories" && <OngletCategories session={session} onglet={onglet} setOnglet={setOnglet} />}
+    <div className="page-produits page-accueil">
+      {CERCLES_FOND.map((c, i) => (
+        <span
+          key={i}
+          aria-hidden="true"
+          className="cercle-fond"
+          style={
+            {
+              width: c.taille,
+              height: c.taille,
+              background: c.couleur,
+              animationDuration: `${c.duree}s`,
+              animationDelay: `${c.delai}s`,
+              "--depart-x": c.depart[0],
+              "--depart-y": c.depart[1],
+              "--arrivee-x": c.arrivee[0],
+              "--arrivee-y": c.arrivee[1],
+            } as CSSProperties
+          }
+        />
+      ))}
+      <div className="grille-documents-comptables">
+        {SECTIONS.map((s) => (
+          <button
+            key={s.cle}
+            type="button"
+            className="carte-document-comptable"
+            onClick={() => setSectionOuverte(s.cle)}
+          >
+            <span className="icone-document-comptable">{s.icone}</span>
+            {s.label}
+          </button>
+        ))}
       </div>
+      {sectionOuverte === "produits" && (
+        <ModaleProduits session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
+      {sectionOuverte === "categories" && (
+        <ModaleCategories session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
     </div>
   );
 }

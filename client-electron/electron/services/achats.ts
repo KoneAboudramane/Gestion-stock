@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { dansUneTransaction, executer, tousLesResultats, unResultat } from "../db/helpers";
 import { sauvegarder } from "../db/index";
 import { appliquerMouvement } from "./stock";
+import { enregistrerMouvement } from "./tresorerie";
 
 /**
  * Miroir de achats/services.py + fournisseurs/models.py (Django, Étape 5) :
@@ -477,9 +478,30 @@ export function listerDettes(boutiqueId: string, fournisseurId?: string, statut?
   );
 }
 
-export function payerDette(detteId: string, montant: number): void {
-  const dette = unResultat<{ montant_paye: number; solde: number }>(
-    "SELECT montant_paye, solde FROM dettes_fournisseur WHERE id = ?",
+export interface PaiementDetteDetail {
+  id: string;
+  montant: number;
+  mode: string;
+  dateCreation: string;
+}
+
+export function listerPaiementsDette(detteId: string): PaiementDetteDetail[] {
+  return tousLesResultats<PaiementDetteDetail>(
+    "SELECT id, montant, mode, date_creation as dateCreation FROM paiements_dette_fournisseur WHERE dette_id = ? AND supprime = 0 ORDER BY date_creation DESC",
+    [detteId],
+  );
+}
+
+export function payerDette(
+  detteId: string,
+  montant: number,
+  mode = "",
+  depotId: string | null = null,
+  utilisateurId: string | null = null,
+): void {
+  const dette = unResultat<{ montant_paye: number; solde: number; fournisseur_nom: string }>(
+    `SELECT d.montant_paye as montant_paye, d.solde as solde, f.nom as fournisseur_nom
+     FROM dettes_fournisseur d JOIN fournisseurs f ON f.id = d.fournisseur_id WHERE d.id = ?`,
     [detteId],
   );
   if (!dette) throw new ErreurAchat("Dette introuvable.");
@@ -490,14 +512,36 @@ export function payerDette(detteId: string, montant: number): void {
     throw new ErreurAchat("Le montant payé ne peut pas dépasser le solde restant.");
   }
 
-  const nouveauMontantPaye = Number(dette.montant_paye) + montant;
-  const nouveauSolde = Number(dette.solde) - montant;
-  const maintenant = new Date().toISOString();
+  dansUneTransaction(() => {
+    const maintenant = new Date().toISOString();
+    const paiementId = randomUUID();
+    executer(
+      `INSERT INTO paiements_dette_fournisseur (id, dette_id, montant, mode, date_creation, date_modification)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [paiementId, detteId, montant, mode, maintenant, maintenant],
+    );
 
-  executer(
-    `UPDATE dettes_fournisseur SET montant_paye = ?, solde = ?, statut = ?, synchronise = 0, date_modification = ?
-     WHERE id = ?`,
-    [nouveauMontantPaye, nouveauSolde, nouveauSolde === 0 ? "solde" : "en_cours", maintenant, detteId],
-  );
+    const nouveauMontantPaye = Number(dette.montant_paye) + montant;
+    const nouveauSolde = Number(dette.solde) - montant;
+    executer(
+      `UPDATE dettes_fournisseur SET montant_paye = ?, solde = ?, statut = ?, synchronise = 0, date_modification = ?
+       WHERE id = ?`,
+      [nouveauMontantPaye, nouveauSolde, nouveauSolde === 0 ? "solde" : "en_cours", maintenant, detteId],
+    );
+
+    if (mode === "especes" && depotId) {
+      enregistrerMouvement({
+        depotId,
+        type: "sortie",
+        categorie: "paiement_dette_fournisseur",
+        montant,
+        motif: `Paiement dette ${dette.fournisseur_nom}`,
+        utilisateurId,
+        referenceType: "fournisseurs.PaiementDetteFournisseur",
+        referenceId: paiementId,
+      });
+    }
+  });
+
   sauvegarder();
 }

@@ -69,7 +69,7 @@ class CreditTests(APITestCase):
         self.assertEqual(str(self.credit.echeance), "2026-08-30")
         self.assertEqual(self.credit.montant, 12000)  # inchangé
 
-    def test_remboursement_partiel_puis_total(self):
+    def test_reglement_partiel_puis_total(self):
         reponse = self.client.post(
             reverse("credit-rembourser", args=[self.credit.id]),
             {"montant": "5000", "mode": "especes"},
@@ -93,7 +93,7 @@ class CreditTests(APITestCase):
         self.assertEqual(self.credit.solde, 0)
         self.assertEqual(self.credit.statut, "solde")
 
-    def test_remboursement_superieur_au_solde_refuse(self):
+    def test_reglement_superieur_au_solde_refuse(self):
         reponse = self.client.post(
             reverse("credit-rembourser", args=[self.credit.id]),
             {"montant": "99999"},

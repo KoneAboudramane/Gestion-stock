@@ -2,6 +2,8 @@
 Logique métier de l'app ventes.
 CLAUDE.md : une vente validée crée une sortie de stock par ligne (via
 stock.services.appliquer_mouvement) et, si à crédit, une créance client.
+Un paiement en espèces crée aussi une entrée dans tresorerie.MouvementCaisse
+(voir tresorerie/services.py) ; son annulation crée la sortie compensatoire.
 Cahier des charges §8 : numérotation automatique, devise FCFA sans décimales
 (montants arrondis à l'unité), bénéfice figé sur le coût au moment de la vente.
 """
@@ -12,6 +14,8 @@ from clients.models import Credit
 from core.services import generer_numero_sequentiel
 from stock.models import MouvementStock
 from stock.services import appliquer_mouvement
+from tresorerie.models import MouvementCaisse
+from tresorerie.services import enregistrer_mouvement
 
 from .models import LigneVente, Paiement, Vente
 
@@ -73,7 +77,13 @@ def creer_vente(
         )
 
     for donnee_paiement in paiements_donnees:
-        Paiement.objects.create(vente=vente, **donnee_paiement)
+        paiement = Paiement.objects.create(vente=vente, **donnee_paiement)
+        if paiement.mode == Paiement.Mode.ESPECES:
+            enregistrer_mouvement(
+                depot, MouvementCaisse.Type.ENTREE, MouvementCaisse.Categorie.VENTE_ESPECES,
+                paiement.montant, motif=f"Vente {numero}", utilisateur=utilisateur,
+                reference_type="ventes.Paiement", reference_id=paiement.id,
+            )
 
     if statut == Vente.Statut.CREDIT:
         montant_credit = sum(
@@ -96,6 +106,13 @@ def annuler_vente(vente, utilisateur):
         appliquer_mouvement(
             ligne.variante, vente.depot, MouvementStock.Type.ENTREE, ligne.quantite,
             motif=f"Annulation vente {vente.numero}", utilisateur=utilisateur,
+            reference_type="ventes.Vente", reference_id=vente.id,
+        )
+
+    for paiement in vente.paiements.filter(mode=Paiement.Mode.ESPECES):
+        enregistrer_mouvement(
+            vente.depot, MouvementCaisse.Type.SORTIE, MouvementCaisse.Categorie.VENTE_ESPECES,
+            paiement.montant, motif=f"Annulation vente {vente.numero}", utilisateur=utilisateur,
             reference_type="ventes.Vente", reference_id=vente.id,
         )
 

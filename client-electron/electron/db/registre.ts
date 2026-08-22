@@ -149,6 +149,41 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
     clauseBoutique: "fournisseur_id IN (SELECT id FROM fournisseurs WHERE boutique_id = ?)",
   },
   {
+    table: "fournisseurs.PaiementDetteFournisseur",
+    tableLocale: "paiements_dette_fournisseur",
+    champsFK: ["dette"],
+    clauseBoutique:
+      "dette_id IN (SELECT id FROM dettes_fournisseur WHERE fournisseur_id IN (SELECT id FROM fournisseurs WHERE boutique_id = ?))",
+  },
+  {
+    table: "tresorerie.Depense",
+    tableLocale: "depenses",
+    champsFK: ["depot", "utilisateur"],
+    ajoutSeul: true,
+    clauseBoutique: "depot_id IN (SELECT id FROM depots WHERE boutique_id = ?)",
+  },
+  {
+    table: "tresorerie.Transfert",
+    tableLocale: "transferts_caisse",
+    champsFK: ["depot", "utilisateur_source", "utilisateur"],
+    ajoutSeul: true,
+    clauseBoutique: "depot_id IN (SELECT id FROM depots WHERE boutique_id = ?)",
+  },
+  {
+    table: "tresorerie.ClotureCaisse",
+    tableLocale: "clotures_caisse",
+    champsFK: ["depot", "utilisateur"],
+    ajoutSeul: true,
+    clauseBoutique: "depot_id IN (SELECT id FROM depots WHERE boutique_id = ?)",
+  },
+  {
+    table: "tresorerie.MouvementCaisse",
+    tableLocale: "mouvements_caisse",
+    champsFK: ["depot", "utilisateur"],
+    ajoutSeul: true,
+    clauseBoutique: "depot_id IN (SELECT id FROM depots WHERE boutique_id = ?)",
+  },
+  {
     table: "paiements.TransactionMobileMoney",
     tableLocale: "transactions_mobile_money",
     champsFK: ["paiement"],

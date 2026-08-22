@@ -6,8 +6,7 @@ import type { NotificationLocale } from "../db/schema";
  * Port navigateur de client-electron/electron/services/notifications.ts :
  * alerte interne du système (rupture de stock), pas de canal ni d'envoi —
  * voir services/messages.ts pour les communications externes (rappel de
- * crédit, ticket WhatsApp). Pas de "marquer comme lue"/compteur ici : pas de
- * cloche de notifications dans l'en-tête de client-web (voir Notifications.tsx).
+ * crédit, ticket WhatsApp).
  */
 
 export type TypeNotification = "alerte_rupture";
@@ -106,4 +105,25 @@ export async function listerNotifications(boutiqueId: string, filtres: FiltresNo
     });
   }
   return resultat.sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));
+}
+
+// --- Cloche de l'en-tête (compteur + "marquer comme lues") ---
+
+export async function compterNotificationsNonLues(boutiqueId: string, depotId?: string): Promise<number> {
+  const db = await ouvrirBaseDeDonnees();
+  const notifications = (await db.getAllFromIndex("notifications", "boutique_id", boutiqueId)).filter(
+    (n) => !n.supprime && !n.lu && (!depotId || n.depot_id === depotId),
+  );
+  return notifications.length;
+}
+
+/** Appelé à l'ouverture de la page Notifications : éteint le badge de la cloche pour ce qui a été effectivement affiché (même dépôt). */
+export async function marquerNotificationsLues(boutiqueId: string, depotId?: string): Promise<void> {
+  const db = await ouvrirBaseDeDonnees();
+  const notifications = (await db.getAllFromIndex("notifications", "boutique_id", boutiqueId)).filter(
+    (n) => !n.lu && (!depotId || n.depot_id === depotId),
+  );
+  for (const n of notifications) {
+    await db.put("notifications", { ...n, lu: 1, date_modification: maintenant(), synchronise: 0 });
+  }
 }

@@ -7,9 +7,11 @@ import PanneauMarque from "../components/PanneauMarque";
 export default function Connexion({
   onConnecte,
   allerMotDePasseOublie,
+  allerInscription,
 }: {
   onConnecte: (session: Session) => void;
   allerMotDePasseOublie: () => void;
+  allerInscription: () => void;
 }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -67,6 +69,9 @@ export default function Connexion({
           </button>
           <button type="button" className="lien" onClick={allerMotDePasseOublie}>
             Mot de passe oublié ?
+          </button>
+          <button type="button" className="lien" onClick={allerInscription}>
+            Créer une boutique
           </button>
         </form>
       </div>

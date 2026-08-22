@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 
 import { api } from "../api/client";
 import type {
   ClientDetailResume,
   CreditDetail,
   CreditResume,
+  DepotResume,
   Session,
   StatutCredit,
   VenteResume,
@@ -13,12 +15,8 @@ import ChampMontant from "../components/ChampMontant";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant, normaliserTelephone, telephoneValide } from "../lib/formatage";
-import { libelleStatutVente } from "../lib/libelles";
+import { MODES_REGLEMENT, libelleStatutVente } from "../lib/libelles";
 import { DetailVente } from "./Ventes";
-
-// Rembourser "à crédit" n'a pas de sens : on liste directement Espèces et les
-// opérateurs Mobile Money (pas de sélecteur à deux niveaux comme en Caisse).
-const MODES_REMBOURSEMENT = ["Espèces", "Orange Money", "MTN Money", "Moov Money", "Wave"];
 
 function libelleStatutCredit(statut: StatutCredit): string {
   return statut === "solde" ? "Soldé" : "En cours";
@@ -47,9 +45,16 @@ function DetailCredit({
   const [enCoursInfos, setEnCoursInfos] = useState(false);
   const [afficherModalRembourser, setAfficherModalRembourser] = useState(false);
   const [montant, setMontant] = useState("");
-  const [mode, setMode] = useState(MODES_REMBOURSEMENT[0]);
+  const [mode, setMode] = useState(MODES_REGLEMENT[0].valeur);
+  const [depots, setDepots] = useState<DepotResume[]>([]);
+  const [depotId, setDepotId] = useState(session.depotId ?? "");
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+
+  useEffect(() => {
+    if (!session.depotId) api.depots.lister(session.boutiqueId).then(setDepots);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function rafraichir() {
     setCredit((await api.credits.obtenir(creditId)) ?? null);
@@ -105,10 +110,16 @@ function DetailCredit({
     setErreur(null);
     setEnCours(true);
     try {
-      const resultat = await api.credits.rembourser(creditId, Number(montant) || 0, mode);
+      const resultat = await api.credits.rembourser(
+        creditId,
+        Number(montant) || 0,
+        mode,
+        depotId || null,
+        session.utilisateurId,
+      );
       if (resultat.succes) {
         setMontant("");
-        setMode(MODES_REMBOURSEMENT[0]);
+        setMode(MODES_REGLEMENT[0].valeur);
         setAfficherModalRembourser(false);
         rafraichir();
       } else {
@@ -180,9 +191,9 @@ function DetailCredit({
               </tr>
             ) : (
               <tr>
-                <td>{infoClient.nom || "—"}</td>
-                <td>{infoClient.telephone || "—"}</td>
-                <td>{infoClient.adresse || "—"}</td>
+                <td>{infoClient.nom || ""}</td>
+                <td>{infoClient.telephone || ""}</td>
+                <td>{infoClient.adresse || ""}</td>
                 {peutGerer && (
                   <td>
                     <button type="button" onClick={() => setModifierInfos(true)}>
@@ -215,12 +226,19 @@ function DetailCredit({
         <div className="total-net">Solde : {formaterMontant(solde)} {devise}</div>
       </div>
 
-      <h4>Remboursements</h4>
+      <div className="barre-actions">
+        <h4>Règlements</h4>
+        {peutGerer && solde > 0 && !afficherModalRembourser && (
+          <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherModalRembourser(true)}>
+            + Nouveau règlement
+          </button>
+        )}
+      </div>
       <div className="zone-tableau-scroll">
       <table className="tableau-catalogue">
         <thead>
           <tr>
-            <th>Date de remboursement</th>
+            <th>Date de règlement</th>
             <th>Montant</th>
             <th>Mode</th>
           </tr>
@@ -236,7 +254,7 @@ function DetailCredit({
           {credit.paiements.length === 0 && (
             <tr>
               <td colSpan={3} className="liste-vide">
-                Aucun remboursement.
+                Aucun règlement.
               </td>
             </tr>
           )}
@@ -252,17 +270,11 @@ function DetailCredit({
       </table>
       </div>
 
-      {peutGerer && solde > 0 && !afficherModalRembourser && (
-        <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherModalRembourser(true)}>
-          + Nouveau remboursement
-        </button>
-      )}
-
       {afficherModalRembourser && (
         <div className="fond-modale" onClick={() => setAfficherModalRembourser(false)}>
           <div className="modale-confirmation" onClick={(e) => e.stopPropagation()}>
             <form onSubmit={rembourser}>
-              <h3>Nouveau remboursement</h3>
+              <h3>Nouveau règlement</h3>
               {erreur && <div className="message-erreur">{erreur}</div>}
               <div className="grille-champs">
                 <label>
@@ -272,20 +284,33 @@ function DetailCredit({
                 <label>
                   Mode
                   <select value={mode} onChange={(e) => setMode(e.target.value)}>
-                    {MODES_REMBOURSEMENT.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
+                    {MODES_REGLEMENT.map((m) => (
+                      <option key={m.valeur} value={m.valeur}>
+                        {m.label}
                       </option>
                     ))}
                   </select>
                 </label>
+                {!session.depotId && (
+                  <label>
+                    Dépôt (caisse concernée)
+                    <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
+                      <option value="">Choisir…</option>
+                      {depots.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.nom}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
               </div>
               <div className="actions-formulaire">
                 <button type="button" onClick={() => setAfficherModalRembourser(false)} disabled={enCours}>
                   Annuler
                 </button>
                 <button type="submit" disabled={enCours}>
-                  {enCours ? "Enregistrement…" : "Rembourser"}
+                  {enCours ? "Enregistrement…" : "Régler"}
                 </button>
               </div>
             </form>
@@ -433,9 +458,9 @@ function DetailClient({
             </tr>
           ) : (
             <tr>
-              <td>{infos.nom || "—"}</td>
-              <td>{infos.telephone || "—"}</td>
-              <td>{infos.adresse || "—"}</td>
+              <td>{infos.nom || ""}</td>
+              <td>{infos.telephone || ""}</td>
+              <td>{infos.adresse || ""}</td>
               {peutGerer && (
                 <td>
                   <button type="button" onClick={() => setModifierInfos(true)}>
@@ -570,32 +595,20 @@ function DetailClient({
   );
 }
 
-const ONGLETS = [
-  { cle: "clients", label: "Clients" },
-  { cle: "credits", label: "Crédits" },
+const SECTIONS = [
+  { cle: "clients", label: "Clients", icone: "👤" },
+  { cle: "credits", label: "Crédits", icone: "💳" },
 ] as const;
 
-export type OngletClients = (typeof ONGLETS)[number]["cle"];
+export type OngletClients = (typeof SECTIONS)[number]["cle"];
 
-function SelecteurOnglet({
-  onglet,
-  setOnglet,
-}: {
-  onglet: OngletClients;
-  setOnglet: (o: OngletClients) => void;
-}) {
+function EnteteModale({ titre, onFermer }: { titre: string; onFermer: () => void }) {
   return (
-    <div className="barre-onglets">
-      {ONGLETS.map((o) => (
-        <button
-          key={o.cle}
-          type="button"
-          className={`onglet ${onglet === o.cle ? "actif" : ""}`}
-          onClick={() => setOnglet(o.cle)}
-        >
-          {o.label}
-        </button>
-      ))}
+    <div className="modale-entete">
+      <h3>{titre}</h3>
+      <button type="button" className="lien bouton-retour" onClick={onFermer}>
+        ← Retour
+      </button>
     </div>
   );
 }
@@ -757,15 +770,7 @@ function FormulaireClientsGroupe({
   );
 }
 
-function OngletClients({
-  session,
-  onglet,
-  setOnglet,
-}: {
-  session: Session;
-  onglet: OngletClients;
-  setOnglet: (o: OngletClients) => void;
-}) {
+function OngletClients({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_clients;
   const devise = useDevise();
   const [terme, setTerme] = useState("");
@@ -817,7 +822,6 @@ function OngletClients({
         />
       )}
       <div className="barre-actions barre-actions-avec-onglets">
-        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         <input
           className="champ-recherche"
           placeholder="Rechercher par nom ou téléphone…"
@@ -926,13 +930,9 @@ function OngletClients({
 function OngletCredits({
   session,
   statutInitial,
-  onglet,
-  setOnglet,
 }: {
   session: Session;
   statutInitial?: StatutCredit | "";
-  onglet: OngletClients;
-  setOnglet: (o: OngletClients) => void;
 }) {
   const [statut, setStatut] = useState<StatutCredit | "">(statutInitial ?? "");
   // Les crédits de clients réguliers et de clients de passage ne doivent
@@ -972,7 +972,6 @@ function OngletCredits({
         </div>
       )}
       <div className="barre-actions barre-actions-avec-onglets">
-        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         <div className="barre-onglets">
           <button
             type="button"
@@ -1051,9 +1050,49 @@ function OngletCredits({
 }
 
 // --- Page principale ---
-// L'onglet (Clients/Crédits) est affiché dans la même ligne que la recherche
-// et les actions de chaque onglet (voir SelecteurOnglet) plutôt que dans une
-// en-tête séparée.
+// Chaque section (Clients / Crédits) est un bouton-carte qui ouvre sa propre
+// modale, même patron que Comptabilite.tsx/Rapports.tsx/Reglages.tsx.
+
+function ModaleClients({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Clients" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletClients session={session} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModaleCredits({
+  session, statutInitial, onFermer,
+}: { session: Session; statutInitial?: StatutCredit | ""; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Crédits" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletCredits session={session} statutInitial={statutInitial} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const CERCLES_FOND = [
+  { taille: 90, couleur: "var(--cercle-1)", duree: 26, delai: -4, depart: ["-15vw", "10vh"], arrivee: ["115vw", "60vh"] },
+  { taille: 60, couleur: "var(--cercle-2)", duree: 22, delai: -15, depart: ["115vw", "70vh"], arrivee: ["-15vw", "15vh"] },
+  { taille: 120, couleur: "var(--cercle-3)", duree: 32, delai: -9, depart: ["20vw", "115vh"], arrivee: ["75vw", "-20vh"] },
+  { taille: 50, couleur: "var(--cercle-4)", duree: 24, delai: -2, depart: ["70vw", "-15vh"], arrivee: ["15vw", "115vh"] },
+  { taille: 75, couleur: "var(--cercle-5)", duree: 28, delai: -20, depart: ["-15vw", "90vh"], arrivee: ["110vw", "20vh"] },
+  { taille: 100, couleur: "var(--cercle-6)", duree: 30, delai: -12, depart: ["110vw", "25vh"], arrivee: ["-15vw", "85vh"] },
+  { taille: 40, couleur: "var(--cercle-1)", duree: 20, delai: -7, depart: ["40vw", "-15vh"], arrivee: ["85vw", "115vh"] },
+  { taille: 65, couleur: "var(--cercle-3)", duree: 25, delai: -16, depart: ["105vw", "45vh"], arrivee: ["-10vw", "55vh"] },
+  { taille: 85, couleur: "var(--cercle-4)", duree: 34, delai: -5, depart: ["85vw", "110vh"], arrivee: ["10vw", "-15vh"] },
+  { taille: 55, couleur: "var(--cercle-6)", duree: 23, delai: -10, depart: ["-10vw", "35vh"], arrivee: ["105vw", "90vh"] },
+] as const;
 
 export default function Clients({
   session,
@@ -1064,21 +1103,49 @@ export default function Clients({
   ongletInitial?: OngletClients;
   statutCreditsInitial?: StatutCredit | "";
 }) {
-  const [onglet, setOnglet] = useState<OngletClients>(ongletInitial ?? "clients");
+  const [sectionOuverte, setSectionOuverte] = useState<OngletClients | null>(ongletInitial ?? null);
 
   return (
-    <div className="page-produits">
-      <div className="contenu-onglet">
-        {onglet === "clients" && <OngletClients session={session} onglet={onglet} setOnglet={setOnglet} />}
-        {onglet === "credits" && (
-          <OngletCredits
-            session={session}
-            statutInitial={statutCreditsInitial}
-            onglet={onglet}
-            setOnglet={setOnglet}
-          />
-        )}
+    <div className="page-produits page-accueil">
+      {CERCLES_FOND.map((c, i) => (
+        <span
+          key={i}
+          aria-hidden="true"
+          className="cercle-fond"
+          style={
+            {
+              width: c.taille,
+              height: c.taille,
+              background: c.couleur,
+              animationDuration: `${c.duree}s`,
+              animationDelay: `${c.delai}s`,
+              "--depart-x": c.depart[0],
+              "--depart-y": c.depart[1],
+              "--arrivee-x": c.arrivee[0],
+              "--arrivee-y": c.arrivee[1],
+            } as CSSProperties
+          }
+        />
+      ))}
+      <div className="grille-documents-comptables">
+        {SECTIONS.map((s) => (
+          <button
+            key={s.cle}
+            type="button"
+            className="carte-document-comptable"
+            onClick={() => setSectionOuverte(s.cle)}
+          >
+            <span className="icone-document-comptable">{s.icone}</span>
+            {s.label}
+          </button>
+        ))}
       </div>
+      {sectionOuverte === "clients" && (
+        <ModaleClients session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
+      {sectionOuverte === "credits" && (
+        <ModaleCredits session={session} statutInitial={statutCreditsInitial} onFermer={() => setSectionOuverte(null)} />
+      )}
     </div>
   );
 }

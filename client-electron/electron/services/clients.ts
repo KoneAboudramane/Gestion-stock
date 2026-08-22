@@ -2,11 +2,12 @@ import { randomUUID } from "node:crypto";
 
 import { dansUneTransaction, executer, tousLesResultats, unResultat } from "../db/helpers";
 import { sauvegarder } from "../db/index";
+import { enregistrerMouvement } from "./tresorerie";
 
 /**
  * Miroir de clients/services.py (Django, Étape 6) : un Credit naît uniquement
  * d'une vente à crédit (cf. ventes.ts::creerVente) — pas de création ici.
- * Contrairement à fournisseurs.DetteFournisseur, chaque remboursement laisse
+ * Contrairement à fournisseurs.DetteFournisseur, chaque règlement laisse
  * une trace (PaiementCredit), pas seulement une mutation du solde.
  */
 
@@ -198,9 +199,16 @@ export function obtenirCredit(id: string): CreditDetail | undefined {
  * Miroir exact de clients/services.py::rembourser_credit : refuse un montant
  * invalide, crée une trace PaiementCredit, met à jour montant_paye/solde/statut.
  */
-export function rembourserCredit(creditId: string, montant: number, mode = ""): void {
-  const credit = unResultat<{ montant_paye: number; solde: number }>(
-    "SELECT montant_paye, solde FROM credits WHERE id = ?",
+export function rembourserCredit(
+  creditId: string,
+  montant: number,
+  mode = "",
+  depotId: string | null = null,
+  utilisateurId: string | null = null,
+): void {
+  const credit = unResultat<{ montant_paye: number; solde: number; client_nom: string }>(
+    `SELECT cr.montant_paye as montant_paye, cr.solde as solde, cl.nom as client_nom
+     FROM credits cr JOIN clients cl ON cl.id = cr.client_id WHERE cr.id = ?`,
     [creditId],
   );
   if (!credit) throw new ErreurClient("Crédit introuvable.");
@@ -213,10 +221,11 @@ export function rembourserCredit(creditId: string, montant: number, mode = ""): 
 
   dansUneTransaction(() => {
     const maintenant = new Date().toISOString();
+    const paiementId = randomUUID();
     executer(
       `INSERT INTO paiements_credit (id, credit_id, montant, mode, date_creation, date_modification)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [randomUUID(), creditId, montant, mode, maintenant, maintenant],
+      [paiementId, creditId, montant, mode, maintenant, maintenant],
     );
 
     const nouveauMontantPaye = Number(credit.montant_paye) + montant;
@@ -226,6 +235,19 @@ export function rembourserCredit(creditId: string, montant: number, mode = ""): 
        WHERE id = ?`,
       [nouveauMontantPaye, nouveauSolde, nouveauSolde === 0 ? "solde" : "en_cours", maintenant, creditId],
     );
+
+    if (mode === "especes" && depotId) {
+      enregistrerMouvement({
+        depotId,
+        type: "entree",
+        categorie: "remboursement_credit",
+        montant,
+        motif: `Règlement crédit ${credit.client_nom}`,
+        utilisateurId,
+        referenceType: "clients.PaiementCredit",
+        referenceId: paiementId,
+      });
+    }
   });
 
   sauvegarder();

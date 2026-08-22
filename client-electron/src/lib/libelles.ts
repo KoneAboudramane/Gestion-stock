@@ -1,11 +1,14 @@
 import type {
   CanalMessage,
+  CategorieDepense,
+  CategorieMouvementCaisse,
   FournisseurMobileMoney,
   ModePaiement,
   OperateurMobileMoney,
   StatutTransaction,
   StatutVenteHistorique,
   TypeMouvement,
+  TypeMouvementCaisse,
 } from "../api/client";
 
 /**
@@ -84,4 +87,61 @@ const LIBELLES_STATUT_VENTE: Record<StatutVenteHistorique, string> = {
 /** Utilisé avec la classe CSS `badge-${statut}` (badge-payee/badge-credit/badge-annulee). */
 export function libelleStatutVente(statut: string): string {
   return LIBELLES_STATUT_VENTE[statut as StatutVenteHistorique] ?? statut;
+}
+
+// --- Trésorerie ---
+
+/**
+ * Modes de règlement pour un règlement crédit ou un paiement dette
+ * fournisseur : espèces + les 4 opérateurs mobile money (jamais "credit",
+ * un règlement ne peut pas être lui-même à crédit). Valeurs codées
+ * (comme MODES_PAIEMENT) : seul "especes" déclenche le mouvement de caisse
+ * côté service (rembourser_credit / payer_dette), un libellé français
+ * ("Espèces") ne matcherait rien.
+ */
+export const MODES_REGLEMENT: { valeur: string; label: string }[] = [
+  { valeur: "especes", label: "Espèces" },
+  ...OPERATEURS_MOBILE_MONEY,
+];
+
+export function libelleModeReglement(mode: string): string {
+  return MODES_REGLEMENT.find((m) => m.valeur === mode)?.label ?? mode;
+}
+
+const LIBELLES_TYPE_MOUVEMENT_CAISSE: Record<TypeMouvementCaisse, string> = {
+  entree: "Entrée",
+  sortie: "Sortie",
+  ajustement: "Ajustement",
+};
+
+export function libelleTypeMouvementCaisse(type: string): string {
+  return LIBELLES_TYPE_MOUVEMENT_CAISSE[type as TypeMouvementCaisse] ?? type;
+}
+
+const LIBELLES_CATEGORIE_MOUVEMENT_CAISSE: Record<CategorieMouvementCaisse, string> = {
+  vente_especes: "Vente en espèces",
+  remboursement_credit: "Règlement crédit",
+  transfert_mobile_money: "Transfert mobile money",
+  apport: "Mise de fonds",
+  depense: "Dépense",
+  retrait: "Retrait",
+  paiement_dette_fournisseur: "Paiement dette fournisseur",
+  ajustement: "Ajustement",
+};
+
+export function libelleCategorieMouvementCaisse(categorie: string): string {
+  return LIBELLES_CATEGORIE_MOUVEMENT_CAISSE[categorie as CategorieMouvementCaisse] ?? categorie;
+}
+
+export const CATEGORIES_DEPENSE: { valeur: CategorieDepense; label: string }[] = [
+  { valeur: "transport", label: "Transport" },
+  { valeur: "reparation", label: "Réparation" },
+  { valeur: "achat_marchandise", label: "Achat de marchandise" },
+  { valeur: "achat_divers", label: "Achat divers" },
+  { valeur: "remboursement_client", label: "Remboursement client" },
+  { valeur: "autre", label: "Autre" },
+];
+
+export function libelleCategorieDepense(categorie: string): string {
+  return CATEGORIES_DEPENSE.find((c) => c.valeur === categorie)?.label ?? categorie;
 }

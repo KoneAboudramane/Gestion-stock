@@ -5,10 +5,11 @@ import type { Session } from "./api";
 import { DeviseProvider } from "./contexts/DeviseContext";
 import { useSession } from "./contexts/SessionContext";
 import Connexion from "./pages/Connexion";
+import Inscription from "./pages/Inscription";
 import MotDePasseOublie from "./pages/MotDePasseOublie";
 import Shell from "./pages/Shell";
 
-type Ecran = "chargement" | "connexion" | "motDePasseOublie" | "shell";
+type Ecran = "chargement" | "connexion" | "motDePasseOublie" | "inscription" | "shell";
 
 export default function App() {
   const { session, definirSession } = useSession();
@@ -28,10 +29,14 @@ export default function App() {
       setEcran("shell");
       return;
     }
+    // Profite du même appel pour rafraîchir rôle/permissions/dépôt (figés
+    // dans le JWT depuis la dernière connexion) : un changement de
+    // permission côté serveur s'applique ainsi sans déconnexion/reconnexion.
     api.auth
-      .sessionValide()
-      .then((valide) => {
-        if (valide) {
+      .rafraichirPermissions(session)
+      .then((sessionMiseAJour) => {
+        if (sessionMiseAJour) {
+          definirSession(sessionMiseAJour);
           setEcran("shell");
         } else {
           definirSession(null);
@@ -56,10 +61,19 @@ export default function App() {
     return <div className="ecran-chargement">Chargement…</div>;
   }
   if (ecran === "connexion") {
-    return <Connexion onConnecte={surConnecte} allerMotDePasseOublie={() => setEcran("motDePasseOublie")} />;
+    return (
+      <Connexion
+        onConnecte={surConnecte}
+        allerMotDePasseOublie={() => setEcran("motDePasseOublie")}
+        allerInscription={() => setEcran("inscription")}
+      />
+    );
   }
   if (ecran === "motDePasseOublie") {
     return <MotDePasseOublie allerConnexion={() => setEcran("connexion")} />;
+  }
+  if (ecran === "inscription") {
+    return <Inscription allerConnexion={() => setEcran("connexion")} />;
   }
   return (
     <DeviseProvider boutiqueId={session!.boutiqueId}>

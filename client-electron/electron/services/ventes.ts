@@ -4,6 +4,7 @@ import { dansUneTransaction, executer, tousLesResultats, unResultat } from "../d
 import { sauvegarder } from "../db/index";
 import { verifierAbonnementActif } from "./abonnement";
 import { appliquerMouvement } from "./stock";
+import { enregistrerMouvement } from "./tresorerie";
 
 /**
  * Miroir de ventes/services.py::creer_vente (Django, Étape 4) : coût figé au
@@ -177,10 +178,23 @@ export function creerVente(params: ParametresVente): VenteCreee {
     }
 
     for (const paiement of paiements) {
+      const paiementId = randomUUID();
       executer(
         "INSERT INTO paiements (id, vente_id, mode, operateur, montant, date_creation, date_modification) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [randomUUID(), venteId, paiement.mode, paiement.operateur || "", paiement.montant, maintenant, maintenant],
+        [paiementId, venteId, paiement.mode, paiement.operateur || "", paiement.montant, maintenant, maintenant],
       );
+      if (paiement.mode === "especes") {
+        enregistrerMouvement({
+          depotId,
+          type: "entree",
+          categorie: "vente_especes",
+          montant: paiement.montant,
+          motif: `Vente ${numero}`,
+          utilisateurId,
+          referenceType: "ventes.Paiement",
+          referenceId: paiementId,
+        });
+      }
     }
 
     if (statut === "credit") {
@@ -374,6 +388,23 @@ export function annulerVente(venteId: string, utilisateurId: string | null): voi
         depotId: vente.depot_id,
         type: "entree",
         quantite: Number(ligne.quantite),
+        motif: `Annulation vente ${vente.numero}`,
+        utilisateurId,
+        referenceType: "ventes.Vente",
+        referenceId: venteId,
+      });
+    }
+
+    const paiementsEspeces = tousLesResultats<{ montant: number }>(
+      "SELECT montant FROM paiements WHERE vente_id = ? AND mode = 'especes' AND supprime = 0",
+      [venteId],
+    );
+    for (const paiement of paiementsEspeces) {
+      enregistrerMouvement({
+        depotId: vente.depot_id,
+        type: "sortie",
+        categorie: "vente_especes",
+        montant: Number(paiement.montant),
         motif: `Annulation vente ${vente.numero}`,
         utilisateurId,
         referenceType: "ventes.Vente",

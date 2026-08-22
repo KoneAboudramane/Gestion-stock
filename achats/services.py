@@ -106,18 +106,3 @@ def receptionner_commande(commande, depot, utilisateur, montant_deja_paye=0, lig
     commande.statut = CommandeAchat.Statut.RECUE
     commande.save(update_fields=["statut", "date_modification"])
     return reception
-
-
-@transaction.atomic
-def payer_dette(dette, montant):
-    if montant <= 0:
-        raise ValidationError("Le montant payé doit être strictement positif.")
-    if montant > dette.solde:
-        raise ValidationError("Le montant payé ne peut pas dépasser le solde restant.")
-
-    dette.montant_paye = dette.montant_paye + montant
-    dette.solde = dette.solde - montant
-    if dette.solde == 0:
-        dette.statut = DetteFournisseur.Statut.SOLDE
-    dette.save(update_fields=["montant_paye", "solde", "statut", "date_modification"])
-    return dette

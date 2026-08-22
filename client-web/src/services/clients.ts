@@ -1,12 +1,13 @@
 import { ouvrirBaseDeDonnees } from "../db";
 import { ecrireLigne, maintenant, obtenirLigne, suiviSyncNeuf } from "../db/helpers";
 import type { ClientLocal, CreditLocal, PaiementCreditLocal } from "../db/schema";
+import { enregistrerMouvement } from "./tresorerie";
 
 /**
  * Port navigateur de client-electron/electron/services/clients.ts : un Credit
  * naît uniquement d'une vente à crédit (cf. services/ventes.ts::creerVente),
  * pas de création ici. Contrairement à fournisseurs.DetteFournisseur, chaque
- * remboursement laisse une trace (PaiementCredit), pas seulement une mutation
+ * règlement laisse une trace (PaiementCredit), pas seulement une mutation
  * du solde.
  */
 
@@ -216,7 +217,13 @@ export async function obtenirCredit(id: string): Promise<CreditDetail | undefine
 }
 
 /** Miroir exact de clients/services.py::rembourser_credit. */
-export async function rembourserCredit(creditId: string, montant: number, mode = ""): Promise<void> {
+export async function rembourserCredit(
+  creditId: string,
+  montant: number,
+  mode = "",
+  depotId: string | null = null,
+  utilisateurId: string | null = null,
+): Promise<void> {
   const db = await ouvrirBaseDeDonnees();
   const credit = await db.get("credits", creditId);
   if (!credit) throw new ErreurClient("Crédit introuvable.");
@@ -227,8 +234,9 @@ export async function rembourserCredit(creditId: string, montant: number, mode =
     throw new ErreurClient("Le montant remboursé ne peut pas dépasser le solde restant.");
   }
 
+  const paiementId = crypto.randomUUID();
   const paiement: PaiementCreditLocal = {
-    id: crypto.randomUUID(),
+    id: paiementId,
     credit_id: creditId,
     montant,
     mode,
@@ -246,4 +254,18 @@ export async function rembourserCredit(creditId: string, montant: number, mode =
     synchronise: 0,
     date_modification: maintenant(),
   });
+
+  if (mode === "especes" && depotId) {
+    const client = await db.get("clients", credit.client_id);
+    await enregistrerMouvement({
+      depotId,
+      type: "entree",
+      categorie: "remboursement_credit",
+      montant,
+      motif: `Règlement crédit ${client?.nom ?? ""}`,
+      utilisateurId,
+      referenceType: "clients.PaiementCredit",
+      referenceId: paiementId,
+    });
+  }
 }

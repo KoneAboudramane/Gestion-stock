@@ -29,6 +29,8 @@ export interface BoutiqueLocale extends SuiviSync {
   email: string;
   devise: string;
   actif: 0 | 1;
+  /** Fixée côté serveur par l'administrateur, redescend via la synchro habituelle. NULL = illimité. */
+  date_expiration_abonnement: string | null;
 }
 
 export interface CategorieLocale extends SuiviSync {
@@ -241,6 +243,58 @@ export interface DetteFournisseurLocale extends SuiviSync {
   statut: "en_cours" | "solde";
 }
 
+export interface PaiementDetteFournisseurLocale extends SuiviSync {
+  id: string;
+  dette_id: string;
+  montant: number;
+  mode: string;
+}
+
+// --- Trésorerie (suivi de caisse, séparé de l'écran de vente "Caisse") ---
+// Le solde d'un dépôt n'est jamais stocké : agrégat à la volée sur
+// mouvements_caisse (voir services/tresorerie.ts::soldeCaisse), même
+// principe que "stocks" côté stock mais sans store dérivé à tenir à jour.
+
+export interface DepenseLocale extends SuiviSync {
+  id: string;
+  depot_id: string;
+  categorie: string;
+  montant: number;
+  description: string;
+  utilisateur_id: string | null;
+}
+
+export interface TransfertCaisseLocal extends SuiviSync {
+  id: string;
+  depot_id: string;
+  utilisateur_source_id: string | null;
+  operateur: string;
+  montant: number;
+  utilisateur_id: string | null;
+}
+
+export interface ClotureCaisseLocale extends SuiviSync {
+  id: string;
+  depot_id: string;
+  solde_theorique: number;
+  solde_compte: number;
+  ecart: number;
+  utilisateur_id: string | null;
+}
+
+/** reference_id : UUID libre (pas une FK, comme mouvements_stock.reference_id). */
+export interface MouvementCaisseLocal extends SuiviSync {
+  id: string;
+  depot_id: string;
+  type: "entree" | "sortie" | "ajustement";
+  categorie: string;
+  montant: number;
+  motif: string;
+  reference_type: string;
+  reference_id: string | null;
+  utilisateur_id: string | null;
+}
+
 export interface ParametreLocal extends SuiviSync {
   id: string;
   boutique_id: string;
@@ -369,6 +423,27 @@ export interface GestionStockDB extends DBSchema {
     value: DetteFournisseurLocale;
     indexes: { fournisseur_id: string; synchronise: number };
   };
+  paiements_dette_fournisseur: {
+    key: string;
+    value: PaiementDetteFournisseurLocale;
+    indexes: { dette_id: string; synchronise: number };
+  };
+  depenses: { key: string; value: DepenseLocale; indexes: { depot_id: string; synchronise: number } };
+  transferts_caisse: {
+    key: string;
+    value: TransfertCaisseLocal;
+    indexes: { depot_id: string; synchronise: number };
+  };
+  clotures_caisse: {
+    key: string;
+    value: ClotureCaisseLocale;
+    indexes: { depot_id: string; synchronise: number };
+  };
+  mouvements_caisse: {
+    key: string;
+    value: MouvementCaisseLocal;
+    indexes: { depot_id: string; synchronise: number };
+  };
   mouvements_stock: {
     key: string;
     value: MouvementStockLocal;
@@ -413,4 +488,4 @@ export interface GestionStockDB extends DBSchema {
 }
 
 export const NOM_BASE = "gestion-stock";
-export const VERSION_BASE = 2;
+export const VERSION_BASE = 3;

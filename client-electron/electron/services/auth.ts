@@ -4,6 +4,7 @@ import path from "node:path";
 import { app } from "electron";
 
 import { URL_BASE_API } from "../config";
+import { appelerAvecDelai } from "./sync";
 
 /**
  * Connexion/inscription : appelle le VRAI backend Django (déjà construit et
@@ -199,6 +200,42 @@ export function sessionActuelle(): Session | null {
     return JSON.parse(fs.readFileSync(chemin, "utf-8"));
   } catch {
     return null;
+  }
+}
+
+/**
+ * Rôle/permissions/dépôt sont figés dans le JWT au moment de la connexion
+ * (voir ConnexionSerializer.get_token) : un changement de permission côté
+ * serveur (migration, modification du rôle...) ne s'appliquait donc qu'à la
+ * prochaine connexion manuelle. Appelée au démarrage de l'appli (App.tsx),
+ * cette fonction relit /auth/moi/ pour rafraîchir la session en cache sans
+ * exiger de déconnexion — best-effort : hors-ligne ou en cas d'erreur, la
+ * session actuelle est renvoyée inchangée.
+ */
+export async function rafraichirPermissions(session: Session): Promise<Session> {
+  try {
+    const reponse = await appelerAvecDelai(`${URL_BASE_API}/auth/moi/`, {
+      headers: { Authorization: `Bearer ${session.accessToken}` },
+    });
+    if (!reponse.ok) return session;
+    const donnees = await reponse.json();
+    const sessionMiseAJour: Session = {
+      ...session,
+      role: donnees.role?.nom ?? null,
+      permissions: donnees.role?.permissions ?? {},
+      depotId: donnees.depot_id ?? null,
+      depotNom: donnees.depot_nom ?? null,
+    };
+
+    fs.writeFileSync(cheminSession(), JSON.stringify(sessionMiseAJour, null, 2));
+    const identifiants = chargerIdentifiantsLocaux();
+    if (identifiants[session.username]) {
+      identifiants[session.username].session = sessionMiseAJour;
+      fs.writeFileSync(cheminIdentifiantsLocaux(), JSON.stringify(identifiants, null, 2));
+    }
+    return sessionMiseAJour;
+  } catch {
+    return session;
   }
 }
 

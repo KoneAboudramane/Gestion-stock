@@ -66,7 +66,13 @@ class ReinitialisationMotDePasseView(APIView):
 
 
 class MoiView(APIView):
-    """Infos de l'utilisateur connecté : boutique, rôle et permissions."""
+    """
+    Infos à jour de l'utilisateur connecté : boutique, rôle, permissions et
+    dépôt. Appelée par les clients à chaque démarrage pour rafraîchir la
+    session en cache (voir auth.rafraichirPermissions côté client) sans
+    obliger l'utilisateur à se déconnecter/reconnecter quand son rôle ou son
+    dépôt change — même forme que ConnexionSerializer.get_token.
+    """
 
     permission_classes = [permissions.IsAuthenticated]
 
@@ -77,6 +83,8 @@ class MoiView(APIView):
                 "utilisateur": UtilisateurSerializer(user).data,
                 "boutique": BoutiqueSerializer(user.boutique).data if user.boutique_id else None,
                 "role": RoleSerializer(user.role).data if user.role_id else None,
+                "depot_id": str(user.depot_id) if user.depot_id else None,
+                "depot_nom": user.depot.nom if user.depot_id else None,
             }
         )
 

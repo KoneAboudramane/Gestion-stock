@@ -41,3 +41,13 @@ class DetteFournisseur(ModeleBase):
 
     def __str__(self):
         return f"Dette {self.fournisseur} : solde {self.solde}"
+
+
+class PaiementDetteFournisseur(ModeleBase):
+    """Remboursement partiel ou total d'une dette fournisseur."""
+
+    dette = models.ForeignKey(
+        DetteFournisseur, on_delete=models.CASCADE, related_name="paiements"
+    )
+    montant = models.DecimalField(max_digits=12, decimal_places=2)
+    mode = models.CharField(max_length=30, blank=True)

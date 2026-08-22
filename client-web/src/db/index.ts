@@ -131,6 +131,29 @@ export function ouvrirBaseDeDonnees(): Promise<IDBPDatabase<GestionStockDB>> {
           messages.createIndex("boutique_id", "boutique_id");
           messages.createIndex("synchronise", "synchronise");
         }
+
+        // v3 : Trésorerie (suivi de caisse, dépenses) — additif uniquement.
+        if (oldVersion < 3) {
+          const paiementsDetteFournisseur = db.createObjectStore("paiements_dette_fournisseur", { keyPath: "id" });
+          paiementsDetteFournisseur.createIndex("dette_id", "dette_id");
+          paiementsDetteFournisseur.createIndex("synchronise", "synchronise");
+
+          const depenses = db.createObjectStore("depenses", { keyPath: "id" });
+          depenses.createIndex("depot_id", "depot_id");
+          depenses.createIndex("synchronise", "synchronise");
+
+          const transfertsCaisse = db.createObjectStore("transferts_caisse", { keyPath: "id" });
+          transfertsCaisse.createIndex("depot_id", "depot_id");
+          transfertsCaisse.createIndex("synchronise", "synchronise");
+
+          const cloturesCaisse = db.createObjectStore("clotures_caisse", { keyPath: "id" });
+          cloturesCaisse.createIndex("depot_id", "depot_id");
+          cloturesCaisse.createIndex("synchronise", "synchronise");
+
+          const mouvementsCaisse = db.createObjectStore("mouvements_caisse", { keyPath: "id" });
+          mouvementsCaisse.createIndex("depot_id", "depot_id");
+          mouvementsCaisse.createIndex("synchronise", "synchronise");
+        }
       },
     });
   }

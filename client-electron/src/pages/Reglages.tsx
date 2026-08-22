@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 
 import { api } from "../api/client";
 import ModaleConfirmation from "../components/ModaleConfirmation";
@@ -8,13 +9,13 @@ import { useRafraichirNomBoutique } from "../contexts/NomBoutiqueContext";
 import type {
   BoutiqueDetail,
   DepotResume,
-  ParametreResume,
   ReferenceNommee,
   RoleResume,
   Session,
   UniteResume,
   UtilisateurResume,
 } from "../api/client";
+import { appliquerTheme, themeActuel, type Theme } from "../lib/theme";
 
 const CLES_PERMISSIONS: { cle: string; label: string }[] = [
   { cle: "vendre", label: "Vendre / encaisser" },
@@ -28,27 +29,21 @@ const CLES_PERMISSIONS: { cle: string; label: string }[] = [
   { cle: "gerer_utilisateurs_reglages", label: "Gérer les utilisateurs et réglages" },
 ];
 
-const ONGLETS = [
-  { cle: "profil", label: "Informations boutique" },
-  { cle: "utilisateurs", label: "Utilisateurs & rôles" },
-  { cle: "parametres", label: "Paramètres" },
+const SECTIONS = [
+  { cle: "profil", label: "Informations boutique", icone: "🏪" },
+  { cle: "utilisateurs", label: "Utilisateurs & rôles", icone: "👥" },
+  { cle: "parametres", label: "Paramètres", icone: "⚙️" },
 ] as const;
 
-type Onglet = (typeof ONGLETS)[number]["cle"];
+type Section = (typeof SECTIONS)[number]["cle"];
 
-function SelecteurOnglet({ onglet, setOnglet }: { onglet: Onglet; setOnglet: (o: Onglet) => void }) {
+function EnteteModale({ titre, onFermer }: { titre: string; onFermer: () => void }) {
   return (
-    <div className="barre-onglets">
-      {ONGLETS.map((o) => (
-        <button
-          key={o.cle}
-          type="button"
-          className={`onglet ${onglet === o.cle ? "actif" : ""}`}
-          onClick={() => setOnglet(o.cle)}
-        >
-          {o.label}
-        </button>
-      ))}
+    <div className="modale-entete">
+      <h3>{titre}</h3>
+      <button type="button" className="lien bouton-retour" onClick={onFermer}>
+        ← Retour
+      </button>
     </div>
   );
 }
@@ -57,12 +52,10 @@ function SelecteurOnglet({ onglet, setOnglet }: { onglet: Onglet; setOnglet: (o:
 
 function OngletProfilBoutique({
   session,
-  onglet,
-  setOnglet,
+  onSessionMiseAJour,
 }: {
   session: Session;
-  onglet: Onglet;
-  setOnglet: (o: Onglet) => void;
+  onSessionMiseAJour: (session: Session) => void;
 }) {
   const peutGerer = !!session.permissions.gerer_utilisateurs_reglages;
   const [boutique, setBoutique] = useState<BoutiqueDetail | null>(null);
@@ -70,6 +63,9 @@ function OngletProfilBoutique({
   const [moi, setMoi] = useState<UtilisateurResume | null>(null);
   const [emailCompte, setEmailCompte] = useState("");
   const [telephoneCompte, setTelephoneCompte] = useState("");
+  const [depots, setDepots] = useState<DepotResume[]>([]);
+  const [depotId, setDepotId] = useState("");
+  const [tauxTva, setTauxTva] = useState("");
   const [modeEdition, setModeEdition] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -79,18 +75,23 @@ function OngletProfilBoutique({
   const rafraichirNomBoutique = useRafraichirNomBoutique();
 
   async function charger() {
-    const [b, l, resultatUtilisateurs] = await Promise.all([
+    const [b, l, resultatUtilisateurs, listeDepots, parametres] = await Promise.all([
       api.reglages.obtenirBoutique(session.boutiqueId),
       api.reglages.obtenirLogoBoutique(session.boutiqueId),
       api.comptes.listerUtilisateurs(session),
+      api.depots.lister(session.boutiqueId),
+      api.reglages.listerParametres(session.boutiqueId),
     ]);
     setBoutique(b ?? null);
     setLogo(l);
+    setDepots(listeDepots);
+    setTauxTva(parametres.find((p) => p.cle === "taux_tva")?.valeur ?? "");
     if (resultatUtilisateurs.succes) {
       const moiTrouve = resultatUtilisateurs.resultat.find((u) => u.id === Number(session.utilisateurId)) ?? null;
       setMoi(moiTrouve);
       setEmailCompte(moiTrouve?.email ?? "");
       setTelephoneCompte(moiTrouve?.telephone ?? "");
+      setDepotId(moiTrouve?.depot ?? "");
     }
   }
 
@@ -124,15 +125,30 @@ function OngletProfilBoutique({
         setErreur(resultat.message);
         return;
       }
+      const tauxSaisi = tauxTva.trim();
+      if (tauxSaisi && (Number.isNaN(Number(tauxSaisi)) || Number(tauxSaisi) < 0 || Number(tauxSaisi) > 100)) {
+        setErreur("Le taux de TVA doit être un nombre entre 0 et 100.");
+        return;
+      }
+      const resultatTva = await api.reglages.definirParametre(session.boutiqueId, "taux_tva", tauxSaisi);
+      if (!resultatTva.succes) {
+        setErreur(resultatTva.message);
+        return;
+      }
       if (moi) {
         const resultatCompte = await api.comptes.modifierUtilisateur(session, moi.id, {
           email: emailCompte,
           telephone: telephoneCompte,
+          depotId: depotId || null,
         });
         if (!resultatCompte.succes) {
           setErreur(resultatCompte.message);
           return;
         }
+        // Le dépôt de vente peut avoir changé : on rafraîchit la session
+        // partagée (même appel que rafraichirPermissions au démarrage) pour
+        // que Trésorerie/Caisse le reflètent immédiatement, sans redémarrage.
+        api.auth.rafraichirPermissions(session).then(onSessionMiseAJour);
       }
       await api.reglages.definirLogoBoutique(session.boutiqueId, logo);
       setMessage("Informations enregistrées.");
@@ -157,9 +173,6 @@ function OngletProfilBoutique({
   if (!modeEdition) {
     return (
       <div>
-        <div className="barre-actions barre-actions-avec-onglets">
-          <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
-        </div>
         <div className="formulaire-catalogue formulaire-profil-boutique">
         {message && <p className="note-aide">{message}</p>}
         <div className="champ-logo-boutique">
@@ -193,6 +206,10 @@ function OngletProfilBoutique({
                 <p className="note-aide">Devise</p>
                 <p>{boutique.devise || ""}</p>
               </div>
+              <div>
+                <p className="note-aide">Taux de TVA</p>
+                <p>{tauxTva ? `${tauxTva} %` : "Non assujetti"}</p>
+              </div>
             </div>
           </div>
           {moi && (
@@ -214,6 +231,10 @@ function OngletProfilBoutique({
                 <div>
                   <p className="note-aide">Email</p>
                   <p>{moi.email || ""}</p>
+                </div>
+                <div>
+                  <p className="note-aide">Dépôt de vente</p>
+                  <p>{depots.find((d) => d.id === depotId)?.nom || "Aucun"}</p>
                 </div>
               </div>
             </div>
@@ -285,6 +306,18 @@ function OngletProfilBoutique({
               Devise
               <input value={boutique.devise} onChange={(e) => setBoutique({ ...boutique, devise: e.target.value })} />
             </label>
+            <label>
+              Taux de TVA (%)
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step="0.01"
+                placeholder="Non assujetti"
+                value={tauxTva}
+                onChange={(e) => setTauxTva(e.target.value)}
+              />
+            </label>
           </div>
         </div>
         {moi && (
@@ -303,6 +336,17 @@ function OngletProfilBoutique({
                   value={emailCompte}
                   onChange={(e) => setEmailCompte(e.target.value)}
                 />
+              </label>
+              <label>
+                Dépôt de vente
+                <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
+                  <option value="">Aucun</option>
+                  {depots.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.nom}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
           </div>
@@ -752,15 +796,7 @@ const SOUS_ONGLETS_UTILISATEURS = [
 
 type SousOngletUtilisateurs = (typeof SOUS_ONGLETS_UTILISATEURS)[number]["cle"];
 
-function OngletUtilisateursRoles({
-  session,
-  onglet,
-  setOnglet,
-}: {
-  session: Session;
-  onglet: Onglet;
-  setOnglet: (o: Onglet) => void;
-}) {
+function OngletUtilisateursRoles({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_utilisateurs_reglages;
   const [sousOnglet, setSousOnglet] = useState<SousOngletUtilisateurs>("roles");
   const [roles, setRoles] = useState<RoleResume[]>([]);
@@ -816,34 +852,34 @@ function OngletUtilisateursRoles({
           </div>
         </div>
       )}
-      {erreur && <div className="message-erreur">{erreur}</div>}
-      <div className="barre-actions barre-actions-avec-onglets">
-        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
-        <div className="barre-onglets">
+      <div className="disposition-parametres">
+        <nav className="barre-laterale-parametres">
           {SOUS_ONGLETS_UTILISATEURS.map((o) => (
             <button
               key={o.cle}
               type="button"
-              className={`onglet ${sousOnglet === o.cle ? "actif" : ""}`}
+              className={`item-nav-parametres ${sousOnglet === o.cle ? "actif" : ""}`}
               onClick={() => setSousOnglet(o.cle)}
             >
               {o.label}
             </button>
           ))}
-        </div>
-        {sousOnglet === "utilisateurs" && (
-          <span className="actions-ligne">
-            <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherForm(true)}>
-              + Nouvel utilisateur
-            </button>
-          </span>
-        )}
-      </div>
-      <div className="contenu-onglet">
-        {sousOnglet === "roles" &&
-          roles.map((r) => <CarteRole key={r.id} role={r} session={session} onModifie={rafraichir} />)}
+        </nav>
+        <div className="contenu-onglet contenu-parametres">
+          {erreur && <div className="message-erreur">{erreur}</div>}
+          {sousOnglet === "utilisateurs" && (
+            <div className="barre-actions">
+              <span className="actions-ligne">
+                <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherForm(true)}>
+                  + Nouvel utilisateur
+                </button>
+              </span>
+            </div>
+          )}
+          {sousOnglet === "roles" &&
+            roles.map((r) => <CarteRole key={r.id} role={r} session={session} onModifie={rafraichir} />)}
 
-        {sousOnglet === "utilisateurs" && (
+          {sousOnglet === "utilisateurs" && (
           <>
             <div className="zone-tableau-scroll">
             <table className="tableau-catalogue">
@@ -899,6 +935,7 @@ function OngletUtilisateursRoles({
             </div>
           </>
         )}
+        </div>
       </div>
     </div>
   );
@@ -906,88 +943,49 @@ function OngletUtilisateursRoles({
 
 // --- Onglet Paramètres ---
 
-function OngletParametres({ session }: { session: Session }) {
-  const peutGerer = !!session.permissions.gerer_utilisateurs_reglages;
-  const [parametres, setParametres] = useState<ParametreResume[]>([]);
-  const [cle, setCle] = useState("");
-  const [valeur, setValeur] = useState("");
-  const [erreur, setErreur] = useState<string | null>(null);
-  const [confirmationSuppressionId, setConfirmationSuppressionId] = useState<string | null>(null);
+function OngletParametres() {
+  const [theme, setTheme] = useState<Theme>(() => themeActuel());
 
-  async function rafraichir() {
-    setParametres(await api.reglages.listerParametres(session.boutiqueId));
-  }
-  useEffect(() => {
-    rafraichir();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function enregistrer(evenement: React.FormEvent) {
-    evenement.preventDefault();
-    if (!cle.trim()) return;
-    const resultat = await api.reglages.definirParametre(session.boutiqueId, cle.trim(), valeur);
-    if (resultat.succes) {
-      setCle("");
-      setValeur("");
-      setErreur(null);
-      rafraichir();
-    } else {
-      setErreur(resultat.message);
-    }
-  }
-
-  async function supprimer(id: string) {
-    const resultat = await api.reglages.supprimerParametre(id);
-    setConfirmationSuppressionId(null);
-    if (resultat.succes) rafraichir();
-    else setErreur(resultat.message);
+  function changerTheme(nouveauTheme: Theme) {
+    appliquerTheme(nouveauTheme);
+    setTheme(nouveauTheme);
   }
 
   return (
     <div className="reglage-catalogue">
-      {peutGerer && (
-        <form onSubmit={enregistrer} className="formulaire-inline barre-actions-fixe">
-          <input placeholder="Clé" value={cle} onChange={(e) => setCle(e.target.value)} />
-          <input placeholder="Valeur" value={valeur} onChange={(e) => setValeur(e.target.value)} />
-          <button type="submit">Enregistrer</button>
-        </form>
-      )}
-      {erreur && <div className="message-erreur">{erreur}</div>}
-      <ul className="liste-simple">
-        {parametres.map((p) => (
-          <li key={p.id} className="ligne-liste-simple">
-            <span
-              onClick={() => {
-                if (!peutGerer) return;
-                setCle(p.cle);
-                setValeur(p.valeur);
-              }}
-            >
-              <strong>{p.cle}</strong> = {p.valeur}
-            </span>
-            {peutGerer && (
-              <button
-                type="button"
-                className="lien-icone lien-icone-danger"
-                title="Supprimer"
-                onClick={() => setConfirmationSuppressionId(p.id)}
-              >
-                ×
-              </button>
-            )}
-          </li>
-        ))}
-        {parametres.length === 0 && <li className="liste-vide">Aucun paramètre.</li>}
-      </ul>
-      {confirmationSuppressionId && (
-        <ModaleConfirmation
-          titre="Supprimer ce paramètre ?"
-          labelConfirmer="Supprimer"
-          dangereux
-          onAnnuler={() => setConfirmationSuppressionId(null)}
-          onConfirmer={() => supprimer(confirmationSuppressionId)}
-        />
-      )}
+      <div className="bloc-apparence">
+        <h3>Thème</h3>
+        <div className="groupe-theme">
+          <button
+            type="button"
+            className={`bouton-theme ${theme === "clair" ? "actif" : ""}`}
+            onClick={() => changerTheme("clair")}
+          >
+            ☀️ Clair
+          </button>
+          <button
+            type="button"
+            className={`bouton-theme ${theme === "sombre" ? "actif" : ""}`}
+            onClick={() => changerTheme("sombre")}
+          >
+            🌙 Sombre
+          </button>
+          <button
+            type="button"
+            className={`bouton-theme ${theme === "nuit" ? "actif" : ""}`}
+            onClick={() => changerTheme("nuit")}
+          >
+            🕯️ Nuit
+          </button>
+          <button
+            type="button"
+            className={`bouton-theme ${theme === "orange" ? "actif" : ""}`}
+            onClick={() => changerTheme("orange")}
+          >
+            🟠 Orange
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1379,36 +1377,25 @@ const SOUS_ONGLETS_PARAMETRES = [
 
 type SousOngletParametres = (typeof SOUS_ONGLETS_PARAMETRES)[number]["cle"];
 
-function OngletParametresGeneraux({
-  session,
-  onglet,
-  setOnglet,
-}: {
-  session: Session;
-  onglet: Onglet;
-  setOnglet: (o: Onglet) => void;
-}) {
+function OngletParametresGeneraux({ session }: { session: Session }) {
   const [sousOnglet, setSousOnglet] = useState<SousOngletParametres>("general");
 
   return (
-    <div>
-      <div className="barre-actions barre-actions-avec-onglets">
-        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
-        <div className="barre-onglets">
-          {SOUS_ONGLETS_PARAMETRES.map((o) => (
-            <button
-              key={o.cle}
-              type="button"
-              className={`onglet ${sousOnglet === o.cle ? "actif" : ""}`}
-              onClick={() => setSousOnglet(o.cle)}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="contenu-onglet">
-        {sousOnglet === "general" && <OngletParametres session={session} />}
+    <div className="disposition-parametres">
+      <nav className="barre-laterale-parametres">
+        {SOUS_ONGLETS_PARAMETRES.map((o) => (
+          <button
+            key={o.cle}
+            type="button"
+            className={`item-nav-parametres ${sousOnglet === o.cle ? "actif" : ""}`}
+            onClick={() => setSousOnglet(o.cle)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </nav>
+      <div className="contenu-onglet contenu-parametres">
+        {sousOnglet === "general" && <OngletParametres />}
         {sousOnglet === "unites" && <OngletUnites session={session} />}
         {sousOnglet === "attributs" && <OngletAttributs session={session} />}
         {sousOnglet === "depots" && <OngletDepots session={session} />}
@@ -1418,23 +1405,121 @@ function OngletParametresGeneraux({
 }
 
 // --- Page principale ---
-// L'onglet est affiché dans la même ligne que les actions de chaque onglet
-// (voir SelecteurOnglet) plutôt que dans une en-tête séparée.
+// Chaque section (Informations boutique / Utilisateurs & rôles / Paramètres)
+// est un bouton-carte qui ouvre sa propre modale, même patron que
+// Comptabilite.tsx et Rapports.tsx.
 
-export default function Reglages({ session }: { session: Session }) {
-  const [onglet, setOnglet] = useState<Onglet>("profil");
+function ModaleProfilBoutique({
+  session, onSessionMiseAJour, onFermer,
+}: { session: Session; onSessionMiseAJour: (session: Session) => void; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Informations boutique" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletProfilBoutique session={session} onSessionMiseAJour={onSessionMiseAJour} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModaleUtilisateursRoles({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Utilisateurs & rôles" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletUtilisateursRoles session={session} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModaleParametres({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Paramètres" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletParametresGeneraux session={session} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const CERCLES_FOND = [
+  { taille: 90, couleur: "var(--cercle-1)", duree: 26, delai: -4, depart: ["-15vw", "10vh"], arrivee: ["115vw", "60vh"] },
+  { taille: 60, couleur: "var(--cercle-2)", duree: 22, delai: -15, depart: ["115vw", "70vh"], arrivee: ["-15vw", "15vh"] },
+  { taille: 120, couleur: "var(--cercle-3)", duree: 32, delai: -9, depart: ["20vw", "115vh"], arrivee: ["75vw", "-20vh"] },
+  { taille: 50, couleur: "var(--cercle-4)", duree: 24, delai: -2, depart: ["70vw", "-15vh"], arrivee: ["15vw", "115vh"] },
+  { taille: 75, couleur: "var(--cercle-5)", duree: 28, delai: -20, depart: ["-15vw", "90vh"], arrivee: ["110vw", "20vh"] },
+  { taille: 100, couleur: "var(--cercle-6)", duree: 30, delai: -12, depart: ["110vw", "25vh"], arrivee: ["-15vw", "85vh"] },
+  { taille: 40, couleur: "var(--cercle-1)", duree: 20, delai: -7, depart: ["40vw", "-15vh"], arrivee: ["85vw", "115vh"] },
+  { taille: 65, couleur: "var(--cercle-3)", duree: 25, delai: -16, depart: ["105vw", "45vh"], arrivee: ["-10vw", "55vh"] },
+  { taille: 85, couleur: "var(--cercle-4)", duree: 34, delai: -5, depart: ["85vw", "110vh"], arrivee: ["10vw", "-15vh"] },
+  { taille: 55, couleur: "var(--cercle-6)", duree: 23, delai: -10, depart: ["-10vw", "35vh"], arrivee: ["105vw", "90vh"] },
+] as const;
+
+export default function Reglages({
+  session,
+  onSessionMiseAJour,
+}: {
+  session: Session;
+  onSessionMiseAJour: (session: Session) => void;
+}) {
+  const [sectionOuverte, setSectionOuverte] = useState<Section | null>(null);
 
   return (
-    <div className="page-produits">
-      <div className="contenu-onglet">
-        {onglet === "profil" && <OngletProfilBoutique session={session} onglet={onglet} setOnglet={setOnglet} />}
-        {onglet === "utilisateurs" && (
-          <OngletUtilisateursRoles session={session} onglet={onglet} setOnglet={setOnglet} />
-        )}
-        {onglet === "parametres" && (
-          <OngletParametresGeneraux session={session} onglet={onglet} setOnglet={setOnglet} />
-        )}
+    <div className="page-produits page-accueil">
+      {CERCLES_FOND.map((c, i) => (
+        <span
+          key={i}
+          aria-hidden="true"
+          className="cercle-fond"
+          style={
+            {
+              width: c.taille,
+              height: c.taille,
+              background: c.couleur,
+              animationDuration: `${c.duree}s`,
+              animationDelay: `${c.delai}s`,
+              "--depart-x": c.depart[0],
+              "--depart-y": c.depart[1],
+              "--arrivee-x": c.arrivee[0],
+              "--arrivee-y": c.arrivee[1],
+            } as CSSProperties
+          }
+        />
+      ))}
+      <div className="grille-documents-comptables">
+        {SECTIONS.map((s) => (
+          <button
+            key={s.cle}
+            type="button"
+            className="carte-document-comptable"
+            onClick={() => setSectionOuverte(s.cle)}
+          >
+            <span className="icone-document-comptable">{s.icone}</span>
+            {s.label}
+          </button>
+        ))}
       </div>
+      {sectionOuverte === "profil" && (
+        <ModaleProfilBoutique
+          session={session}
+          onSessionMiseAJour={onSessionMiseAJour}
+          onFermer={() => setSectionOuverte(null)}
+        />
+      )}
+      {sectionOuverte === "utilisateurs" && (
+        <ModaleUtilisateursRoles session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
+      {sectionOuverte === "parametres" && (
+        <ModaleParametres session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
     </div>
   );
 }

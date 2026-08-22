@@ -31,6 +31,10 @@ ROLES_PAR_DEFAUT = {
         "annuler_vente": True,
         "voir_rapports_complets": True,
         "gerer_utilisateurs_reglages": True,
+        "consulter_tresorerie": True,
+        "enregistrer_depense": True,
+        "gerer_tresorerie": True,
+        "consulter_comptabilite": True,
     },
     "Gérant": {
         "vendre": True,
@@ -42,6 +46,10 @@ ROLES_PAR_DEFAUT = {
         "annuler_vente": True,
         "voir_rapports_complets": True,
         "gerer_utilisateurs_reglages": False,
+        "consulter_tresorerie": True,
+        "enregistrer_depense": True,
+        "gerer_tresorerie": True,
+        "consulter_comptabilite": True,
     },
     "Caissier": {
         "vendre": True,
@@ -55,6 +63,13 @@ ROLES_PAR_DEFAUT = {
         "annuler_vente": False,
         "voir_rapports_complets": False,
         "gerer_utilisateurs_reglages": False,
+        "consulter_tresorerie": True,
+        "enregistrer_depense": True,
+        # Retrait/Apport/Ajustement de caisse : réservés Patron/Gérant (décision
+        # utilisateur, voir mémoire projet "caisse_tresorerie_depenses").
+        "gerer_tresorerie": False,
+        # Comptabilité (journal, bilan...) : réservée Patron/Gérant.
+        "consulter_comptabilite": False,
     },
 }
 

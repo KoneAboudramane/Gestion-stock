@@ -4,3 +4,4 @@ dist-electron/
 release/
 *.sqlite
 session.json
+dev-log.txt

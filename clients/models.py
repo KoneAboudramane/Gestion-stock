@@ -48,7 +48,7 @@ class Credit(ModeleBase):
 
 
 class PaiementCredit(ModeleBase):
-    """Remboursement partiel ou total d'un crédit."""
+    """Règlement partiel ou total d'un crédit."""
 
     credit = models.ForeignKey(
         Credit, on_delete=models.CASCADE, related_name="paiements"

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 
 import { api } from "../api/client";
 import type {
@@ -16,6 +17,7 @@ import type {
 import ChampMontant from "../components/ChampMontant";
 import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant } from "../lib/formatage";
+import { MODES_REGLEMENT } from "../lib/libelles";
 
 function libelleStatutCommande(statut: StatutCommande): string {
   if (statut === "brouillon") return "Brouillon";
@@ -428,7 +430,7 @@ function ApercuCommandesGroupees({
                   value={l.fournisseurId}
                   onChange={(e) => modifierLigne(l.varianteId, { fournisseurId: e.target.value })}
                 >
-                  <option value="">— à choisir —</option>
+                  <option value="">À choisir…</option>
                   {fournisseurs.map((f) => (
                     <option key={f.id} value={f.id}>
                       {f.nom}
@@ -715,27 +717,21 @@ function DetailCommande({
   );
 }
 
-const ONGLETS = [
-  { cle: "commandes", label: "Commandes" },
-  { cle: "fournisseurs", label: "Fournisseurs" },
-  { cle: "dettes", label: "Dettes" },
+const SECTIONS = [
+  { cle: "commandes", label: "Commandes", icone: "📦" },
+  { cle: "fournisseurs", label: "Fournisseurs", icone: "🚚" },
+  { cle: "dettes", label: "Dettes", icone: "💰" },
 ] as const;
 
-type Onglet = (typeof ONGLETS)[number]["cle"];
+export type Onglet = (typeof SECTIONS)[number]["cle"];
 
-function SelecteurOnglet({ onglet, setOnglet }: { onglet: Onglet; setOnglet: (o: Onglet) => void }) {
+function EnteteModale({ titre, onFermer }: { titre: string; onFermer: () => void }) {
   return (
-    <div className="barre-onglets">
-      {ONGLETS.map((o) => (
-        <button
-          key={o.cle}
-          type="button"
-          className={`onglet ${onglet === o.cle ? "actif" : ""}`}
-          onClick={() => setOnglet(o.cle)}
-        >
-          {o.label}
-        </button>
-      ))}
+    <div className="modale-entete">
+      <h3>{titre}</h3>
+      <button type="button" className="lien bouton-retour" onClick={onFermer}>
+        ← Retour
+      </button>
     </div>
   );
 }
@@ -745,15 +741,11 @@ function OngletCommandes({
   ouvrirFormulaireInitial,
   lignesInitiales,
   onFormulaireInitialConsomme,
-  onglet,
-  setOnglet,
 }: {
   session: Session;
   ouvrirFormulaireInitial?: boolean;
   lignesInitiales?: LigneAchatInitiale[];
   onFormulaireInitialConsomme?: () => void;
-  onglet: Onglet;
-  setOnglet: (o: Onglet) => void;
 }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [fournisseurs, setFournisseurs] = useState<FournisseurResume[]>([]);
@@ -840,7 +832,6 @@ function OngletCommandes({
         </div>
       )}
       <div className="barre-actions barre-actions-avec-onglets">
-        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         <select value={fournisseurId} onChange={(e) => setFournisseurId(e.target.value)}>
           <option value="">Tous les fournisseurs</option>
           {fournisseurs.map((f) => (
@@ -1092,15 +1083,7 @@ function FormulaireFournisseursGroupe({
   );
 }
 
-function OngletFournisseurs({
-  session,
-  onglet,
-  setOnglet,
-}: {
-  session: Session;
-  onglet: Onglet;
-  setOnglet: (o: Onglet) => void;
-}) {
+function OngletFournisseurs({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [fournisseurs, setFournisseurs] = useState<FournisseurResume[]>([]);
   const [afficherModal, setAfficherModal] = useState(false);
@@ -1116,7 +1099,6 @@ function OngletFournisseurs({
   return (
     <div>
       <div className="barre-actions barre-actions-fixe barre-actions-avec-onglets">
-        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         {peutGerer && (
           <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherModal(true)}>
             + Nouveau fournisseur
@@ -1181,8 +1163,10 @@ function OngletFournisseurs({
 
 // --- Onglet Dettes ---
 
-function LignePayer({ dette, onPaye }: { dette: DetteResume; onPaye: () => void }) {
+function LignePayer({ dette, session, depots, onPaye }: { dette: DetteResume; session: Session; depots: Depot[]; onPaye: () => void }) {
   const [montant, setMontant] = useState("");
+  const [mode, setMode] = useState(MODES_REGLEMENT[0].valeur);
+  const [depotId, setDepotId] = useState(session.depotId ?? "");
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
 
@@ -1190,7 +1174,13 @@ function LignePayer({ dette, onPaye }: { dette: DetteResume; onPaye: () => void 
     setEnCours(true);
     setErreur(null);
     try {
-      const resultat = await api.dettes.payer(dette.id, Number(montant) || 0);
+      const resultat = await api.dettes.payer(
+        dette.id,
+        Number(montant) || 0,
+        mode,
+        depotId || null,
+        session.utilisateurId,
+      );
       if (resultat.succes) {
         setMontant("");
         onPaye();
@@ -1203,8 +1193,25 @@ function LignePayer({ dette, onPaye }: { dette: DetteResume; onPaye: () => void 
   }
 
   return (
-    <div>
+    <div className="ligne-payer-dette">
       <ChampMontant placeholder="Montant" value={montant} onChange={setMontant} style={{ width: "100px" }} />
+      <select value={mode} onChange={(e) => setMode(e.target.value)}>
+        {MODES_REGLEMENT.map((m) => (
+          <option key={m.valeur} value={m.valeur}>
+            {m.label}
+          </option>
+        ))}
+      </select>
+      {!session.depotId && (
+        <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
+          <option value="">Dépôt…</option>
+          {depots.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.nom}
+            </option>
+          ))}
+        </select>
+      )}
       <button type="button" className="bouton-primaire" onClick={payer} disabled={enCours}>
         {enCours ? "…" : "Payer"}
       </button>
@@ -1213,18 +1220,11 @@ function LignePayer({ dette, onPaye }: { dette: DetteResume; onPaye: () => void 
   );
 }
 
-function OngletDettes({
-  session,
-  onglet,
-  setOnglet,
-}: {
-  session: Session;
-  onglet: Onglet;
-  setOnglet: (o: Onglet) => void;
-}) {
+function OngletDettes({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [statut, setStatut] = useState<StatutDette | "">("");
   const [dettes, setDettes] = useState<DetteResume[]>([]);
+  const [depots, setDepots] = useState<Depot[]>([]);
 
   async function rafraichir() {
     setDettes(await api.dettes.lister(session.boutiqueId, undefined, statut || undefined));
@@ -1233,11 +1233,14 @@ function OngletDettes({
     rafraichir();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statut]);
+  useEffect(() => {
+    if (!session.depotId) api.catalogue.listerDepots(session.boutiqueId).then(setDepots);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div>
       <div className="barre-actions barre-actions-avec-onglets">
-        <SelecteurOnglet onglet={onglet} setOnglet={setOnglet} />
         <select value={statut} onChange={(e) => setStatut(e.target.value as StatutDette | "")}>
           <option value="">Tous les statuts</option>
           <option value="en_cours">En cours</option>
@@ -1272,7 +1275,13 @@ function OngletDettes({
                   {d.statut === "solde" ? "Soldée" : "En cours"}
                 </span>
               </td>
-              {peutGerer && <td>{d.statut === "en_cours" && <LignePayer dette={d} onPaye={rafraichir} />}</td>}
+              {peutGerer && (
+                <td>
+                  {d.statut === "en_cours" && (
+                    <LignePayer dette={d} session={session} depots={depots} onPaye={rafraichir} />
+                  )}
+                </td>
+              )}
             </tr>
           ))}
           {dettes.length === 0 && (
@@ -1303,8 +1312,73 @@ function OngletDettes({
 }
 
 // --- Page principale ---
-// L'onglet est affiché dans la même ligne que la recherche et les actions de
-// chaque onglet (voir SelecteurOnglet) plutôt que dans une en-tête séparée.
+// Chaque section (Commandes / Fournisseurs / Dettes) est un bouton-carte qui
+// ouvre sa propre modale, même patron que Comptabilite.tsx/Rapports.tsx.
+
+function ModaleCommandes({
+  session, ouvrirFormulaireInitial, lignesInitiales, onFormulaireInitialConsomme, onFermer,
+}: {
+  session: Session;
+  ouvrirFormulaireInitial?: boolean;
+  lignesInitiales?: LigneAchatInitiale[];
+  onFormulaireInitialConsomme?: () => void;
+  onFermer: () => void;
+}) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Commandes" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletCommandes
+            session={session}
+            ouvrirFormulaireInitial={ouvrirFormulaireInitial}
+            lignesInitiales={lignesInitiales}
+            onFormulaireInitialConsomme={onFormulaireInitialConsomme}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModaleFournisseurs({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Fournisseurs" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletFournisseurs session={session} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModaleDettes({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Dettes" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletDettes session={session} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const CERCLES_FOND = [
+  { taille: 90, couleur: "var(--cercle-1)", duree: 26, delai: -4, depart: ["-15vw", "10vh"], arrivee: ["115vw", "60vh"] },
+  { taille: 60, couleur: "var(--cercle-2)", duree: 22, delai: -15, depart: ["115vw", "70vh"], arrivee: ["-15vw", "15vh"] },
+  { taille: 120, couleur: "var(--cercle-3)", duree: 32, delai: -9, depart: ["20vw", "115vh"], arrivee: ["75vw", "-20vh"] },
+  { taille: 50, couleur: "var(--cercle-4)", duree: 24, delai: -2, depart: ["70vw", "-15vh"], arrivee: ["15vw", "115vh"] },
+  { taille: 75, couleur: "var(--cercle-5)", duree: 28, delai: -20, depart: ["-15vw", "90vh"], arrivee: ["110vw", "20vh"] },
+  { taille: 100, couleur: "var(--cercle-6)", duree: 30, delai: -12, depart: ["110vw", "25vh"], arrivee: ["-15vw", "85vh"] },
+  { taille: 40, couleur: "var(--cercle-1)", duree: 20, delai: -7, depart: ["40vw", "-15vh"], arrivee: ["85vw", "115vh"] },
+  { taille: 65, couleur: "var(--cercle-3)", duree: 25, delai: -16, depart: ["105vw", "45vh"], arrivee: ["-10vw", "55vh"] },
+  { taille: 85, couleur: "var(--cercle-4)", duree: 34, delai: -5, depart: ["85vw", "110vh"], arrivee: ["10vw", "-15vh"] },
+  { taille: 55, couleur: "var(--cercle-6)", duree: 23, delai: -10, depart: ["-10vw", "35vh"], arrivee: ["105vw", "90vh"] },
+] as const;
 
 export default function Achats({
   session,
@@ -1317,24 +1391,58 @@ export default function Achats({
   lignesAchatInitiales?: LigneAchatInitiale[];
   onOuvertureConsommee?: () => void;
 }) {
-  const [onglet, setOnglet] = useState<Onglet>("commandes");
+  const [sectionOuverte, setSectionOuverte] = useState<Onglet | null>(ouvrirNouvelleCommande ? "commandes" : null);
 
   return (
-    <div className="page-produits">
-      <div className="contenu-onglet">
-        {onglet === "commandes" && (
-          <OngletCommandes
-            session={session}
-            ouvrirFormulaireInitial={ouvrirNouvelleCommande}
-            lignesInitiales={lignesAchatInitiales}
-            onFormulaireInitialConsomme={onOuvertureConsommee}
-            onglet={onglet}
-            setOnglet={setOnglet}
-          />
-        )}
-        {onglet === "fournisseurs" && <OngletFournisseurs session={session} onglet={onglet} setOnglet={setOnglet} />}
-        {onglet === "dettes" && <OngletDettes session={session} onglet={onglet} setOnglet={setOnglet} />}
+    <div className="page-produits page-accueil">
+      {CERCLES_FOND.map((c, i) => (
+        <span
+          key={i}
+          aria-hidden="true"
+          className="cercle-fond"
+          style={
+            {
+              width: c.taille,
+              height: c.taille,
+              background: c.couleur,
+              animationDuration: `${c.duree}s`,
+              animationDelay: `${c.delai}s`,
+              "--depart-x": c.depart[0],
+              "--depart-y": c.depart[1],
+              "--arrivee-x": c.arrivee[0],
+              "--arrivee-y": c.arrivee[1],
+            } as CSSProperties
+          }
+        />
+      ))}
+      <div className="grille-documents-comptables">
+        {SECTIONS.map((s) => (
+          <button
+            key={s.cle}
+            type="button"
+            className="carte-document-comptable"
+            onClick={() => setSectionOuverte(s.cle)}
+          >
+            <span className="icone-document-comptable">{s.icone}</span>
+            {s.label}
+          </button>
+        ))}
       </div>
+      {sectionOuverte === "commandes" && (
+        <ModaleCommandes
+          session={session}
+          ouvrirFormulaireInitial={ouvrirNouvelleCommande}
+          lignesInitiales={lignesAchatInitiales}
+          onFormulaireInitialConsomme={onOuvertureConsommee}
+          onFermer={() => setSectionOuverte(null)}
+        />
+      )}
+      {sectionOuverte === "fournisseurs" && (
+        <ModaleFournisseurs session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
+      {sectionOuverte === "dettes" && (
+        <ModaleDettes session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
     </div>
   );
 }

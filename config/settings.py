@@ -51,9 +51,11 @@ INSTALLED_APPS = [
     "fournisseurs",
     "ventes",
     "achats",
+    "tresorerie",
     "configuration",
     "synchronisation",
     "rapports",
+    "comptabilite",
 
     # Phase 2 (squelette, adaptateurs simulés)
     "paiements",

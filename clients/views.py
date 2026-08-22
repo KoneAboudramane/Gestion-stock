@@ -38,11 +38,14 @@ class CreditViewSet(
     @action(detail=True, methods=["post"])
     def rembourser(self, request, pk=None):
         credit = self.get_object()
-        entree = PaiementCreditEntreeSerializer(data=request.data)
+        entree = PaiementCreditEntreeSerializer(data=request.data, context={"request": request})
         entree.is_valid(raise_exception=True)
-        rembourser_credit(credit, entree.validated_data["montant"], entree.validated_data.get("mode", ""))
+        rembourser_credit(
+            credit, entree.validated_data["montant"], entree.validated_data.get("mode", ""),
+            depot=entree.validated_data.get("depot"), utilisateur=request.user,
+        )
         # Le cache prefetch_related("paiements") de get_object() est antérieur
-        # au remboursement : on relit l'objet pour renvoyer l'historique à jour.
+        # au règlement : on relit l'objet pour renvoyer l'historique à jour.
         credit.refresh_from_db()
         credit._prefetched_objects_cache = {}
         return Response(self.get_serializer(credit).data)
