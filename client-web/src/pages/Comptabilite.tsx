@@ -19,6 +19,7 @@ import {
   journalLocal,
   type EcritureLocale,
 } from "../services/comptabilite";
+import { formaterMontant } from "../lib/formatage";
 
 /**
  * Page Comptabilité : deux sources au choix (voir services/comptabilite.ts
@@ -40,10 +41,6 @@ function dateAujourdhui(): string {
 
 function debutAnnee(): string {
   return `${new Date().getFullYear()}-01-01`;
-}
-
-function formaterMontant(montant: number): string {
-  return montant ? montant.toLocaleString("fr-FR") : "";
 }
 
 // --- Sélecteur de source + période, à l'intérieur de chaque modale ---
@@ -141,16 +138,16 @@ function ModaleJournal({
             <p className="message-erreur">{erreur}</p>
           ) : (
             <div className="zone-tableau-scroll">
-              <table className="tableau-catalogue">
+              <table className="tableau-catalogue carte-mobile">
                 <thead>
                   <tr><th>Date</th><th>Journal</th><th>Écriture</th><th>Compte</th><th>Libellé</th><th>Débit</th><th>Crédit</th></tr>
                 </thead>
                 <tbody>
                   {lignes.map((l, i) => (
                     <tr key={i}>
-                      <td>{l.date}</td><td>{l.journal}</td><td>{l.libelleEcriture}</td>
-                      <td>{l.compte}</td><td>{l.libelleCompte}</td>
-                      <td>{formaterMontant(l.debit)}</td><td>{formaterMontant(l.credit)}</td>
+                      <td data-label="Date">{l.date}</td><td data-label="Journal">{l.journal}</td><td data-label="Écriture">{l.libelleEcriture}</td>
+                      <td data-label="Compte">{l.compte}</td><td data-label="Libellé">{l.libelleCompte}</td>
+                      <td data-label="Débit">{formaterMontant(l.debit)}</td><td data-label="Crédit">{formaterMontant(l.credit)}</td>
                     </tr>
                   ))}
                   {lignes.length === 0 && (
@@ -225,16 +222,16 @@ function ModaleGrandLivre({
             <p className="message-erreur">{erreur}</p>
           ) : (
             <div className="zone-tableau-scroll">
-              <table className="tableau-catalogue">
+              <table className="tableau-catalogue carte-mobile">
                 <thead>
                   <tr><th>Date</th><th>Journal</th><th>Libellé</th><th>Débit</th><th>Crédit</th><th>Solde cumulé</th></tr>
                 </thead>
                 <tbody>
                   {lignes.map((l, i) => (
                     <tr key={i}>
-                      <td>{l.date}</td><td>{l.journal}</td><td>{l.libelle}</td>
-                      <td>{formaterMontant(l.debit)}</td><td>{formaterMontant(l.credit)}</td>
-                      <td>{formaterMontant(l.soldeCumule)}</td>
+                      <td data-label="Date">{l.date}</td><td data-label="Journal">{l.journal}</td><td data-label="Libellé">{l.libelle}</td>
+                      <td data-label="Débit">{formaterMontant(l.debit)}</td><td data-label="Crédit">{formaterMontant(l.credit)}</td>
+                      <td data-label="Solde cumulé">{formaterMontant(l.soldeCumule)}</td>
                     </tr>
                   ))}
                   {lignes.length === 0 && (
@@ -243,7 +240,7 @@ function ModaleGrandLivre({
                 </tbody>
                 {lignes.length > 0 && (
                   <tfoot>
-                    <tr><td colSpan={5}>Solde final</td><td>{formaterMontant(soldeFinal)}</td></tr>
+                    <tr><td colSpan={5}>Solde final</td><td data-label="Solde final">{formaterMontant(soldeFinal)}</td></tr>
                   </tfoot>
                 )}
               </table>
@@ -302,16 +299,16 @@ function ModaleBalance({
             <p className="message-erreur">{erreur}</p>
           ) : (
             <div className="zone-tableau-scroll">
-              <table className="tableau-catalogue">
+              <table className="tableau-catalogue carte-mobile">
                 <thead>
                   <tr><th>Compte</th><th>Libellé</th><th>Total débit</th><th>Total crédit</th><th>Solde débiteur</th><th>Solde créditeur</th></tr>
                 </thead>
                 <tbody>
                   {lignes.map((l) => (
                     <tr key={l.compte}>
-                      <td>{l.compte}</td><td>{l.libelle}</td>
-                      <td>{formaterMontant(l.totalDebit)}</td><td>{formaterMontant(l.totalCredit)}</td>
-                      <td>{formaterMontant(l.soldeDebiteur)}</td><td>{formaterMontant(l.soldeCrediteur)}</td>
+                      <td data-label="Compte">{l.compte}</td><td data-label="Libellé">{l.libelle}</td>
+                      <td data-label="Total débit">{formaterMontant(l.totalDebit)}</td><td data-label="Total crédit">{formaterMontant(l.totalCredit)}</td>
+                      <td data-label="Solde débiteur">{formaterMontant(l.soldeDebiteur)}</td><td data-label="Solde créditeur">{formaterMontant(l.soldeCrediteur)}</td>
                     </tr>
                   ))}
                   {lignes.length === 0 && (
@@ -320,7 +317,7 @@ function ModaleBalance({
                 </tbody>
                 {lignes.length > 0 && (
                   <tfoot>
-                    <tr><td colSpan={2}>Total</td><td>{formaterMontant(totaux.totalDebit)}</td><td>{formaterMontant(totaux.totalCredit)}</td><td /><td /></tr>
+                    <tr><td colSpan={2}>Total</td><td data-label="Total débit">{formaterMontant(totaux.totalDebit)}</td><td data-label="Total crédit">{formaterMontant(totaux.totalCredit)}</td><td /><td /></tr>
                   </tfoot>
                 )}
               </table>
@@ -381,27 +378,27 @@ function ModaleCompteDeResultat({
           ) : (
             <div className="disposition-deux-colonnes">
               <div className="zone-tableau-scroll">
-                <table className="tableau-catalogue">
+                <table className="tableau-catalogue carte-mobile">
                   <thead><tr><th colSpan={2}>Charges</th></tr></thead>
                   <tbody>
                     {charges.map((c) => (
-                      <tr key={c.compte}><td>{c.compte} · {c.libelle}</td><td>{formaterMontant(c.montant)}</td></tr>
+                      <tr key={c.compte}><td data-label="Compte">{c.compte} · {c.libelle}</td><td data-label="Montant">{formaterMontant(c.montant)}</td></tr>
                     ))}
                     {charges.length === 0 && <tr><td colSpan={2} className="liste-vide">Aucune charge.</td></tr>}
                   </tbody>
-                  <tfoot><tr><td>Total charges</td><td>{formaterMontant(totaux.totalCharges)}</td></tr></tfoot>
+                  <tfoot><tr><td>Total charges</td><td data-label="Total charges">{formaterMontant(totaux.totalCharges)}</td></tr></tfoot>
                 </table>
               </div>
               <div className="zone-tableau-scroll">
-                <table className="tableau-catalogue">
+                <table className="tableau-catalogue carte-mobile">
                   <thead><tr><th colSpan={2}>Produits</th></tr></thead>
                   <tbody>
                     {produits.map((p) => (
-                      <tr key={p.compte}><td>{p.compte} · {p.libelle}</td><td>{formaterMontant(p.montant)}</td></tr>
+                      <tr key={p.compte}><td data-label="Compte">{p.compte} · {p.libelle}</td><td data-label="Montant">{formaterMontant(p.montant)}</td></tr>
                     ))}
                     {produits.length === 0 && <tr><td colSpan={2} className="liste-vide">Aucun produit.</td></tr>}
                   </tbody>
-                  <tfoot><tr><td>Total produits</td><td>{formaterMontant(totaux.totalProduits)}</td></tr></tfoot>
+                  <tfoot><tr><td>Total produits</td><td data-label="Total produits">{formaterMontant(totaux.totalProduits)}</td></tr></tfoot>
                 </table>
               </div>
               <p className="note-aide" style={{ gridColumn: "1 / -1" }}>
@@ -460,27 +457,27 @@ function ModaleBilan({
           ) : (
             <div className="disposition-deux-colonnes">
               <div className="zone-tableau-scroll">
-                <table className="tableau-catalogue">
+                <table className="tableau-catalogue carte-mobile">
                   <thead><tr><th colSpan={2}>Actif</th></tr></thead>
                   <tbody>
                     {actif.map((c) => (
-                      <tr key={c.compte}><td>{c.compte} · {c.libelle}</td><td>{formaterMontant(c.montant)}</td></tr>
+                      <tr key={c.compte}><td data-label="Compte">{c.compte} · {c.libelle}</td><td data-label="Montant">{formaterMontant(c.montant)}</td></tr>
                     ))}
                     {actif.length === 0 && <tr><td colSpan={2} className="liste-vide">Aucun solde actif.</td></tr>}
                   </tbody>
-                  <tfoot><tr><td>Total actif</td><td>{formaterMontant(totaux.totalActif)}</td></tr></tfoot>
+                  <tfoot><tr><td>Total actif</td><td data-label="Total actif">{formaterMontant(totaux.totalActif)}</td></tr></tfoot>
                 </table>
               </div>
               <div className="zone-tableau-scroll">
-                <table className="tableau-catalogue">
+                <table className="tableau-catalogue carte-mobile">
                   <thead><tr><th colSpan={2}>Passif</th></tr></thead>
                   <tbody>
                     {passif.map((c) => (
-                      <tr key={c.compte}><td>{c.compte} · {c.libelle}</td><td>{formaterMontant(c.montant)}</td></tr>
+                      <tr key={c.compte}><td data-label="Compte">{c.compte} · {c.libelle}</td><td data-label="Montant">{formaterMontant(c.montant)}</td></tr>
                     ))}
                     {passif.length === 0 && <tr><td colSpan={2} className="liste-vide">Aucun solde passif.</td></tr>}
                   </tbody>
-                  <tfoot><tr><td>Total passif</td><td>{formaterMontant(totaux.totalPassif)}</td></tr></tfoot>
+                  <tfoot><tr><td>Total passif</td><td data-label="Total passif">{formaterMontant(totaux.totalPassif)}</td></tr></tfoot>
                 </table>
               </div>
             </div>

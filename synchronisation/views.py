@@ -3,14 +3,14 @@ from django.utils.dateparse import parse_datetime
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from core.permissions import EstMembreBoutique
+from core.permissions import EstMembreBoutique, SynchroAutorisee
 
 from .serializers import EntreeChangementSerializer
 from .services import traiter_pull, traiter_push
 
 
 class PushView(APIView):
-    permission_classes = [EstMembreBoutique]
+    permission_classes = [EstMembreBoutique, SynchroAutorisee]
 
     def post(self, request):
         appareil = request.data.get("appareil", "")
@@ -25,7 +25,7 @@ class PushView(APIView):
 
 
 class PullView(APIView):
-    permission_classes = [EstMembreBoutique]
+    permission_classes = [EstMembreBoutique, SynchroAutorisee]
 
     def get(self, request):
         depuis_brut = request.query_params.get("depuis")

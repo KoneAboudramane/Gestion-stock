@@ -23,6 +23,10 @@ class EntreeRegistre:
     nom_modele: str
     chemin_boutique: str
     ajout_seul: bool = False
+    # Champs que le push générique ne doit jamais laisser un client écraser,
+    # même sur "son propre" enregistrement (ex. Boutique.synchro_autorisee :
+    # géré uniquement depuis l'admin Django, voir services.py::_assigner_champs).
+    champs_proteges: frozenset = frozenset()
 
     @property
     def table(self):
@@ -33,7 +37,10 @@ class EntreeRegistre:
 
 
 REGISTRE = [
-    EntreeRegistre("comptes", "Boutique", "__self__"),
+    EntreeRegistre(
+        "comptes", "Boutique", "__self__",
+        champs_proteges=frozenset({"actif", "date_expiration_abonnement", "formule", "synchro_autorisee"}),
+    ),
     EntreeRegistre("catalogue", "Categorie", "boutique"),
     EntreeRegistre("catalogue", "Unite", "boutique"),
     EntreeRegistre("catalogue", "Produit", "boutique"),

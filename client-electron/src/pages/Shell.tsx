@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import type { LigneAchatInitiale, Session } from "../api/client";
-import BarreSynchro from "../components/BarreSynchro";
 import { useLogoBoutique } from "../contexts/LogoContext";
 import { useNomBoutique } from "../contexts/NomBoutiqueContext";
 import Accueil from "./Accueil";
@@ -224,14 +223,6 @@ export default function Shell({
             </button>
           ))}
         </nav>
-        <button
-          className="lien-deconnexion"
-          onClick={onDeconnexion}
-          title={barreReduite ? "Déconnexion" : undefined}
-        >
-          <span className="icone-deconnexion">🚪</span>
-          <span className="texte-deconnexion">Déconnexion</span>
-        </button>
       </aside>
       )}
       <div className="contenu-principal">
@@ -243,7 +234,12 @@ export default function Shell({
               <span className="sous-info"> · {session.username} ({session.role})</span>
             </div>
           </div>
-          <BarreSynchro session={session} />
+          <div className="entete-droite">
+            <button className="lien-deconnexion lien-deconnexion-entete" onClick={onDeconnexion}>
+              <span className="icone-deconnexion">🚪</span>
+              <span className="texte-deconnexion">Déconnexion</span>
+            </button>
+          </div>
         </header>
         <main className="zone-contenu">
           {zone === "accueil" && (

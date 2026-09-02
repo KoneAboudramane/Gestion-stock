@@ -15,6 +15,7 @@ function ContenuFacture({
   vendeurNom,
   devise,
   session,
+  formatTicket,
 }: {
   vente: VenteDetail;
   boutique: BoutiqueDetail | null;
@@ -22,7 +23,11 @@ function ContenuFacture({
   vendeurNom: string;
   devise: string;
   session: Session;
+  formatTicket: string;
 }) {
+  // Sur un ticket étroit (80mm/58mm), la référence (SKU) encombre plus
+  // qu'elle n'aide — un vrai ticket de caisse ne l'affiche pas.
+  const colonneReference = formatTicket === "a4";
   return (
     <div className="facture-imprimable">
       <div className="facture-entete-boutique">
@@ -58,7 +63,7 @@ function ContenuFacture({
           <thead>
             <tr>
               <th>N°</th>
-              <th>Référence</th>
+              {colonneReference && <th>Référence</th>}
               <th>Désignation</th>
               <th>Qté</th>
               <th>PU</th>
@@ -70,7 +75,7 @@ function ContenuFacture({
             {vente.lignes.map((l, index) => (
               <tr key={l.id}>
                 <td>{index + 1}</td>
-                <td>{l.reference || ""}</td>
+                {colonneReference && <td>{l.reference || ""}</td>}
                 <td>{l.produitNom}</td>
                 <td>{l.quantite}</td>
                 <td>{formaterMontant(l.prixUnitaire)}</td>
@@ -82,7 +87,7 @@ function ContenuFacture({
               <td>
                 <strong>Total</strong>
               </td>
-              <td />
+              {colonneReference && <td />}
               <td />
               <td>
                 <strong>{vente.lignes.reduce((somme, l) => somme + l.quantite, 0)}</strong>
@@ -132,6 +137,7 @@ export default function FactureVente({
   const [vente, setVente] = useState<VenteDetail | null>(null);
   const [boutique, setBoutique] = useState<BoutiqueDetail | null>(null);
   const [vendeurNom, setVendeurNom] = useState("");
+  const [formatTicket, setFormatTicket] = useState("a4");
   const [enExport, setEnExport] = useState(false);
   const [messageExport, setMessageExport] = useState<string | null>(null);
 
@@ -141,6 +147,9 @@ export default function FactureVente({
 
   useEffect(() => {
     api.reglages.obtenirBoutique(session.boutiqueId).then((b) => setBoutique(b ?? null));
+    api.reglages
+      .listerParametres(session.boutiqueId)
+      .then((parametres) => setFormatTicket(parametres.find((p) => p.cle === "format_ticket")?.valeur || "a4"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.boutiqueId]);
 
@@ -211,12 +220,28 @@ export default function FactureVente({
       </div>
       {messageExport && <p className="note-aide">{messageExport}</p>}
       <div className="modale-corps">
-        <ContenuFacture vente={vente} boutique={boutique} logo={logo} vendeurNom={vendeurNom} devise={devise} session={session} />
+        <ContenuFacture
+          vente={vente}
+          boutique={boutique}
+          logo={logo}
+          vendeurNom={vendeurNom}
+          devise={devise}
+          session={session}
+          formatTicket={formatTicket}
+        />
       </div>
 
       {createPortal(
-        <div className="zone-impression-facture">
-          <ContenuFacture vente={vente} boutique={boutique} logo={logo} vendeurNom={vendeurNom} devise={devise} session={session} />
+        <div className={`zone-impression-facture format-ticket-${formatTicket}`}>
+          <ContenuFacture
+            vente={vente}
+            boutique={boutique}
+            logo={logo}
+            vendeurNom={vendeurNom}
+            devise={devise}
+            session={session}
+            formatTicket={formatTicket}
+          />
         </div>,
         document.body,
       )}

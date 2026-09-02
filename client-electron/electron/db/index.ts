@@ -40,6 +40,8 @@ function migrerColonnesManquantes(base: Database): void {
     { table: "inventaires", colonne: "date_validation", definition: "TEXT" },
     { table: "lignes_inventaire", colonne: "prix_achat_fige", definition: "REAL DEFAULT 0" },
     { table: "boutiques", colonne: "date_expiration_abonnement", definition: "TEXT" },
+    { table: "boutiques", colonne: "formule", definition: "TEXT DEFAULT 'essentiel'" },
+    { table: "boutiques", colonne: "synchro_autorisee", definition: "INTEGER DEFAULT 0" },
     { table: "notifications", colonne: "depot_id", definition: "TEXT" },
     { table: "notifications", colonne: "utilisateur_id", definition: "TEXT" },
     { table: "paiements", colonne: "operateur", definition: "TEXT DEFAULT ''" },

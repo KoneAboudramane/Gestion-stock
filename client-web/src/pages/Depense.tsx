@@ -73,7 +73,7 @@ function ModaleHistoriqueDepenses({
         <EnteteModale titre="Historique des dépenses" onFermer={onFermer} />
         <div className="modale-corps">
           <div className="zone-tableau-scroll">
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th>Date</th>
@@ -85,10 +85,10 @@ function ModaleHistoriqueDepenses({
               <tbody>
                 {depenses.map((d) => (
                   <tr key={d.id}>
-                    <td>{new Date(d.dateCreation).toLocaleString("fr-FR")}</td>
-                    <td>{libelleCategorieDepense(d.categorie)}</td>
-                    <td>{d.description}</td>
-                    <td>
+                    <td data-label="Date">{new Date(d.dateCreation).toLocaleString("fr-FR")}</td>
+                    <td data-label="Type">{libelleCategorieDepense(d.categorie)}</td>
+                    <td data-label="Description">{d.description}</td>
+                    <td data-label="Montant">
                       {formaterMontant(d.montant)} {devise}
                     </td>
                   </tr>
@@ -312,7 +312,7 @@ export default function Depense({ session }: { session: Session }) {
                 </div>
 
                 <div className="zone-tableau-scroll tableau-produits-groupe-scroll tableau-depenses-groupe">
-                  <table className="tableau-catalogue">
+                  <table className="tableau-catalogue carte-mobile">
                     <thead>
                       <tr>
                         <th className="col-designation-groupe">Type</th>
@@ -324,9 +324,9 @@ export default function Depense({ session }: { session: Session }) {
                     <tbody>
                       {lignes.map((l) => (
                         <tr key={l.id}>
-                          <td className="col-designation-groupe">{libelleCategorieDepense(l.categorie)}</td>
-                          <td>{l.description}</td>
-                          <td>
+                          <td data-label="Type" className="col-designation-groupe">{libelleCategorieDepense(l.categorie)}</td>
+                          <td data-label="Description">{l.description}</td>
+                          <td data-label="Montant">
                             {formaterMontant(l.montant)} {devise}
                           </td>
                           <td className="colonne-numero-groupe">

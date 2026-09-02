@@ -1,0 +1,386 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% block title %}{{ title }} — Gestion Stock Admin{% endblock %}
+
+{% block branding %}
+<a href="{% url 'admin:index' %}" id="site-name" class="gs-brand">
+  <img src="{% static 'core/favicon.png' %}" alt="" class="gs-brand-logo">
+  <span class="gs-brand-text">
+    <span class="gs-brand-name">Gestion Stock</span>
+    <span class="gs-brand-sub">ADMINISTRATION</span>
+  </span>
+</a>
+{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<link rel="icon" type="image/png" href="{% static 'core/favicon.png' %}">
+<style>
+/* ══════════════════════════════════════════════════════════════════════
+   Admin Gestion Stock — 4 thèmes identiques à ceux des clients Electron/web
+   (Réglages > Paramètres > Apparence, voir client-electron/src/lib/theme.ts
+   et index.css :root). On redéfinit les variables CSS natives de l'admin
+   Django (--primary, --body-bg, etc.) plutôt que de réécrire chaque règle :
+   tout ce que Django stylise déjà avec ses propres variables (calendrier,
+   select2, boutons...) suit automatiquement le thème choisi.
+   ══════════════════════════════════════════════════════════════════════ */
+
+html[data-theme="clair"], :root {
+  --primary: #2563eb;
+  --secondary: #1f4e79;
+  --accent: #d97706;
+  --primary-fg: #fff;
+
+  --header-color: #475569;
+  --header-branding-color: #2563eb;
+  --header-bg: #ffffff;
+  --header-link-color: #2563eb;
+
+  --breadcrumbs-fg: #64748b;
+  --breadcrumbs-link-fg: #2563eb;
+  --breadcrumbs-bg: #f1f5f9;
+
+  --link-fg: #1d4ed8;
+  --link-hover-color: #2563eb;
+  --link-selected-fg: #1d4ed8;
+
+  --hairline-color: #b8ac96;
+  --border-color: #b8ac96;
+  --darkened-bg: #f1f5f9;
+  --selected-bg: #eff6ff;
+  --selected-row: #eff6ff;
+
+  --button-fg: #fff;
+  --button-bg: #16a34a;
+  --button-hover-bg: #15803d;
+  --default-button-bg: #2563eb;
+  --default-button-hover-bg: #1d4ed8;
+  --delete-button-bg: #dc2626;
+  --delete-button-hover-bg: #991b1b;
+  --object-tools-bg: #2563eb;
+  --object-tools-hover-bg: #1d4ed8;
+
+  --body-bg: #f1f5f9;
+  --body-fg: #1e293b;
+  --body-quiet-color: #64748b;
+  --form-input-bg: #ffffff;
+  --input-border: #b8ac96;
+  --input-focus-border: #2563eb;
+  --error-fg: #dc2626;
+
+  --gs-surface: #e7e2d8;
+  --gs-surface-entete: color-mix(in srgb, #e7e2d8, #cbd5e1 35%);
+  --gs-border-forte: #8f8267;
+  --gs-sidebar-bg: linear-gradient(190deg, #eef2fb 0%, #dfe6f5 75%);
+  --gs-sidebar-fg: #475569;
+  --gs-sidebar-fg-fort: #0f172a;
+  --gs-shadow: 0 1px 6px rgba(15, 23, 42, 0.08);
+}
+
+html[data-theme="sombre"] {
+  --primary: #3b82f6;
+  --secondary: #2f6390;
+  --accent: #f59e0b;
+  --primary-fg: #fff;
+
+  --header-color: #cbd5e1;
+  --header-branding-color: #60a5fa;
+  --header-bg: #131c2e;
+  --header-link-color: #60a5fa;
+
+  --breadcrumbs-fg: #94a3b8;
+  --breadcrumbs-link-fg: #60a5fa;
+  --breadcrumbs-bg: #1e293b;
+
+  --link-fg: #60a5fa;
+  --link-hover-color: #93c5fd;
+  --link-selected-fg: #60a5fa;
+
+  --hairline-color: #334155;
+  --border-color: #334155;
+  --darkened-bg: #0f172a;
+  --selected-bg: #1e2b45;
+  --selected-row: #1e2b45;
+
+  --button-fg: #fff;
+  --button-bg: #22c55e;
+  --button-hover-bg: #16a34a;
+  --default-button-bg: #3b82f6;
+  --default-button-hover-bg: #60a5fa;
+  --delete-button-bg: #ef4444;
+  --delete-button-hover-bg: #f87171;
+  --object-tools-bg: #3b82f6;
+  --object-tools-hover-bg: #60a5fa;
+
+  --body-bg: #1e293b;
+  --body-fg: #f1f5f9;
+  --body-quiet-color: #94a3b8;
+  --form-input-bg: #0f172a;
+  --input-border: #334155;
+  --input-focus-border: #3b82f6;
+  --error-fg: #f87171;
+
+  --gs-surface: #131c2e;
+  --gs-surface-entete: color-mix(in srgb, #131c2e, #475569 35%);
+  --gs-border-forte: #475569;
+  --gs-sidebar-bg: #16213e;
+  --gs-sidebar-fg: #cbd5e1;
+  --gs-sidebar-fg-fort: #ffffff;
+  --gs-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+}
+
+html[data-theme="nuit"] {
+  --primary: #e0a248;
+  --secondary: #8a5a1f;
+  --accent: #f59e0b;
+  --primary-fg: #1a1207;
+
+  --header-color: #c2ac7c;
+  --header-branding-color: #f4c476;
+  --header-bg: #090702;
+  --header-link-color: #f4c476;
+
+  --breadcrumbs-fg: #9a8354;
+  --breadcrumbs-link-fg: #e0a248;
+  --breadcrumbs-bg: #000000;
+
+  --link-fg: #f4c476;
+  --link-hover-color: #e0a248;
+  --link-selected-fg: #f4c476;
+
+  --hairline-color: #201808;
+  --border-color: #201808;
+  --darkened-bg: #000000;
+  --selected-bg: #1a1207;
+  --selected-row: #1a1207;
+
+  --button-fg: #1a1207;
+  --button-bg: #4ade80;
+  --button-hover-bg: #86efac;
+  --default-button-bg: #e0a248;
+  --default-button-hover-bg: #f4c476;
+  --delete-button-bg: #f87171;
+  --delete-button-hover-bg: #fca5a5;
+  --object-tools-bg: #e0a248;
+  --object-tools-hover-bg: #f4c476;
+
+  --body-bg: #000000;
+  --body-fg: #f1e6cc;
+  --body-quiet-color: #9a8354;
+  --form-input-bg: #000000;
+  --input-border: #362912;
+  --input-focus-border: #e0a248;
+  --error-fg: #f87171;
+
+  --gs-surface: #090702;
+  --gs-surface-entete: color-mix(in srgb, #090702, #362912 35%);
+  --gs-border-forte: #362912;
+  --gs-sidebar-bg: linear-gradient(190deg, #0a0704 0%, #000000 75%);
+  --gs-sidebar-fg: #c2ac7c;
+  --gs-sidebar-fg-fort: #fbf6ea;
+  --gs-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+}
+
+html[data-theme="orange"] {
+  --primary: #f77f00;
+  --secondary: #f77f00;
+  --accent: #128a3e;
+  --primary-fg: #fff;
+
+  --header-color: #475569;
+  --header-branding-color: #f77f00;
+  --header-bg: #ffffff;
+  --header-link-color: #f77f00;
+
+  --breadcrumbs-fg: #64748b;
+  --breadcrumbs-link-fg: #f77f00;
+  --breadcrumbs-bg: #f1f5f9;
+
+  --link-fg: #d96a00;
+  --link-hover-color: #f77f00;
+  --link-selected-fg: #d96a00;
+
+  --hairline-color: #b8ac96;
+  --border-color: #b8ac96;
+  --darkened-bg: #f1f5f9;
+  --selected-bg: #fef0dc;
+  --selected-row: #fef0dc;
+
+  --button-fg: #fff;
+  --button-bg: #128a3e;
+  --button-hover-bg: #0d6b34;
+  --default-button-bg: #f77f00;
+  --default-button-hover-bg: #d96a00;
+  --delete-button-bg: #dc2626;
+  --delete-button-hover-bg: #991b1b;
+  --object-tools-bg: #f77f00;
+  --object-tools-hover-bg: #d96a00;
+
+  --body-bg: #f1f5f9;
+  --body-fg: #1e293b;
+  --body-quiet-color: #64748b;
+  --form-input-bg: #ffffff;
+  --input-border: #b8ac96;
+  --input-focus-border: #f77f00;
+  --error-fg: #dc2626;
+
+  --gs-surface: #e7e2d8;
+  --gs-surface-entete: color-mix(in srgb, #e7e2d8, #cbd5e1 35%);
+  --gs-border-forte: #8f8267;
+  --gs-sidebar-bg: #0d6b34;
+  --gs-sidebar-fg: #cdeed9;
+  --gs-sidebar-fg-fort: #ffffff;
+  --gs-shadow: 0 1px 6px rgba(15, 23, 42, 0.08);
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────── */
+body { font-size: var(--gs-taille, 0.8125rem); }
+
+/* ── Branding ─────────────────────────────────────────────────────────── */
+.gs-brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: inherit; }
+.gs-brand-logo { height: 30px; width: 30px; border-radius: 8px; object-fit: cover; }
+.gs-brand-text { display: flex; flex-direction: column; line-height: 1; }
+.gs-brand-name { font-size: 1.15rem; font-weight: 800; letter-spacing: -0.02em; color: var(--header-branding-color); }
+.gs-brand-sub { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.12em; color: var(--header-color); opacity: 0.7; margin-top: 2px; }
+#header { box-shadow: var(--gs-shadow); }
+
+/* ── Sidebar ──────────────────────────────────────────────────────────── */
+#nav-sidebar { background: var(--gs-sidebar-bg); }
+/* Django réutilise .module pour les groupes de la sidebar ET pour les cartes
+   de contenu (dashboard, changelist...) : sans cette redéfinition, la règle
+   ".module { background: var(--gs-surface) }" plus bas peint chaque groupe
+   de la sidebar dans la couleur "surface" (crème en Orange/Clair) — le texte
+   prévu pour un fond sombre/coloré devient alors quasi invisible dessus. */
+#nav-sidebar .module { background: transparent; box-shadow: none; }
+#nav-sidebar .module caption, #nav-sidebar .module h2 {
+  background: transparent; color: var(--gs-sidebar-fg); opacity: 0.75;
+}
+#nav-sidebar th[scope="row"] a, #nav-sidebar .module a { color: var(--gs-sidebar-fg); }
+#nav-sidebar th[scope="row"] a:hover, #nav-sidebar .module a:hover,
+#nav-sidebar tr.selected a { color: var(--gs-sidebar-fg-fort); font-weight: 600; }
+
+/* ── Modules / cartes / changelist / filtres ─────────────────────────── */
+.module, #changelist .results, #changelist-filter, fieldset {
+  background: var(--gs-surface); box-shadow: var(--gs-shadow);
+}
+.module caption, .module > h2, #changelist table thead th,
+#changelist-filter h2, fieldset > h2 { background: var(--gs-surface-entete); }
+#changelist table tbody tr:hover td, #changelist table tbody tr:hover th { background: var(--gs-surface-entete); }
+
+/* ── Réglage fin de contraste (le thème "nuit" a un fond quasi noir) ──── */
+a:link, a:visited { color: var(--link-fg); }
+a:hover { color: var(--link-hover-color); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Panneau de réglages d'affichage (thème + taille de texte)
+   ══════════════════════════════════════════════════════════════════════ */
+#gs-settings-btn {
+  position: fixed; bottom: 26px; right: 26px; width: 46px; height: 46px;
+  border-radius: 50%; border: none; cursor: pointer; font-size: 1.4rem;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25); z-index: 9999;
+  background: var(--primary); color: var(--primary-fg); transition: transform 0.15s;
+}
+#gs-settings-btn:hover { transform: scale(1.08); }
+#gs-settings-panel {
+  position: fixed; bottom: 82px; right: 26px; width: 230px;
+  background: var(--gs-surface); border-radius: 14px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+  padding: 16px; z-index: 9998; border: 1px solid var(--border-color);
+  opacity: 0; transform: translateY(8px) scale(0.97); pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+#gs-settings-panel.gs-open { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+.gs-panel-label {
+  font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--body-quiet-color); margin: 0 0 8px;
+}
+.gs-panel-sep { border: none; border-top: 1px solid var(--border-color); margin: 12px 0; }
+.gs-btn-group { display: flex; flex-wrap: wrap; gap: 6px; }
+.gs-opt-btn {
+  border: 1.5px solid var(--border-color); border-radius: 8px; padding: 5px 10px;
+  font-size: 0.82rem; font-weight: 600; background: var(--body-bg); color: var(--body-fg);
+  cursor: pointer; transition: all 0.15s;
+}
+.gs-opt-btn:hover { border-color: var(--primary); }
+.gs-opt-btn.gs-on { border-color: var(--primary); background: var(--primary); color: var(--primary-fg); }
+</style>
+
+<!-- Bouton + panneau de réglages d'affichage -->
+<button id="gs-settings-btn" title="Réglages d'affichage" onclick="gsTogglePanel(event)">⚙️</button>
+<div id="gs-settings-panel" role="dialog" aria-label="Réglages d'affichage">
+  <p class="gs-panel-label">Thème</p>
+  <div class="gs-btn-group" id="gs-theme-group">
+    <button class="gs-opt-btn" data-theme="clair" onclick="gsSetTheme(this)">☀️ Clair</button>
+    <button class="gs-opt-btn" data-theme="sombre" onclick="gsSetTheme(this)">🌙 Sombre</button>
+    <button class="gs-opt-btn" data-theme="nuit" onclick="gsSetTheme(this)">🕯️ Nuit</button>
+    <button class="gs-opt-btn" data-theme="orange" onclick="gsSetTheme(this)">🟠 Orange</button>
+  </div>
+  <hr class="gs-panel-sep">
+  <p class="gs-panel-label">Taille du texte</p>
+  <div class="gs-btn-group" id="gs-size-group">
+    <button class="gs-opt-btn" data-size="0.75rem" onclick="gsSetSize(this)">Petite</button>
+    <button class="gs-opt-btn" data-size="0.8125rem" onclick="gsSetSize(this)">Normale</button>
+    <button class="gs-opt-btn" data-size="0.9375rem" onclick="gsSetSize(this)">Grande</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var CLE_THEME = "gs_admin_theme";
+  var CLE_TAILLE = "gs_admin_taille";
+  var THEMES_VALIDES = ["clair", "sombre", "nuit", "orange"];
+
+  function appliquerTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+  }
+
+  function appliquerTaille(taille) {
+    document.documentElement.style.setProperty("--gs-taille", taille);
+  }
+
+  function synchroniserBoutons(groupeId, attribut, valeur) {
+    document.querySelectorAll("#" + groupeId + " .gs-opt-btn").forEach(function (b) {
+      b.classList.toggle("gs-on", b.dataset[attribut] === valeur);
+    });
+  }
+
+  window.gsSetTheme = function (btn) {
+    var theme = btn.dataset.theme;
+    appliquerTheme(theme);
+    localStorage.setItem(CLE_THEME, theme);
+    synchroniserBoutons("gs-theme-group", "theme", theme);
+  };
+
+  window.gsSetSize = function (btn) {
+    var taille = btn.dataset.size;
+    appliquerTaille(taille);
+    localStorage.setItem(CLE_TAILLE, taille);
+    synchroniserBoutons("gs-size-group", "size", taille);
+  };
+
+  window.gsTogglePanel = function (e) {
+    e.stopPropagation();
+    document.getElementById("gs-settings-panel").classList.toggle("gs-open");
+  };
+  document.addEventListener("click", function (e) {
+    var panel = document.getElementById("gs-settings-panel");
+    var btn = document.getElementById("gs-settings-btn");
+    if (panel && !panel.contains(e.target) && btn && !btn.contains(e.target)) panel.classList.remove("gs-open");
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") document.getElementById("gs-settings-panel").classList.remove("gs-open");
+  });
+
+  // Appliqué immédiatement (avant DOMContentLoaded) pour éviter un flash au chargement.
+  var themeInitial = localStorage.getItem(CLE_THEME);
+  appliquerTheme(THEMES_VALIDES.includes(themeInitial) ? themeInitial : "sombre");
+  appliquerTaille(localStorage.getItem(CLE_TAILLE) || "0.8125rem");
+
+  document.addEventListener("DOMContentLoaded", function () {
+    synchroniserBoutons("gs-theme-group", "theme", document.documentElement.getAttribute("data-theme"));
+    synchroniserBoutons("gs-size-group", "size", localStorage.getItem(CLE_TAILLE) || "0.8125rem");
+  });
+})();
+</script>
+{% endblock %}

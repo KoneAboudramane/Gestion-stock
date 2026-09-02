@@ -4,12 +4,12 @@ import { api } from "./api";
 import type { Session } from "./api";
 import { DeviseProvider } from "./contexts/DeviseContext";
 import { useSession } from "./contexts/SessionContext";
+import { SynchroProvider } from "./contexts/SynchroContext";
+import AccesCreationBoutique from "./pages/AccesCreationBoutique";
 import Connexion from "./pages/Connexion";
-import Inscription from "./pages/Inscription";
-import MotDePasseOublie from "./pages/MotDePasseOublie";
 import Shell from "./pages/Shell";
 
-type Ecran = "chargement" | "connexion" | "motDePasseOublie" | "inscription" | "shell";
+type Ecran = "chargement" | "connexion" | "accesCreation" | "shell";
 
 export default function App() {
   const { session, definirSession } = useSession();
@@ -61,23 +61,16 @@ export default function App() {
     return <div className="ecran-chargement">Chargement…</div>;
   }
   if (ecran === "connexion") {
-    return (
-      <Connexion
-        onConnecte={surConnecte}
-        allerMotDePasseOublie={() => setEcran("motDePasseOublie")}
-        allerInscription={() => setEcran("inscription")}
-      />
-    );
+    return <Connexion onConnecte={surConnecte} allerAccesCreation={() => setEcran("accesCreation")} />;
   }
-  if (ecran === "motDePasseOublie") {
-    return <MotDePasseOublie allerConnexion={() => setEcran("connexion")} />;
-  }
-  if (ecran === "inscription") {
-    return <Inscription allerConnexion={() => setEcran("connexion")} />;
+  if (ecran === "accesCreation") {
+    return <AccesCreationBoutique allerConnexion={() => setEcran("connexion")} />;
   }
   return (
     <DeviseProvider boutiqueId={session!.boutiqueId}>
-      <Shell session={session!} onDeconnexion={surDeconnexion} />
+      <SynchroProvider session={session!}>
+        <Shell session={session!} onDeconnexion={surDeconnexion} />
+      </SynchroProvider>
     </DeviseProvider>
   );
 }

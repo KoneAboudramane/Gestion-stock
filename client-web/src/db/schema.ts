@@ -31,6 +31,9 @@ export interface BoutiqueLocale extends SuiviSync {
   actif: 0 | 1;
   /** Fixée côté serveur par l'administrateur, redescend via la synchro habituelle. NULL = illimité. */
   date_expiration_abonnement: string | null;
+  formule: string;
+  /** Voir comptes.Boutique.synchro_autorisee côté backend — champ protégé, jamais poussé par un push client normal. */
+  synchro_autorisee: 0 | 1;
 }
 
 export interface CategorieLocale extends SuiviSync {

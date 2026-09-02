@@ -8,6 +8,9 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("auth:connexion", username, password),
     inscription: (params: { boutiqueNom: string; username: string; password: string; email: string }) =>
       ipcRenderer.invoke("auth:inscription", params),
+    verifierAccesAdmin: (username: string, password: string) =>
+      ipcRenderer.invoke("auth:verifierAccesAdmin", username, password),
+    verifierRevocationAdmin: () => ipcRenderer.invoke("auth:verifierRevocationAdmin"),
     session: () => ipcRenderer.invoke("auth:session"),
     deconnexion: () => ipcRenderer.invoke("auth:deconnexion"),
     rafraichirPermissions: (session: unknown) => ipcRenderer.invoke("auth:rafraichirPermissions", session),
@@ -15,6 +18,42 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("auth:demanderReinitialisationMotDePasse", email),
     reinitialiserMotDePasse: (email: string, code: string, nouveauMotDePasse: string) =>
       ipcRenderer.invoke("auth:reinitialiserMotDePasse", email, code, nouveauMotDePasse),
+    reinitialiserMotDePasseAdmin: (
+      usernameAdmin: string,
+      passwordAdmin: string,
+      usernameCible: string,
+      nouveauMotDePasse: string,
+    ) =>
+      ipcRenderer.invoke(
+        "auth:reinitialiserMotDePasseAdmin",
+        usernameAdmin,
+        passwordAdmin,
+        usernameCible,
+        nouveauMotDePasse,
+      ),
+    listerPatrons: (usernameAdmin: string, passwordAdmin: string) =>
+      ipcRenderer.invoke("auth:listerPatrons", usernameAdmin, passwordAdmin),
+  },
+  admin: {
+    boutiqueLocale: () => ipcRenderer.invoke("admin:boutiqueLocale"),
+    abonnementEnAttente: () => ipcRenderer.invoke("admin:abonnementEnAttente"),
+    soumettreAbonnement: (
+      username: string,
+      password: string,
+      boutiqueId: string,
+      boutiqueNom: string,
+      champs: { formule?: string; dateExpirationAbonnement?: string | null; synchroAutorisee?: boolean },
+    ) => ipcRenderer.invoke("admin:soumettreAbonnement", username, password, boutiqueId, boutiqueNom, champs),
+    creerBoutiqueLocale: (params: { boutiqueNom: string; username: string; password: string; email: string }) =>
+      ipcRenderer.invoke("admin:creerBoutiqueLocale", params),
+    creerBoutiqueEnLigne: (
+      usernameAdmin: string,
+      passwordAdmin: string,
+      params: { boutiqueNom: string; username: string; password: string; email: string },
+    ) => ipcRenderer.invoke("admin:creerBoutiqueEnLigne", usernameAdmin, passwordAdmin, params),
+    boutiqueLocaleEnAttente: () => ipcRenderer.invoke("admin:boutiqueLocaleEnAttente"),
+    activerEnLigne: (usernameAdmin: string, passwordAdmin: string, patronPassword: string, session: unknown) =>
+      ipcRenderer.invoke("admin:activerEnLigne", usernameAdmin, passwordAdmin, patronPassword, session),
   },
   catalogue: {
     rechercherVariantes: (boutiqueId: string, terme: string) =>

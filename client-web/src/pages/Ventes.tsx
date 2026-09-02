@@ -163,7 +163,7 @@ export function DetailVente({ venteId, session, onRetour }: { venteId: string; s
         {erreur && <div className="message-erreur">{erreur}</div>}
 
         <div className="zone-tableau-scroll">
-          <table className="tableau-catalogue">
+          <table className="tableau-catalogue carte-mobile">
             <thead>
               <tr>
                 <th>N°</th>
@@ -178,13 +178,13 @@ export function DetailVente({ venteId, session, onRetour }: { venteId: string; s
             <tbody>
               {vente.lignes.map((l, index) => (
                 <tr key={l.id}>
-                  <td>{index + 1}</td>
-                  <td>{l.produitNom}</td>
-                  <td>{l.reference || ""}</td>
-                  <td>{l.quantite}</td>
-                  <td>{formaterMontant(l.prixUnitaire)}</td>
-                  <td>{formaterMontant(l.remise)}</td>
-                  <td>{formaterMontant(l.sousTotal)}</td>
+                  <td data-label="N°">{index + 1}</td>
+                  <td data-label="Désignation">{l.produitNom}</td>
+                  <td data-label="Référence">{l.reference || ""}</td>
+                  <td data-label="Qté">{l.quantite}</td>
+                  <td data-label="PU">{formaterMontant(l.prixUnitaire)}</td>
+                  <td data-label="Remise">{formaterMontant(l.remise)}</td>
+                  <td data-label="Sous-total">{formaterMontant(l.sousTotal)}</td>
                 </tr>
               ))}
             </tbody>
@@ -336,7 +336,7 @@ export default function Ventes({ session }: { session: Session }) {
         />
       </div>
       <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>N°</th>
@@ -351,15 +351,15 @@ export default function Ventes({ session }: { session: Session }) {
           <tbody>
             {ventes.map((v, index) => (
               <tr key={v.id} onClick={() => setVenteSelectionneeId(v.id)}>
-                <td>{index + 1}</td>
-                <td>{new Date(v.dateCreation).toLocaleString("fr-FR")}</td>
-                <td>{v.numero}</td>
-                <td>{v.depotNom}</td>
-                <td>{v.clientNom ?? ""}</td>
-                <td>
+                <td data-label="N°">{index + 1}</td>
+                <td data-label="Date">{new Date(v.dateCreation).toLocaleString("fr-FR")}</td>
+                <td data-label="Numéro">{v.numero}</td>
+                <td data-label="Dépôt">{v.depotNom}</td>
+                <td data-label="Client">{v.clientNom ?? ""}</td>
+                <td data-label="Statut">
                   <span className={`badge-${v.statut}`}>{libelleStatutVente(v.statut)}</span>
                 </td>
-                <td>{formaterMontant(v.totalNet)}</td>
+                <td data-label="Total net">{formaterMontant(v.totalNet)}</td>
               </tr>
             ))}
             {ventes.length === 0 && (

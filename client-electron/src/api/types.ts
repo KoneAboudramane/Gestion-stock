@@ -9,6 +9,52 @@ export interface Session {
   permissions: Record<string, boolean>;
   depotId: string | null;
   depotNom: string | null;
+  // Synchro serveur activée par l'administrateur pour cette boutique (voir
+  // comptes.Boutique.synchro_autorisee côté backend) — certains commerçants
+  // ne veulent pas que leurs données quittent leur poste.
+  synchroAutorisee: boolean;
+}
+
+export interface AbonnementBoutique {
+  boutiqueId: string;
+  boutiqueNom: string;
+  formule: string;
+  dateExpirationAbonnement: string | null;
+  synchroAutorisee: boolean;
+}
+
+export interface ChampsAbonnement {
+  formule?: string;
+  dateExpirationAbonnement?: string | null;
+  synchroAutorisee?: boolean;
+}
+
+export interface AbonnementEnAttente {
+  boutiqueId: string;
+  boutiqueNom: string;
+  champs: ChampsAbonnement;
+}
+
+export type ResultatAbonnement = { statut: "synchronise" } | { statut: "horsLigne" };
+
+export type ResultatCreationEnLigne = { statut: "enLigne"; session: Session } | { statut: "horsLigne"; session: Session };
+
+export interface PatronResume {
+  username: string;
+  boutiqueNom: string;
+}
+
+export interface BoutiqueLocaleEnAttente {
+  boutiqueId: string;
+  utilisateurIdLocal: string;
+  boutiqueNom: string;
+  adresse: string;
+  telephone: string;
+  email: string;
+  devise: string;
+  patronUsername: string;
+  patronEmail: string;
+  patronTelephone: string;
 }
 
 export interface VarianteRecherchee {
@@ -39,7 +85,7 @@ export interface ClientBoutique {
   adresse: string;
 }
 
-export type ModePaiement = "especes" | "mobile_money" | "credit";
+export type ModePaiement = "especes" | "mobile_money" | "carte" | "credit";
 export type OperateurMobileMoney = "orange_money" | "mtn_money" | "moov_money" | "wave";
 export type StatutVente = "payee" | "credit";
 
@@ -866,6 +912,8 @@ export interface WindowApi {
       password: string;
       email: string;
     }): Promise<ResultatEcriture<void>>;
+    verifierAccesAdmin(username: string, password: string): Promise<ResultatEcriture<boolean>>;
+    verifierRevocationAdmin(): Promise<void>;
     session(): Promise<Session | null>;
     deconnexion(): Promise<void>;
     rafraichirPermissions(session: Session): Promise<Session>;
@@ -875,6 +923,42 @@ export interface WindowApi {
       code: string,
       nouveauMotDePasse: string,
     ): Promise<ResultatEcriture<void>>;
+    reinitialiserMotDePasseAdmin(
+      usernameAdmin: string,
+      passwordAdmin: string,
+      usernameCible: string,
+      nouveauMotDePasse: string,
+    ): Promise<ResultatEcriture<void>>;
+    listerPatrons(usernameAdmin: string, passwordAdmin: string): Promise<PatronResume[]>;
+  };
+  admin: {
+    boutiqueLocale(): Promise<AbonnementBoutique | null>;
+    abonnementEnAttente(): Promise<AbonnementEnAttente | null>;
+    soumettreAbonnement(
+      username: string,
+      password: string,
+      boutiqueId: string,
+      boutiqueNom: string,
+      champs: ChampsAbonnement,
+    ): Promise<ResultatEcriture<ResultatAbonnement>>;
+    creerBoutiqueLocale(params: {
+      boutiqueNom: string;
+      username: string;
+      password: string;
+      email: string;
+    }): Promise<ResultatEcriture<Session>>;
+    creerBoutiqueEnLigne(
+      usernameAdmin: string,
+      passwordAdmin: string,
+      params: { boutiqueNom: string; username: string; password: string; email: string },
+    ): Promise<ResultatEcriture<ResultatCreationEnLigne>>;
+    boutiqueLocaleEnAttente(): Promise<BoutiqueLocaleEnAttente | null>;
+    activerEnLigne(
+      usernameAdmin: string,
+      passwordAdmin: string,
+      patronPassword: string,
+      session: Session,
+    ): Promise<ResultatEcriture<Session>>;
   };
   catalogue: {
     rechercherVariantes(boutiqueId: string, terme: string): Promise<VarianteRecherchee[]>;

@@ -26,9 +26,11 @@ def _date_client(donnees):
     return timezone.make_aware(dt) if timezone.is_naive(dt) else dt
 
 
-def _assigner_champs(model, obj, donnees):
+def _assigner_champs(model, obj, donnees, champs_proteges=frozenset()):
     for champ in model._meta.get_fields():
         if not getattr(champ, "concrete", False) or champ.name in CHAMPS_IGNORES:
+            continue
+        if champ.name in champs_proteges:
             continue
         if champ.name not in donnees:
             continue
@@ -133,7 +135,7 @@ def appliquer_changement(boutique, appareil, table, action, enregistrement_id, d
         return _resultat(table, enregistrement_id, "conflit")
 
     obj = objet_existant or model(id=enregistrement_id)
-    _assigner_champs(model, obj, donnees)
+    _assigner_champs(model, obj, donnees, entree.champs_proteges)
 
     # La boutique n'est jamais fournie par le client : comme dans l'API
     # interactive (FiltreBoutiqueMixin.perform_create), elle est assignée

@@ -94,10 +94,10 @@ function FormulaireEditionProduit({
 
   return (
     <tr className="ligne-edition">
-      <td>
+      <td data-label="Désignation">
         <input value={nom} onChange={(e) => setNom(e.target.value)} autoFocus />
       </td>
-      <td>
+      <td data-label="Catégorie">
         <select value={categorieId} onChange={(e) => setCategorieId(e.target.value)}>
           <option value=""></option>
           {categories.map((c) => (
@@ -107,7 +107,7 @@ function FormulaireEditionProduit({
           ))}
         </select>
       </td>
-      <td>
+      <td data-label="Unité">
         <select value={uniteId} onChange={(e) => setUniteId(e.target.value)}>
           <option value=""></option>
           {unites.map((u) => (
@@ -117,7 +117,7 @@ function FormulaireEditionProduit({
           ))}
         </select>
       </td>
-      <td>
+      <td data-label="Description">
         <textarea value={description} onChange={(e) => setDescription(e.target.value)} />
       </td>
       <td>
@@ -286,19 +286,19 @@ function LigneNouvelleVariante({
   return (
     <>
       <tr className="ligne-edition">
-        <td className="reference-auto">Auto</td>
+        <td data-label="Référence" className="reference-auto">Auto</td>
         {afficherCodeBarres && (
-          <td>
+          <td data-label="Code-barres">
             <input value={codeBarres} onChange={(e) => setCodeBarres(e.target.value)} autoFocus />
           </td>
         )}
-        {afficherAttributs && <td className="reference-auto">Auto</td>}
+        {afficherAttributs && <td data-label="Attributs" className="reference-auto">Auto</td>}
         {peutVoirCout && (
-          <td>
+          <td data-label="Prix d'achat">
             <ChampMontant value={prixAchat} disabled={!peutModifierPrix} onChange={setPrixAchat} />
           </td>
         )}
-        <td>
+        <td data-label="Prix de vente">
           <ChampMontant
             className={sousPrixAchat ? "champ-invalide" : undefined}
             value={prixVente}
@@ -311,10 +311,10 @@ function LigneNouvelleVariante({
             </span>
           )}
         </td>
-        <td>
+        <td data-label="Seuil">
           <input type="number" min={0} step="any" value={seuilAlerte} onChange={(e) => setSeuilAlerte(e.target.value)} />
         </td>
-        <td className="reference-auto">0</td>
+        <td data-label="Stock" className="reference-auto">0</td>
         <td className="colonne-actions-variante">
           {erreur && <div className="message-erreur">{erreur}</div>}
           <span className="actions-ligne">
@@ -412,22 +412,22 @@ function LigneEditionVariante({
 
   return (
     <tr className="ligne-edition">
-      <td>{index}</td>
-      <td>
+      <td data-label="N°">{index}</td>
+      <td data-label="Référence">
         <input value={reference} onChange={(e) => setReference(e.target.value)} autoFocus />
       </td>
       {afficherCodeBarres && (
-        <td>
+        <td data-label="Code-barres">
           <input value={codeBarres} onChange={(e) => setCodeBarres(e.target.value)} />
         </td>
       )}
-      {afficherAttributs && <td>{variante.valeurs.join(", ") || ""}</td>}
+      {afficherAttributs && <td data-label="Attributs">{variante.valeurs.join(", ") || ""}</td>}
       {peutVoirCout && (
-        <td>
+        <td data-label="Prix d'achat">
           <ChampMontant value={prixAchat} disabled={!peutModifierPrix} onChange={setPrixAchat} />
         </td>
       )}
-      <td>
+      <td data-label="Prix de vente">
         <ChampMontant
           className={sousPrixAchat ? "champ-invalide" : undefined}
           value={prixVente}
@@ -440,10 +440,10 @@ function LigneEditionVariante({
           </span>
         )}
       </td>
-      <td>
+      <td data-label="Seuil">
         <input type="number" min={0} step="any" value={seuilAlerte} onChange={(e) => setSeuilAlerte(e.target.value)} />
       </td>
-      <td>{variante.quantiteStock}</td>
+      <td data-label="Stock">{variante.quantiteStock}</td>
       <td className="colonne-actions-variante">
         {erreur && <div className="message-erreur">{erreur}</div>}
         <span className="actions-ligne">
@@ -524,7 +524,7 @@ function DetailProduit({
             <div className="detail-produit-modale-scroll">
               <h4>Informations</h4>
               <div className="zone-tableau-scroll zone-tableau-scroll-modale">
-                <table className="tableau-catalogue">
+                <table className="tableau-catalogue carte-mobile">
                   <thead>
                     <tr>
                       <th>Désignation</th>
@@ -548,10 +548,10 @@ function DetailProduit({
                       />
                     ) : (
                       <tr>
-                        <td>{produit.nom}</td>
-                        <td>{produit.categorieNom || ""}</td>
-                        <td>{produit.uniteNom || ""}</td>
-                        <td>{produit.description || ""}</td>
+                        <td data-label="Désignation">{produit.nom}</td>
+                        <td data-label="Catégorie">{produit.categorieNom || ""}</td>
+                        <td data-label="Unité">{produit.uniteNom || ""}</td>
+                        <td data-label="Description">{produit.description || ""}</td>
                         {peutGerer && (
                           <td>
                             <button type="button" onClick={() => setModifierInfos(true)}>
@@ -575,7 +575,7 @@ function DetailProduit({
               </div>
               {messageStock && <p className="note-aide">{messageStock}</p>}
               <div className="zone-tableau-scroll zone-tableau-scroll-modale">
-                <table className="tableau-catalogue">
+                <table className="tableau-catalogue carte-mobile">
                   <thead>
                     <tr>
                       <th>N°</th>
@@ -611,14 +611,14 @@ function DetailProduit({
                       }
                       return (
                         <tr key={v.id}>
-                          <td>{index + 1}</td>
-                          <td>{v.reference || ""}</td>
-                          {afficherCodeBarres && <td>{v.codeBarres || ""}</td>}
-                          {afficherAttributs && <td>{v.valeurs.join(", ") || ""}</td>}
-                          {peutVoirCout && <td>{formaterMontant(v.prixAchat ?? 0)}</td>}
-                          <td>{formaterMontant(v.prixVente)}</td>
-                          <td>{v.seuilAlerte}</td>
-                          <td>
+                          <td data-label="N°">{index + 1}</td>
+                          <td data-label="Référence">{v.reference || ""}</td>
+                          {afficherCodeBarres && <td data-label="Code-barres">{v.codeBarres || ""}</td>}
+                          {afficherAttributs && <td data-label="Attributs">{v.valeurs.join(", ") || ""}</td>}
+                          {peutVoirCout && <td data-label="Prix d'achat">{formaterMontant(v.prixAchat ?? 0)}</td>}
+                          <td data-label="Prix de vente">{formaterMontant(v.prixVente)}</td>
+                          <td data-label="Seuil">{v.seuilAlerte}</td>
+                          <td data-label="Stock">
                             {v.quantiteStock <= v.seuilAlerte ? (
                               <span className="badge-rupture">{v.quantiteStock}</span>
                             ) : (
@@ -966,7 +966,7 @@ function FormulaireProduitsGroupe({
 
         <div className="colonne-liste-produits">
           <div className="zone-tableau-scroll tableau-produits-groupe-scroll">
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th className="colonne-numero-groupe">N°</th>
@@ -985,16 +985,16 @@ function FormulaireProduitsGroupe({
               <tbody>
                 {lignes.map((l, index) => (
                   <tr key={l.id}>
-                    <td className="colonne-numero-groupe">{index + 1}</td>
-                    <td className="reference-auto">{referenceApercu(index)}</td>
-                    <td className="col-designation-groupe">{l.nom}</td>
-                    <td>{l.categorieNom}</td>
-                    <td>{l.uniteNom}</td>
-                    <td>{l.codeBarres || ""}</td>
-                    <td>{formaterMontant(l.prixAchat)}</td>
-                    <td>{formaterMontant(l.prixVente)}</td>
-                    <td>{l.seuilAlerte}</td>
-                    <td>{l.quantiteInitiale}</td>
+                    <td data-label="N°" className="colonne-numero-groupe">{index + 1}</td>
+                    <td data-label="Référence" className="reference-auto">{referenceApercu(index)}</td>
+                    <td data-label="Désignation" className="col-designation-groupe">{l.nom}</td>
+                    <td data-label="Catégorie">{l.categorieNom}</td>
+                    <td data-label="Unité">{l.uniteNom}</td>
+                    <td data-label="Code-barres">{l.codeBarres || ""}</td>
+                    <td data-label="Prix d'achat">{formaterMontant(l.prixAchat)}</td>
+                    <td data-label="Prix de vente">{formaterMontant(l.prixVente)}</td>
+                    <td data-label="Seuil">{l.seuilAlerte}</td>
+                    <td data-label="Qté initiale">{l.quantiteInitiale}</td>
                     <td className="colonne-numero-groupe">
                       <button
                         type="button"
@@ -1195,7 +1195,7 @@ function OngletProduits({ session }: { session: Session }) {
           )}
         </div>
         <div className="zone-tableau-scroll">
-          <table className="tableau-catalogue">
+          <table className="tableau-catalogue carte-mobile">
             <thead>
               <tr>
                 <th>N°</th>
@@ -1217,15 +1217,15 @@ function OngletProduits({ session }: { session: Session }) {
             <tbody>
               {produitsTries.map((p, index) => (
                 <tr key={p.id} onClick={() => setProduitSelectionneId(p.id)}>
-                  <td>{index + 1}</td>
-                  <td>{p.reference || ""}</td>
-                  <td>{p.nom}</td>
-                  <td className="colonne-categorie-articles">{p.categorieNom ?? ""}</td>
-                  {peutVoirCout && <td>{p.prixAchat !== null ? formaterMontant(p.prixAchat) : ""}</td>}
-                  <td>{p.prixVente !== null ? formaterMontant(p.prixVente) : ""}</td>
-                  <td>{p.enStock ? "En stock" : <span className="badge-rupture">Rupture</span>}</td>
+                  <td data-label="N°">{index + 1}</td>
+                  <td data-label="Référence">{p.reference || ""}</td>
+                  <td data-label="Désignation">{p.nom}</td>
+                  <td data-label="Catégorie" className="colonne-categorie-articles">{p.categorieNom ?? ""}</td>
+                  {peutVoirCout && <td data-label="Prix d'achat">{p.prixAchat !== null ? formaterMontant(p.prixAchat) : ""}</td>}
+                  <td data-label="Prix de vente">{p.prixVente !== null ? formaterMontant(p.prixVente) : ""}</td>
+                  <td data-label="Stock">{p.enStock ? "En stock" : <span className="badge-rupture">Rupture</span>}</td>
                   {peutGerer && (
-                    <td onClick={(e) => e.stopPropagation()}>
+                    <td data-label="Actions" onClick={(e) => e.stopPropagation()}>
                       <span className="actions-ligne">
                         <button type="button" className="lien-icone" title="Modifier" onClick={() => setProduitSelectionneId(p.id)}>
                           ✎

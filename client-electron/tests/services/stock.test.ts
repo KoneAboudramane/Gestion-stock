@@ -37,6 +37,31 @@ describe("stock.supprimerDepot", () => {
   });
 });
 
+describe("stock.creerDepot (formule Essentiel/Pro)", () => {
+  beforeEach(async () => {
+    await creerBaseDeTest();
+  });
+
+  function definirFormule(formule: "essentiel" | "pro") {
+    executer(
+      "INSERT INTO boutiques (id, nom, date_creation, date_modification, formule) VALUES (?, 'Boutique', ?, ?, ?)",
+      [BOUTIQUE_ID, new Date().toISOString(), new Date().toISOString(), formule],
+    );
+  }
+
+  it("refuse un deuxième dépôt en formule essentiel", () => {
+    definirFormule("essentiel");
+    creerDepot(BOUTIQUE_ID, "Magasin principal");
+    expect(() => creerDepot(BOUTIQUE_ID, "Deuxième magasin")).toThrow(ErreurStock);
+  });
+
+  it("autorise plusieurs dépôts en formule pro", () => {
+    definirFormule("pro");
+    creerDepot(BOUTIQUE_ID, "Magasin principal");
+    expect(() => creerDepot(BOUTIQUE_ID, "Deuxième magasin")).not.toThrow();
+  });
+});
+
 describe("stock.appliquerMouvement (miroir de stock/services.py)", () => {
   const varianteId = randomUUID();
   const depotId = randomUUID();

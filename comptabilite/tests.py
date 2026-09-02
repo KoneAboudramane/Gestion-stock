@@ -10,6 +10,7 @@ from achats.services import creer_commande, receptionner_commande
 from catalogue.models import Produit, Variante
 from clients.models import Client
 from clients.services import rembourser_credit
+from comptes.models import Boutique
 from comptes.services import inscrire_boutique
 from configuration.models import Parametre
 from fournisseurs.models import Fournisseur
@@ -258,6 +259,9 @@ class ComptabiliteAPITests(APITestCase):
         self.boutique, self.patron = inscrire_boutique(
             {"nom": "Boutique Compta API"}, {"username": "patronComptaAPI", "password": "UnMotDePasseSolide123"}
         )
+        # Livre comptable officiel réservé à la formule Pro (voir comptabilite/views.py).
+        self.boutique.formule = Boutique.Formule.PRO
+        self.boutique.save(update_fields=["formule"])
         self.depot = Depot.objects.create(boutique=self.boutique, nom="Magasin")
         produit = Produit.objects.create(boutique=self.boutique, nom="Article")
         self.variante = Variante.objects.create(produit=produit, prix_achat=1000, prix_vente=1500)
@@ -318,4 +322,22 @@ class ComptabiliteAPITests(APITestCase):
         self.client.force_authenticate(user=caissier)
 
         reponse = self.client.get(reverse("comptabilite-journal"))
+        self.assertEqual(reponse.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class FormuleLivreOfficielTests(APITestCase):
+    """Le livre comptable officiel (Journal/Grand livre/Balance/Résultat/Bilan) est réservé à la formule Pro."""
+
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique Essentielle"}, {"username": "patronEssentiel", "password": "UnMotDePasseSolide123"}
+        )
+        self.client.force_authenticate(user=self.patron)
+
+    def test_formule_essentiel_refusee_sur_le_journal(self):
+        reponse = self.client.get(reverse("comptabilite-journal"))
+        self.assertEqual(reponse.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_formule_essentiel_refusee_sur_le_bilan(self):
+        reponse = self.client.get(reverse("comptabilite-bilan"))
         self.assertEqual(reponse.status_code, status.HTTP_403_FORBIDDEN)

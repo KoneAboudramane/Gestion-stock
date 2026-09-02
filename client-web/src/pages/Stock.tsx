@@ -195,7 +195,7 @@ function OngletStockNiveau({
         )}
       </div>
       <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>N°</th>
@@ -224,14 +224,14 @@ function OngletStockNiveau({
           <tbody>
             {lignesAffichees.map((l, index) => (
               <tr key={l.id}>
-                <td>{index + 1}</td>
-                <td>{l.produitNom}</td>
-                <td>{l.reference || ""}</td>
-                <td>{l.depotNom}</td>
-                <td>{l.quantite}</td>
-                <td>{l.seuilAlerte}</td>
-                <td className="colonne-statut-stock">{l.enRupture ? <span className="badge-rupture">Rupture</span> : null}</td>
-                <td className="colonne-actions-stock">
+                <td data-label="N°">{index + 1}</td>
+                <td data-label="Désignation">{l.produitNom}</td>
+                <td data-label="Référence">{l.reference || ""}</td>
+                <td data-label="Dépôt">{l.depotNom}</td>
+                <td data-label="Quantité">{l.quantite}</td>
+                <td data-label="Seuil">{l.seuilAlerte}</td>
+                <td data-label="Statut" className="colonne-statut-stock">{l.enRupture ? <span className="badge-rupture">Rupture</span> : null}</td>
+                <td data-label="Actions" className="colonne-actions-stock">
                   {l.enRupture && (
                     <span className="actions-ligne">
                       <input
@@ -438,7 +438,7 @@ function FormulaireMouvementGroupe({
 
         <div className="colonne-lignes-groupe">
           <div className="lignes-groupe-scrollable">
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th className="colonne-numero-groupe">N°</th>
@@ -451,10 +451,10 @@ function FormulaireMouvementGroupe({
               <tbody>
                 {lignes.map((l, index) => (
                   <tr key={l.varianteId}>
-                    <td className="colonne-numero-groupe">{index + 1}</td>
-                    <td>{l.reference || ""}</td>
-                    <td className="col-designation-groupe">{l.produitNom}</td>
-                    <td>
+                    <td data-label="N°" className="colonne-numero-groupe">{index + 1}</td>
+                    <td data-label="Référence">{l.reference || ""}</td>
+                    <td data-label="Désignation" className="col-designation-groupe">{l.produitNom}</td>
+                    <td data-label="Quantité">
                       <input
                         type="number"
                         min={type === "ajustement" ? undefined : 0.01}
@@ -552,7 +552,7 @@ function OngletMouvements({ session }: { session: Session }) {
         )}
       </div>
       <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>Date</th>
@@ -566,14 +566,14 @@ function OngletMouvements({ session }: { session: Session }) {
           <tbody>
             {mouvements.map((m) => (
               <tr key={m.id}>
-                <td>{new Date(m.dateCreation).toLocaleString("fr-FR")}</td>
-                <td>
+                <td data-label="Date">{new Date(m.dateCreation).toLocaleString("fr-FR")}</td>
+                <td data-label="Désignation">
                   {m.produitNom} {m.reference && `(${m.reference})`}
                 </td>
-                <td>{m.depotNom}</td>
-                <td>{libelleTypeMouvement(m.type)}</td>
-                <td>{m.quantite}</td>
-                <td>{m.motif || ""}</td>
+                <td data-label="Dépôt">{m.depotNom}</td>
+                <td data-label="Type">{libelleTypeMouvement(m.type)}</td>
+                <td data-label="Quantité">{m.quantite}</td>
+                <td data-label="Motif">{m.motif || ""}</td>
               </tr>
             ))}
             {mouvements.length === 0 && (
@@ -760,7 +760,7 @@ function FormulaireTransfert({
 
         <div className="colonne-lignes-groupe">
           <div className="lignes-groupe-scrollable">
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th className="colonne-numero-groupe">N°</th>
@@ -773,10 +773,10 @@ function FormulaireTransfert({
               <tbody>
                 {lignes.map((l, index) => (
                   <tr key={l.varianteId}>
-                    <td className="colonne-numero-groupe">{index + 1}</td>
-                    <td>{l.reference || ""}</td>
-                    <td className="col-designation-groupe">{l.produitNom}</td>
-                    <td>
+                    <td data-label="N°" className="colonne-numero-groupe">{index + 1}</td>
+                    <td data-label="Référence">{l.reference || ""}</td>
+                    <td data-label="Désignation" className="col-designation-groupe">{l.produitNom}</td>
+                    <td data-label="Quantité">
                       <input
                         type="number"
                         min={0.01}
@@ -864,7 +864,7 @@ function OngletTransferts({ session }: { session: Session }) {
         </div>
       )}
       <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>Date</th>
@@ -877,13 +877,13 @@ function OngletTransferts({ session }: { session: Session }) {
           <tbody>
             {transferts.map((t) => (
               <tr key={t.id}>
-                <td>{new Date(t.dateCreation).toLocaleString("fr-FR")}</td>
-                <td>
+                <td data-label="Date">{new Date(t.dateCreation).toLocaleString("fr-FR")}</td>
+                <td data-label="Désignation">
                   {t.produitNom} {t.reference && `(${t.reference})`}
                 </td>
-                <td>{t.depotSourceNom}</td>
-                <td>{t.depotDestinationNom}</td>
-                <td>{t.quantite}</td>
+                <td data-label="De">{t.depotSourceNom}</td>
+                <td data-label="Vers">{t.depotDestinationNom}</td>
+                <td data-label="Quantité">{t.quantite}</td>
               </tr>
             ))}
             {transferts.length === 0 && (
@@ -933,7 +933,7 @@ function LigneInventaireEditable({
 
   return (
     <>
-      <td>
+      <td data-label="Physique">
         <div className="champ-mot-de-passe-genere">
           <input
             type="number"
@@ -952,7 +952,7 @@ function LigneInventaireEditable({
         </div>
         {erreur && <div className="message-erreur">{erreur}</div>}
       </td>
-      <td>{ecartAffiche}</td>
+      <td data-label="Écart">{ecartAffiche}</td>
     </>
   );
 }
@@ -1022,7 +1022,7 @@ function DetailInventaire({
       <div className="modale-corps">
         {erreur && <div className="message-erreur">{erreur}</div>}
         <div className="zone-tableau-scroll">
-          <table className="tableau-catalogue">
+          <table className="tableau-catalogue carte-mobile">
             <thead>
               <tr>
                 <th>Désignation</th>
@@ -1040,26 +1040,26 @@ function DetailInventaire({
               {inventaire.lignes.map((l) =>
                 estValide || !peutGerer ? (
                   <tr key={l.id}>
-                    <td>{l.produitNom}</td>
-                    <td>{l.reference || ""}</td>
-                    <td>{l.qteTheorique}</td>
-                    <td>{l.qtePhysique}</td>
-                    <td>{l.ecart}</td>
-                    <td>{formaterMontant(l.valeurTheorique)}</td>
-                    <td>{formaterMontant(l.valeurPhysique)}</td>
-                    <td>{formaterMontant(l.valeurEcart)}</td>
-                    <td>{formaterMontant(l.caPeriode)}</td>
+                    <td data-label="Désignation">{l.produitNom}</td>
+                    <td data-label="Référence">{l.reference || ""}</td>
+                    <td data-label="Théorique">{l.qteTheorique}</td>
+                    <td data-label="Physique">{l.qtePhysique}</td>
+                    <td data-label="Écart">{l.ecart}</td>
+                    <td data-label={`Valeur théorique (${devise})`}>{formaterMontant(l.valeurTheorique)}</td>
+                    <td data-label={`Valeur physique (${devise})`}>{formaterMontant(l.valeurPhysique)}</td>
+                    <td data-label={`Écart (${devise})`}>{formaterMontant(l.valeurEcart)}</td>
+                    <td data-label={`CA période (${devise})`}>{formaterMontant(l.caPeriode)}</td>
                   </tr>
                 ) : (
                   <tr key={l.id}>
-                    <td>{l.produitNom}</td>
-                    <td>{l.reference || ""}</td>
-                    <td>{l.qteTheorique}</td>
+                    <td data-label="Désignation">{l.produitNom}</td>
+                    <td data-label="Référence">{l.reference || ""}</td>
+                    <td data-label="Théorique">{l.qteTheorique}</td>
                     <LigneInventaireEditable ligne={l} onEnregistrer={enregistrerLigne} />
-                    <td>{formaterMontant(l.valeurTheorique)}</td>
-                    <td>{formaterMontant(l.valeurPhysique)}</td>
-                    <td>{formaterMontant(l.valeurEcart)}</td>
-                    <td>{formaterMontant(l.caPeriode)}</td>
+                    <td data-label={`Valeur théorique (${devise})`}>{formaterMontant(l.valeurTheorique)}</td>
+                    <td data-label={`Valeur physique (${devise})`}>{formaterMontant(l.valeurPhysique)}</td>
+                    <td data-label={`Écart (${devise})`}>{formaterMontant(l.valeurEcart)}</td>
+                    <td data-label={`CA période (${devise})`}>{formaterMontant(l.caPeriode)}</td>
                   </tr>
                 ),
               )}
@@ -1075,10 +1075,10 @@ function DetailInventaire({
               <tfoot>
                 <tr className="ligne-total-inventaire">
                   <td colSpan={5}>Total</td>
-                  <td>{formaterMontant(inventaire.valeurTheorique)}</td>
-                  <td>{formaterMontant(inventaire.valeurPhysique)}</td>
-                  <td>{formaterMontant(inventaire.ecartValeur)}</td>
-                  <td>{formaterMontant(inventaire.caPeriode)}</td>
+                  <td data-label={`Valeur théorique (${devise})`}>{formaterMontant(inventaire.valeurTheorique)}</td>
+                  <td data-label={`Valeur physique (${devise})`}>{formaterMontant(inventaire.valeurPhysique)}</td>
+                  <td data-label={`Écart (${devise})`}>{formaterMontant(inventaire.ecartValeur)}</td>
+                  <td data-label={`CA période (${devise})`}>{formaterMontant(inventaire.caPeriode)}</td>
                 </tr>
               </tfoot>
             )}
@@ -1164,7 +1164,7 @@ function OngletInventaire({ session }: { session: Session }) {
         )}
       </div>
       <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>Dépôt</th>
@@ -1181,9 +1181,9 @@ function OngletInventaire({ session }: { session: Session }) {
                   setVue("detail");
                 }}
               >
-                <td>{i.depotNom}</td>
-                <td>{i.statut === "valide" ? "Validé" : "En cours"}</td>
-                <td>{new Date(i.dateCreation).toLocaleString("fr-FR")}</td>
+                <td data-label="Dépôt">{i.depotNom}</td>
+                <td data-label="Statut">{i.statut === "valide" ? "Validé" : "En cours"}</td>
+                <td data-label="Date">{new Date(i.dateCreation).toLocaleString("fr-FR")}</td>
               </tr>
             ))}
             {inventaires.length === 0 && (
@@ -1300,7 +1300,7 @@ function EntreeGroupeeDepuisSelection({
         <input value={motif} onChange={(e) => setMotif(e.target.value)} />
       </label>
       <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>Désignation</th>
@@ -1314,9 +1314,9 @@ function EntreeGroupeeDepuisSelection({
           <tbody>
             {lignesEditees.map((l) => (
               <tr key={l.varianteId}>
-                <td>{l.produitNom}</td>
-                <td>{l.depotNom}</td>
-                <td>
+                <td data-label="Désignation">{l.produitNom}</td>
+                <td data-label="Dépôt">{l.depotNom}</td>
+                <td data-label="Quantité">
                   <input
                     type="number"
                     min={0.01}
@@ -1325,13 +1325,13 @@ function EntreeGroupeeDepuisSelection({
                     onChange={(e) => modifierLigne(l.varianteId, { quantite: Number(e.target.value) })}
                   />
                 </td>
-                <td>
+                <td data-label="Coût unitaire">
                   <ChampMontant
                     value={String(l.prixAchat)}
                     onChange={(valeur) => modifierLigne(l.varianteId, { prixAchat: Number(valeur) || 0 })}
                   />
                 </td>
-                <td>
+                <td data-label="Prix de vente">
                   <ChampMontant
                     value={String(l.prixVente)}
                     onChange={(valeur) => modifierLigne(l.varianteId, { prixVente: Number(valeur) || 0 })}

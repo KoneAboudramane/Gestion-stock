@@ -154,7 +154,27 @@ export async function listerDepotsDetail(boutiqueId: string): Promise<DepotResum
   return depots.map((d) => ({ id: d.id, nom: d.nom, adresse: d.adresse })).sort((a, b) => a.nom.localeCompare(b.nom));
 }
 
+/**
+ * Formule Essentiel/Pro (voir comptes.Boutique.formule côté backend, même
+ * plafond appliqué côté serveur en défense — stock/views.py::DepotViewSet) :
+ * Essentiel plafonne à un seul dépôt. Vérifié ici (avant l'écriture locale,
+ * pas seulement au push) puisque l'appli crée toujours en local d'abord.
+ */
+const LIMITE_DEPOTS_ESSENTIEL = 1;
+
+async function verifierLimiteDepots(boutiqueId: string): Promise<void> {
+  const boutique = await obtenirLigne("boutiques", boutiqueId);
+  if (!boutique || boutique.formule !== "essentiel") return;
+  const depots = await listerDepotsDetail(boutiqueId);
+  if (depots.length >= LIMITE_DEPOTS_ESSENTIEL) {
+    throw new ErreurStock(
+      "La formule Essentiel est limitée à un seul dépôt. Passez à la formule Pro pour en ajouter d'autres.",
+    );
+  }
+}
+
 export async function creerDepot(boutiqueId: string, nom: string, adresse = ""): Promise<string> {
+  await verifierLimiteDepots(boutiqueId);
   const id = crypto.randomUUID();
   const depot: DepotLocal = { id, boutique_id: boutiqueId, nom, adresse, ...suiviSyncNeuf() };
   await ecrireLigne("depots", depot);

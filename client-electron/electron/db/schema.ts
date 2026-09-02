@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS boutiques (
   devise TEXT DEFAULT 'FCFA',
   actif INTEGER DEFAULT 1,
   date_expiration_abonnement TEXT,
+  formule TEXT DEFAULT 'essentiel',
+  synchro_autorisee INTEGER DEFAULT 0,
   ${SUIVI_SYNC}
 );
 

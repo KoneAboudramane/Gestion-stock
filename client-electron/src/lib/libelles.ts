@@ -20,6 +20,7 @@ import type {
 export const MODES_PAIEMENT: { valeur: ModePaiement; label: string }[] = [
   { valeur: "especes", label: "Espèces" },
   { valeur: "mobile_money", label: "Mobile Money" },
+  { valeur: "carte", label: "Carte" },
   { valeur: "credit", label: "Crédit" },
 ];
 

@@ -1,5 +1,6 @@
 import { app, ipcMain, shell } from "electron";
 
+import * as abonnementAdmin from "../services/abonnementAdmin";
 import * as achats from "../services/achats";
 import * as alertesSysteme from "../services/alertesSysteme";
 import * as auth from "../services/auth";
@@ -7,6 +8,7 @@ import * as clients from "../services/clients";
 import * as comptabilite from "../services/comptabilite";
 import * as comptes from "../services/comptes";
 import * as exportService from "../services/export";
+import * as inscriptionLocale from "../services/inscriptionLocale";
 import * as messages from "../services/messages";
 import * as notifications from "../services/notifications";
 import * as paiements from "../services/paiements";
@@ -84,6 +86,98 @@ export function enregistrerLesHandlers(): void {
       try {
         await auth.inscription(params);
         return { succes: true as const, resultat: undefined };
+      } catch (erreur) {
+        return { succes: false as const, message: messageErreur(erreur) };
+      }
+    },
+  );
+
+  ipcMain.handle("auth:verifierAccesAdmin", async (_evt, username: string, password: string) => {
+    try {
+      return { succes: true as const, resultat: await auth.verifierAccesAdmin(username, password) };
+    } catch (erreur) {
+      return { succes: false as const, message: messageErreur(erreur) };
+    }
+  });
+  ipcMain.handle("auth:verifierRevocationAdmin", async () => {
+    try {
+      await auth.verifierRevocationAdmin();
+    } catch {
+      // Best-effort : ne doit jamais faire échouer l'ouverture d'Espace Admin.
+    }
+  });
+
+  ipcMain.handle(
+    "auth:reinitialiserMotDePasseAdmin",
+    async (_evt, usernameAdmin: string, passwordAdmin: string, usernameCible: string, nouveauMotDePasse: string) => {
+      try {
+        await auth.reinitialiserMotDePasseAdmin(usernameAdmin, passwordAdmin, usernameCible, nouveauMotDePasse);
+        return { succes: true as const, resultat: undefined };
+      } catch (erreur) {
+        return { succes: false as const, message: messageErreur(erreur) };
+      }
+    },
+  );
+
+  ipcMain.handle("auth:listerPatrons", async (_evt, usernameAdmin: string, passwordAdmin: string) =>
+    auth.listerPatrons(usernameAdmin, passwordAdmin),
+  );
+
+  ipcMain.handle("admin:boutiqueLocale", () => abonnementAdmin.obtenirBoutiqueLocale());
+  ipcMain.handle("admin:abonnementEnAttente", () => abonnementAdmin.lireAbonnementEnAttente());
+  ipcMain.handle(
+    "admin:soumettreAbonnement",
+    async (
+      _evt,
+      username: string,
+      password: string,
+      boutiqueId: string,
+      boutiqueNom: string,
+      champs: abonnementAdmin.ChampsAbonnement,
+    ) => {
+      try {
+        return {
+          succes: true as const,
+          resultat: await abonnementAdmin.soumettreAbonnement(username, password, boutiqueId, boutiqueNom, champs),
+        };
+      } catch (erreur) {
+        return { succes: false as const, message: messageErreur(erreur) };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    "admin:creerBoutiqueLocale",
+    (_evt, params: { boutiqueNom: string; username: string; password: string; email: string }) =>
+      executerEnSecurite(() => inscriptionLocale.creerBoutiqueLocale(params)),
+  );
+  ipcMain.handle(
+    "admin:creerBoutiqueEnLigne",
+    async (
+      _evt,
+      usernameAdmin: string,
+      passwordAdmin: string,
+      params: { boutiqueNom: string; username: string; password: string; email: string },
+    ) => {
+      try {
+        return {
+          succes: true as const,
+          resultat: await inscriptionLocale.creerBoutiqueEnLigne(usernameAdmin, passwordAdmin, params),
+        };
+      } catch (erreur) {
+        return { succes: false as const, message: messageErreur(erreur) };
+      }
+    },
+  );
+  ipcMain.handle("admin:boutiqueLocaleEnAttente", () => inscriptionLocale.lireBoutiqueLocaleEnAttente());
+  ipcMain.handle(
+    "admin:activerEnLigne",
+    async (_evt, usernameAdmin: string, passwordAdmin: string, patronPassword: string, session: auth.Session) => {
+      try {
+        return {
+          succes: true as const,
+          resultat: await inscriptionLocale.activerEnLigne(usernameAdmin, passwordAdmin, patronPassword, session),
+        };
       } catch (erreur) {
         return { succes: false as const, message: messageErreur(erreur) };
       }
@@ -613,7 +707,10 @@ export function enregistrerLesHandlers(): void {
 
   ipcMain.handle("systeme:exporterPdf", async (evenement, nomFichierDefaut: string) => {
     try {
-      const buffer = await evenement.sender.printToPDF({ printBackground: true, pageSize: "A4" });
+      // preferCSSPageSize (plutôt qu'un pageSize fixe) : laisse la règle @page
+      // du CSS imprimé décider du format (A4 par défaut, mais 80mm/58mm pour
+      // un ticket — voir index.css et FactureVente.tsx pour format_ticket).
+      const buffer = await evenement.sender.printToPDF({ printBackground: true, preferCSSPageSize: true });
       return {
         succes: true as const,
         resultat: await exportService.exporterBufferPdf(buffer, nomFichierDefaut),

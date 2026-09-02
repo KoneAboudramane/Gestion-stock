@@ -1,8 +1,9 @@
 from django.db.models import F
-from rest_framework import mixins, viewsets
+from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from comptes.models import Boutique
 from core.permissions import EstMembreBoutique, FiltreBoutiqueMixin, a_la_permission
 
 from .models import Depot, Inventaire, LigneInventaire, MouvementStock, Stock, TransfertStock
@@ -24,10 +25,32 @@ class DepotViewSet(FiltreBoutiqueMixin, viewsets.ModelViewSet):
     serializer_class = DepotSerializer
     queryset = Depot.objects.all()
 
+    # Formule Essentiel/Pro (voir Boutique.Formule) : Essentiel plafonne à un
+    # seul dépôt. Pas de plafond en Pro. Garde-fou côté API — l'appli crée
+    # d'abord en local (SQLite/IndexedDB) et pousse via /sync/push/, où le
+    # même plafond est appliqué côté client (voir services/stock.ts::creerDepot).
+    LIMITE_DEPOTS_ESSENTIEL = 1
+
     def get_permissions(self):
         if self.action in ("list", "retrieve"):
             return [EstMembreBoutique()]
         return [EstMembreBoutique(), PeutGererStock()]
+
+    def perform_create(self, serializer):
+        boutique = self.request.user.boutique
+        if (
+            boutique.formule == Boutique.Formule.ESSENTIEL
+            and Depot.objects.filter(boutique=boutique, supprime=False).count() >= self.LIMITE_DEPOTS_ESSENTIEL
+        ):
+            raise serializers.ValidationError(
+                {
+                    "detail": (
+                        "La formule Essentiel est limitée à un seul dépôt. "
+                        "Passez à la formule Pro pour en ajouter d'autres."
+                    )
+                }
+            )
+        super().perform_create(serializer)
 
 
 class _LectureStockMixin(FiltreBoutiqueMixin):

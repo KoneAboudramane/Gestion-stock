@@ -146,7 +146,7 @@ function ModaleSynthese({
             <p>Chargement…</p>
           ) : (
             <div className="zone-tableau-scroll">
-              <table className="tableau-catalogue">
+              <table className="tableau-catalogue carte-mobile">
                 <thead>
                   <tr>
                     {colonnes.map((c) => (
@@ -157,7 +157,7 @@ function ModaleSynthese({
                 <tbody>
                   <tr>
                     {colonnes.map((c) => (
-                      <td key={c.cle}>{synthese[c.cle]}</td>
+                      <td key={c.cle} data-label={c.libelle}>{synthese[c.cle]}</td>
                     ))}
                   </tr>
                 </tbody>
@@ -208,7 +208,7 @@ function ModaleTopProduits({
             </select>
           </div>
           <div className="zone-tableau-scroll">
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th>N°</th>
@@ -221,11 +221,11 @@ function ModaleTopProduits({
               <tbody>
                 {lignes.map((l, index) => (
                   <tr key={l.varianteId}>
-                    <td>{index + 1}</td>
-                    <td>{l.produit}</td>
-                    <td>{l.reference || ""}</td>
-                    <td>{l.quantiteVendue}</td>
-                    <td>{l.caGenere}</td>
+                    <td data-label="N°">{index + 1}</td>
+                    <td data-label="Désignation">{l.produit}</td>
+                    <td data-label="Référence">{l.reference || ""}</td>
+                    <td data-label="Quantité vendue">{l.quantiteVendue}</td>
+                    <td data-label="CA généré">{l.caGenere}</td>
                   </tr>
                 ))}
                 {lignes.length === 0 && (
@@ -275,7 +275,7 @@ function ModaleTopClients({
             dateFinPerso={f.dateFinPerso} setDateFinPerso={f.setDateFinPerso}
           />
           <div className="zone-tableau-scroll">
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th>N°</th>
@@ -287,10 +287,10 @@ function ModaleTopClients({
               <tbody>
                 {lignes.map((l, index) => (
                   <tr key={l.clientId}>
-                    <td>{index + 1}</td>
-                    <td>{l.clientNom}</td>
-                    <td>{l.nombreVentes}</td>
-                    <td>{l.totalNet}</td>
+                    <td data-label="N°">{index + 1}</td>
+                    <td data-label="Client">{l.clientNom}</td>
+                    <td data-label="Nombre de ventes">{l.nombreVentes}</td>
+                    <td data-label="CA généré">{l.totalNet}</td>
                   </tr>
                 ))}
                 {lignes.length === 0 && (
@@ -352,7 +352,7 @@ function ModaleValeurStock({ session, onFermer }: { session: Session; onFermer: 
             <p>Chargement…</p>
           ) : (
             <div className="zone-tableau-scroll">
-              <table className="tableau-catalogue">
+              <table className="tableau-catalogue carte-mobile">
                 <thead>
                   <tr>
                     {colonnes.map((c) => (
@@ -363,7 +363,7 @@ function ModaleValeurStock({ session, onFermer }: { session: Session; onFermer: 
                 <tbody>
                   <tr>
                     {colonnes.map((c) => (
-                      <td key={c.cle}>{valeur[c.cle]}</td>
+                      <td key={c.cle} data-label={c.libelle}>{valeur[c.cle]}</td>
                     ))}
                   </tr>
                 </tbody>
@@ -407,7 +407,7 @@ function ModaleVentesParVendeur({
             dateFinPerso={f.dateFinPerso} setDateFinPerso={f.setDateFinPerso}
           />
           <div className="zone-tableau-scroll">
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th>N°</th>
@@ -419,10 +419,10 @@ function ModaleVentesParVendeur({
               <tbody>
                 {lignes.map((l, i) => (
                   <tr key={i}>
-                    <td>{i + 1}</td>
-                    <td>{libelleVendeur(l.utilisateurId, session)}</td>
-                    <td>{l.nombreVentes}</td>
-                    <td>{l.totalNet}</td>
+                    <td data-label="N°">{i + 1}</td>
+                    <td data-label="Vendeur">{libelleVendeur(l.utilisateurId, session)}</td>
+                    <td data-label="Nombre de ventes">{l.nombreVentes}</td>
+                    <td data-label="Total net">{l.totalNet}</td>
                   </tr>
                 ))}
                 {lignes.length === 0 && (
@@ -472,7 +472,7 @@ function ModaleVentesParCategorie({
             dateFinPerso={f.dateFinPerso} setDateFinPerso={f.setDateFinPerso}
           />
           <div className="zone-tableau-scroll">
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th>N°</th>
@@ -484,10 +484,10 @@ function ModaleVentesParCategorie({
               <tbody>
                 {lignes.map((l, i) => (
                   <tr key={i}>
-                    <td>{i + 1}</td>
-                    <td>{l.categorie}</td>
-                    <td>{l.quantiteVendue}</td>
-                    <td>{l.caGenere}</td>
+                    <td data-label="N°">{i + 1}</td>
+                    <td data-label="Catégorie">{l.categorie}</td>
+                    <td data-label="Quantité vendue">{l.quantiteVendue}</td>
+                    <td data-label="CA généré">{l.caGenere}</td>
                   </tr>
                 ))}
                 {lignes.length === 0 && (
@@ -537,7 +537,7 @@ function ModaleVentesParModePaiement({
             dateFinPerso={f.dateFinPerso} setDateFinPerso={f.setDateFinPerso}
           />
           <div className="zone-tableau-scroll">
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th>N°</th>
@@ -548,9 +548,9 @@ function ModaleVentesParModePaiement({
               <tbody>
                 {lignes.map((l, i) => (
                   <tr key={i}>
-                    <td>{i + 1}</td>
-                    <td>{libelleModePaiement(l.mode)}</td>
-                    <td>{l.total}</td>
+                    <td data-label="N°">{i + 1}</td>
+                    <td data-label="Mode de paiement">{libelleModePaiement(l.mode)}</td>
+                    <td data-label="Total">{l.total}</td>
                   </tr>
                 ))}
                 {lignes.length === 0 && (

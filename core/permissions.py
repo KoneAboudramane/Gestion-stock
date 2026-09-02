@@ -17,6 +17,26 @@ class EstMembreBoutique(BasePermission):
         )
 
 
+class SynchroAutorisee(BasePermission):
+    """
+    Réserve la synchro serveur (push/pull, voir synchronisation/views.py) aux
+    boutiques explicitement activées par l'administrateur (comptes.Boutique.
+    synchro_autorisee) — certains commerçants ne veulent pas que leurs données
+    quittent leur poste. Le reste de l'appli fonctionne sans cette permission
+    (SQLite local = source de vérité).
+    """
+
+    message = "La synchronisation n'est pas encore activée pour cette boutique."
+
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and request.user.boutique_id
+            and request.user.boutique.synchro_autorisee
+        )
+
+
 def a_la_permission(cle):
     """
     Fabrique une classe de permission DRF qui vérifie une clé dans

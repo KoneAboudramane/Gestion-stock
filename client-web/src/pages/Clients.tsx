@@ -151,7 +151,7 @@ function DetailCredit({ creditId, session, onRetour }: { creditId: string; sessi
             <h4>Informations</h4>
             {erreurInfos && <div className="message-erreur">{erreurInfos}</div>}
             <div className="zone-tableau-scroll">
-              <table className="tableau-catalogue">
+              <table className="tableau-catalogue carte-mobile">
                 <thead>
                   <tr>
                     <th>Nom</th>
@@ -163,10 +163,10 @@ function DetailCredit({ creditId, session, onRetour }: { creditId: string; sessi
                 <tbody>
                   {modifierInfos ? (
                     <tr className="ligne-edition">
-                      <td>
+                      <td data-label="Nom">
                         <input value={nomClient} onChange={(e) => setNomClient(e.target.value)} autoFocus />
                       </td>
-                      <td>
+                      <td data-label="Téléphone">
                         <input
                           value={telephoneClient}
                           onChange={(e) => setTelephoneClient(normaliserTelephone(e.target.value))}
@@ -174,7 +174,7 @@ function DetailCredit({ creditId, session, onRetour }: { creditId: string; sessi
                         />
                         <span className="aide-format-telephone">Indicatif + numéro, ex. 2250712345678</span>
                       </td>
-                      <td>
+                      <td data-label="Adresse">
                         <input value={adresseClient} onChange={(e) => setAdresseClient(e.target.value)} />
                       </td>
                       <td>
@@ -190,9 +190,9 @@ function DetailCredit({ creditId, session, onRetour }: { creditId: string; sessi
                     </tr>
                   ) : (
                     <tr>
-                      <td>{infoClient.nom || ""}</td>
-                      <td>{infoClient.telephone || ""}</td>
-                      <td>{infoClient.adresse || ""}</td>
+                      <td data-label="Nom">{infoClient.nom || ""}</td>
+                      <td data-label="Téléphone">{infoClient.telephone || ""}</td>
+                      <td data-label="Adresse">{infoClient.adresse || ""}</td>
                       {peutGerer && (
                         <td>
                           <button type="button" onClick={() => setModifierInfos(true)}>
@@ -240,7 +240,7 @@ function DetailCredit({ creditId, session, onRetour }: { creditId: string; sessi
           )}
         </div>
         <div className="zone-tableau-scroll">
-          <table className="tableau-catalogue">
+          <table className="tableau-catalogue carte-mobile">
             <thead>
               <tr>
                 <th>N°</th>
@@ -252,12 +252,12 @@ function DetailCredit({ creditId, session, onRetour }: { creditId: string; sessi
             <tbody>
               {credit.paiements.map((p, index) => (
                 <tr key={p.id}>
-                  <td>{index + 1}</td>
-                  <td>{new Date(p.dateCreation).toLocaleString("fr-FR")}</td>
-                  <td>
+                  <td data-label="N°">{index + 1}</td>
+                  <td data-label="Date de règlement">{new Date(p.dateCreation).toLocaleString("fr-FR")}</td>
+                  <td data-label="Montant">
                     {formaterMontant(p.montant)} {devise}
                   </td>
-                  <td>{p.mode || ""}</td>
+                  <td data-label="Mode">{p.mode || ""}</td>
                 </tr>
               ))}
               {credit.paiements.length === 0 && (
@@ -412,7 +412,7 @@ function DetailClient({ client, session, onRetour }: { client: ClientResume; ses
         <h4>Informations</h4>
         {erreurInfos && <div className="message-erreur">{erreurInfos}</div>}
         <div className="zone-tableau-scroll">
-          <table className="tableau-catalogue">
+          <table className="tableau-catalogue carte-mobile">
             <thead>
               <tr>
                 <th>Nom</th>
@@ -424,10 +424,10 @@ function DetailClient({ client, session, onRetour }: { client: ClientResume; ses
             <tbody>
               {modifierInfos ? (
                 <tr className="ligne-edition">
-                  <td>
+                  <td data-label="Nom">
                     <input value={nom} onChange={(e) => setNom(e.target.value)} autoFocus />
                   </td>
-                  <td>
+                  <td data-label="Téléphone">
                     <input
                       value={telephone}
                       onChange={(e) => setTelephone(normaliserTelephone(e.target.value))}
@@ -435,7 +435,7 @@ function DetailClient({ client, session, onRetour }: { client: ClientResume; ses
                     />
                     <span className="aide-format-telephone">Indicatif + numéro, ex. 2250712345678</span>
                   </td>
-                  <td>
+                  <td data-label="Adresse">
                     <input value={adresse} onChange={(e) => setAdresse(e.target.value)} />
                   </td>
                   <td>
@@ -451,9 +451,9 @@ function DetailClient({ client, session, onRetour }: { client: ClientResume; ses
                 </tr>
               ) : (
                 <tr>
-                  <td>{infos.nom || ""}</td>
-                  <td>{infos.telephone || ""}</td>
-                  <td>{infos.adresse || ""}</td>
+                  <td data-label="Nom">{infos.nom || ""}</td>
+                  <td data-label="Téléphone">{infos.telephone || ""}</td>
+                  <td data-label="Adresse">{infos.adresse || ""}</td>
                   {peutGerer && (
                     <td>
                       <button type="button" onClick={() => setModifierInfos(true)}>
@@ -478,7 +478,7 @@ function DetailClient({ client, session, onRetour }: { client: ClientResume; ses
 
         {pageClient === "achats" && (
           <div className="zone-tableau-scroll zone-tableau-scroll-client">
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th>N°</th>
@@ -491,13 +491,13 @@ function DetailClient({ client, session, onRetour }: { client: ClientResume; ses
               <tbody>
                 {ventes.map((v, index) => (
                   <tr key={v.id} onClick={() => setVenteSelectionneeId(v.id)}>
-                    <td>{index + 1}</td>
-                    <td>{new Date(v.dateCreation).toLocaleString("fr-FR")}</td>
-                    <td>{v.numero}</td>
-                    <td>
+                    <td data-label="N°">{index + 1}</td>
+                    <td data-label="Date">{new Date(v.dateCreation).toLocaleString("fr-FR")}</td>
+                    <td data-label="Numéro">{v.numero}</td>
+                    <td data-label="Statut">
                       <span className={`badge-${v.statut}`}>{libelleStatutVente(v.statut)}</span>
                     </td>
-                    <td>{formaterMontant(v.totalNet)}</td>
+                    <td data-label="Total net">{formaterMontant(v.totalNet)}</td>
                   </tr>
                 ))}
                 {ventes.length === 0 && (
@@ -514,7 +514,7 @@ function DetailClient({ client, session, onRetour }: { client: ClientResume; ses
 
         {pageClient === "credits" && (
           <div className="zone-tableau-scroll zone-tableau-scroll-client">
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th>N°</th>
@@ -529,13 +529,13 @@ function DetailClient({ client, session, onRetour }: { client: ClientResume; ses
               <tbody>
                 {credits.map((c, index) => (
                   <tr key={c.id} onClick={() => setCreditSelectionneId(c.id)}>
-                    <td>{index + 1}</td>
-                    <td>{new Date(c.dateCreation).toLocaleString("fr-FR")}</td>
-                    <td>{c.venteNumero ?? ""}</td>
-                    <td>{formaterMontant(c.montant)}</td>
-                    <td>{formaterMontant(c.montantPaye)}</td>
-                    <td>{formaterMontant(c.solde)}</td>
-                    <td>
+                    <td data-label="N°">{index + 1}</td>
+                    <td data-label="Date d'achat">{new Date(c.dateCreation).toLocaleString("fr-FR")}</td>
+                    <td data-label="Vente">{c.venteNumero ?? ""}</td>
+                    <td data-label="Montant">{formaterMontant(c.montant)}</td>
+                    <td data-label="Payé">{formaterMontant(c.montantPaye)}</td>
+                    <td data-label="Solde">{formaterMontant(c.solde)}</td>
+                    <td data-label="Statut">
                       <span className={c.statut === "solde" ? "badge-payee" : "badge-credit"}>{libelleStatutCredit(c.statut)}</span>
                     </td>
                   </tr>
@@ -703,7 +703,7 @@ function FormulaireClientsGroupe({
       </div>
 
       <div className="zone-tableau-scroll tableau-produits-groupe-scroll">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th className="colonne-numero-groupe">N°</th>
@@ -716,10 +716,10 @@ function FormulaireClientsGroupe({
           <tbody>
             {lignes.map((l, index) => (
               <tr key={l.id}>
-                <td className="colonne-numero-groupe">{index + 1}</td>
-                <td className="col-designation-groupe">{l.nom}</td>
-                <td>{l.telephone}</td>
-                <td>{l.adresse}</td>
+                <td data-label="N°" className="colonne-numero-groupe">{index + 1}</td>
+                <td data-label="Nom" className="col-designation-groupe">{l.nom}</td>
+                <td data-label="Téléphone">{l.telephone}</td>
+                <td data-label="Adresse">{l.adresse}</td>
                 <td className="colonne-numero-groupe">
                   <button type="button" className="bouton-retirer-ligne-groupe" title="Retirer de la liste" onClick={() => retirerLigne(l.id)}>
                     ✕
@@ -822,7 +822,7 @@ function OngletClients({ session }: { session: Session }) {
         </div>
       )}
       <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>N°</th>
@@ -836,11 +836,11 @@ function OngletClients({ session }: { session: Session }) {
           <tbody>
             {clientsFiltres.map((c, index) => (
               <tr key={c.id} onClick={() => setClientSelectionne(c)}>
-                <td>{index + 1}</td>
-                <td>{c.nom}</td>
-                <td>{c.telephone || ""}</td>
-                <td>{c.adresse || ""}</td>
-                <td>
+                <td data-label="N°">{index + 1}</td>
+                <td data-label="Nom">{c.nom}</td>
+                <td data-label="Téléphone">{c.telephone || ""}</td>
+                <td data-label="Adresse">{c.adresse || ""}</td>
+                <td data-label="Solde dû">
                   {c.soldeCredit > 0 ? (
                     <span className="badge-solde-du">
                       {formaterMontant(c.soldeCredit)} {devise}
@@ -850,7 +850,7 @@ function OngletClients({ session }: { session: Session }) {
                   )}
                 </td>
                 {peutGerer && (
-                  <td onClick={(e) => e.stopPropagation()}>
+                  <td data-label="Actions" onClick={(e) => e.stopPropagation()}>
                     <span className="actions-ligne">
                       <button type="button" className="lien-icone" title="Modifier" onClick={() => setClientSelectionne(c)}>
                         ✎
@@ -928,7 +928,7 @@ function OngletCredits({ session }: { session: Session }) {
         </select>
       </div>
       <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>N°</th>
@@ -944,14 +944,14 @@ function OngletCredits({ session }: { session: Session }) {
           <tbody>
             {creditsFiltres.map((c, index) => (
               <tr key={c.id} onClick={() => setCreditSelectionneId(c.id)}>
-                <td>{index + 1}</td>
-                <td>{new Date(c.dateCreation).toLocaleString("fr-FR")}</td>
-                <td>{c.clientNom}</td>
-                <td>{c.venteNumero ?? ""}</td>
-                <td>{formaterMontant(c.montant)}</td>
-                <td>{formaterMontant(c.montantPaye)}</td>
-                <td>{formaterMontant(c.solde)}</td>
-                <td>
+                <td data-label="N°">{index + 1}</td>
+                <td data-label="Date d'achat">{new Date(c.dateCreation).toLocaleString("fr-FR")}</td>
+                <td data-label="Client">{c.clientNom}</td>
+                <td data-label="Vente">{c.venteNumero ?? ""}</td>
+                <td data-label="Montant">{formaterMontant(c.montant)}</td>
+                <td data-label="Payé">{formaterMontant(c.montantPaye)}</td>
+                <td data-label="Solde">{formaterMontant(c.solde)}</td>
+                <td data-label="Statut">
                   <span className={c.statut === "solde" ? "badge-payee" : "badge-credit"}>{libelleStatutCredit(c.statut)}</span>
                 </td>
               </tr>

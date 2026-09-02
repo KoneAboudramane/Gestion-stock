@@ -78,6 +78,11 @@
   --transition: 150ms ease;
   --transition-lente: 260ms cubic-bezier(0.16, 1, 0.3, 1);
 
+  /* Réservée aux écrans d'authentification (voir .carte-auth h1, .marque-titre)
+     — le reste de l'app garde la police système, seul le premier contact avec
+     la marque a droit à un traitement plus marqué. */
+  --police-affichage: "Bitter", Georgia, "Times New Roman", serif;
+
   --degrade-primaire: linear-gradient(135deg, var(--couleur-primaire), var(--couleur-accent));
   --degrade-succes: linear-gradient(135deg, var(--succes), var(--succes-fonce));
 
@@ -247,6 +252,13 @@
 
 :root[data-theme="nuit"] .entete {
   border-bottom: 2px solid var(--couleur-accent);
+}
+
+/* .panneau-marque en couleur pleine (--couleur-primaire) ressemblerait trop
+   au thème Orange (ambré doré vs orange vif, même famille de teinte) : ici on
+   assombrit fortement pour rester dans l'esprit "nuit" plutôt qu'"orange". */
+:root[data-theme="nuit"] .panneau-marque {
+  background: color-mix(in srgb, var(--couleur-primaire) 25%, black);
 }
 
 /* Thème orange : quatrième option d'Apparence, un thème clair (fonds du thème
@@ -486,15 +498,6 @@ input[type="number"]::-webkit-outer-spin-button {
   }
 }
 
-@keyframes flotter-blob {
-  0%, 100% {
-    transform: translate(0, 0) scale(1);
-  }
-  50% {
-    transform: translate(24px, -18px) scale(1.05);
-  }
-}
-
 /* Panneau de marque (gauche) */
 .panneau-marque {
   position: relative;
@@ -505,59 +508,70 @@ input[type="number"]::-webkit-outer-spin-button {
   justify-content: center;
   padding: 4rem 4.5rem;
   color: white;
-  background: linear-gradient(160deg, #0e2551 0%, #1d4ed8 55%, #3b82f6 100%);
   overflow: hidden;
+  /* Couleur pleine, dérivée de --couleur-primaire (donc de data-theme, voir
+     lib/theme.ts) : pas de dégradé ni d'assombrissement, juste la teinte du
+     thème actif. */
+  background: var(--couleur-primaire);
 }
 
-.panneau-marque::before,
-.panneau-marque::after {
-  content: "";
+/* Signature de la marque : des icônes du métier (carton, étiquette, reçu…)
+   qui dérivent en continu, chacune sa propre trajectoire (voir
+   ICONES_FLOTTANTES dans PanneauMarque.tsx) — même mécanique que les ronds de
+   fond d'Accueil.tsx (@keyframes defiler-cercle, plus bas dans ce fichier),
+   réutilisée telle quelle plutôt que dupliquée, pour rester cohérent avec le
+   reste de l'app. */
+.icone-flottante-marque {
   position: absolute;
-  border-radius: 50%;
-  filter: blur(70px);
-  opacity: 0.4;
-  pointer-events: none;
-}
-
-.panneau-marque::before {
-  width: 380px;
-  height: 380px;
-  background: #60a5fa;
-  top: -140px;
-  right: -110px;
-  animation: flotter-blob 11s ease-in-out infinite;
-}
-
-.panneau-marque::after {
-  width: 320px;
-  height: 320px;
-  background: #1e3a8a;
-  bottom: -150px;
-  left: -90px;
-  animation: flotter-blob 13s ease-in-out infinite reverse;
-}
-
-.marque-logo {
-  position: relative;
-  z-index: 1;
+  top: 0;
+  left: 0;
   display: flex;
   align-items: center;
-  gap: 0.65rem;
-  font-size: 1.15rem;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1.5px solid rgba(255, 255, 255, 0.22);
+  pointer-events: none;
+  animation-name: defiler-cercle;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icone-flottante-marque {
+    display: none;
+  }
+}
+
+/* Ancrée en bas du panneau, comme une marque imprimée en pied d'étiquette —
+   sortie du flux centré du reste du contenu (titre/carrousel) pour rester
+   collée au bord quelle que soit la longueur du texte au-dessus. */
+.marque-logo {
+  position: absolute;
+  z-index: 1;
+  left: 4.5rem;
+  bottom: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  width: fit-content;
+  padding: 0.5rem 0.85rem 0.5rem 0.5rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.14);
+  font-size: 1.3rem;
   font-weight: 800;
   letter-spacing: -0.01em;
-  margin-bottom: 3rem;
 }
 
 .marque-logo-pastille {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.16);
-  font-size: 0.8rem;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 0.88rem;
   font-weight: 800;
 }
 
@@ -566,9 +580,10 @@ input[type="number"]::-webkit-outer-spin-button {
   z-index: 1;
   max-width: 420px;
   margin: 0 0 1rem;
-  font-size: 2.1rem;
-  font-weight: 800;
-  line-height: 1.25;
+  font-family: var(--police-affichage);
+  font-size: 2.15rem;
+  font-weight: 700;
+  line-height: 1.22;
   letter-spacing: -0.01em;
 }
 
@@ -582,23 +597,71 @@ input[type="number"]::-webkit-outer-spin-button {
   line-height: 1.6;
 }
 
-.marque-atouts {
+/* Un atout à la fois plutôt qu'empilés : re-rendu à chaque changement d'index
+   (voir key={index} dans PanneauMarque.tsx) pour rejouer l'entrée à chaque
+   rotation. */
+.marque-carrousel {
   position: relative;
   z-index: 1;
   display: flex;
-  flex-direction: column;
-  gap: 1.1rem;
-  list-style: none;
-  margin: 0;
-  padding: 0;
+  align-items: center;
+  gap: 1rem;
+  min-height: 56px;
+  margin-bottom: 1.4rem;
+  animation: entree-carrousel 550ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.marque-atouts li {
+@keyframes entree-carrousel {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marque-carrousel {
+    animation: none;
+  }
+}
+
+.marque-carrousel-texte {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.marque-carrousel-puces {
+  position: relative;
+  z-index: 1;
   display: flex;
-  align-items: center;
-  gap: 0.85rem;
-  font-size: 0.92rem;
-  color: rgba(255, 255, 255, 0.92);
+  gap: 0.5rem;
+  margin-bottom: 2.4rem;
+}
+
+.puce-carrousel {
+  width: 22px;
+  height: 4px;
+  padding: 0;
+  border: none;
+  border-radius: var(--rayon-pilule);
+  background: rgba(255, 255, 255, 0.28);
+  cursor: pointer;
+  transition: background var(--transition), width var(--transition);
+}
+
+.puce-carrousel:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.puce-carrousel.actif {
+  width: 32px;
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .icone-atout {
@@ -613,8 +676,16 @@ input[type="number"]::-webkit-outer-spin-button {
   font-size: 1.05rem;
 }
 
+.icone-atout-grande {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  font-size: 1.6rem;
+}
+
 /* Panneau formulaire (droite) */
 .panneau-formulaire {
+  position: relative;
   flex: 1 1 56%;
   display: flex;
   align-items: center;
@@ -622,47 +693,95 @@ input[type="number"]::-webkit-outer-spin-button {
   padding: 3rem;
 }
 
+/* Accès de secours volontairement discret (voir Connexion.tsx) : une petite
+   icône, pas un bouton destiné aux commerçants qui se connectent ici — juste
+   repérable par qui sait qu'elle est là. Mène à un verrou d'identifiants
+   admin (AccesCreationBoutique.tsx) avant "Créer une boutique". */
+.icone-discrete-acces-admin {
+  position: absolute;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  color: var(--gris-400);
+  opacity: 0.35;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: opacity var(--transition);
+}
+
+.icone-discrete-acces-admin:hover {
+  opacity: 0.8;
+}
+
 .carte-auth {
+  position: relative;
   background: var(--surface);
-  padding: 3rem 3.2rem;
+  padding: 3.4rem 3.8rem;
   border-radius: 20px;
   box-shadow: 0 24px 60px -24px rgba(15, 23, 42, 0.22), 0 2px 10px rgba(15, 23, 42, 0.04);
   width: 100%;
-  max-width: 420px;
+  max-width: 480px;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.1rem;
   animation: entree-carte 480ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Liseré du haut : reprend le dégradé du panneau de marque, pour que la carte
+   ne se sente pas détachée de la couleur du reste de l'écran. */
+.carte-auth::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 5px;
+  border-radius: 20px 20px 0 0;
+  background: linear-gradient(90deg, var(--couleur-primaire), var(--couleur-primaire-fonce));
 }
 
 .carte-auth h1 {
   margin: 0;
-  font-size: 1.55rem;
-  font-weight: 800;
+  font-family: var(--police-affichage);
+  font-size: 1.9rem;
+  font-weight: 700;
   color: var(--gris-900);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
 .sous-titre {
   margin: 0 0 0.6rem;
   color: var(--gris-500);
-  font-size: 0.95rem;
+  font-size: 1.02rem;
 }
 
 .carte-auth label {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  font-size: 0.85rem;
+  gap: 0.4rem;
+  font-size: 0.92rem;
   font-weight: 600;
   color: var(--gris-700);
 }
 
 .carte-auth input {
-  padding: 0.68rem 0.85rem;
-  border-radius: 10px;
-  border: 1.5px solid var(--gris-200);
-  font-size: 0.9rem;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  /* Le champ ne peut pas se contenter d'hériter background: var(--surface) de
+     la règle générique input/select/textarea : .carte-auth a exactement le
+     même fond, donc le champ devenait invisible (aucun contraste) dans les
+     thèmes sombre/nuit. Le mélange avec --gris-400 (bordure incluse) le
+     détache visiblement de la carte, quel que soit le thème actif. */
+  background: color-mix(in srgb, var(--surface), var(--gris-400) 10%);
+  border: 1.5px solid var(--gris-400);
+  font-size: 1.02rem;
 }
 
 .carte-auth input:focus {
@@ -674,23 +793,63 @@ input[type="number"]::-webkit-outer-spin-button {
   padding-right: 2.4rem;
 }
 
+/* Icône décorative (👤/🔒) qui identifie le champ au premier coup d'œil —
+   .champ-mot-de-passe porte déjà position:relative pour l'œil de droite, on
+   la réutilise ici pour l'icône de gauche plutôt que de dupliquer. */
+.champ-avec-icone {
+  position: relative;
+  display: flex;
+}
+
+.champ-avec-icone input {
+  flex: 1;
+  padding-left: 2.5rem;
+}
+
+.icone-champ {
+  position: absolute;
+  left: 0.85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.95rem;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 .carte-auth > button:not(.lien) {
   background: linear-gradient(135deg, var(--couleur-primaire), var(--couleur-accent));
   border: none;
   color: white;
-  padding: 0.8rem;
-  border-radius: 10px;
+  padding: 0.95rem;
+  border-radius: 12px;
   font-weight: 700;
-  font-size: 0.92rem;
+  font-size: 1rem;
   margin-top: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
   box-shadow: 0 10px 22px -10px rgba(29, 78, 216, 0.6);
   transition: transform var(--transition), box-shadow var(--transition), background var(--transition);
+}
+
+.carte-auth > button:not(.lien)::after {
+  content: "→";
+  transition: transform var(--transition);
 }
 
 .carte-auth > button:not(.lien):hover:not(:disabled) {
   background: linear-gradient(135deg, var(--couleur-primaire-fonce), var(--couleur-primaire-tres-fonce));
   transform: translateY(-1px);
   box-shadow: 0 14px 26px -10px rgba(29, 78, 216, 0.7);
+}
+
+.carte-auth > button:not(.lien):hover:not(:disabled)::after {
+  transform: translateX(3px);
+}
+
+.carte-auth > button:not(.lien):disabled::after {
+  content: "";
 }
 
 .carte-auth > button:not(.lien):active:not(:disabled) {
@@ -710,6 +869,31 @@ input[type="number"]::-webkit-outer-spin-button {
 @media (max-width: 820px) {
   .panneau-marque {
     display: none;
+  }
+
+  /* Le panneau de marque disparaît, mais le padding de la carte restait pensé
+     pour un desktop avec de la place à revendre des deux côtés. */
+  .panneau-formulaire {
+    padding: 2rem 1.25rem;
+  }
+
+  .carte-auth {
+    padding: 2rem 1.75rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .panneau-formulaire {
+    padding: 1.25rem 1rem;
+  }
+
+  .carte-auth {
+    padding: 1.5rem 1.25rem;
+    border-radius: 16px;
+  }
+
+  .carte-auth h1 {
+    font-size: 1.4rem;
   }
 }
 
@@ -1061,10 +1245,6 @@ input[type="number"]::-webkit-outer-spin-button {
   white-space: nowrap;
 }
 
-.barre-laterale.reduite .texte-deconnexion {
-  display: none;
-}
-
 .lien-deconnexion:hover:not(:disabled) {
   background: rgba(220, 38, 38, 0.15);
   border-color: rgba(220, 38, 38, 0.4);
@@ -1109,6 +1289,17 @@ input[type="number"]::-webkit-outer-spin-button {
   border-left: 1px solid var(--gris-300);
 }
 
+.entete-droite {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.lien-deconnexion-entete {
+  margin: 0;
+  padding: 0.5rem 0.8rem;
+}
+
 .entete strong {
   font-size: 1.02rem;
   letter-spacing: -0.01em;
@@ -1118,14 +1309,6 @@ input[type="number"]::-webkit-outer-spin-button {
 .sous-info {
   color: var(--gris-500);
   font-size: 0.85rem;
-}
-
-.barre-synchro {
-  font-size: 0.8rem;
-  color: var(--gris-500);
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
 }
 
 .point {
@@ -1142,20 +1325,6 @@ input[type="number"]::-webkit-outer-spin-button {
 .point-en-ligne {
   background: var(--succes);
   box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
-}
-
-.bouton-synchro {
-  margin-left: 0.6rem;
-  font-size: 0.75rem;
-  padding: 0.3rem 0.7rem;
-  border-radius: var(--rayon-sm);
-  border: 1px solid var(--gris-300);
-  background: var(--surface);
-  color: var(--couleur-primaire-fonce);
-}
-
-.bouton-synchro:disabled {
-  color: var(--gris-400);
 }
 
 .zone-contenu {
@@ -1425,6 +1594,7 @@ input[type="number"]::-webkit-outer-spin-button {
   gap: 0.9rem;
   padding: 1rem 1.4rem 1.4rem;
   min-height: 0;
+  overflow-y: auto;
 }
 
 /* Titre de section + bouton d'action sur une même ligne (ex. "Règlements" +
@@ -1715,7 +1885,7 @@ input[type="number"]::-webkit-outer-spin-button {
   border-collapse: separate;
   border-spacing: 0;
   border: 1px solid var(--bordure-tableau-forte);
-  border-radius: var(--rayon-md);
+  border-radius: 0;
   overflow: hidden;
 }
 
@@ -2340,7 +2510,7 @@ input.champ-invalide:focus {
   border-spacing: 0;
   background: var(--surface);
   border: 1.5px solid var(--bordure-tableau-forte);
-  border-radius: var(--rayon-md);
+  border-radius: 0;
   overflow: hidden;
   box-shadow: var(--ombre-md);
 }
@@ -2513,8 +2683,16 @@ input.champ-invalide:focus {
   gap: 0.75rem;
 }
 
+/* .formulaire-catalogue plafonne les formulaires à 600px (pensé pour un
+   formulaire simple en colonne) : ce formulaire-ci a deux colonnes (Boutique
+   + Mon compte) et doit occuper tout le corps du modal (dimension fixe, voir
+   mémoire "dimension_modals_fixe"), pas rester une carte plus étroite avec du
+   fond de modal visible tout autour. */
 .formulaire-profil-boutique {
-  max-width: 900px;
+  width: 100%;
+  max-width: none;
+  flex: 1;
+  justify-content: center;
 }
 
 .colonnes-profil-boutique {
@@ -2522,6 +2700,33 @@ input.champ-invalide:focus {
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 1.5rem;
   align-items: start;
+}
+
+/* Même correctif que .formulaire-profil-boutique ci-dessus, pour les modales
+   d'Espace Admin (voir GererAbonnement.tsx, Inscription.tsx,
+   ReinitialiserMotDePasseAdmin.tsx, MotDePasseOublie.tsx) : .formulaire-catalogue
+   plafonne à 600px avec du fond de modal visible tout autour — ces écrans
+   doivent occuper tout le corps du modal. */
+.formulaire-pleine-largeur-modale {
+  width: 100%;
+  max-width: none;
+  flex: 1;
+}
+
+/* Le fond de carte remplit le modal (ci-dessus), mais un champ (nom
+   d'utilisateur, mot de passe...) qui s'étire sur toute cette largeur
+   (jusqu'à 1120px) a l'air disproportionné : on garde une colonne de champs
+   étroite et centrée, comme un vrai formulaire — sauf .grille-champs
+   (comparatif Essentiel/Pro, résumé Formule/Expiration...), pensée pour
+   profiter de la largeur disponible. */
+.formulaire-pleine-largeur-modale > * {
+  width: 100%;
+  max-width: 480px;
+  align-self: center;
+}
+
+.formulaire-pleine-largeur-modale > .grille-champs {
+  max-width: none;
 }
 
 .colonnes-profil-boutique h4 {
@@ -3749,6 +3954,18 @@ input.champ-invalide:focus {
   color: var(--gris-500);
 }
 
+/* Comparatif Essentiel/Pro dans "Gérer abonnement" (voir GererAbonnement.tsx). */
+.liste-fonctionnalites-formule {
+  margin: 0.2rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+  color: var(--gris-600);
+}
+
+.liste-fonctionnalites-formule li {
+  margin-bottom: 0.15rem;
+}
+
 .disposition-deux-colonnes {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -3968,6 +4185,13 @@ input.champ-invalide:focus {
   background: var(--gris-50);
 }
 
+/* Facture (aperçu et impression/export PDF) : angles droits, pas les coins
+   arrondis du tableau générique de l'appli — un document commercial reste
+   rectangulaire. */
+.facture-imprimable .tableau-catalogue {
+  border-radius: 0;
+}
+
 /* Portail d'impression : rendu en dehors de #root (donc hors de toute mise en
    page fixe/flex de l'appli — sidebar, modales à hauteur fixe, etc.) pour que
    l'impression/export PDF ne dépende que du flux normal du document. */
@@ -3985,13 +4209,85 @@ input.champ-invalide:focus {
     display: none !important;
   }
 
+  /* La facture doit toujours s'imprimer/s'exporter en noir sur blanc, même
+     quand un thème sombre est actif à l'écran (--gris-*, --surface, etc. sont
+     inversés par data-theme) : on fige les couleurs ici plutôt que de laisser
+     l'impression suivre les variables du thème courant. */
+  html,
+  body,
+  .zone-impression-facture {
+    background: #ffffff !important;
+  }
+
+  .zone-impression-facture,
+  .zone-impression-facture * {
+    background: #ffffff !important;
+    color: #1e293b !important;
+    box-shadow: none !important;
+  }
+
   .zone-impression-facture {
     display: block !important;
+  }
+
+  .zone-impression-facture .tableau-catalogue th,
+  .zone-impression-facture .ligne-total-facture td {
+    background: #f1f5f9 !important;
   }
 
   .zone-impression-facture .zone-tableau-scroll {
     max-height: none !important;
     overflow: visible !important;
+  }
+
+  /* Format du ticket (Réglages > Informations boutique > Format du ticket,
+     clé configuration.Parametre "format_ticket") : par défaut "a4" garde la
+     page/le format ci-dessus ; "80mm"/"58mm" impriment sur une bande de
+     papier thermique au lieu d'une page A4 — pages nommées CSS, honorées par
+     window.print() comme par printToPDF (preferCSSPageSize, voir handlers.ts). */
+  @page ticket-80mm {
+    size: 80mm auto;
+    margin: 4mm;
+  }
+
+  @page ticket-58mm {
+    size: 58mm auto;
+    margin: 3mm;
+  }
+
+  .zone-impression-facture.format-ticket-80mm {
+    page: ticket-80mm;
+  }
+
+  .zone-impression-facture.format-ticket-58mm {
+    page: ticket-58mm;
+  }
+
+  .zone-impression-facture.format-ticket-80mm,
+  .zone-impression-facture.format-ticket-58mm {
+    font-size: 0.72rem;
+  }
+
+  .zone-impression-facture.format-ticket-80mm .facture-entete-boutique,
+  .zone-impression-facture.format-ticket-58mm .facture-entete-boutique,
+  .zone-impression-facture.format-ticket-80mm .facture-meta,
+  .zone-impression-facture.format-ticket-58mm .facture-meta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.3rem;
+  }
+
+  .zone-impression-facture.format-ticket-80mm .facture-logo,
+  .zone-impression-facture.format-ticket-58mm .facture-logo {
+    max-height: 40px;
+  }
+
+  .zone-impression-facture.format-ticket-80mm .tableau-catalogue th,
+  .zone-impression-facture.format-ticket-80mm .tableau-catalogue td,
+  .zone-impression-facture.format-ticket-58mm .tableau-catalogue th,
+  .zone-impression-facture.format-ticket-58mm .tableau-catalogue td {
+    padding: 0.3rem 0.35rem;
+    font-size: 0.68rem;
   }
 }
 
@@ -4020,6 +4316,7 @@ input.champ-invalide:focus {
 .entete-tableau-bord {
   display: flex;
   align-items: baseline;
+  justify-content: space-between;
   gap: 0.6rem;
   margin-bottom: 1.25rem;
   animation: entree-tableau-bord var(--transition-lente) both;
@@ -4094,19 +4391,6 @@ input.champ-invalide:focus {
   flex-direction: column;
   gap: 0.4rem;
   transition: transform var(--transition-lente), box-shadow var(--transition-lente);
-}
-
-/* Liseret dégradé assorti à la couleur de la carte, en écho au bandeau
-   animé de la carte "hero" du graphique, pour une identité visuelle
-   cohérente entre les deux styles de cartes du tableau de bord. */
-.grille-tableau-bord .carte-stat::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--accent-carte), var(--accent-carte-fonce));
 }
 
 /* Cartes du Tableau de bord uniquement : celles de Trésorerie n'ont pas

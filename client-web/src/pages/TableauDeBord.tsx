@@ -376,9 +376,7 @@ export default function TableauDeBord({
         />
       ))}
       <div className="entete-tableau-bord">
-        <h2>
-          Bonjour, {session.username} <span aria-hidden="true">👋</span>
-        </h2>
+        <h2>Bonjour, {session.username}</h2>
         <span className="date-tableau-bord">{FORMATEUR_DATE_LONGUE.format(new Date())}</span>
       </div>
 
@@ -498,7 +496,7 @@ export default function TableauDeBord({
             </button>
           </h3>
           <div className="zone-tableau-scroll">
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th>N°</th>
@@ -511,11 +509,11 @@ export default function TableauDeBord({
               <tbody>
                 {ruptures.slice(0, 5).map((l, index) => (
                   <tr key={l.id} onClick={() => onNaviguer("stock:rupture")}>
-                    <td>{index + 1}</td>
-                    <td>{l.produitNom}</td>
-                    <td>{l.depotNom}</td>
-                    <td>{l.quantite}</td>
-                    <td>{l.seuilAlerte}</td>
+                    <td data-label="N°">{index + 1}</td>
+                    <td data-label="Désignation">{l.produitNom}</td>
+                    <td data-label="Dépôt">{l.depotNom}</td>
+                    <td data-label="Quantité">{l.quantite}</td>
+                    <td data-label="Seuil">{l.seuilAlerte}</td>
                   </tr>
                 ))}
                 {ruptures.length === 0 && (
@@ -561,7 +559,7 @@ export default function TableauDeBord({
             </div>
           </div>
           <div className="zone-tableau-scroll">
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th>N°</th>
@@ -573,10 +571,10 @@ export default function TableauDeBord({
               <tbody>
                 {meilleursClients.map((c, index) => (
                   <tr key={c.clientId} onClick={() => onNaviguer("clients")}>
-                    <td>{index + 1}</td>
-                    <td>{c.clientNom}</td>
-                    <td>{c.nombreVentes}</td>
-                    <td>
+                    <td data-label="N°">{index + 1}</td>
+                    <td data-label="Client">{c.clientNom}</td>
+                    <td data-label="Ventes">{c.nombreVentes}</td>
+                    <td data-label="CA généré">
                       {c.totalNet} {devise}
                     </td>
                   </tr>

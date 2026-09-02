@@ -390,9 +390,7 @@ export default function TableauDeBord({
         />
       ))}
       <div className="entete-tableau-bord">
-        <h2>
-          Bonjour, {session.username} <span aria-hidden="true">👋</span>
-        </h2>
+        <h2>Bonjour, {session.username}</h2>
         <span className="date-tableau-bord">{FORMATEUR_DATE_LONGUE.format(new Date())}</span>
       </div>
 

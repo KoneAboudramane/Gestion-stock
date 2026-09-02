@@ -13,14 +13,88 @@ from .services import (
 )
 
 
+class EnregistrementBoutiqueLocaleSerializer(serializers.Serializer):
+    """
+    "Activer en ligne" une boutique créée hors-ligne depuis l'Espace Admin
+    (voir EnregistrerBoutiqueLocaleView) : la boutique existe déjà en local
+    (SQLite/IndexedDB) avec un UUID choisi côté client — on le réutilise tel
+    quel ici (au lieu d'en générer un nouveau côté serveur) pour que les
+    données déjà créées localement (ventes, stock...) restent cohérentes avec
+    la boutique une fois synchronisées.
+    """
+
+    username = serializers.CharField()
+    password = serializers.CharField()
+    boutique_id = serializers.UUIDField()
+    boutique_nom = serializers.CharField()
+    boutique_adresse = serializers.CharField(required=False, allow_blank=True)
+    boutique_telephone = serializers.CharField(required=False, allow_blank=True)
+    boutique_email = serializers.CharField(required=False, allow_blank=True)
+    boutique_devise = serializers.CharField(required=False, allow_blank=True)
+    patron_username = serializers.CharField()
+    patron_password = serializers.CharField(validators=[validate_password])
+    patron_email = serializers.EmailField()
+    patron_telephone = serializers.CharField(required=False, allow_blank=True)
+
+
 class BoutiqueSerializer(serializers.ModelSerializer):
     class Meta:
         model = Boutique
         fields = [
             "id", "nom", "adresse", "telephone", "email", "logo",
-            "devise", "actif", "date_expiration_abonnement", "formule", "date_creation",
+            "devise", "actif", "date_expiration_abonnement", "formule",
+            "synchro_autorisee", "date_creation",
         ]
-        read_only_fields = ["id", "actif", "date_expiration_abonnement", "formule", "date_creation"]
+        read_only_fields = [
+            "id", "actif", "date_expiration_abonnement", "formule",
+            "synchro_autorisee", "date_creation",
+        ]
+
+
+class AppliquerAbonnementSerializer(serializers.Serializer):
+    """
+    Utilisée par AppliquerAbonnementView (voir comptes/views.py) : verrou
+    "Gérer abonnement" de l'Espace Admin, qui écrit directement sur les champs
+    protégés de Boutique (formule, date_expiration_abonnement,
+    synchro_autorisee — voir synchronisation/registre.py::champs_proteges,
+    volontairement hors de portée d'un push client normal). Identifiants admin
+    revérifiés ici pour ne jamais faire confiance à une vérification côté
+    client faite plus tôt (hors-ligne notamment).
+    """
+
+    username = serializers.CharField()
+    password = serializers.CharField()
+    boutique_id = serializers.UUIDField()
+    formule = serializers.ChoiceField(choices=Boutique.Formule.choices, required=False)
+    date_expiration_abonnement = serializers.DateTimeField(required=False, allow_null=True)
+    synchro_autorisee = serializers.BooleanField(required=False)
+
+
+class ReinitialisationAdminSerializer(serializers.Serializer):
+    """
+    Réinitialisation directe (sans email/code) du mot de passe d'un Patron,
+    depuis l'Espace Admin des clients (voir ReinitialiserMotDePasseAdminView) :
+    l'identité de l'exploitant est déjà prouvée par ce verrou (identifiants
+    admin), un code par email serait une friction redondante ici.
+    """
+
+    username = serializers.CharField()
+    password = serializers.CharField()
+    username_cible = serializers.CharField()
+    nouveau_mot_de_passe = serializers.CharField(validators=[validate_password])
+
+
+class ListerPatronsSerializer(serializers.Serializer):
+    """
+    Liste tous les Patrons (toutes boutiques confondues), voir
+    ListerPatronsView : "Réinitialiser mot de passe" choisit toujours dans ce
+    menu plutôt que de deviner/pré-sélectionner un compte — un admin gère
+    potentiellement plusieurs boutiques, jamais évident de savoir laquelle il
+    vise sans lui demander.
+    """
+
+    username = serializers.CharField()
+    password = serializers.CharField()
 
 
 class RoleSerializer(serializers.ModelSerializer):
@@ -179,4 +253,5 @@ class ConnexionSerializer(TokenObtainPairSerializer):
         token["permissions"] = user.role.permissions if user.role_id else {}
         token["depot_id"] = str(user.depot_id) if user.depot_id else None
         token["depot_nom"] = user.depot.nom if user.depot_id else None
+        token["synchro_autorisee"] = bool(user.boutique.synchro_autorisee) if user.boutique_id else False
         return token

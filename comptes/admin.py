@@ -8,10 +8,11 @@ from django.urls import path, reverse
 from django.utils import timezone
 from django.utils.html import format_html
 
-from .forms import FormulaireAbonnement
+from .forms import FormulaireAbonnement, FormulaireCreationBoutique
 from .models import Boutique, DemandeInscription, Role, Utilisateur
 from .services import (
     approuver_inscription,
+    inscrire_boutique,
     point_depart_renouvellement,
     rejeter_inscription,
     renouveler_abonnement,
@@ -25,20 +26,70 @@ DUREE_RENOUVELLEMENT_PAR_DEFAUT = timedelta(days=30)
 class BoutiqueAdmin(admin.ModelAdmin):
     list_display = (
         "nom", "telephone", "devise", "formule", "actif",
-        "date_expiration_abonnement", "lien_renouveler", "date_creation",
+        "date_expiration_abonnement", "synchro_autorisee", "lien_renouveler", "date_creation",
     )
+    list_editable = ("synchro_autorisee",)
     search_fields = ("nom", "telephone", "email")
-    list_filter = ("actif", "formule", "devise")
+    list_filter = ("actif", "formule", "devise", "synchro_autorisee")
     actions = ["renouveler_abonnement_action"]
 
     def get_urls(self):
         return [
+            path(
+                "creer/",
+                self.admin_site.admin_view(self.vue_creation_boutique),
+                name="comptes_boutique_creer",
+            ),
             path(
                 "<uuid:boutique_id>/renouveler/",
                 self.admin_site.admin_view(self.vue_renouvellement),
                 name="comptes_boutique_renouveler",
             ),
         ] + super().get_urls()
+
+    def vue_creation_boutique(self, request):
+        """Création directe boutique + Patron, sans DemandeInscription — pour
+        un commerçant recruté hors-ligne (visite terrain, appel), dont le
+        compte doit être remis directement plutôt que d'attendre une demande.
+        Voir aussi comptes/forms.py::FormulaireCreationBoutique."""
+        if request.method == "POST":
+            form = FormulaireCreationBoutique(request.POST)
+            if form.is_valid():
+                boutique, _utilisateur = inscrire_boutique(
+                    {
+                        "nom": form.cleaned_data["boutique_nom"],
+                        "adresse": form.cleaned_data["boutique_adresse"],
+                        "telephone": form.cleaned_data["boutique_telephone"],
+                        "devise": form.cleaned_data["boutique_devise"] or "FCFA",
+                    },
+                    {
+                        "username": form.cleaned_data["username"],
+                        "password": form.cleaned_data["password"],
+                        "email": form.cleaned_data["email"],
+                        "telephone": form.cleaned_data["telephone"],
+                    },
+                )
+                self.message_user(request, f"Boutique « {boutique.nom} » créée, prête à être remise.")
+                return HttpResponseRedirect(reverse("admin:comptes_boutique_change", args=[boutique.pk]))
+        else:
+            form = FormulaireCreationBoutique()
+
+        return render(
+            request,
+            "admin/comptes/formulaire_abonnement.html",
+            {
+                **self.admin_site.each_context(request),
+                "title": "Créer une boutique",
+                "description": (
+                    "Crée la boutique et son premier utilisateur (Patron) immédiatement — sans attendre une "
+                    "demande d'inscription. À utiliser quand le compte doit être remis directement au commerçant."
+                ),
+                "form": form,
+                "submit_label": "Créer la boutique",
+                "back_url": reverse("admin:index"),
+                "opts": self.model._meta,
+            },
+        )
 
     def lien_renouveler(self, obj):
         url = reverse("admin:comptes_boutique_renouveler", args=[obj.pk])

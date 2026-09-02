@@ -129,7 +129,7 @@ export default function Notifications({
         />
       ))}
       <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>N°</th>
@@ -141,10 +141,10 @@ export default function Notifications({
           <tbody>
             {notificationsListe.map((n, index) => (
               <tr key={n.id} onClick={() => setNotificationSelectionneeId(n.id)}>
-                <td>{index + 1}</td>
-                <td>{new Date(n.dateCreation).toLocaleString("fr-FR")}</td>
-                <td>{n.depotNom ?? ""}</td>
-                <td>{n.message}</td>
+                <td data-label="N°">{index + 1}</td>
+                <td data-label="Date">{new Date(n.dateCreation).toLocaleString("fr-FR")}</td>
+                <td data-label="Dépôt">{n.depotNom ?? ""}</td>
+                <td data-label="Message">{n.message}</td>
               </tr>
             ))}
             {notificationsListe.length === 0 && (

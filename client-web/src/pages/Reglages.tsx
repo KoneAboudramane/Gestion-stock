@@ -6,8 +6,19 @@ import type { RoleResume, Session, UtilisateurResume } from "../api";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import { useRafraichirDevise } from "../contexts/DeviseContext";
 import { useSession } from "../contexts/SessionContext";
+import { useSynchro } from "../contexts/SynchroContext";
+import {
+  lireAbonnementEnAttente,
+  soumettreAbonnement,
+  type AbonnementEnAttente,
+} from "../services/abonnementAdmin";
 import { ErreurBoutique, modifierBoutique, obtenirBoutique, type BoutiqueDetail } from "../services/boutique";
 import { definirParametre, ErreurConfiguration, listerParametres } from "../services/configuration";
+import {
+  activerEnLigne,
+  lireBoutiqueLocaleEnAttente,
+  type BoutiqueLocaleEnAttente,
+} from "../services/inscriptionLocale";
 import {
   creerAttribut,
   creerUnite,
@@ -62,10 +73,22 @@ const CERCLES_FOND = [
   { taille: 55, couleur: "var(--cercle-6)", duree: 23, delai: -10, depart: ["-10vw", "35vh"], arrivee: ["105vw", "90vh"] },
 ] as const;
 
+function formaterDateSynchro(iso: string | null): string {
+  if (!iso) return "jamais";
+  return new Date(iso).toLocaleString("fr-FR");
+}
+
+const LIBELLES_FORMAT_TICKET: Record<string, string> = {
+  a4: "Facture A4",
+  "80mm": "Ticket 80 mm",
+  "58mm": "Ticket 58 mm",
+};
+
 const SECTIONS = [
   { cle: "profil", label: "Informations boutique", icone: "🏪" },
   { cle: "utilisateurs", label: "Utilisateurs & rôles", icone: "👥" },
   { cle: "parametres", label: "Paramètres", icone: "⚙️" },
+  { cle: "synchronisation", label: "Synchronisation", icone: "🔄" },
 ] as const;
 
 type Section = (typeof SECTIONS)[number]["cle"];
@@ -83,7 +106,7 @@ function EnteteModale({ titre, onFermer }: { titre: string; onFermer: () => void
 
 // --- Onglet Informations boutique ---
 
-function OngletProfilBoutique({ session }: { session: Session }) {
+function OngletProfilBoutique({ session, onFermer }: { session: Session; onFermer: () => void }) {
   const peutGerer = !!session.permissions.gerer_utilisateurs_reglages;
   const [boutique, setBoutique] = useState<BoutiqueDetail | null>(null);
   const [moi, setMoi] = useState<UtilisateurResume | null>(null);
@@ -92,6 +115,7 @@ function OngletProfilBoutique({ session }: { session: Session }) {
   const [depots, setDepots] = useState<DepotResume[]>([]);
   const [depotId, setDepotId] = useState("");
   const [tauxTva, setTauxTva] = useState("");
+  const [formatTicket, setFormatTicket] = useState("a4");
   const [modeEdition, setModeEdition] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -109,6 +133,7 @@ function OngletProfilBoutique({ session }: { session: Session }) {
     if (boutiqueLocale) setBoutique(boutiqueLocale);
     setDepots(listeDepots);
     setTauxTva(parametres.find((p) => p.cle === "taux_tva")?.valeur ?? "");
+    setFormatTicket(parametres.find((p) => p.cle === "format_ticket")?.valeur || "a4");
     if (resultatUtilisateurs.succes) {
       const moiTrouve = resultatUtilisateurs.resultat.find((u) => u.id === Number(session.utilisateurId)) ?? null;
       setMoi(moiTrouve);
@@ -153,6 +178,12 @@ function OngletProfilBoutique({ session }: { session: Session }) {
         setErreur(e instanceof ErreurConfiguration ? e.message : "Erreur inattendue.");
         return;
       }
+      try {
+        await definirParametre(session.boutiqueId, "format_ticket", formatTicket);
+      } catch (e) {
+        setErreur(e instanceof ErreurConfiguration ? e.message : "Erreur inattendue.");
+        return;
+      }
       if (moi) {
         const resultatCompte = await api.comptes.modifierUtilisateur(moi.id, {
           email: emailCompte,
@@ -187,10 +218,24 @@ function OngletProfilBoutique({ session }: { session: Session }) {
 
   if (!modeEdition) {
     return (
-      <div>
+      <>
+        <div className="modale-entete entete-fixe">
+          <h3>Informations boutique</h3>
+          <div className="actions-formulaire">
+            {peutGerer && (
+              <button type="button" className="bouton-primaire" onClick={() => setModeEdition(true)}>
+                Modifier
+              </button>
+            )}
+            <button type="button" className="lien bouton-retour" onClick={onFermer}>
+              ← Retour
+            </button>
+          </div>
+        </div>
+        <div className="modale-corps">
         <div className="formulaire-catalogue formulaire-profil-boutique">
-          {message && <p className="note-aide">{message}</p>}
-          <div className="colonnes-profil-boutique">
+        {message && <p className="note-aide">{message}</p>}
+        <div className="colonnes-profil-boutique">
             <div>
               <h4>Boutique</h4>
               <div className="grille-champs">
@@ -217,6 +262,10 @@ function OngletProfilBoutique({ session }: { session: Session }) {
                 <div>
                   <p className="note-aide">Taux de TVA</p>
                   <p>{tauxTva ? `${tauxTva} %` : "Non assujetti"}</p>
+                </div>
+                <div>
+                  <p className="note-aide">Format du ticket</p>
+                  <p>{LIBELLES_FORMAT_TICKET[formatTicket] ?? formatTicket}</p>
                 </div>
               </div>
             </div>
@@ -248,20 +297,30 @@ function OngletProfilBoutique({ session }: { session: Session }) {
               </div>
             )}
           </div>
-          {peutGerer && (
-            <div className="actions-formulaire">
-              <button type="button" onClick={() => setModeEdition(true)}>
-                Modifier
-              </button>
-            </div>
-          )}
         </div>
-      </div>
+        </div>
+      </>
     );
   }
 
   return (
-    <form onSubmit={enregistrer} className="formulaire-catalogue formulaire-profil-boutique">
+    <>
+      <div className="modale-entete entete-fixe">
+        <h3>Informations boutique</h3>
+        <div className="actions-formulaire">
+          <button type="button" onClick={annuler}>
+            Annuler
+          </button>
+          <button type="submit" form="form-profil-boutique" className="bouton-primaire" disabled={enCours}>
+            {enCours ? "Enregistrement…" : "Enregistrer"}
+          </button>
+          <button type="button" className="lien bouton-retour" onClick={onFermer}>
+            ← Retour
+          </button>
+        </div>
+      </div>
+      <div className="modale-corps">
+      <form id="form-profil-boutique" onSubmit={enregistrer} className="formulaire-catalogue formulaire-profil-boutique">
       {erreur && <div className="message-erreur">{erreur}</div>}
       <div className="colonnes-profil-boutique">
         <div>
@@ -299,6 +358,16 @@ function OngletProfilBoutique({ session }: { session: Session }) {
                 onChange={(e) => setTauxTva(e.target.value)}
               />
             </label>
+            <label>
+              Format du ticket
+              <select value={formatTicket} onChange={(e) => setFormatTicket(e.target.value)}>
+                {Object.entries(LIBELLES_FORMAT_TICKET).map(([valeur, libelle]) => (
+                  <option key={valeur} value={valeur}>
+                    {libelle}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
         {moi && (
@@ -331,15 +400,9 @@ function OngletProfilBoutique({ session }: { session: Session }) {
           </div>
         )}
       </div>
-      <div className="actions-formulaire">
-        <button type="button" onClick={annuler}>
-          Annuler
-        </button>
-        <button type="submit" disabled={enCours}>
-          {enCours ? "Enregistrement…" : "Enregistrer"}
-        </button>
+      </form>
       </div>
-    </form>
+    </>
   );
 }
 
@@ -670,13 +733,13 @@ function LigneUtilisateur({
 
   return (
     <tr>
-      <td>{index + 1}</td>
-      <td>{utilisateur.username}</td>
-      <td>
+      <td data-label="N°">{index + 1}</td>
+      <td data-label="Utilisateur">{utilisateur.username}</td>
+      <td data-label="Nom">
         {utilisateur.first_name} {utilisateur.last_name}
       </td>
-      <td>{utilisateur.telephone || ""}</td>
-      <td>
+      <td data-label="Téléphone">{utilisateur.telephone || ""}</td>
+      <td data-label="Changer de rôle">
         {roleActuel?.nom === "Patron" ? (
           <span title="Le rôle Patron ne peut pas être retiré.">Patron</span>
         ) : (
@@ -691,7 +754,7 @@ function LigneUtilisateur({
         )}
         {erreur && <div className="message-erreur">{erreur}</div>}
       </td>
-      <td>
+      <td data-label="Dépôt">
         <select value={utilisateur.depot ?? ""} disabled={enCours} onChange={(e) => changerDepot(e.target.value)}>
           <option value=""></option>
           {depots.map((d) => (
@@ -701,14 +764,14 @@ function LigneUtilisateur({
           ))}
         </select>
       </td>
-      <td>
+      <td data-label="Statut">
         <button type="button" disabled={enCours} onClick={basculerActif}>
           {utilisateur.is_active ? "Actif" : "Inactif"}
         </button>
       </td>
-      <td>{roleActuel?.nom ?? ""}</td>
-      <td>{depotActuel?.nom ?? ""}</td>
-      <td>
+      <td data-label="Rôle actuel">{roleActuel?.nom ?? ""}</td>
+      <td data-label="Dépôt actuel">{depotActuel?.nom ?? ""}</td>
+      <td data-label="Mot de passe">
         {nouveauMotDePasse ? (
           <div className="mot-de-passe-genere mot-de-passe-genere-ligne">
             <strong>{nouveauMotDePasse}</strong>
@@ -722,7 +785,7 @@ function LigneUtilisateur({
           </button>
         )}
       </td>
-      <td>
+      <td data-label="Retirer">
         {confirmationSuppression ? (
           <div className="confirmation-retrait">
             <span>Confirmer ?</span>
@@ -831,7 +894,7 @@ function OngletUtilisateursRoles({ session }: { session: Session }) {
 
         {sousOnglet === "utilisateurs" && (
           <div className="zone-tableau-scroll">
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th>N°</th>
@@ -1324,9 +1387,200 @@ function ModaleProfilBoutique({ session, onFermer }: { session: Session; onFerme
   return (
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
-        <EnteteModale titre="Informations boutique" onFermer={onFermer} />
+        <OngletProfilBoutique session={session} onFermer={onFermer} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Rejoue une modification d'abonnement faite hors-ligne depuis l'Espace Admin
+ * (voir GererAbonnement.tsx) : par sécurité, le mot de passe admin n'est
+ * jamais conservé sur le poste entre l'action hors-ligne et son envoi au
+ * serveur — on le redemande donc ici, une seule fois, au retour du réseau.
+ */
+function BlocAbonnementEnAttente() {
+  const [enAttente, setEnAttente] = useState<AbonnementEnAttente | null>(null);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState(false);
+
+  useEffect(() => {
+    setEnAttente(lireAbonnementEnAttente());
+  }, []);
+
+  if (!enAttente) return null;
+
+  async function confirmer(evenement: React.FormEvent) {
+    evenement.preventDefault();
+    if (!enAttente) return;
+    setErreur(null);
+    setEnCours(true);
+    try {
+      const reponse = await soumettreAbonnement(username, password, enAttente.boutiqueId, enAttente.boutiqueNom, enAttente.champs);
+      if (reponse.statut === "synchronise") setEnAttente(null);
+      else setErreur("Toujours hors-ligne : réessayez plus tard.");
+    } catch (e) {
+      setErreur(e instanceof Error ? e.message : String(e));
+    } finally {
+      setEnCours(false);
+    }
+  }
+
+  return (
+    <form onSubmit={confirmer} className="reglage-catalogue">
+      <p className="note-aide">
+        Une modification d'abonnement faite hors-ligne (Espace Admin) attend d'être transmise au serveur. Ressaisissez
+        les identifiants admin pour la confirmer.
+      </p>
+      {erreur && <p className="message-erreur">{erreur}</p>}
+      <div className="grille-champs">
+        <label>
+          Nom d'utilisateur admin
+          <input value={username} onChange={(e) => setUsername(e.target.value)} required />
+        </label>
+        <label>
+          Mot de passe admin
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        </label>
+      </div>
+      <div className="actions-formulaire">
+        <button type="submit" className="bouton-primaire" disabled={enCours}>
+          {enCours ? "Envoi…" : "Confirmer"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * "Créer une boutique" hors-ligne (voir Inscription.tsx, dans Espace Admin)
+ * laisse ce marqueur : la boutique n'existe encore que sur ce poste, jamais
+ * côté serveur. "Activer en ligne" ici l'enregistre pour de vrai — geste
+ * séparé de la création, jamais un préalable (voir services/
+ * inscriptionLocale.ts::activerEnLigne). Le mot de passe du Patron est
+ * redemandé : jamais conservé en clair depuis la création.
+ */
+function BlocActivationBoutiqueLocale({ session }: { session: Session }) {
+  const { definirSession } = useSession();
+  const [enAttente, setEnAttente] = useState<BoutiqueLocaleEnAttente | null>(null);
+  const [usernameAdmin, setUsernameAdmin] = useState("");
+  const [passwordAdmin, setPasswordAdmin] = useState("");
+  const [patronPassword, setPatronPassword] = useState("");
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState(false);
+
+  useEffect(() => {
+    setEnAttente(lireBoutiqueLocaleEnAttente());
+  }, []);
+
+  if (!enAttente) return null;
+
+  async function activer(evenement: React.FormEvent) {
+    evenement.preventDefault();
+    if (!enAttente) return;
+    setErreur(null);
+    setEnCours(true);
+    try {
+      const sessionMiseAJour = await activerEnLigne(usernameAdmin, passwordAdmin, patronPassword, session);
+      definirSession(sessionMiseAJour);
+      setEnAttente(null);
+    } catch (e) {
+      setErreur(e instanceof Error ? e.message : String(e));
+    } finally {
+      setEnCours(false);
+    }
+  }
+
+  return (
+    <form onSubmit={activer} className="reglage-catalogue">
+      <p className="note-aide">
+        Cette boutique a été créée hors-ligne : elle n'existe encore que sur ce poste. Activez-la en ligne pour
+        profiter de la sauvegarde et de la synchronisation.
+      </p>
+      {erreur && <p className="message-erreur">{erreur}</p>}
+      <div className="grille-champs">
+        <label>
+          Nom d'utilisateur admin
+          <input value={usernameAdmin} onChange={(e) => setUsernameAdmin(e.target.value)} required />
+        </label>
+        <label>
+          Mot de passe admin
+          <input type="password" value={passwordAdmin} onChange={(e) => setPasswordAdmin(e.target.value)} required />
+        </label>
+        <label>
+          Votre mot de passe (Patron)
+          <input
+            type="password"
+            value={patronPassword}
+            onChange={(e) => setPatronPassword(e.target.value)}
+            required
+          />
+        </label>
+      </div>
+      <div className="actions-formulaire">
+        <button type="submit" className="bouton-primaire" disabled={enCours}>
+          {enCours ? "Activation…" : "Activer en ligne"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function OngletSynchronisation({ session }: { session: Session }) {
+  const { etat, enCours, erreur, synchroniser, verifierActivation } = useSynchro();
+
+  if (!session.synchroAutorisee) {
+    return (
+      <div className="reglage-catalogue">
+        <BlocActivationBoutiqueLocale session={session} />
+        <BlocAbonnementEnAttente />
+        <p className="note-aide">
+          La synchronisation n'est pas encore activée pour votre boutique. Contactez l'administrateur pour l'activer.
+        </p>
+        <div className="actions-formulaire">
+          <button type="button" className="bouton-primaire" onClick={verifierActivation} disabled={enCours}>
+            {enCours ? "Vérification…" : "Vérifier l'activation"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="reglage-catalogue">
+      <BlocAbonnementEnAttente />
+      <div className="grille-champs">
+        <div>
+          <p className="note-aide">Statut</p>
+          <p>
+            <span className={`point ${etat?.enLigne ? "point-en-ligne" : "point-hors-ligne"}`} />{" "}
+            {etat?.enLigne ? "En ligne" : "Hors-ligne"}
+          </p>
+        </div>
+        <div>
+          <p className="note-aide">Dernière synchro</p>
+          <p>{formaterDateSynchro(etat?.derniereSynchro ?? null)}</p>
+        </div>
+      </div>
+      {erreur && <p className="message-erreur">{erreur}</p>}
+      <div className="actions-formulaire">
+        <button type="button" className="bouton-primaire" onClick={synchroniser} disabled={enCours}>
+          {enCours ? "Synchronisation…" : "Synchroniser"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ModaleSynchronisation({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Synchronisation" onFermer={onFermer} />
         <div className="modale-corps">
-          <OngletProfilBoutique session={session} />
+          <OngletSynchronisation session={session} />
         </div>
       </div>
     </div>
@@ -1405,6 +1659,9 @@ export default function Reglages({ session }: { session: Session }) {
       )}
       {sectionOuverte === "parametres" && (
         <ModaleParametres session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
+      {sectionOuverte === "synchronisation" && (
+        <ModaleSynchronisation session={session} onFermer={() => setSectionOuverte(null)} />
       )}
     </div>
   );

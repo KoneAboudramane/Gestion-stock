@@ -226,7 +226,7 @@ function ModaleMessages({
                 </div>
               )}
               <div className="zone-tableau-scroll">
-                <table className="tableau-catalogue">
+                <table className="tableau-catalogue carte-mobile">
                   <thead>
                     <tr>
                       <th>N°</th>
@@ -242,14 +242,14 @@ function ModaleMessages({
                   <tbody>
                     {messagesAffiches.map((m, index) => (
                       <tr key={m.id} onClick={() => setMessageSelectionneId(m.id)}>
-                        <td>{index + 1}</td>
-                        <td>{new Date(m.dateCreation).toLocaleString("fr-FR")}</td>
-                        <td>{libelleType(m.type)}</td>
-                        <td>{m.depotNom ?? ""}</td>
-                        <td>{m.utilisateurId ? (nomsUtilisateurs.get(m.utilisateurId) ?? "inconnu") : "inconnu"}</td>
-                        <td>{libelleCanalMessage(m.canal)}</td>
-                        <td>{m.destinataire || ""}</td>
-                        <td>
+                        <td data-label="N°">{index + 1}</td>
+                        <td data-label="Date">{new Date(m.dateCreation).toLocaleString("fr-FR")}</td>
+                        <td data-label="Type">{libelleType(m.type)}</td>
+                        <td data-label="Dépôt">{m.depotNom ?? ""}</td>
+                        <td data-label="Caissier">{m.utilisateurId ? (nomsUtilisateurs.get(m.utilisateurId) ?? "inconnu") : "inconnu"}</td>
+                        <td data-label="Canal">{libelleCanalMessage(m.canal)}</td>
+                        <td data-label="Destinataire">{m.destinataire || ""}</td>
+                        <td data-label="Statut">
                           <span className={m.statut === "envoyee" ? "badge-payee" : "badge-credit"}>{libelleStatut(m.statut)}</span>
                         </td>
                       </tr>

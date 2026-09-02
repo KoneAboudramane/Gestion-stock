@@ -6,7 +6,7 @@ const THEMES_VALIDES: Theme[] = ["clair", "sombre", "nuit", "orange"];
 /** Préférence d'affichage de l'appareil, pas une donnée de boutique : stockée en local, pas synchronisée. */
 export function themeActuel(): Theme {
   const valeur = localStorage.getItem(CLE_STOCKAGE);
-  return THEMES_VALIDES.includes(valeur as Theme) ? (valeur as Theme) : "clair";
+  return THEMES_VALIDES.includes(valeur as Theme) ? (valeur as Theme) : "sombre";
 }
 
 export function appliquerTheme(theme: Theme) {

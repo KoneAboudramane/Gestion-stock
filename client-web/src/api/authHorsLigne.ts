@@ -78,3 +78,59 @@ export async function verifierIdentifiantLocal(username: string, motDePasse: str
 export function estErreurReseau(erreur: unknown): boolean {
   return erreur instanceof TypeError;
 }
+
+// --- Identifiants admin (Espace Admin, voir AccesCreationBoutique.tsx) ---
+// Cache séparé de celui des comptes normaux : un compte admin (is_staff) n'a
+// pas de session boutique à mémoriser, juste de quoi reconnaître localement
+// "ce sont bien les identifiants déjà validés en ligne" — nécessaire pour que
+// "Gérer abonnement" fonctionne hors-ligne (voir services/abonnementAdmin.ts).
+
+const CLE_IDENTIFIANTS_ADMIN = "gestion-stock:identifiants-admin-locaux";
+
+export interface IdentifiantAdminLocal {
+  sel: string;
+  hash: string;
+  // Obtenus best-effort à la dernière vérification en ligne réussie, jamais
+  // indispensables (l'accès hors-ligne marche sans) — servent uniquement à
+  // détecter une révocation d'accès dès qu'une connexion revient, voir
+  // verifierRevocationAdmin dans api/auth.ts.
+  jetons?: { accessToken: string; refreshToken: string };
+}
+
+export function chargerIdentifiantsAdmin(): Record<string, IdentifiantAdminLocal> {
+  try {
+    const brut = localStorage.getItem(CLE_IDENTIFIANTS_ADMIN);
+    return brut ? (JSON.parse(brut) as Record<string, IdentifiantAdminLocal>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function enregistrerIdentifiantAdminLocal(username: string, motDePasse: string): Promise<void> {
+  const identifiants = chargerIdentifiantsAdmin();
+  const sel = genererSel();
+  identifiants[username] = { sel, hash: await hacherMotDePasse(motDePasse, sel) };
+  localStorage.setItem(CLE_IDENTIFIANTS_ADMIN, JSON.stringify(identifiants));
+}
+
+export async function verifierIdentifiantAdminLocal(username: string, motDePasse: string): Promise<boolean> {
+  const entree = chargerIdentifiantsAdmin()[username];
+  if (!entree) return false;
+  const hashObtenu = await hacherMotDePasse(motDePasse, entree.sel);
+  return hashObtenu === entree.hash;
+}
+
+export function enregistrerJetonsAdmin(username: string, jetons: { accessToken: string; refreshToken: string }): void {
+  const identifiants = chargerIdentifiantsAdmin();
+  const entree = identifiants[username];
+  if (!entree) return; // pas de mot de passe en cache pour ce username : rien à compléter
+  entree.jetons = jetons;
+  localStorage.setItem(CLE_IDENTIFIANTS_ADMIN, JSON.stringify(identifiants));
+}
+
+export function supprimerIdentifiantAdminLocal(username: string): void {
+  const identifiants = chargerIdentifiantsAdmin();
+  if (!(username in identifiants)) return;
+  delete identifiants[username];
+  localStorage.setItem(CLE_IDENTIFIANTS_ADMIN, JSON.stringify(identifiants));
+}

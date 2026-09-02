@@ -7,6 +7,7 @@ import { URL_BASE_API } from "../config";
 import { colonnesDeLaTable, executer, tousLesResultats } from "../db/helpers";
 import { sauvegarder } from "../db/index";
 import { REGISTRE_CLIENT, type EntreeRegistreClient } from "../db/registre";
+import { repliNavigateur, ressembleAUnDefiWaf } from "./httpClient";
 import { recalculerStock } from "./stock";
 import type { Session } from "./auth";
 
@@ -20,15 +21,24 @@ import type { Session } from "./auth";
 
 const DELAI_RESEAU_MS = 8000;
 
-/** fetch avec timeout : évite un blocage long (login, sync auto) si hors-ligne. */
+/**
+ * fetch avec timeout : évite un blocage long (login, sync auto) si hors-ligne.
+ * Bascule sur une fenêtre Electron cachée (voir httpClient.ts) si la réponse
+ * ressemble au défi du WAF O2switch — jamais déclenché contre un serveur
+ * local, qui ne renvoie pas cette signature.
+ */
 export async function appelerAvecDelai(url: string, options: RequestInit = {}): Promise<Response> {
   const controleur = new AbortController();
   const minuteur = setTimeout(() => controleur.abort(), DELAI_RESEAU_MS);
+  let reponse: Response;
   try {
-    return await fetch(url, { ...options, signal: controleur.signal });
+    reponse = await fetch(url, { ...options, signal: controleur.signal });
   } finally {
     clearTimeout(minuteur);
   }
+  if (!ressembleAUnDefiWaf(reponse)) return reponse;
+  const { method, headers, body } = options as { method?: string; headers?: Record<string, string>; body?: string };
+  return repliNavigateur(url, { method, headers, body });
 }
 
 const META_EXCLUES_VERS_SERVEUR = new Set([
@@ -209,7 +219,22 @@ export interface ResumeSynchro {
   derniereSynchro: string;
 }
 
+/**
+ * Activée uniquement par l'administrateur pour la boutique (comptes.Boutique.
+ * synchro_autorisee, voir comptes/models.py) — certains commerçants ne
+ * veulent pas que leurs données quittent leur poste. Vérifié ici (avant tout
+ * appel réseau) plutôt que de laisser échouer sur un 403 du serveur, qui
+ * gate quand même push/pull en dernier ressort (voir core/permissions.py::
+ * SynchroAutorisee) au cas où la session locale serait périmée.
+ */
+export class SynchroNonAutoriseeError extends Error {}
+
 export async function synchroniser(session: Session): Promise<ResumeSynchro> {
+  if (!session.synchroAutorisee) {
+    throw new SynchroNonAutoriseeError(
+      "La synchronisation n'est pas encore activée pour votre boutique. Contactez l'administrateur pour l'activer.",
+    );
+  }
   const etat = lireEtat();
   const resultatsPush = await pousser(session, etat.appareilId);
   const curseur = await tirer(session, etat.dernierCurseur);

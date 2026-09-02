@@ -184,7 +184,24 @@ export interface ResumeSynchro {
 // plusieurs push+pull tournent en parallèle sur la même base IndexedDB.
 let synchronisationEnCours: Promise<ResumeSynchro> | null = null;
 
-export function synchroniser(_session: Session): Promise<ResumeSynchro> {
+/**
+ * Activée uniquement par l'administrateur pour la boutique (comptes.Boutique.
+ * synchro_autorisee, voir comptes/models.py côté backend) — certains
+ * commerçants ne veulent pas que leurs données quittent leur poste. Vérifié
+ * ici (avant tout appel réseau) plutôt que de laisser échouer sur un 403 du
+ * serveur, qui gate quand même push/pull en dernier ressort (voir
+ * core/permissions.py::SynchroAutorisee) au cas où la session serait périmée.
+ */
+export class SynchroNonAutoriseeError extends Error {}
+
+export function synchroniser(session: Session): Promise<ResumeSynchro> {
+  if (!session.synchroAutorisee) {
+    return Promise.reject(
+      new SynchroNonAutoriseeError(
+        "La synchronisation n'est pas encore activée pour votre boutique. Contactez l'administrateur pour l'activer.",
+      ),
+    );
+  }
   if (synchronisationEnCours) return synchronisationEnCours;
   synchronisationEnCours = (async () => {
     try {

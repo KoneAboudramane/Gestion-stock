@@ -1,7 +1,9 @@
 from rest_framework import mixins, status, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from comptes.models import Boutique
 from core.permissions import EstMembreBoutique, FiltreBoutiqueMixin, a_la_permission
 
 from . import rapports
@@ -25,7 +27,19 @@ class CompteComptableViewSet(FiltreBoutiqueMixin, mixins.ListModelMixin, viewset
 
 
 class _RapportComptableView(APIView):
+    """
+    Livre comptable officiel (Journal/Grand livre/Balance/Compte de résultat/
+    Bilan) : réservé à la formule Pro (voir Boutique.Formule) — la formule
+    Essentiel garde l'aperçu local non-officiel (calculé côté client, voir
+    comptabilite.ts::grandLivreLocal et équivalents), toujours disponible.
+    """
+
     permission_classes = [EstMembreBoutique, PeutConsulterComptabilite]
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.user.boutique.formule != Boutique.Formule.PRO:
+            raise PermissionDenied("Le livre comptable officiel est réservé à la formule Pro.")
 
 
 class JournalView(_RapportComptableView):

@@ -34,6 +34,16 @@ class Boutique(ModeleBase):
     date_expiration_abonnement = models.DateTimeField(null=True, blank=True)
     formule = models.CharField(max_length=20, choices=Formule.choices, default=Formule.ESSENTIEL)
 
+    # Off par défaut : certains commerçants ne veulent pas que leurs données
+    # quittent leur poste (méfiance vis-à-vis du cloud — fisc, concurrent...).
+    # L'appli reste 100% utilisable en local sans ça (le SQLite du poste est
+    # déjà la source de vérité) ; seule la synchro serveur (push/pull, voir
+    # synchronisation/views.py) est concernée. Activé uniquement à la main par
+    # l'administrateur (espace admin Django), sur demande du commerçant faite
+    # hors application (téléphone/WhatsApp) — pas de workflow de demande dans
+    # l'appli elle-même.
+    synchro_autorisee = models.BooleanField(default=False)
+
     def __str__(self):
         return self.nom
 

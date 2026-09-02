@@ -35,6 +35,13 @@ export default defineConfig({
         // resynchronisation des données métier, un double cache HTTP créerait
         // deux sources de vérité à réconcilier pour rien.
         globPatterns: ["**/*.{js,css,html,png,svg,ico}"],
+        // Le service worker a un scope "/" (toute l'origine, pas juste
+        // client-web) : sans exclusion, sa NavigationRoute intercepte AUSSI
+        // les navigations vers /admin/ et /api/ et leur sert le shell SPA en
+        // cache à la place de la vraie page (bug constaté : l'admin Django
+        // affichait client-web). /admin et /api sont servis par Django, pas
+        // par ce SPA — jamais de fallback vers index.html pour eux.
+        navigateFallbackDenylist: [/^\/admin/, /^\/api/],
       },
     }),
   ],

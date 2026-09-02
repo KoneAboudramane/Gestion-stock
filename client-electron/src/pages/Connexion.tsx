@@ -1,23 +1,32 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import type { Session } from "../api/client";
 import PanneauMarque from "../components/PanneauMarque";
+import MotDePasseOublie from "./MotDePasseOublie";
 
 export default function Connexion({
   onConnecte,
-  allerInscription,
-  allerMotDePasseOublie,
+  allerAccesCreation,
 }: {
   onConnecte: (session: Session) => void;
-  allerInscription: () => void;
-  allerMotDePasseOublie: () => void;
+  allerAccesCreation: () => void;
 }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [afficherMotDePasse, setAfficherMotDePasse] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  // "Mot de passe oublié ?" (par email) n'a de sens que pour une boutique déjà
+  // autorisée à échanger avec le serveur (comptes.Boutique.synchro_autorisee) —
+  // sinon aucun moyen de recevoir un code. Le repli sans email reste dans
+  // Espace Admin (voir AccesCreationBoutique.tsx > ReinitialiserMotDePasseAdmin).
+  const [synchroAutorisee, setSynchroAutorisee] = useState(false);
+  const [motDePasseOublieOuvert, setMotDePasseOublieOuvert] = useState(false);
+
+  useEffect(() => {
+    api.admin.boutiqueLocale().then((b) => setSynchroAutorisee(Boolean(b?.synchroAutorisee)));
+  }, []);
 
   async function soumettre(evenement: React.FormEvent) {
     evenement.preventDefault();
@@ -37,16 +46,24 @@ export default function Connexion({
       <PanneauMarque />
       <div className="panneau-formulaire">
         <form onSubmit={soumettre} className="carte-auth">
-          <h1>Content de vous revoir 👋</h1>
+          <h1>Content de vous revoir</h1>
           <p className="sous-titre">Connectez-vous pour accéder à votre boutique.</p>
           {erreur && <div className="message-erreur">{erreur}</div>}
           <label>
             Nom d'utilisateur
-            <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus required />
+            <div className="champ-avec-icone">
+              <span className="icone-champ" aria-hidden="true">
+                👤
+              </span>
+              <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus required />
+            </div>
           </label>
           <label>
             Mot de passe
-            <div className="champ-mot-de-passe">
+            <div className="champ-mot-de-passe champ-avec-icone">
+              <span className="icone-champ" aria-hidden="true">
+                🔒
+              </span>
               <input
                 type={afficherMotDePasse ? "text" : "password"}
                 value={password}
@@ -67,14 +84,26 @@ export default function Connexion({
           <button type="submit" disabled={enCours}>
             {enCours ? "Connexion…" : "Se connecter"}
           </button>
-          <button type="button" className="lien" onClick={allerMotDePasseOublie}>
-            Mot de passe oublié ?
-          </button>
-          <button type="button" className="lien" onClick={allerInscription}>
-            Créer une boutique
-          </button>
+          {synchroAutorisee && (
+            <button type="button" className="lien" onClick={() => setMotDePasseOublieOuvert(true)}>
+              Mot de passe oublié ?
+            </button>
+          )}
         </form>
+        {/* Volontairement discret : pas destiné aux commerçants qui se connectent
+            ici, juste un accès de secours pour toi (voir mémoire projet). Mène
+            à un verrou d'identifiants admin avant de révéler "Créer une boutique". */}
+        <button
+          type="button"
+          className="icone-discrete-acces-admin"
+          onClick={allerAccesCreation}
+          aria-label="Espace Admin"
+          title="Espace Admin"
+        >
+          ⚙
+        </button>
       </div>
+      {motDePasseOublieOuvert && <MotDePasseOublie onFermer={() => setMotDePasseOublieOuvert(false)} />}
     </div>
   );
 }

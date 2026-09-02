@@ -212,7 +212,30 @@ export function listerDepotsDetail(boutiqueId: string): DepotResume[] {
   );
 }
 
+/**
+ * Formule Essentiel/Pro (voir comptes.Boutique.formule côté backend, même
+ * plafond appliqué côté serveur en défense — stock/views.py::DepotViewSet) :
+ * Essentiel plafonne à un seul dépôt. Vérifié ici (avant l'écriture locale,
+ * pas seulement au push) puisque l'appli crée toujours en local d'abord.
+ */
+const LIMITE_DEPOTS_ESSENTIEL = 1;
+
+function verifierLimiteDepots(boutiqueId: string): void {
+  const boutique = unResultat<{ formule: string }>("SELECT formule FROM boutiques WHERE id = ?", [boutiqueId]);
+  if (!boutique || boutique.formule !== "essentiel") return;
+  const { n } = unResultat<{ n: number }>(
+    "SELECT COUNT(*) as n FROM depots WHERE boutique_id = ? AND supprime = 0",
+    [boutiqueId],
+  )!;
+  if (n >= LIMITE_DEPOTS_ESSENTIEL) {
+    throw new ErreurStock(
+      "La formule Essentiel est limitée à un seul dépôt. Passez à la formule Pro pour en ajouter d'autres.",
+    );
+  }
+}
+
 export function creerDepot(boutiqueId: string, nom: string, adresse = ""): string {
+  verifierLimiteDepots(boutiqueId);
   const id = randomUUID();
   const maintenant = new Date().toISOString();
   executer(

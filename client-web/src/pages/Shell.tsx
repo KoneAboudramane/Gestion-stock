@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 
 import type { Session } from "../api";
-import BarreSynchro from "../components/BarreSynchro";
 import { listerFournisseurs } from "../services/achats";
 import type { Periode } from "../services/rapports";
 import { compterNotificationsNonLues } from "../services/notifications";
@@ -180,10 +179,6 @@ export default function Shell({ session, onDeconnexion }: { session: Session; on
             </button>
           ))}
         </nav>
-        <button className="lien-deconnexion" onClick={onDeconnexion} title={barreReduite ? "Déconnexion" : undefined}>
-          <span className="icone-deconnexion">🚪</span>
-          <span className="texte-deconnexion">Déconnexion</span>
-        </button>
       </aside>
       )}
       <div className="contenu-principal">
@@ -192,7 +187,12 @@ export default function Shell({ session, onDeconnexion }: { session: Session; on
             <strong>{session.boutiqueNom}</strong>
             <span className="sous-info"> · {session.username} ({session.role})</span>
           </div>
-          <BarreSynchro session={session} />
+          <div className="entete-droite">
+            <button className="lien-deconnexion lien-deconnexion-entete" onClick={onDeconnexion}>
+              <span className="icone-deconnexion">🚪</span>
+              <span className="texte-deconnexion">Déconnexion</span>
+            </button>
+          </div>
         </header>
         <main className="zone-contenu">
           {zone === "accueil" && (

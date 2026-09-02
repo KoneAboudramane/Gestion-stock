@@ -228,7 +228,7 @@ function FormulaireCommande({
 
         <div className="colonne-lignes-groupe">
           <div className="lignes-groupe-scrollable">
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th>N°</th>
@@ -243,10 +243,10 @@ function FormulaireCommande({
               <tbody>
                 {lignes.map((l, index) => (
                   <tr key={l.varianteId}>
-                    <td>{index + 1}</td>
-                    <td>{l.reference || ""}</td>
-                    <td>{l.produitNom}</td>
-                    <td>
+                    <td data-label="N°">{index + 1}</td>
+                    <td data-label="Référence">{l.reference || ""}</td>
+                    <td data-label="Désignation">{l.produitNom}</td>
+                    <td data-label="Qté">
                       <input
                         type="number"
                         min={0.01}
@@ -255,10 +255,10 @@ function FormulaireCommande({
                         onChange={(e) => modifierLigne(l.varianteId, { quantite: Number(e.target.value) })}
                       />
                     </td>
-                    <td>
+                    <td data-label="Prix d'achat">
                       <ChampMontant value={String(l.prixAchat)} onChange={(valeur) => modifierLigne(l.varianteId, { prixAchat: Number(valeur) || 0 })} />
                     </td>
-                    <td className="colonne-sous-total">{formaterMontant(Math.round(l.quantite * l.prixAchat))}</td>
+                    <td data-label="Sous-total" className="colonne-sous-total">{formaterMontant(Math.round(l.quantite * l.prixAchat))}</td>
                     <td className="colonne-actions-variante">
                       <button type="button" className="bouton-retirer-ligne-groupe" title="Retirer de la liste" onClick={() => retirerLigne(l.varianteId)}>
                         ✕
@@ -410,7 +410,7 @@ function ApercuCommandesGroupees({
       {erreur && <div className="message-erreur">{erreur}</div>}
 
       <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>Désignation</th>
@@ -424,9 +424,9 @@ function ApercuCommandesGroupees({
           <tbody>
             {lignesEditees.map((l) => (
               <tr key={l.varianteId}>
-                <td>{l.produitNom}</td>
-                <td>{l.depotNom}</td>
-                <td>
+                <td data-label="Désignation">{l.produitNom}</td>
+                <td data-label="Dépôt">{l.depotNom}</td>
+                <td data-label="Qté">
                   <input
                     type="number"
                     min={0.01}
@@ -435,13 +435,13 @@ function ApercuCommandesGroupees({
                     onChange={(e) => modifierLigne(l.varianteId, { quantite: Number(e.target.value) })}
                   />
                 </td>
-                <td>
+                <td data-label="Prix d'achat">
                   <ChampMontant
                     value={String(l.prixAchat)}
                     onChange={(valeur) => modifierLigne(l.varianteId, { prixAchat: Number(valeur) || 0 })}
                   />
                 </td>
-                <td>
+                <td data-label="Fournisseur">
                   <select value={l.fournisseurId} onChange={(e) => modifierLigne(l.varianteId, { fournisseurId: e.target.value })}>
                     <option value="">À choisir…</option>
                     {fournisseurs.map((f) => (
@@ -587,7 +587,7 @@ function DetailCommande({
       </p>
 
       <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>N°</th>
@@ -601,12 +601,12 @@ function DetailCommande({
           <tbody>
             {commande.lignes.map((l, index) => (
               <tr key={l.id}>
-                <td>{index + 1}</td>
-                <td>{l.produitNom}</td>
-                <td>{l.reference || ""}</td>
-                <td>{l.quantite}</td>
-                <td>{formaterMontant(l.prixAchat)}</td>
-                <td>{formaterMontant(l.sousTotal)}</td>
+                <td data-label="N°">{index + 1}</td>
+                <td data-label="Désignation">{l.produitNom}</td>
+                <td data-label="Référence">{l.reference || ""}</td>
+                <td data-label="Qté">{l.quantite}</td>
+                <td data-label="Prix d'achat">{formaterMontant(l.prixAchat)}</td>
+                <td data-label="Sous-total">{formaterMontant(l.sousTotal)}</td>
               </tr>
             ))}
           </tbody>
@@ -652,7 +652,7 @@ function DetailCommande({
 
           <h4>Prix de vente à la réception</h4>
           <div className="zone-tableau-scroll">
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th>N°</th>
@@ -666,10 +666,10 @@ function DetailCommande({
                   const invalide = Number(prixVentes[l.varianteId] || 0) < l.prixAchat;
                   return (
                     <tr key={l.id}>
-                      <td>{index + 1}</td>
-                      <td>{l.produitNom}</td>
-                      <td>{formaterMontant(l.prixAchat)}</td>
-                      <td>
+                      <td data-label="N°">{index + 1}</td>
+                      <td data-label="Désignation">{l.produitNom}</td>
+                      <td data-label="Prix d'achat">{formaterMontant(l.prixAchat)}</td>
+                      <td data-label="Prix de vente">
                         <ChampMontant
                           className={invalide ? "champ-invalide" : ""}
                           value={prixVentes[l.varianteId] ?? ""}
@@ -865,7 +865,7 @@ function OngletCommandes({
       </div>
       {peutGerer && fournisseurs.length === 0 && <p className="note-aide">Créez d'abord un fournisseur dans l'onglet « Fournisseurs ».</p>}
       <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>N°</th>
@@ -879,14 +879,14 @@ function OngletCommandes({
           <tbody>
             {commandes.map((c, index) => (
               <tr key={c.id} onClick={() => setCommandeSelectionneeId(c.id)}>
-                <td>{index + 1}</td>
-                <td>{new Date(c.dateCreation).toLocaleString("fr-FR")}</td>
-                <td>{c.numero}</td>
-                <td>{c.fournisseurNom}</td>
-                <td>
+                <td data-label="N°">{index + 1}</td>
+                <td data-label="Date">{new Date(c.dateCreation).toLocaleString("fr-FR")}</td>
+                <td data-label="Numéro">{c.numero}</td>
+                <td data-label="Fournisseur">{c.fournisseurNom}</td>
+                <td data-label="Statut">
                   <span className={`badge-${c.statut}`}>{libelleStatutCommande(c.statut)}</span>
                 </td>
-                <td>{formaterMontant(c.total)}</td>
+                <td data-label="Total">{formaterMontant(c.total)}</td>
               </tr>
             ))}
             {commandes.length === 0 && (
@@ -1012,7 +1012,7 @@ function FormulaireFournisseursGroupe({
       </div>
 
       <div className="zone-tableau-scroll tableau-produits-groupe-scroll">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th className="colonne-numero-groupe">N°</th>
@@ -1026,11 +1026,11 @@ function FormulaireFournisseursGroupe({
           <tbody>
             {lignes.map((l, index) => (
               <tr key={l.id}>
-                <td className="colonne-numero-groupe">{index + 1}</td>
-                <td className="col-designation-groupe">{l.nom}</td>
-                <td>{l.telephone}</td>
-                <td>{l.adresse}</td>
-                <td>{l.contact}</td>
+                <td data-label="N°" className="colonne-numero-groupe">{index + 1}</td>
+                <td data-label="Nom" className="col-designation-groupe">{l.nom}</td>
+                <td data-label="Téléphone">{l.telephone}</td>
+                <td data-label="Adresse">{l.adresse}</td>
+                <td data-label="Contact">{l.contact}</td>
                 <td className="colonne-numero-groupe">
                   <button type="button" className="bouton-retirer-ligne-groupe" title="Retirer de la liste" onClick={() => retirerLigne(l.id)}>
                     ✕
@@ -1092,7 +1092,7 @@ function OngletFournisseurs({ session }: { session: Session }) {
         </div>
       )}
       <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>N°</th>
@@ -1105,11 +1105,11 @@ function OngletFournisseurs({ session }: { session: Session }) {
           <tbody>
             {fournisseurs.map((f, index) => (
               <tr key={f.id}>
-                <td>{index + 1}</td>
-                <td>{f.nom}</td>
-                <td>{f.telephone || ""}</td>
-                <td>{f.adresse || ""}</td>
-                <td>{f.contact || ""}</td>
+                <td data-label="N°">{index + 1}</td>
+                <td data-label="Nom">{f.nom}</td>
+                <td data-label="Téléphone">{f.telephone || ""}</td>
+                <td data-label="Adresse">{f.adresse || ""}</td>
+                <td data-label="Contact">{f.contact || ""}</td>
               </tr>
             ))}
             {fournisseurs.length === 0 && (
@@ -1213,7 +1213,7 @@ function OngletDettes({ session }: { session: Session }) {
         </select>
       </div>
       <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>N°</th>
@@ -1230,18 +1230,18 @@ function OngletDettes({ session }: { session: Session }) {
           <tbody>
             {dettes.map((d, index) => (
               <tr key={d.id}>
-                <td>{index + 1}</td>
-                <td>{new Date(d.dateCreation).toLocaleString("fr-FR")}</td>
-                <td>{d.fournisseurNom}</td>
-                <td>{d.commandeNumero ?? ""}</td>
-                <td>{formaterMontant(d.montant)}</td>
-                <td>{formaterMontant(d.montantPaye)}</td>
-                <td>{formaterMontant(d.solde)}</td>
-                <td>
+                <td data-label="N°">{index + 1}</td>
+                <td data-label="Date">{new Date(d.dateCreation).toLocaleString("fr-FR")}</td>
+                <td data-label="Fournisseur">{d.fournisseurNom}</td>
+                <td data-label="Commande">{d.commandeNumero ?? ""}</td>
+                <td data-label="Montant">{formaterMontant(d.montant)}</td>
+                <td data-label="Payé">{formaterMontant(d.montantPaye)}</td>
+                <td data-label="Solde">{formaterMontant(d.solde)}</td>
+                <td data-label="Statut">
                   <span className={d.statut === "solde" ? "badge-payee" : "badge-commandee"}>{d.statut === "solde" ? "Soldée" : "En cours"}</span>
                 </td>
                 {peutGerer && (
-                  <td>
+                  <td data-label="Paiement">
                     {d.statut === "en_cours" && (
                       <LignePayer dette={d} session={session} depots={depots} onPaye={rafraichir} />
                     )}

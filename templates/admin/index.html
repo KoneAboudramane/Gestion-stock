@@ -1,0 +1,109 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_extras %}
+
+{% block extrastyle %}{{ block.super }}
+<style>
+.gs-banner {
+  background: var(--gs-surface); border-radius: 16px; padding: 20px 24px;
+  box-shadow: var(--gs-shadow); margin-bottom: 22px;
+}
+.gs-banner h1 { margin: 0 0 2px; font-size: 1.25rem; font-weight: 800; color: var(--body-fg); border: none; background: none; padding: 0; }
+.gs-banner p { margin: 0; font-size: 0.85rem; color: var(--body-quiet-color); }
+
+.gs-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin-bottom: 24px; }
+.gs-kpi-card {
+  background: var(--gs-surface); border-radius: 14px; padding: 16px 18px;
+  box-shadow: var(--gs-shadow); text-decoration: none; color: inherit;
+  display: flex; flex-direction: column; gap: 2px; transition: transform 0.15s, box-shadow 0.15s;
+}
+.gs-kpi-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.15); color: inherit; }
+.gs-kpi-val { font-size: 1.7rem; font-weight: 800; color: var(--body-fg); line-height: 1; }
+.gs-kpi-lbl { font-size: 0.72rem; font-weight: 700; color: var(--body-quiet-color); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px; }
+.gs-kpi-card.gs-alerte .gs-kpi-val { color: var(--accent); }
+
+.gs-quick-links { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 26px; }
+.gs-quick-links a {
+  background: var(--primary); color: var(--primary-fg); border-radius: 10px;
+  padding: 8px 16px; font-size: 0.85rem; font-weight: 700; text-decoration: none;
+  transition: opacity 0.15s;
+}
+.gs-quick-links a:hover { opacity: 0.85; color: var(--primary-fg); }
+.gs-quick-links a.gs-secondaire { background: var(--gs-surface); color: var(--body-fg); border: 1px solid var(--border-color); }
+
+.gs-section-title {
+  font-size: 0.75rem; font-weight: 800; color: var(--body-quiet-color);
+  text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 10px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+{% get_admin_stats as s %}
+{% get_dernieres_boutiques as dernieres_boutiques %}
+
+<div class="gs-banner">
+  <h1>Bonjour, {{ request.user.first_name|default:request.user.username }}</h1>
+  <p>Vue d'ensemble de toutes les boutiques Gestion Stock.</p>
+</div>
+
+<div class="gs-kpi-grid">
+  <a href="{% url 'admin:comptes_boutique_changelist' %}?actif__exact=1" class="gs-kpi-card">
+    <span class="gs-kpi-val">{{ s.boutiques_actives }}</span>
+    <span class="gs-kpi-lbl">Boutiques actives</span>
+  </a>
+  <a href="{% url 'admin:comptes_demandeinscription_changelist' %}?statut__exact=en_attente" class="gs-kpi-card{% if s.demandes_en_attente %} gs-alerte{% endif %}">
+    <span class="gs-kpi-val">{{ s.demandes_en_attente }}</span>
+    <span class="gs-kpi-lbl">Demandes en attente</span>
+  </a>
+  <a href="{% url 'admin:comptes_boutique_changelist' %}?synchro_autorisee__exact=1" class="gs-kpi-card">
+    <span class="gs-kpi-val">{{ s.synchro_activee }} / {{ s.boutiques_total }}</span>
+    <span class="gs-kpi-lbl">Synchro activée</span>
+  </a>
+  <a href="{% url 'admin:comptes_boutique_changelist' %}" class="gs-kpi-card{% if s.abonnements_bientot_expires %} gs-alerte{% endif %}">
+    <span class="gs-kpi-val">{{ s.abonnements_bientot_expires }}</span>
+    <span class="gs-kpi-lbl">Abonnements expirent &lt; 7j</span>
+  </a>
+  <a href="{% url 'admin:comptes_utilisateur_changelist' %}" class="gs-kpi-card">
+    <span class="gs-kpi-val">{{ s.utilisateurs_actifs }}</span>
+    <span class="gs-kpi-lbl">Utilisateurs actifs</span>
+  </a>
+</div>
+
+<div class="gs-quick-links">
+  <a href="{% url 'admin:comptes_boutique_creer' %}">Créer une boutique</a>
+  <a href="{% url 'admin:comptes_demandeinscription_changelist' %}?statut__exact=en_attente">Approuver des inscriptions</a>
+  <a href="{% url 'admin:comptes_boutique_changelist' %}" class="gs-secondaire">Gérer les boutiques</a>
+  <a href="{% url 'admin:comptes_utilisateur_changelist' %}" class="gs-secondaire">Gérer les utilisateurs</a>
+</div>
+
+{% if dernieres_boutiques %}
+<p class="gs-section-title">Dernières boutiques inscrites</p>
+<div class="module">
+  <table>
+    <thead>
+      <tr>
+        <th>Boutique</th>
+        <th>Formule</th>
+        <th>Synchro</th>
+        <th>Créée le</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for b in dernieres_boutiques %}
+      <tr>
+        <td><a href="{% url 'admin:comptes_boutique_change' b.pk %}">{{ b.nom }}</a></td>
+        <td>{{ b.get_formule_display }}</td>
+        <td>{% if b.synchro_autorisee %}Activée{% else %}Non activée{% endif %}</td>
+        <td>{{ b.date_creation|date:"d/m/Y" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<p class="gs-section-title" style="margin-top: 24px;">Tous les modèles</p>
+<div id="content-main">
+  {% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
+</div>
+{% endblock %}

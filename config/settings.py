@@ -79,7 +79,10 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        # Surcharges de l'admin Django (templates/admin/*.html) : le loader de
+        # fichiers (DIRS) est prioritaire sur app_directories, donc gagne même
+        # si django.contrib.admin est listé avant nos apps dans INSTALLED_APPS.
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [

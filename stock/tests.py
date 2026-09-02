@@ -3,11 +3,30 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from catalogue.models import Produit, Variante
-from comptes.models import Role, Utilisateur
+from comptes.models import Boutique, Role, Utilisateur
 from comptes.services import inscrire_boutique
 
 from .models import Depot, MouvementStock, Stock
 from .services import appliquer_mouvement, demarrer_inventaire, transferer_stock, valider_inventaire
+
+
+class FormuleDepotsTests(APITestCase):
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique Formule"}, {"username": "patronFormule", "password": "UnMotDePasseSolide123"}
+        )
+        Depot.objects.create(boutique=self.boutique, nom="Magasin principal")
+        self.client.force_authenticate(user=self.patron)
+
+    def test_formule_essentiel_limite_a_un_depot(self):
+        reponse = self.client.post(reverse("depot-list"), {"nom": "Deuxième dépôt"}, format="json")
+        self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST, reponse.data)
+
+    def test_formule_pro_autorise_plusieurs_depots(self):
+        self.boutique.formule = Boutique.Formule.PRO
+        self.boutique.save(update_fields=["formule"])
+        reponse = self.client.post(reverse("depot-list"), {"nom": "Deuxième dépôt"}, format="json")
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
 
 
 class MouvementsTests(APITestCase):

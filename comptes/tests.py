@@ -4,6 +4,7 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
+from rest_framework_simplejwt.tokens import AccessToken
 
 from .models import Boutique, DemandeInscription, Role, Utilisateur
 from .services import (
@@ -230,6 +231,79 @@ class ConnexionTests(APITestCase):
         self.assertTrue(payload["permissions"]["gerer_utilisateurs_reglages"])
 
 
+class VerifierSessionAdminTests(APITestCase):
+    """
+    Détection de révocation d'accès admin (voir comptes/views.py::
+    VerifierSessionAdminView) : un compte désactivé après coup doit être
+    refusé au prochain appel, même avec un jeton d'accès déjà émis.
+    """
+
+    def setUp(self):
+        self.admin = Utilisateur.objects.create_user(
+            username="adminStaff", password="UnMotDePasseSolide123", is_staff=True
+        )
+        self.non_staff = Utilisateur.objects.create_user(
+            username="simpleUser", password="UnMotDePasseSolide123", is_staff=False
+        )
+
+    def test_admin_actif_est_autorise(self):
+        token = str(AccessToken.for_user(self.admin))
+        reponse = self.client.get(reverse("verifier-session-admin"), HTTP_AUTHORIZATION=f"Bearer {token}")
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK)
+        self.assertTrue(reponse.data["autorise"])
+
+    def test_utilisateur_non_staff_n_est_pas_autorise(self):
+        token = str(AccessToken.for_user(self.non_staff))
+        reponse = self.client.get(reverse("verifier-session-admin"), HTTP_AUTHORIZATION=f"Bearer {token}")
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK)
+        self.assertFalse(reponse.data["autorise"])
+
+    def test_compte_desactive_est_refuse(self):
+        token = str(AccessToken.for_user(self.admin))
+        self.admin.is_active = False
+        self.admin.save(update_fields=["is_active"])
+        reponse = self.client.get(reverse("verifier-session-admin"), HTTP_AUTHORIZATION=f"Bearer {token}")
+        self.assertEqual(reponse.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+
+
+class ListerPatronsTests(APITestCase):
+    """Menu de "Réinitialiser mot de passe" (voir comptes/views.py::ListerPatronsView)."""
+
+    def setUp(self):
+        self.admin = Utilisateur.objects.create_user(
+            username="adminStaff3", password="UnMotDePasseSolide123", is_staff=True
+        )
+        self.boutique_a, _ = inscrire_boutique(
+            {"nom": "Boutique Z"}, {"username": "patronZ", "password": "UnMotDePasseSolide123"}
+        )
+        self.boutique_b, _ = inscrire_boutique(
+            {"nom": "Boutique A"}, {"username": "patronA", "password": "UnMotDePasseSolide123"}
+        )
+
+    def test_liste_tous_les_patrons_tries_par_boutique(self):
+        reponse = self.client.post(
+            reverse("lister-patrons"),
+            {"username": "adminStaff3", "password": "UnMotDePasseSolide123"},
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK, reponse.data)
+        usernames = [p["username"] for p in reponse.data]
+        self.assertIn("patronZ", usernames)
+        self.assertIn("patronA", usernames)
+        # Trié par nom de boutique : "Boutique A" avant "Boutique Z".
+        self.assertLess(usernames.index("patronA"), usernames.index("patronZ"))
+
+    def test_refuse_un_non_admin(self):
+        reponse = self.client.post(
+            reverse("lister-patrons"),
+            {"username": "patronA", "password": "UnMotDePasseSolide123"},
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_403_FORBIDDEN)
+
+
 class IsolationEtPermissionsTests(APITestCase):
     def setUp(self):
         self.boutique_a, self.patron_a = inscrire_boutique(
@@ -266,6 +340,29 @@ class IsolationEtPermissionsTests(APITestCase):
             format="json",
         )
         self.assertEqual(reponse.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_formule_essentiel_limite_a_deux_utilisateurs(self):
+        # boutique_a a déjà le Patron + caissier_a = 2 comptes (formule essentiel par défaut).
+        role_caissier = Role.objects.get(boutique=self.boutique_a, nom="Caissier")
+        self.client.force_authenticate(user=self.patron_a)
+        reponse = self.client.post(
+            reverse("utilisateur-list"),
+            {"username": "troisieme", "password": "UnMotDePasseSolide123", "role": str(role_caissier.id)},
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST, reponse.data)
+
+    def test_formule_pro_autorise_plus_de_deux_utilisateurs(self):
+        self.boutique_a.formule = Boutique.Formule.PRO
+        self.boutique_a.save(update_fields=["formule"])
+        role_caissier = Role.objects.get(boutique=self.boutique_a, nom="Caissier")
+        self.client.force_authenticate(user=self.patron_a)
+        reponse = self.client.post(
+            reverse("utilisateur-list"),
+            {"username": "troisieme", "password": "UnMotDePasseSolide123", "role": str(role_caissier.id)},
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
 
     def test_role_patron_ne_peut_pas_etre_retire(self):
         self.client.force_authenticate(user=self.patron_a)

@@ -5,12 +5,12 @@ import type { Session } from "./api/client";
 import { DeviseProvider } from "./contexts/DeviseContext";
 import { LogoProvider } from "./contexts/LogoContext";
 import { NomBoutiqueProvider } from "./contexts/NomBoutiqueContext";
+import { SynchroProvider } from "./contexts/SynchroContext";
+import AccesCreationBoutique from "./pages/AccesCreationBoutique";
 import Connexion from "./pages/Connexion";
-import Inscription from "./pages/Inscription";
-import MotDePasseOublie from "./pages/MotDePasseOublie";
 import Shell from "./pages/Shell";
 
-type Ecran = "chargement" | "connexion" | "inscription" | "motDePasseOublie" | "shell";
+type Ecran = "chargement" | "connexion" | "accesCreation" | "shell";
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -51,25 +51,18 @@ export default function App() {
     return <div className="ecran-chargement">Chargement…</div>;
   }
   if (ecran === "connexion") {
-    return (
-      <Connexion
-        onConnecte={surConnecte}
-        allerInscription={() => setEcran("inscription")}
-        allerMotDePasseOublie={() => setEcran("motDePasseOublie")}
-      />
-    );
+    return <Connexion onConnecte={surConnecte} allerAccesCreation={() => setEcran("accesCreation")} />;
   }
-  if (ecran === "inscription") {
-    return <Inscription allerConnexion={() => setEcran("connexion")} />;
-  }
-  if (ecran === "motDePasseOublie") {
-    return <MotDePasseOublie allerConnexion={() => setEcran("connexion")} />;
+  if (ecran === "accesCreation") {
+    return <AccesCreationBoutique allerConnexion={() => setEcran("connexion")} />;
   }
   return (
     <DeviseProvider session={session!}>
       <LogoProvider session={session!}>
         <NomBoutiqueProvider session={session!}>
-          <Shell session={session!} onDeconnexion={surDeconnexion} onSessionMiseAJour={surSessionMiseAJour} />
+          <SynchroProvider session={session!} onSessionMiseAJour={surSessionMiseAJour}>
+            <Shell session={session!} onDeconnexion={surDeconnexion} onSessionMiseAJour={surSessionMiseAJour} />
+          </SynchroProvider>
         </NomBoutiqueProvider>
       </LogoProvider>
     </DeviseProvider>

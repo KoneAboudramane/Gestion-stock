@@ -200,7 +200,7 @@ function ModaleMouvementCategorie({
 
             <h4>{historiqueTitre}</h4>
             <div className="zone-tableau-scroll">
-              <table className="tableau-catalogue">
+              <table className="tableau-catalogue carte-mobile">
                 <thead>
                   <tr>
                     <th>Date</th>
@@ -212,13 +212,13 @@ function ModaleMouvementCategorie({
                 <tbody>
                   {mouvements.map((m) => (
                     <tr key={m.id}>
-                      <td>{new Date(m.dateCreation).toLocaleString("fr-FR")}</td>
-                      <td>{m.motif}</td>
-                      <td>
+                      <td data-label="Date">{new Date(m.dateCreation).toLocaleString("fr-FR")}</td>
+                      <td data-label="Motif">{m.motif}</td>
+                      <td data-label="Montant">
                         {m.type === "sortie" ? "−" : "+"}
                         {formaterMontant(Math.abs(m.montant))} {devise}
                       </td>
-                      <td>{nomUtilisateur(m.utilisateurId)}</td>
+                      <td data-label="Effectué par">{nomUtilisateur(m.utilisateurId)}</td>
                     </tr>
                   ))}
                   {mouvements.length === 0 && (
@@ -272,7 +272,7 @@ function ModaleHistoriqueSolde({
         </div>
         <div className="modale-corps">
           <div className="zone-tableau-scroll">
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th>Date</th>
@@ -286,19 +286,19 @@ function ModaleHistoriqueSolde({
               <tbody>
                 {mouvements.map((m) => (
                   <tr key={m.id}>
-                    <td>{new Date(m.dateCreation).toLocaleString("fr-FR")}</td>
-                    <td>
+                    <td data-label="Date">{new Date(m.dateCreation).toLocaleString("fr-FR")}</td>
+                    <td data-label="Type">
                       <span className={m.type === "sortie" ? "badge-annulee" : "badge-payee"}>
                         {libelleTypeMouvementCaisse(m.type)}
                       </span>
                     </td>
-                    <td>{libelleCategorieMouvementCaisse(m.categorie)}</td>
-                    <td>{m.motif}</td>
-                    <td>
+                    <td data-label="Catégorie">{libelleCategorieMouvementCaisse(m.categorie)}</td>
+                    <td data-label="Motif">{m.motif}</td>
+                    <td data-label="Montant">
                       {m.type === "sortie" ? "−" : "+"}
                       {formaterMontant(Math.abs(m.montant))} {devise}
                     </td>
-                    <td>{nomUtilisateur(m.utilisateurId)}</td>
+                    <td data-label="Effectué par">{nomUtilisateur(m.utilisateurId)}</td>
                   </tr>
                 ))}
                 {mouvements.length === 0 && (
@@ -451,7 +451,7 @@ function ModaleHistoriqueTransferts({
         </div>
         <div className="modale-corps">
           <div className="zone-tableau-scroll">
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th>Date</th>
@@ -462,11 +462,11 @@ function ModaleHistoriqueTransferts({
               <tbody>
                 {transferts.map((t) => (
                   <tr key={t.id}>
-                    <td>{new Date(t.dateCreation).toLocaleString("fr-FR")}</td>
-                    <td>
+                    <td data-label="Date">{new Date(t.dateCreation).toLocaleString("fr-FR")}</td>
+                    <td data-label="Montant">
                       {formaterMontant(t.montant)} {devise}
                     </td>
-                    <td>{nomUtilisateur(t.utilisateurId)}</td>
+                    <td data-label="Effectué par">{nomUtilisateur(t.utilisateurId)}</td>
                   </tr>
                 ))}
                 {transferts.length === 0 && (
@@ -813,7 +813,7 @@ function ModaleClotureCaisse({
 
             <h4>Historique des clôtures</h4>
             <div className="zone-tableau-scroll">
-              <table className="tableau-catalogue">
+              <table className="tableau-catalogue carte-mobile">
                 <thead>
                   <tr>
                     <th>Date</th>
@@ -826,18 +826,18 @@ function ModaleClotureCaisse({
                 <tbody>
                   {clotures.map((c) => (
                     <tr key={c.id}>
-                      <td>{new Date(c.dateCreation).toLocaleString("fr-FR")}</td>
-                      <td>
+                      <td data-label="Date">{new Date(c.dateCreation).toLocaleString("fr-FR")}</td>
+                      <td data-label="Solde théorique">
                         {formaterMontant(c.soldeTheorique)} {devise}
                       </td>
-                      <td>
+                      <td data-label="Solde compté">
                         {formaterMontant(c.soldeCompte)} {devise}
                       </td>
-                      <td className={c.ecart !== 0 ? "carte-stat-alerte" : undefined}>
+                      <td data-label="Écart" className={c.ecart !== 0 ? "carte-stat-alerte" : undefined}>
                         {c.ecart > 0 ? "+" : ""}
                         {formaterMontant(c.ecart)} {devise}
                       </td>
-                      <td>{nomUtilisateur(c.utilisateurId)}</td>
+                      <td data-label="Effectué par">{nomUtilisateur(c.utilisateurId)}</td>
                     </tr>
                   ))}
                   {clotures.length === 0 && (
