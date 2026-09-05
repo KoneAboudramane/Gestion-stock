@@ -145,6 +145,44 @@ def compte_de_resultat(boutique, debut, fin):
     }
 
 
+ORDRE_MASSES_ACTIF = ["Actif immobilisé", "Actif circulant", "Trésorerie", "Autres"]
+ORDRE_MASSES_PASSIF = ["Capitaux propres", "Dettes financières", "Passif circulant", "Trésorerie", "Autres"]
+
+
+def _masse_actif(numero):
+    prefixe = numero[0]
+    if prefixe == "2":
+        return "Actif immobilisé"
+    if prefixe in ("3", "4"):
+        return "Actif circulant"
+    if prefixe == "5":
+        return "Trésorerie"
+    # Cas rares (ex. classe 1 débitrice) — pas assez fréquents chez un
+    # commerçant pour mériter leur propre masse.
+    return "Autres"
+
+
+def _masse_passif(numero):
+    # 16/17/19 (emprunts, crédit-bail, provisions financières) avant le test
+    # générique "commence par 1", sinon ils tomberaient dans Capitaux propres.
+    if numero.startswith(("16", "17", "19")):
+        return "Dettes financières"
+    prefixe = numero[0]
+    if prefixe == "1":
+        return "Capitaux propres"
+    if prefixe == "4":
+        return "Passif circulant"
+    if prefixe == "5":
+        return "Trésorerie"
+    # Amortissements (28) et dépréciations (39, 49) créditeurs : dans un
+    # bilan SYSCOHADA normal, ils viennent en déduction de l'actif brut plutôt
+    # que comme une dette. Les mettre en Passif serait faux ; les nette
+    # contre l'actif brut correspondant demanderait de repenser tout le calcul
+    # (hors de portée ici) — "Autres" les isole en attendant, plutôt que de
+    # les faire passer pour une vraie dette.
+    return "Autres"
+
+
 def bilan(boutique, date_fin):
     """
     Actif/Passif à une date donnée : le solde de chaque compte (classes 1 à 5)
@@ -153,30 +191,51 @@ def bilan(boutique, date_fin):
     clients débiteurs ET des fournisseurs créditeurs). Le résultat net de
     l'exercice (classes 6/7) est ajouté au passif pour équilibrer, comme dans
     un bilan comptable classique avant affectation.
+
+    Chaque côté est ensuite regroupé par masse SYSCOHADA (Actif immobilisé/
+    circulant/Trésorerie ; Capitaux propres/Dettes financières/Passif
+    circulant/Trésorerie) plutôt que laissé en liste plate de comptes — voir
+    _masse_actif/_masse_passif pour la règle de classement et ses limites.
     """
     from datetime import date as _date
 
     origine = _date(1900, 1, 1)
     debut_exercice = date_fin.replace(month=1, day=1)
-    actif = []
-    passif = []
+    groupes_actif = {masse: [] for masse in ORDRE_MASSES_ACTIF}
+    groupes_passif = {masse: [] for masse in ORDRE_MASSES_PASSIF}
     total_actif = total_passif = 0
     for ligne in _totaux_par_compte(boutique, origine, date_fin):
         classe = ligne["compte__classe"]
         if classe not in (1, 2, 3, 4, 5):
             continue
         solde = ligne["total_debit"] - ligne["total_credit"]
+        numero = ligne["compte__numero"]
         if solde > 0:
-            actif.append({"compte": ligne["compte__numero"], "libelle": ligne["compte__libelle"], "montant": solde})
+            groupes_actif[_masse_actif(numero)].append(
+                {"compte": numero, "libelle": ligne["compte__libelle"], "montant": solde}
+            )
             total_actif += solde
         elif solde < 0:
-            passif.append({"compte": ligne["compte__numero"], "libelle": ligne["compte__libelle"], "montant": -solde})
+            groupes_passif[_masse_passif(numero)].append(
+                {"compte": numero, "libelle": ligne["compte__libelle"], "montant": -solde}
+            )
             total_passif += -solde
 
     resultat = compte_de_resultat(boutique, debut_exercice, date_fin)
     if resultat["resultat_net"]:
-        passif.append({"compte": "12", "libelle": "Résultat net de l'exercice", "montant": resultat["resultat_net"]})
+        groupes_passif["Capitaux propres"].append(
+            {"compte": "12", "libelle": "Résultat net de l'exercice", "montant": resultat["resultat_net"]}
+        )
         total_passif += resultat["resultat_net"]
+
+    actif = [
+        {"masse": masse, "lignes": groupes_actif[masse], "sous_total": sum(l["montant"] for l in groupes_actif[masse])}
+        for masse in ORDRE_MASSES_ACTIF if groupes_actif[masse]
+    ]
+    passif = [
+        {"masse": masse, "lignes": groupes_passif[masse], "sous_total": sum(l["montant"] for l in groupes_passif[masse])}
+        for masse in ORDRE_MASSES_PASSIF if groupes_passif[masse]
+    ]
 
     return {
         "date": date_fin,

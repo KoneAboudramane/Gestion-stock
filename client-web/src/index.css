@@ -74,12 +74,9 @@
   --surface-entete: color-mix(in srgb, var(--surface), var(--gris-300) 35%);
   --bordure-tableau: var(--gris-200);
   --bordure-tableau-forte: var(--gris-300);
-  /* Fond de la carte principale de la Caisse (voir .carte-caisse-principale),
-     distinct du --surface neutre du reste de l'app, teinté vers la couleur de
-     la barre latérale (--barre-fond de ce thème, ici un dégradé bleu très
-     clair réduit à sa couleur moyenne #e6ecf8 puisque color-mix() ne peut pas
-     mélanger un dégradé) pour un air de famille avec la navigation. */
-  --surface-caisse: color-mix(in srgb, #f2d9a8, #e6ecf8 20%);
+  /* Fond de la carte principale de la Caisse (voir .carte-caisse-principale) :
+     même dégradé que --barre-fond, pour être identique à la barre latérale. */
+  --surface-caisse: var(--barre-fond);
 
   /* Barre latérale : suit le thème comme le reste de l'app (voir plus bas pour
      la variante sombre). Les surbrillances/puces de la barre se calculent via
@@ -139,7 +136,7 @@
 
   --surface: #131c2e;
   --surface-entete: color-mix(in srgb, var(--surface), var(--gris-300) 35%);
-  --surface-caisse: color-mix(in srgb, #2e2312, #121b32 20%);
+  --surface-caisse: var(--barre-fond);
 
   --barre-fond: linear-gradient(190deg, #16213e 0%, #0d1526 75%);
   --barre-texte: #cbd5e1;
@@ -214,7 +211,7 @@
 
   --surface: #090702;
   --surface-entete: color-mix(in srgb, var(--surface), var(--gris-300) 35%);
-  --surface-caisse: color-mix(in srgb, #1f1305, #050302 20%);
+  --surface-caisse: var(--barre-fond);
 
   --barre-fond: linear-gradient(190deg, #0a0704 0%, #000000 75%);
   --barre-texte: #c2ac7c;
@@ -254,38 +251,44 @@
 
 /* Thème orange : quatrième option d'Apparence, un thème clair (fonds blancs,
    échelle de gris du thème clair réutilisée telle quelle — non redéfinie ici)
-   mais en couleurs franches et PLATES (pas de dégradé orange→vert comme le
-   premier essai) : orange plein en primaire (donc --degrade-primaire/-succes
-   redéfinis en couleur unie, pas en dégradé), barre latérale vert plein avec
-   texte blanc — un vrai bloc de couleur, pas juste un blanc légèrement teinté. */
+   mais en couleurs franches et PLATES (pas de dégradé) : orange plein en
+   primaire (--degrade-primaire redéfini en couleur unie), barre latérale dans
+   un ton orange foncé/brique.
+   #ff8200 = orange officiel du drapeau ivoirien (Pantone 151 C, Album des
+   pavillons nationaux 2000), pas une teinte orange générique.
+   --barre-fond utilise #c2410c (pas --couleur-primaire-tres-fonce, #7a3d00,
+   trop assombri : à cette luminosité un orange saturé "tourne" chocolat à
+   l'œil). #7a3d00 reste correct pour --couleur-primaire-tres-fonce, utilisé
+   seulement en dégradé de survol (zone fine, moins gênant).
+   Identité monochrome orange/crème depuis l'ajout du thème Vert dédié : plus
+   de vert emprunté ici, qui aurait fait doublon avec ce thème-là. Seul
+   --degrade-succes reste vert : c'est le sémantique "succès", partagé par
+   tous les thèmes (voir :root), pas une couleur de marque de ce thème. */
 :root[data-theme="orange"] {
-  --couleur-primaire: #f77f00;
-  --couleur-primaire-fonce: #d96a00;
+  --couleur-primaire: #ff8200;
+  --couleur-primaire-fonce: #db6e00;
   --couleur-primaire-clair: #fef0dc;
-  --couleur-accent: #f77f00;
+  --couleur-accent: #ff8200;
   --couleur-primaire-tres-fonce: #7a3d00;
-  --degrade-primaire: #f77f00;
-  --degrade-succes: #128a3e;
+  --degrade-primaire: #ff8200;
 
-  --barre-fond: #0d6b34;
-  --barre-texte: #cdeed9;
+  --barre-fond: #c2410c;
+  --barre-texte: #ffe2ca;
   --barre-texte-fort: #ffffff;
-  --barre-texte-desactive: #6fae82;
+  --barre-texte-desactive: #e3a37a;
   --barre-danger-texte: #ffd7d7;
 
-  /* Comme les autres thèmes : fond de la Caisse teinté vers la couleur de la
-     barre latérale (ici --barre-fond est déjà une couleur unie, pas un
-     dégradé, donc mélangée directement). */
-  --surface-caisse: color-mix(in srgb, #f2d9a8, #0d6b34 20%);
+  /* Comme les autres thèmes : fond de la Caisse identique à la barre latérale. */
+  --surface-caisse: var(--barre-fond);
 
-  /* Identité du thème (orange/blanc/vert) plutôt que le cycle générique des
+  /* Identité du thème (orange/crème/brique) plutôt que le cycle générique des
      couleurs sémantiques — voir --cercle-1..6 dans :root. */
-  --cercle-1: #f77f00;
+  --cercle-1: #ff8200;
   --cercle-2: #ffffff;
-  --cercle-3: #128a3e;
-  --cercle-4: #f77f00;
+  --cercle-3: #c2410c;
+  --cercle-4: #ff8200;
   --cercle-5: #ffffff;
-  --cercle-6: #128a3e;
+  --cercle-6: #c2410c;
 }
 
 /* La barre latérale et les boutons ne suffisaient pas à "colorer" le thème
@@ -310,6 +313,134 @@
 }
 
 :root[data-theme="orange"] .entete {
+  border-bottom: 2px solid var(--couleur-accent);
+}
+
+/* Thème vert : cinquième option d'Apparence, même structure que le thème
+   orange (fonds clairs réutilisés tels quels, seul l'accent et la barre
+   latérale changent) mais en émeraude. */
+:root[data-theme="vert"] {
+  --couleur-primaire: #059669;
+  --couleur-primaire-fonce: #047857;
+  --couleur-primaire-clair: #d1fae5;
+  --couleur-accent: #047857;
+  --couleur-primaire-tres-fonce: #022c22;
+  --degrade-primaire: #059669;
+
+  --barre-fond: #064e3b;
+  --barre-texte: #a7f3d0;
+  --barre-texte-fort: #ffffff;
+  --barre-texte-desactive: #4d8b6f;
+  --barre-danger-texte: #fecaca;
+
+  --surface-caisse: var(--barre-fond);
+}
+
+:root[data-theme="vert"] .tableau-catalogue th {
+  background: var(--couleur-primaire-clair);
+  color: var(--couleur-primaire-fonce);
+  border-bottom-color: var(--couleur-primaire);
+}
+
+:root[data-theme="vert"] .modale-entete {
+  background: var(--couleur-primaire-clair);
+  border-bottom: 2px solid var(--couleur-primaire);
+}
+
+:root[data-theme="vert"] .detail-produit,
+:root[data-theme="vert"] .carte-document-comptable {
+  border: 1px solid color-mix(in srgb, var(--couleur-primaire), transparent 70%);
+}
+
+:root[data-theme="vert"] .entete {
+  border-bottom: 2px solid var(--couleur-accent);
+}
+
+/* Thème bleu : sixième option d'Apparence, même structure que orange/vert,
+   en bleu roi. */
+:root[data-theme="bleu"] {
+  --couleur-primaire: #1d4ed8;
+  --couleur-primaire-fonce: #1e3a8a;
+  --couleur-primaire-clair: #dbeafe;
+  --couleur-accent: #1d4ed8;
+  --couleur-primaire-tres-fonce: #172554;
+  --degrade-primaire: #1d4ed8;
+
+  --barre-fond: #1e40af;
+  --barre-texte: #cfe0fb;
+  --barre-texte-fort: #ffffff;
+  --barre-texte-desactive: #93b4e0;
+  --barre-danger-texte: #fecaca;
+
+  --surface-caisse: var(--barre-fond);
+}
+
+:root[data-theme="bleu"] .tableau-catalogue th {
+  background: var(--couleur-primaire-clair);
+  color: var(--couleur-primaire-fonce);
+  border-bottom-color: var(--couleur-primaire);
+}
+
+:root[data-theme="bleu"] .modale-entete {
+  background: var(--couleur-primaire-clair);
+  border-bottom: 2px solid var(--couleur-primaire);
+}
+
+:root[data-theme="bleu"] .detail-produit,
+:root[data-theme="bleu"] .carte-document-comptable {
+  border: 1px solid color-mix(in srgb, var(--couleur-primaire), transparent 70%);
+}
+
+:root[data-theme="bleu"] .entete {
+  border-bottom: 2px solid var(--couleur-accent);
+}
+
+/* Thème gris : septième option d'Apparence. Contrairement à orange/vert/bleu
+   (barre latérale en couleur pleine et foncée), celui-ci tire vers le clair :
+   structure proche du thème Clair, mais en gris neutre pur (zinc, sans la
+   pointe de bleu du gradient --barre-fond de Clair) plutôt que coloré. Gris
+   moyen (pas quasi-blanc, un premier essai en #fafafa/#e4e4e7 lisait "blanc"
+   plutôt que "gris") pour rester identifiable comme un gris. */
+:root[data-theme="gris"] {
+  --couleur-primaire: #52525b;
+  --couleur-primaire-fonce: #3f3f46;
+  --couleur-primaire-clair: #f4f4f5;
+  --couleur-accent: #52525b;
+  --couleur-primaire-tres-fonce: #18181b;
+
+  --barre-fond: #a1a1aa;
+  --barre-texte: #27272a;
+  --barre-texte-fort: #09090b;
+  --barre-texte-desactive: #52525b;
+  --barre-danger-texte: var(--danger-fonce);
+
+  --surface-caisse: var(--barre-fond);
+
+  --cercle-1: #52525b;
+  --cercle-2: #ffffff;
+  --cercle-3: #18181b;
+  --cercle-4: #52525b;
+  --cercle-5: #ffffff;
+  --cercle-6: #18181b;
+}
+
+:root[data-theme="gris"] .tableau-catalogue th {
+  background: var(--couleur-primaire-clair);
+  color: var(--couleur-primaire-fonce);
+  border-bottom-color: var(--couleur-primaire);
+}
+
+:root[data-theme="gris"] .modale-entete {
+  background: var(--couleur-primaire-clair);
+  border-bottom: 2px solid var(--couleur-primaire);
+}
+
+:root[data-theme="gris"] .detail-produit,
+:root[data-theme="gris"] .carte-document-comptable {
+  border: 1px solid color-mix(in srgb, var(--couleur-primaire), transparent 70%);
+}
+
+:root[data-theme="gris"] .entete {
   border-bottom: 2px solid var(--couleur-accent);
 }
 
@@ -471,6 +602,37 @@ input[type="number"]::-webkit-outer-spin-button {
   justify-content: center;
   height: 100vh;
   color: var(--gris-500);
+}
+
+/* Bandeau "nouvelle version disponible" (voir components/MiseAJourDisponible) :
+   au-dessus de tout (même une modale ouverte), l'utilisateur doit pouvoir le
+   voir et recharger quel que soit l'écran affiché. */
+.bandeau-mise-a-jour {
+  position: fixed;
+  left: 50%;
+  bottom: 1.2rem;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.6rem 0.7rem 0.6rem 1rem;
+  background: var(--gris-900);
+  color: var(--gris-50);
+  border-radius: var(--rayon-pilule);
+  box-shadow: var(--ombre-lg);
+  font-size: 0.85rem;
+}
+
+.bandeau-mise-a-jour button {
+  background: var(--couleur-primaire);
+  color: white;
+  border: none;
+  padding: 0.4rem 0.85rem;
+}
+
+.bandeau-mise-a-jour button:hover:not(:disabled) {
+  background: var(--couleur-primaire-fonce);
 }
 
 /* --- Connexion / Inscription / Mot de passe oublié --- */
@@ -1267,6 +1429,17 @@ input[type="number"]::-webkit-outer-spin-button {
 .lien-deconnexion-entete {
   margin: 0;
   padding: 0.5rem 0.8rem;
+  /* .lien-deconnexion (base) suppose un fond --barre-fond (sidebar) et se
+     colore avec --barre-texte*. Ici, dans l'en-tête, le fond est --surface —
+     clair même en thème orange, où --barre-texte est le vert menthe pâle de
+     la sidebar : invisible sur ce fond clair. On retombe donc sur les tokens
+     de texte génériques, adaptés à --surface dans chaque thème. */
+  color: var(--gris-700);
+  border-color: color-mix(in srgb, var(--gris-700), transparent 80%);
+}
+
+.lien-deconnexion-entete:hover:not(:disabled) {
+  color: var(--danger);
 }
 
 .entete strong {
@@ -2013,6 +2186,19 @@ input.champ-invalide:focus {
   overflow-y: auto;
 }
 
+/* .disposition-parametres met la barre latérale (190px fixes) et son contenu
+   côte à côte : sur téléphone ça ne laisse presque plus de place au contenu.
+   On empile, la barre latérale passant en liste pleine largeur au-dessus. */
+@media (max-width: 720px) {
+  .disposition-parametres {
+    flex-direction: column;
+  }
+
+  .barre-laterale-parametres {
+    width: 100%;
+  }
+}
+
 .item-nav-parametres {
   display: block;
   width: 100%;
@@ -2073,6 +2259,17 @@ input.champ-invalide:focus {
 .barre-actions-avec-onglets {
   flex-wrap: nowrap;
   align-items: center;
+}
+
+/* nowrap ci-dessus suppose une largeur desktop : sur téléphone, filtres
+   (select statut/fournisseur) + recherche + bouton "+ Nouvelle commande"
+   ne tiennent jamais sur une seule ligne — on les laisse repasser à la
+   ligne comme .barre-actions de base, sans toucher à align-items:center
+   qui règle le vrai bug (hauteur étirée) indépendamment du wrap. */
+@media (max-width: 720px) {
+  .barre-actions-avec-onglets {
+    flex-wrap: wrap;
+  }
 }
 
 .barre-actions-avec-onglets .barre-onglets {
@@ -2242,14 +2439,30 @@ input.champ-invalide:focus {
   border-bottom: none;
 }
 
+/* La règle ci-dessus retire la bordure de la dernière ligne du tbody (pour
+   éviter un double-trait avec le bord du tableau quand il n'y a pas de
+   tfoot) — mais laisse alors la ligne de total sans séparation visible des
+   lignes normales dans les tableaux qui ont un tfoot (Bilan, Compte de
+   résultat…). On la restaure ici, côté tfoot plutôt que tbody. Guardée
+   au-delà de 720px : en dessous, .carte-mobile transforme chaque <tr> (y
+   compris celle du tfoot) en carte avec sa propre bordure complète — un
+   border-top de <td> y ferait doublon. */
+@media (min-width: 721px) {
+  .tableau-catalogue tfoot td {
+    border-top: 1px solid var(--bordure-tableau-forte);
+  }
+}
+
 /* Vue "carte" mobile pour les tableaux denses : opt-in via la classe
-   carte-mobile (pas appliqué à .tableau-catalogue globalement — chaque
-   tableau ne bascule qu'une fois ses <td> équipés de data-label, page par
-   page). Chaque ligne devient une carte, chaque cellule une paire
-   étiquette/valeur (étiquette tirée de data-label, valeur alignée à droite) —
-   aucune colonne n'est masquée, voir Ventes.tsx pour le premier exemple. */
+   carte-mobile (pas appliqué à .tableau-catalogue/.tableau-panier
+   globalement — chaque tableau ne bascule qu'une fois ses <td> équipés de
+   data-label, page par page). Chaque ligne devient une carte, chaque
+   cellule une paire étiquette/valeur (étiquette tirée de data-label, valeur
+   alignée à droite) — aucune colonne n'est masquée, voir Ventes.tsx pour le
+   premier exemple, .tableau-panier du panier de Caisse pour un second. */
 @media (max-width: 720px) {
-  .tableau-catalogue.carte-mobile {
+  .tableau-catalogue.carte-mobile,
+  .tableau-panier.carte-mobile {
     border: none;
     box-shadow: none;
     background: transparent;
@@ -2260,15 +2473,18 @@ input.champ-invalide:focus {
      via un <th colspan> unique (ex. "Charges"/"Produits" du Compte de
      résultat) : ce titre est la seule indication de quel tableau est lequel
      une fois les deux colonnes empilées, il doit rester visible. */
-  .tableau-catalogue.carte-mobile thead tr:not(:has(th[colspan])) {
+  .tableau-catalogue.carte-mobile thead tr:not(:has(th[colspan])),
+  .tableau-panier.carte-mobile thead tr:not(:has(th[colspan])) {
     display: none;
   }
 
-  .tableau-catalogue.carte-mobile thead tr:has(th[colspan]) {
+  .tableau-catalogue.carte-mobile thead tr:has(th[colspan]),
+  .tableau-panier.carte-mobile thead tr:has(th[colspan]) {
     display: block;
   }
 
-  .tableau-catalogue.carte-mobile thead tr:has(th[colspan]) th {
+  .tableau-catalogue.carte-mobile thead tr:has(th[colspan]) th,
+  .tableau-panier.carte-mobile thead tr:has(th[colspan]) th {
     display: block;
     text-align: center;
     position: static;
@@ -2277,12 +2493,17 @@ input.champ-invalide:focus {
   .tableau-catalogue.carte-mobile,
   .tableau-catalogue.carte-mobile thead,
   .tableau-catalogue.carte-mobile tbody,
-  .tableau-catalogue.carte-mobile tfoot {
+  .tableau-catalogue.carte-mobile tfoot,
+  .tableau-panier.carte-mobile,
+  .tableau-panier.carte-mobile thead,
+  .tableau-panier.carte-mobile tbody,
+  .tableau-panier.carte-mobile tfoot {
     display: block;
     width: 100%;
   }
 
-  .tableau-catalogue.carte-mobile tr {
+  .tableau-catalogue.carte-mobile tr,
+  .tableau-panier.carte-mobile tr {
     display: block;
     margin-bottom: 0.75rem;
     padding: 0.4rem 0.9rem;
@@ -2292,11 +2513,13 @@ input.champ-invalide:focus {
     box-shadow: var(--ombre-sm);
   }
 
-  .tableau-catalogue.carte-mobile tr:last-child {
+  .tableau-catalogue.carte-mobile tr:last-child,
+  .tableau-panier.carte-mobile tr:last-child {
     margin-bottom: 0;
   }
 
-  .tableau-catalogue.carte-mobile td {
+  .tableau-catalogue.carte-mobile td,
+  .tableau-panier.carte-mobile td {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
@@ -2307,11 +2530,13 @@ input.champ-invalide:focus {
     text-align: right;
   }
 
-  .tableau-catalogue.carte-mobile td:last-child {
+  .tableau-catalogue.carte-mobile td:last-child,
+  .tableau-panier.carte-mobile td:last-child {
     border-bottom: none;
   }
 
-  .tableau-catalogue.carte-mobile td::before {
+  .tableau-catalogue.carte-mobile td::before,
+  .tableau-panier.carte-mobile td::before {
     content: attr(data-label);
     font-weight: 600;
     font-size: 0.78rem;
@@ -2322,13 +2547,34 @@ input.champ-invalide:focus {
 
   /* Cellule "liste vide" (colspan) : pas d'étiquette, message centré comme
      dans la version desktop. */
-  .tableau-catalogue.carte-mobile td[colspan] {
+  .tableau-catalogue.carte-mobile td[colspan],
+  .tableau-panier.carte-mobile td[colspan] {
     justify-content: center;
     text-align: center;
   }
 
-  .tableau-catalogue.carte-mobile td[colspan]::before {
+  .tableau-catalogue.carte-mobile td[colspan]::before,
+  .tableau-panier.carte-mobile td[colspan]::before {
     content: none;
+  }
+
+  /* Cellule "supprimer" (icône seule, pas de valeur à étiqueter) : centrée,
+     pas de data-label puisqu'elle n'en a pas dans le markup. */
+  .tableau-panier.carte-mobile td.colonne-supprimer {
+    justify-content: center;
+  }
+
+  /* "width: 1%" (astuce table-layout:auto pour une colonne qui se réduit à
+     son contenu, ex. Qté/Actions) survit à .carte-mobile : le <td> devenu
+     conteneur flex (étiquette + valeur) hérite de cette largeur au lieu de
+     s'étirer sur toute la carte, ce qui écrase les deux au lieu de les
+     répartir. On la neutralise pour les colonnes concernées. */
+  .tableau-catalogue.carte-mobile .colonne-sous-total,
+  .tableau-catalogue.carte-mobile .colonne-actions-variante,
+  .tableau-catalogue.carte-mobile .colonne-numero-groupe,
+  .tableau-catalogue.carte-mobile .colonne-statut-stock,
+  .tableau-catalogue.carte-mobile .colonne-actions-stock {
+    width: auto;
   }
 
   /* Neutralise le collage en bas de .zone-tableau-scroll (pensé pour la ligne
@@ -2350,7 +2596,8 @@ input.champ-invalide:focus {
    (elles ne servent qu'à dessiner d'avance la grille du tableau desktop) —
    sans cette règle elles apparaîtraient comme des cartes vides. */
 @media (max-width: 720px) {
-  .tableau-catalogue.carte-mobile tbody tr.ligne-groupe-vide {
+  .tableau-catalogue.carte-mobile tbody tr.ligne-groupe-vide,
+  .tableau-panier.carte-mobile tbody tr.ligne-groupe-vide {
     display: none;
   }
 }
@@ -2547,6 +2794,22 @@ input.champ-invalide:focus {
   margin-left: auto;
 }
 
+/* Le rétrécissement plutôt que le retour à la ligne (voir commentaire
+   ci-dessus) suppose une largeur desktop : sur téléphone, 2-3 champs +
+   bouton finiraient tous illisibles. On empile à la place, comme
+   .ajustements-modale-corps/.ligne-recherche-monnaie de la modale Caisse. */
+@media (max-width: 720px) {
+  .ligne-champs-tresorerie {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ligne-champs-tresorerie button {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
 /* Trésorerie > Solde : chaîne flex dédiée (scopée à .page-tresorerie, sans
    toucher .page-produits/.contenu-onglet partagés par les autres pages) pour
    que la colonne de gauche occupe toute la hauteur visible — indispensable
@@ -2682,6 +2945,38 @@ input.champ-invalide:focus {
   width: 100%;
 }
 
+/* Solde principal (grande carte, padding/police généreux) + liste des autres
+   soldes (260px fixe) côte à côte : sur téléphone la colonne de gauche n'a
+   plus de place (min-width:0 la réduit à quasi rien) — on empile, et on
+   réduit la carte principale pour qu'elle tienne sans déborder. */
+@media (max-width: 720px) {
+  .disposition-solde {
+    flex-direction: column;
+  }
+
+  .menu-solde {
+    width: 100%;
+  }
+
+  .carte-stat-solde-principal {
+    padding: 1.5rem;
+  }
+
+  .carte-stat-solde-principal .carte-stat-valeur {
+    font-size: 2.2rem;
+  }
+
+  /* En coin absolu (desktop), le bouton chevauche "Solde de caisse" dès que
+     la carte perd de la hauteur sur mobile (padding réduit ci-dessus) — on
+     le remet dans le flux, au-dessus du libellé/montant qu'il ne recouvre
+     plus jamais, quelle que soit la hauteur de la carte. */
+  .bouton-cloture-coin {
+    position: static;
+    align-self: center;
+    margin-bottom: 0.3rem;
+  }
+}
+
 .formulaire-mouvement-groupe {
   background: var(--surface);
   padding: 1.4rem;
@@ -2747,6 +3042,25 @@ input.champ-invalide:focus {
 .entete-fixe .actions-formulaire button {
   padding: 0.4rem 0.75rem;
   font-size: 0.8rem;
+}
+
+/* .modale-entete.entete-fixe (titre + 2-3 boutons d'action — Nouvelle
+   commande, Nouvel article, Nouveau fournisseur…) ne wrap pas par défaut
+   (voir .modale-entete de base) : sur téléphone le titre et les boutons se
+   chevauchent/débordent. On les empile, chaque bouton en pleine largeur. */
+@media (max-width: 720px) {
+  .modale-entete.entete-fixe {
+    flex-wrap: wrap;
+  }
+
+  .entete-fixe .actions-formulaire {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .entete-fixe .actions-formulaire button {
+    flex: 1 1 auto;
+  }
 }
 
 .lignes-groupe-scrollable {
@@ -2911,6 +3225,16 @@ input.champ-invalide:focus {
   margin-top: 0.5rem;
 }
 
+/* Filet de sécurité générique : si 2 boutons ne tiennent pas sur une ligne
+   à largeur téléphone (ex. "Annuler" + "Confirmer la réception"), on
+   passe à la ligne plutôt que de laisser déborder — sans effet quand ça
+   tient déjà. */
+@media (max-width: 720px) {
+  .actions-formulaire {
+    flex-wrap: wrap;
+  }
+}
+
 .confirmation-retrait {
   display: flex;
   align-items: center;
@@ -2922,6 +3246,15 @@ input.champ-invalide:focus {
   display: flex;
   align-items: flex-end;
   gap: 0.6rem;
+}
+
+/* Sélecteur de valeur + champ "nouvelle valeur" + bouton, en ligne sur
+   desktop : ne rentrent pas côte à côte sur téléphone, on les empile. */
+@media (max-width: 720px) {
+  .ligne-attribut {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 
 .detail-produit {
@@ -3226,10 +3559,54 @@ input.champ-invalide:focus {
   gap: 1rem;
 }
 
+/* Le gap seul (sans bordure) faisait "un seul tableau continu" plutôt que
+   deux tableaux distincts (ex. Charges/Produits du Compte de résultat) —
+   ligne verticale explicite entre les deux colonnes. */
+.disposition-deux-colonnes > *:not(:first-child) {
+  border-left: 1px solid var(--bordure-tableau-forte);
+  padding-left: 1rem;
+}
+
 @media (max-width: 720px) {
   .disposition-deux-colonnes {
     grid-template-columns: 1fr;
   }
+
+  /* Empilées en dessous de 720px : la séparation devient horizontale. */
+  .disposition-deux-colonnes > *:not(:first-child) {
+    border-left: none;
+    padding-left: 0;
+    border-top: 1px solid var(--bordure-tableau-forte);
+    padding-top: 1rem;
+  }
+}
+
+/* Bilan : Actif et Passif sont les deux moitiés d'un même tableau (pas deux
+   tableaux séparés — un bilan comptable est un document unique), avec une
+   ligne verticale entre les deux pour les distinguer visuellement. Guardée
+   au-delà de 720px : en dessous, .carte-mobile passe les <td> en blocs
+   empilés (voir plus haut) où une bordure gauche n'a plus de sens. */
+@media (min-width: 721px) {
+  .tableau-bilan th:nth-child(3),
+  .tableau-bilan td:nth-child(3) {
+    border-left: 1px solid var(--bordure-tableau-forte);
+  }
+}
+
+/* En-tête de masse (Actif immobilisé, Capitaux propres…) : distinct des
+   lignes de compte normales, sert de repère visuel dans la liste aplatie. */
+.tableau-bilan .ligne-masse-bilan {
+  background: var(--couleur-primaire-clair);
+  color: var(--couleur-primaire-fonce);
+  font-weight: 700;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.tableau-bilan .cellule-sous-total-bilan {
+  font-weight: 700;
+  font-style: italic;
 }
 
 .grille-documents-comptables {
@@ -3367,6 +3744,14 @@ input.champ-invalide:focus {
   gap: 0.5rem;
   font-size: 0.85rem;
   color: var(--gris-700);
+}
+
+/* Sur téléphone, 2 colonnes écrasent les libellés de permission les plus
+   longs (ex. "Gérer les utilisateurs et réglages") — une seule colonne. */
+@media (max-width: 720px) {
+  .grille-permissions {
+    grid-template-columns: 1fr;
+  }
 }
 
 .ticket {
@@ -4029,7 +4414,10 @@ input.champ-invalide:focus {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--couleur-primaire-fonce);
+  /* --barre-texte-fort plutôt que --couleur-primaire-fonce : la carte partage
+     désormais le fond de la barre latérale (--surface-caisse: var(--barre-fond)),
+     donc son texte doit contraster comme celui de la barre, thème par thème. */
+  color: var(--barre-texte-fort);
   font-weight: 700;
 }
 
@@ -4079,6 +4467,61 @@ input.champ-invalide:focus {
   .colonne-totaux {
     margin-left: 0;
     align-items: stretch;
+  }
+}
+
+/* Modal "Vente" (sélection produits) et modal "Choisir un client" : sur
+   desktop les réglages (remise/total/bouton) et la barre recherche+monnaie
+   tiennent sur une seule ligne, et le tableau catalogue est assez large pour
+   ses 7 colonnes. Sur téléphone ni l'un ni l'autre ne rentre — on empile les
+   lignes de contrôle et .carte-mobile (voir plus haut) prend le relais pour
+   le tableau (ajouté dans Caisse.tsx). */
+@media (max-width: 720px) {
+  .modale-corps {
+    padding: 0.8rem 0.9rem 1rem;
+  }
+
+  .modale-corps .champ-recherche {
+    width: 100%;
+  }
+
+  .ajustements-modale-corps {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.6rem;
+  }
+
+  .ajustements-modale-corps .remise-globale-entete {
+    max-width: none;
+  }
+
+  .ajustements-modale-corps .bloc-total-net {
+    margin-left: 0;
+  }
+
+  .ajustements-modale-corps .bouton-valider {
+    width: 100%;
+  }
+
+  .ligne-recherche-monnaie {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ligne-recherche-monnaie .calculette-monnaie {
+    margin-left: 0;
+  }
+
+  .monnaie-a-rendre {
+    min-width: 0;
+  }
+
+  .tableau-catalogue.carte-mobile .qte-selection-controle {
+    width: auto;
+  }
+
+  .tableau-panier.carte-mobile .colonne-supprimer {
+    width: auto;
   }
 }
 
@@ -4241,39 +4684,44 @@ input.champ-invalide:focus {
   overflow: visible;
 }
 
-.catalogue-caisse .tableau-catalogue th:nth-child(1),
-.catalogue-caisse .tableau-catalogue td:nth-child(1) {
-  width: 5%;
-}
+/* Largeurs de colonnes pensées pour le table-layout: fixed du desktop —
+   guardées au-delà de 720px, sinon elles imposent des width en % aux <td>
+   que .carte-mobile (voir plus haut) a basculés en lignes empilées. */
+@media (min-width: 721px) {
+  .catalogue-caisse .tableau-catalogue th:nth-child(1),
+  .catalogue-caisse .tableau-catalogue td:nth-child(1) {
+    width: 5%;
+  }
 
-.catalogue-caisse .tableau-catalogue th:nth-child(2),
-.catalogue-caisse .tableau-catalogue td:nth-child(2) {
-  width: 13%;
-}
+  .catalogue-caisse .tableau-catalogue th:nth-child(2),
+  .catalogue-caisse .tableau-catalogue td:nth-child(2) {
+    width: 13%;
+  }
 
-.catalogue-caisse .tableau-catalogue th:nth-child(3),
-.catalogue-caisse .tableau-catalogue td:nth-child(3) {
-  width: 27%;
-}
+  .catalogue-caisse .tableau-catalogue th:nth-child(3),
+  .catalogue-caisse .tableau-catalogue td:nth-child(3) {
+    width: 27%;
+  }
 
-.catalogue-clients-reguliers .tableau-catalogue th:nth-child(1),
-.catalogue-clients-reguliers .tableau-catalogue td:nth-child(1) {
-  width: 5%;
-}
+  .catalogue-clients-reguliers .tableau-catalogue th:nth-child(1),
+  .catalogue-clients-reguliers .tableau-catalogue td:nth-child(1) {
+    width: 5%;
+  }
 
-.catalogue-clients-reguliers .tableau-catalogue th:nth-child(2),
-.catalogue-clients-reguliers .tableau-catalogue td:nth-child(2) {
-  width: 42%;
-}
+  .catalogue-clients-reguliers .tableau-catalogue th:nth-child(2),
+  .catalogue-clients-reguliers .tableau-catalogue td:nth-child(2) {
+    width: 42%;
+  }
 
-.catalogue-clients-reguliers .tableau-catalogue th:nth-child(3),
-.catalogue-clients-reguliers .tableau-catalogue td:nth-child(3) {
-  width: 24%;
-}
+  .catalogue-clients-reguliers .tableau-catalogue th:nth-child(3),
+  .catalogue-clients-reguliers .tableau-catalogue td:nth-child(3) {
+    width: 24%;
+  }
 
-.catalogue-clients-reguliers .tableau-catalogue th:nth-child(4),
-.catalogue-clients-reguliers .tableau-catalogue td:nth-child(4) {
-  width: 29%;
+  .catalogue-clients-reguliers .tableau-catalogue th:nth-child(4),
+  .catalogue-clients-reguliers .tableau-catalogue td:nth-child(4) {
+    width: 29%;
+  }
 }
 
 .catalogue-caisse .tableau-catalogue input {
@@ -4386,19 +4834,24 @@ input.champ-invalide:focus {
   overflow: visible;
 }
 
-.tableau-panier th:nth-child(1),
-.tableau-panier td:nth-child(1) {
-  width: 3%;
-}
+/* Largeurs de colonnes pensées pour le table-layout: fixed du desktop —
+   guardées au-delà de 720px, sinon elles imposent des width en % aux <td>
+   que .carte-mobile (voir plus haut) a basculés en lignes empilées. */
+@media (min-width: 721px) {
+  .tableau-panier th:nth-child(1),
+  .tableau-panier td:nth-child(1) {
+    width: 3%;
+  }
 
-.tableau-panier th:nth-child(2),
-.tableau-panier td:nth-child(2) {
-  width: 12%;
-}
+  .tableau-panier th:nth-child(2),
+  .tableau-panier td:nth-child(2) {
+    width: 12%;
+  }
 
-.tableau-panier th:nth-child(3),
-.tableau-panier td:nth-child(3) {
-  width: 40%;
+  .tableau-panier th:nth-child(3),
+  .tableau-panier td:nth-child(3) {
+    width: 40%;
+  }
 }
 
 .tableau-panier th {
@@ -4572,7 +5025,9 @@ input.champ-invalide:focus {
   flex-shrink: 0;
   font-size: 0.82rem;
   font-weight: 700;
-  color: var(--gris-900);
+  /* Même raison qu'au-dessus (.titre-colonne-caisse) : contraste avec
+     --surface-caisse, désormais identique à --barre-fond. */
+  color: var(--barre-texte-fort);
 }
 
 .bloc-paiement > input {

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { api } from "./api";
 import type { Session } from "./api";
+import MiseAJourDisponible from "./components/MiseAJourDisponible";
 import { DeviseProvider } from "./contexts/DeviseContext";
 import { useSession } from "./contexts/SessionContext";
 import { SynchroProvider } from "./contexts/SynchroContext";
@@ -57,20 +58,27 @@ export default function App() {
     setEcran("connexion");
   }
 
+  let contenu;
   if (ecran === "chargement") {
-    return <div className="ecran-chargement">Chargement…</div>;
+    contenu = <div className="ecran-chargement">Chargement…</div>;
+  } else if (ecran === "connexion") {
+    contenu = <Connexion onConnecte={surConnecte} allerAccesCreation={() => setEcran("accesCreation")} />;
+  } else if (ecran === "accesCreation") {
+    contenu = <AccesCreationBoutique allerConnexion={() => setEcran("connexion")} />;
+  } else {
+    contenu = (
+      <DeviseProvider boutiqueId={session!.boutiqueId}>
+        <SynchroProvider session={session!}>
+          <Shell session={session!} onDeconnexion={surDeconnexion} />
+        </SynchroProvider>
+      </DeviseProvider>
+    );
   }
-  if (ecran === "connexion") {
-    return <Connexion onConnecte={surConnecte} allerAccesCreation={() => setEcran("accesCreation")} />;
-  }
-  if (ecran === "accesCreation") {
-    return <AccesCreationBoutique allerConnexion={() => setEcran("connexion")} />;
-  }
+
   return (
-    <DeviseProvider boutiqueId={session!.boutiqueId}>
-      <SynchroProvider session={session!}>
-        <Shell session={session!} onDeconnexion={surDeconnexion} />
-      </SynchroProvider>
-    </DeviseProvider>
+    <>
+      <MiseAJourDisponible />
+      {contenu}
+    </>
   );
 }

@@ -18,6 +18,7 @@ import {
   grandLivreLocal,
   journalLocal,
   type EcritureLocale,
+  type MasseBilan,
 } from "../services/comptabilite";
 import { formaterMontant } from "../lib/formatage";
 
@@ -415,13 +416,48 @@ function ModaleCompteDeResultat({
 
 // --- Modale Bilan ---
 
+type LigneAplatieBilan =
+  | { type: "entete"; texte: string }
+  | { type: "ligne" | "sousTotal"; libelle: string; montant: number };
+
+/** Bilan Actif/Passif dans un même tableau (pas deux tableaux séparés) : chaque
+ * masse (Actif immobilisé, Capitaux propres…) est aplatie en une suite de
+ * lignes [en-tête de masse, comptes…, sous-total], puis les deux côtés sont
+ * juxtaposés ligne à ligne (voir renduBilan) — Actif et Passif n'ont pas le
+ * même nombre de masses/comptes, donc une ligne de la table peut très bien
+ * montrer un compte Actif à côté d'un sous-total Passif : c'est une simple
+ * mise en page en deux colonnes, pas une correspondance ligne à ligne. */
+function aplatirMasses(masses: MasseBilan[]): LigneAplatieBilan[] {
+  const lignes: LigneAplatieBilan[] = [];
+  for (const groupe of masses) {
+    lignes.push({ type: "entete", texte: groupe.masse });
+    for (const l of groupe.lignes) {
+      lignes.push({ type: "ligne", libelle: `${l.compte} · ${l.libelle}`, montant: l.montant });
+    }
+    lignes.push({ type: "sousTotal", libelle: `Sous-total ${groupe.masse.toLowerCase()}`, montant: groupe.sousTotal });
+  }
+  return lignes;
+}
+
+function celluleCoteBilan(ligne: LigneAplatieBilan | undefined, cle: string, cote: "Actif" | "Passif") {
+  if (!ligne) return [<td key={cle} colSpan={2} />];
+  if (ligne.type === "entete") {
+    return [<td key={cle} colSpan={2} className="ligne-masse-bilan">{ligne.texte}</td>];
+  }
+  const classe = ligne.type === "sousTotal" ? "cellule-sous-total-bilan" : undefined;
+  return [
+    <td key={`${cle}-libelle`} data-label={cote} className={classe}>{ligne.libelle}</td>,
+    <td key={`${cle}-montant`} data-label="Montant" className={classe}>{formaterMontant(ligne.montant)}</td>,
+  ];
+}
+
 function ModaleBilan({
   ecrituresLocales, onFermer,
 }: { ecrituresLocales: EcritureLocale[] | null; onFermer: () => void }) {
   const [source, setSource] = useState<Source>("local");
   const [dateFin, setDateFin] = useState(dateAujourdhui());
-  const [actif, setActif] = useState<{ compte: string; libelle: string; montant: number }[]>([]);
-  const [passif, setPassif] = useState<{ compte: string; libelle: string; montant: number }[]>([]);
+  const [actif, setActif] = useState<MasseBilan[]>([]);
+  const [passif, setPassif] = useState<MasseBilan[]>([]);
   const [totaux, setTotaux] = useState({ totalActif: 0, totalPassif: 0 });
   const [erreur, setErreur] = useState("");
 
@@ -455,31 +491,39 @@ function ModaleBilan({
           {erreur ? (
             <p className="message-erreur">{erreur}</p>
           ) : (
-            <div className="disposition-deux-colonnes">
-              <div className="zone-tableau-scroll">
-                <table className="tableau-catalogue carte-mobile">
-                  <thead><tr><th colSpan={2}>Actif</th></tr></thead>
-                  <tbody>
-                    {actif.map((c) => (
-                      <tr key={c.compte}><td data-label="Compte">{c.compte} · {c.libelle}</td><td data-label="Montant">{formaterMontant(c.montant)}</td></tr>
-                    ))}
-                    {actif.length === 0 && <tr><td colSpan={2} className="liste-vide">Aucun solde actif.</td></tr>}
-                  </tbody>
-                  <tfoot><tr><td>Total actif</td><td data-label="Total actif">{formaterMontant(totaux.totalActif)}</td></tr></tfoot>
-                </table>
-              </div>
-              <div className="zone-tableau-scroll">
-                <table className="tableau-catalogue carte-mobile">
-                  <thead><tr><th colSpan={2}>Passif</th></tr></thead>
-                  <tbody>
-                    {passif.map((c) => (
-                      <tr key={c.compte}><td data-label="Compte">{c.compte} · {c.libelle}</td><td data-label="Montant">{formaterMontant(c.montant)}</td></tr>
-                    ))}
-                    {passif.length === 0 && <tr><td colSpan={2} className="liste-vide">Aucun solde passif.</td></tr>}
-                  </tbody>
-                  <tfoot><tr><td>Total passif</td><td data-label="Total passif">{formaterMontant(totaux.totalPassif)}</td></tr></tfoot>
-                </table>
-              </div>
+            <div className="zone-tableau-scroll">
+              <table className="tableau-catalogue carte-mobile tableau-bilan">
+                <thead>
+                  <tr>
+                    <th colSpan={2}>Actif</th>
+                    <th colSpan={2}>Passif</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const lignesActif = aplatirMasses(actif);
+                    const lignesPassif = aplatirMasses(passif);
+                    const nb = Math.max(lignesActif.length, lignesPassif.length);
+                    if (nb === 0) {
+                      return <tr><td colSpan={4} className="liste-vide">Aucun solde.</td></tr>;
+                    }
+                    return Array.from({ length: nb }, (_, i) => (
+                      <tr key={i}>
+                        {celluleCoteBilan(lignesActif[i], `a${i}`, "Actif")}
+                        {celluleCoteBilan(lignesPassif[i], `p${i}`, "Passif")}
+                      </tr>
+                    ));
+                  })()}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td>Total actif</td>
+                    <td data-label="Total actif">{formaterMontant(totaux.totalActif)}</td>
+                    <td>Total passif</td>
+                    <td data-label="Total passif">{formaterMontant(totaux.totalPassif)}</td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           )}
         </div>

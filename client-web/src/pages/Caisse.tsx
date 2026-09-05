@@ -593,7 +593,7 @@ export default function Caisse({ session }: { session: Session }) {
                 </div>
               </div>
               <div className="catalogue-caisse">
-                <table className="tableau-catalogue">
+                <table className="tableau-catalogue carte-mobile">
                   <thead>
                     <tr>
                       <th>N°</th>
@@ -627,11 +627,11 @@ export default function Caisse({ session }: { session: Session }) {
                             }
                           }}
                         >
-                          <td>{index + 1}</td>
-                          <td>{v.reference || ""}</td>
-                          <td>{v.produitNom}</td>
-                          <td>{quantiteAjustee <= v.seuilAlerte ? <span className="badge-rupture">{quantiteAjustee}</span> : quantiteAjustee}</td>
-                          <td onClick={selection ? (e) => e.stopPropagation() : undefined}>
+                          <td data-label="N°">{index + 1}</td>
+                          <td data-label="Référence">{v.reference || ""}</td>
+                          <td data-label="Désignation">{v.produitNom}</td>
+                          <td data-label="Qté disponible">{quantiteAjustee <= v.seuilAlerte ? <span className="badge-rupture">{quantiteAjustee}</span> : quantiteAjustee}</td>
+                          <td data-label="Prix de vente" onClick={selection ? (e) => e.stopPropagation() : undefined}>
                             {selection ? (
                               <ChampMontant
                                 className={selection.prixUnitaire < v.prixAchat ? "champ-invalide" : undefined}
@@ -645,7 +645,7 @@ export default function Caisse({ session }: { session: Session }) {
                               </>
                             )}
                           </td>
-                          <td onClick={selection ? (e) => e.stopPropagation() : undefined}>
+                          <td data-label="Qté sélectionnée" onClick={selection ? (e) => e.stopPropagation() : undefined}>
                             {selection ? (
                               <div className="qte-selection-controle">
                                 <input
@@ -664,7 +664,7 @@ export default function Caisse({ session }: { session: Session }) {
                               0
                             )}
                           </td>
-                          <td>{selection ? `${formaterMontant(Math.round(selection.quantite * selection.prixUnitaire))} ${devise}` : ""}</td>
+                          <td data-label="Total">{selection ? `${formaterMontant(Math.round(selection.quantite * selection.prixUnitaire))} ${devise}` : ""}</td>
                         </tr>
                       );
                     })}
@@ -720,7 +720,7 @@ export default function Caisse({ session }: { session: Session }) {
                 <>
                   <input className="champ-recherche" placeholder="Rechercher un client…" value={clientRechercheReguliers} onChange={(e) => setClientRechercheReguliers(e.target.value)} autoFocus />
                   <div className="catalogue-caisse catalogue-clients-reguliers">
-                    <table className="tableau-catalogue">
+                    <table className="tableau-catalogue carte-mobile">
                       <thead>
                         <tr>
                           <th>N°</th>
@@ -732,10 +732,10 @@ export default function Caisse({ session }: { session: Session }) {
                       <tbody>
                         {clientsFiltres.map((c, index) => (
                           <tr key={c.id} onClick={() => choisirClient(c)}>
-                            <td>{index + 1}</td>
-                            <td>{c.nom}</td>
-                            <td>{c.telephone || ""}</td>
-                            <td>{c.adresse || ""}</td>
+                            <td data-label="N°">{index + 1}</td>
+                            <td data-label="Nom">{c.nom}</td>
+                            <td data-label="Téléphone">{c.telephone || ""}</td>
+                            <td data-label="Adresse">{c.adresse || ""}</td>
                           </tr>
                         ))}
                         {clientsFiltres.length === 0 && (
@@ -783,7 +783,7 @@ export default function Caisse({ session }: { session: Session }) {
 
       <div className="colonne-panier">
         <div className="panier-scrollable">
-          <table className="tableau-panier">
+          <table className="tableau-panier carte-mobile">
             <thead>
               <tr>
                 <th>N°</th>
@@ -798,10 +798,10 @@ export default function Caisse({ session }: { session: Session }) {
             <tbody>
               {[...lignesCalculees].reverse().map((l, index) => (
                 <tr key={l.varianteId}>
-                  <td>{index + 1}</td>
-                  <td>{l.reference || ""}</td>
-                  <td>{l.produitNom}</td>
-                  <td>
+                  <td data-label="N°">{index + 1}</td>
+                  <td data-label="Référence">{l.reference || ""}</td>
+                  <td data-label="Désignation">{l.produitNom}</td>
+                  <td data-label="Qté">
                     <input
                       className="champ-quantite"
                       type="number"
@@ -811,7 +811,7 @@ export default function Caisse({ session }: { session: Session }) {
                       onChange={(e) => modifierLigne(l.varianteId, { quantite: Number(e.target.value) })}
                     />
                   </td>
-                  <td>
+                  <td data-label="Prix de vente">
                     <ChampMontant
                       className={l.sousPrixAchat ? "champ-invalide" : undefined}
                       value={String(l.prixUnitaire)}
@@ -820,7 +820,7 @@ export default function Caisse({ session }: { session: Session }) {
                       onChange={(valeur) => modifierLigne(l.varianteId, { prixUnitaire: Number(valeur) || 0 })}
                     />
                   </td>
-                  <td>
+                  <td data-label="Sous-total">
                     {formaterMontant(l.sousTotal)}
                     {l.sousPrixAchat && (
                       <span className="badge-rupture" title="Sous le prix d'achat">

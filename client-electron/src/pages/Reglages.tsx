@@ -1044,6 +1044,27 @@ function OngletParametres() {
           >
             🟠 Orange
           </button>
+          <button
+            type="button"
+            className={`bouton-theme ${theme === "vert" ? "actif" : ""}`}
+            onClick={() => changerTheme("vert")}
+          >
+            🟢 Vert
+          </button>
+          <button
+            type="button"
+            className={`bouton-theme ${theme === "bleu" ? "actif" : ""}`}
+            onClick={() => changerTheme("bleu")}
+          >
+            🔵 Bleu
+          </button>
+          <button
+            type="button"
+            className={`bouton-theme ${theme === "gris" ? "actif" : ""}`}
+            onClick={() => changerTheme("gris")}
+          >
+            ⚪ Gris
+          </button>
         </div>
       </div>
     </div>

@@ -394,11 +394,60 @@ export function compteDeResultatLocal(ecritures: EcritureLocale[], debut: string
   return { charges, produits, totalCharges, totalProduits, resultatNet: totalProduits - totalCharges };
 }
 
+export interface MasseBilan {
+  masse: string;
+  lignes: LigneResultatLocale[];
+  sousTotal: number;
+}
+
+const ORDRE_MASSES_ACTIF = ["Actif immobilisé", "Actif circulant", "Trésorerie", "Autres"];
+const ORDRE_MASSES_PASSIF = ["Capitaux propres", "Dettes financières", "Passif circulant", "Trésorerie", "Autres"];
+
+function masseActif(numero: string): string {
+  const prefixe = numero[0];
+  if (prefixe === "2") return "Actif immobilisé";
+  if (prefixe === "3" || prefixe === "4") return "Actif circulant";
+  if (prefixe === "5") return "Trésorerie";
+  // Cas rares (ex. classe 1 débitrice) — pas assez fréquents chez un
+  // commerçant pour mériter leur propre masse.
+  return "Autres";
+}
+
+function massePassif(numero: string): string {
+  // 16/17/19 (emprunts, crédit-bail, provisions financières) avant le test
+  // générique "commence par 1", sinon ils tomberaient dans Capitaux propres.
+  if (numero.startsWith("16") || numero.startsWith("17") || numero.startsWith("19")) return "Dettes financières";
+  const prefixe = numero[0];
+  if (prefixe === "1") return "Capitaux propres";
+  if (prefixe === "4") return "Passif circulant";
+  if (prefixe === "5") return "Trésorerie";
+  // Amortissements (28) et dépréciations (39, 49) créditeurs : dans un bilan
+  // SYSCOHADA normal, ils viennent en déduction de l'actif brut plutôt que
+  // comme une dette. Les mettre en Passif serait faux ; les nette contre
+  // l'actif brut correspondant demanderait de repenser tout le calcul (hors
+  // de portée ici) — "Autres" les isole en attendant plutôt que de les faire
+  // passer pour une vraie dette.
+  return "Autres";
+}
+
+function grouperParMasse(lignes: LigneResultatLocale[], masseDe: (numero: string) => string, ordre: string[]): MasseBilan[] {
+  const groupes = new Map<string, LigneResultatLocale[]>(ordre.map((m) => [m, []]));
+  for (const ligne of lignes) {
+    groupes.get(masseDe(ligne.compte))!.push(ligne);
+  }
+  return ordre
+    .filter((masse) => groupes.get(masse)!.length > 0)
+    .map((masse) => {
+      const lignesMasse = groupes.get(masse)!;
+      return { masse, lignes: lignesMasse, sousTotal: lignesMasse.reduce((s, l) => s + l.montant, 0) };
+    });
+}
+
 export function bilanLocal(ecritures: EcritureLocale[], dateFin: string) {
   const debutExercice = `${dateFin.slice(0, 4)}-01-01`;
   const totaux = totauxParCompte(ecritures, "0000-01-01", dateFin);
-  const actif: LigneResultatLocale[] = [];
-  const passif: LigneResultatLocale[] = [];
+  const actifPlat: LigneResultatLocale[] = [];
+  const passifPlat: LigneResultatLocale[] = [];
   let totalActif = 0;
   let totalPassif = 0;
   for (const [numero, t] of totaux) {
@@ -406,17 +455,23 @@ export function bilanLocal(ecritures: EcritureLocale[], dateFin: string) {
     if (compte.classe < 1 || compte.classe > 5) continue;
     const solde = t.debit - t.credit;
     if (solde > 0) {
-      actif.push({ compte: numero, libelle: compte.libelle, montant: solde });
+      actifPlat.push({ compte: numero, libelle: compte.libelle, montant: solde });
       totalActif += solde;
     } else if (solde < 0) {
-      passif.push({ compte: numero, libelle: compte.libelle, montant: -solde });
+      passifPlat.push({ compte: numero, libelle: compte.libelle, montant: -solde });
       totalPassif += -solde;
     }
   }
   const resultat = compteDeResultatLocal(ecritures, debutExercice, dateFin);
   if (resultat.resultatNet) {
-    passif.push({ compte: "12", libelle: "Résultat net de l'exercice", montant: resultat.resultatNet });
+    passifPlat.push({ compte: "12", libelle: "Résultat net de l'exercice", montant: resultat.resultatNet });
     totalPassif += resultat.resultatNet;
   }
-  return { date: dateFin, actif, passif, totalActif, totalPassif };
+  return {
+    date: dateFin,
+    actif: grouperParMasse(actifPlat, masseActif, ORDRE_MASSES_ACTIF),
+    passif: grouperParMasse(passifPlat, massePassif, ORDRE_MASSES_PASSIF),
+    totalActif,
+    totalPassif,
+  };
 }

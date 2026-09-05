@@ -1,7 +1,7 @@
-export type Theme = "clair" | "sombre" | "nuit" | "orange";
+export type Theme = "clair" | "sombre" | "nuit" | "orange" | "vert" | "bleu" | "gris";
 
 const CLE_STOCKAGE = "gs_theme";
-const THEMES_VALIDES: Theme[] = ["clair", "sombre", "nuit", "orange"];
+const THEMES_VALIDES: Theme[] = ["clair", "sombre", "nuit", "orange", "vert", "bleu", "gris"];
 
 /** Préférence d'affichage de l'appareil, pas une donnée de boutique : stockée en local, pas synchronisée. */
 export function themeActuel(): Theme {

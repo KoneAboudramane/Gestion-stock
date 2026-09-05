@@ -684,10 +684,16 @@ export interface CompteDeResultatLocal {
   resultatNet: number;
 }
 
+export interface MasseBilan {
+  masse: string;
+  lignes: LigneResultatLocale[];
+  sousTotal: number;
+}
+
 export interface BilanLocal {
   date: string;
-  actif: LigneResultatLocale[];
-  passif: LigneResultatLocale[];
+  actif: MasseBilan[];
+  passif: MasseBilan[];
   totalActif: number;
   totalPassif: number;
 }

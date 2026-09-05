@@ -152,12 +152,26 @@ export function compteDeResultatOfficiel(dateDebut: string, dateFin: string): Pr
   });
 }
 
+export interface MasseBilanApi {
+  masse: string;
+  lignes: LigneResultatApi[];
+  sousTotal: number;
+}
+
 export interface BilanApi {
   date: string;
-  actif: LigneResultatApi[];
-  passif: LigneResultatApi[];
+  actif: MasseBilanApi[];
+  passif: MasseBilanApi[];
   totalActif: number;
   totalPassif: number;
+}
+
+function mapperMassesBilan(masses: any[]): MasseBilanApi[] {
+  return masses.map((m: any) => ({
+    masse: m.masse,
+    sousTotal: Number(m.sous_total),
+    lignes: m.lignes.map((l: any) => ({ compte: l.compte, libelle: l.libelle, montant: Number(l.montant) })),
+  }));
 }
 
 export function bilanOfficiel(dateFin: string): Promise<ResultatEcriture<BilanApi>> {
@@ -166,8 +180,8 @@ export function bilanOfficiel(dateFin: string): Promise<ResultatEcriture<BilanAp
     const donnees = await obtenirJson<any>(`/comptabilite/bilan/?${params}`);
     return {
       date: donnees.date, totalActif: Number(donnees.total_actif), totalPassif: Number(donnees.total_passif),
-      actif: donnees.actif.map((l: any) => ({ compte: l.compte, libelle: l.libelle, montant: Number(l.montant) })),
-      passif: donnees.passif.map((l: any) => ({ compte: l.compte, libelle: l.libelle, montant: Number(l.montant) })),
+      actif: mapperMassesBilan(donnees.actif),
+      passif: mapperMassesBilan(donnees.passif),
     };
   });
 }
