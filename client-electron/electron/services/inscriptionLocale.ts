@@ -6,7 +6,7 @@ import { app } from "electron";
 import { colonnesDeLaTable, executer, unResultat } from "../db/helpers";
 import { sauvegarder } from "../db/index";
 import { REGISTRE_CLIENT } from "../db/registre";
-import { appelerApi, estErreurReseau, ouvrirSessionLocale } from "./auth";
+import { appelerApi, connexion, estErreurReseau, ouvrirSessionLocale } from "./auth";
 import type { Session } from "./auth";
 
 /**
@@ -162,7 +162,7 @@ export async function creerBoutiqueEnLigne(
 
   const boutiqueId = randomUUID();
   try {
-    const donnees = await appelerApi("/auth/enregistrer-boutique-locale/", {
+    await appelerApi("/auth/enregistrer-boutique-locale/", {
       username: usernameAdmin,
       password: passwordAdmin,
       boutique_id: boutiqueId,
@@ -177,7 +177,6 @@ export async function creerBoutiqueEnLigne(
       patron_telephone: "",
     });
 
-    const utilisateurId = String(donnees.utilisateur_id);
     const maintenant = new Date().toISOString();
     executer(
       `INSERT INTO boutiques
@@ -188,20 +187,12 @@ export async function creerBoutiqueEnLigne(
     );
     sauvegarder();
 
-    const session: Session = {
-      accessToken: "",
-      refreshToken: "",
-      utilisateurId,
-      username: params.username,
-      boutiqueId,
-      boutiqueNom: params.boutiqueNom,
-      role: "Patron",
-      permissions: PERMISSIONS_PATRON,
-      depotId: null,
-      depotNom: null,
-      synchroAutorisee: false,
-    };
-    ouvrirSessionLocale(params.username, params.password, session);
+    // Vrais jetons JWT via une connexion réelle, plutôt qu'une session bricolée
+    // avec des jetons vides : sans ça, toute requête authentifiée ultérieure
+    // (rafraichirPermissions, synchro...) échoue en 401 sans erreur visible, et
+    // "Vérifier l'activation" reste bloqué pour toujours même une fois
+    // l'abonnement activé côté serveur.
+    const session = await connexion(params.username, params.password);
     return { statut: "enLigne", session };
   } catch (erreur) {
     if (!estErreurReseau(erreur)) throw erreur;
