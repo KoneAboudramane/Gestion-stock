@@ -19,7 +19,7 @@ def rembourser_credit(credit, montant, mode="", depot=None, utilisateur=None):
     if montant > credit.solde:
         raise ValidationError("Le montant réglé ne peut pas dépasser le solde restant.")
 
-    paiement = PaiementCredit.objects.create(credit=credit, montant=montant, mode=mode)
+    paiement = PaiementCredit.objects.create(credit=credit, montant=montant, mode=mode, utilisateur=utilisateur)
 
     credit.montant_paye = credit.montant_paye + montant
     credit.solde = credit.solde - montant

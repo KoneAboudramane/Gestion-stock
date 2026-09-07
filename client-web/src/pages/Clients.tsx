@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 import type { Session } from "../api";
 import ChampMontant from "../components/ChampMontant";
 import ModaleConfirmation from "../components/ModaleConfirmation";
+import RecuCredit from "../components/RecuCredit";
 import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant, normaliserTelephone, telephoneValide } from "../lib/formatage";
 import { MODES_REGLEMENT, libelleStatutVente } from "../lib/libelles";
@@ -64,6 +65,7 @@ function DetailCredit({ creditId, session, onRetour }: { creditId: string; sessi
   const [depotId, setDepotId] = useState(session.depotId ?? "");
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  const [recuPaiementId, setRecuPaiementId] = useState<string | null>(null);
 
   async function rafraichir() {
     const resultat = await obtenirCredit(creditId);
@@ -123,12 +125,25 @@ function DetailCredit({ creditId, session, onRetour }: { creditId: string; sessi
       setMontant("");
       setMode(MODES_REGLEMENT[0].valeur);
       setAfficherModalRembourser(false);
-      rafraichir();
+      const creditFrais = await obtenirCredit(creditId);
+      if (creditFrais) setCredit(creditFrais);
+      if (creditFrais?.paiements[0]) setRecuPaiementId(creditFrais.paiements[0].id);
     } catch (e) {
       setErreur(e instanceof ErreurClient ? e.message : "Erreur inattendue.");
     } finally {
       setEnCours(false);
     }
+  }
+
+  if (recuPaiementId) {
+    return (
+      <RecuCredit
+        creditId={creditId}
+        paiementId={recuPaiementId}
+        session={session}
+        onRetour={() => setRecuPaiementId(null)}
+      />
+    );
   }
 
   if (!credit) return <p>Chargement…</p>;
@@ -251,7 +266,7 @@ function DetailCredit({ creditId, session, onRetour }: { creditId: string; sessi
             </thead>
             <tbody>
               {credit.paiements.map((p, index) => (
-                <tr key={p.id}>
+                <tr key={p.id} onClick={() => setRecuPaiementId(p.id)}>
                   <td data-label="N°">{index + 1}</td>
                   <td data-label="Date de règlement">{new Date(p.dateCreation).toLocaleString("fr-FR")}</td>
                   <td data-label="Montant">

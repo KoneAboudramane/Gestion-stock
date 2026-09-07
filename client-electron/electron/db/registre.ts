@@ -138,7 +138,7 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
   {
     table: "clients.PaiementCredit",
     tableLocale: "paiements_credit",
-    champsFK: ["credit"],
+    champsFK: ["credit", "utilisateur"],
     clauseBoutique:
       "credit_id IN (SELECT id FROM credits WHERE client_id IN (SELECT id FROM clients WHERE boutique_id = ?))",
   },

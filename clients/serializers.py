@@ -15,7 +15,7 @@ class ClientSerializer(serializers.ModelSerializer):
 class PaiementCreditSerializer(serializers.ModelSerializer):
     class Meta:
         model = PaiementCredit
-        fields = ["id", "montant", "mode", "date_creation"]
+        fields = ["id", "montant", "mode", "utilisateur", "date_creation"]
         read_only_fields = fields
 
 

@@ -13,6 +13,7 @@ import type {
 } from "../api/client";
 import ChampMontant from "../components/ChampMontant";
 import ModaleConfirmation from "../components/ModaleConfirmation";
+import RecuCredit from "../components/RecuCredit";
 import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant, normaliserTelephone, telephoneValide } from "../lib/formatage";
 import { MODES_REGLEMENT, libelleStatutVente } from "../lib/libelles";
@@ -50,6 +51,7 @@ function DetailCredit({
   const [depotId, setDepotId] = useState(session.depotId ?? "");
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  const [recuPaiementId, setRecuPaiementId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!session.depotId) api.depots.lister(session.boutiqueId).then(setDepots);
@@ -121,13 +123,26 @@ function DetailCredit({
         setMontant("");
         setMode(MODES_REGLEMENT[0].valeur);
         setAfficherModalRembourser(false);
-        rafraichir();
+        const creditFrais = await api.credits.obtenir(creditId);
+        setCredit(creditFrais ?? null);
+        if (creditFrais?.paiements[0]) setRecuPaiementId(creditFrais.paiements[0].id);
       } else {
         setErreur(resultat.message);
       }
     } finally {
       setEnCours(false);
     }
+  }
+
+  if (recuPaiementId) {
+    return (
+      <RecuCredit
+        creditId={creditId}
+        paiementId={recuPaiementId}
+        session={session}
+        onRetour={() => setRecuPaiementId(null)}
+      />
+    );
   }
 
   if (!credit) return <p>Chargement…</p>;
@@ -245,7 +260,7 @@ function DetailCredit({
         </thead>
         <tbody>
           {credit.paiements.map((p) => (
-            <tr key={p.id}>
+            <tr key={p.id} onClick={() => setRecuPaiementId(p.id)}>
               <td>{new Date(p.dateCreation).toLocaleString("fr-FR")}</td>
               <td>{formaterMontant(p.montant)} {devise}</td>
               <td>{p.mode || ""}</td>

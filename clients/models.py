@@ -55,3 +55,6 @@ class PaiementCredit(ModeleBase):
     )
     montant = models.DecimalField(max_digits=12, decimal_places=2)
     mode = models.CharField(max_length=30, blank=True)
+    utilisateur = models.ForeignKey(
+        "comptes.Utilisateur", on_delete=models.SET_NULL, null=True, blank=True
+    )

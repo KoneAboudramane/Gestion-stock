@@ -46,6 +46,7 @@ function migrerColonnesManquantes(base: Database): void {
     { table: "notifications", colonne: "utilisateur_id", definition: "TEXT" },
     { table: "paiements", colonne: "operateur", definition: "TEXT DEFAULT ''" },
     { table: "clients", colonne: "est_permanent", definition: "INTEGER DEFAULT 1" },
+    { table: "paiements_credit", colonne: "utilisateur_id", definition: "TEXT" },
   ];
 
   for (const { table, colonne, definition } of colonnesAAjouter) {

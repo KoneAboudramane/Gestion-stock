@@ -75,7 +75,6 @@ function ContenuFacture({
               <th>Désignation</th>
               <th>Qté</th>
               <th>PU</th>
-              <th>Remise</th>
               <th>Sous-total</th>
             </tr>
           </thead>
@@ -87,31 +86,25 @@ function ContenuFacture({
                 <td>{l.produitNom}</td>
                 <td>{l.quantite}</td>
                 <td>{formaterMontant(l.prixUnitaire)}</td>
-                <td>{formaterMontant(l.remise)}</td>
                 <td>{formaterMontant(l.sousTotal)}</td>
               </tr>
             ))}
-            <tr className="ligne-total-facture">
-              <td>
-                <strong>Total</strong>
-              </td>
-              {colonneReference && <td />}
-              <td />
-              <td>
-                <strong>{vente.lignes.reduce((somme, l) => somme + l.quantite, 0)}</strong>
-              </td>
-              <td>
-                <strong>{formaterMontant(vente.lignes.reduce((somme, l) => somme + l.prixUnitaire, 0))}</strong>
-              </td>
-              <td>
-                <strong>{formaterMontant(vente.lignes.reduce((somme, l) => somme + l.remise, 0))}</strong>
-              </td>
-              <td>
-                <strong>{formaterMontant(vente.lignes.reduce((somme, l) => somme + l.sousTotal, 0))}</strong>
-              </td>
-            </tr>
           </tbody>
         </table>
+      </div>
+
+      <div className="totaux facture-totaux">
+        <div>
+          Total brut : {formaterMontant(vente.totalBrut)} {devise}
+        </div>
+        {vente.remise > 0 && (
+          <div>
+            Remise : {formaterMontant(vente.remise)} {devise}
+          </div>
+        )}
+        <div className="total-net">
+          Total net à payer : {formaterMontant(vente.totalNet)} {devise}
+        </div>
       </div>
 
       <div className="facture-paiements">

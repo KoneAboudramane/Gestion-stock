@@ -117,7 +117,7 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
   {
     table: "clients.PaiementCredit",
     store: "paiements_credit",
-    champsFK: ["credit"],
+    champsFK: ["credit", "utilisateur"],
     champsNumeriques: ["montant"],
   },
   {

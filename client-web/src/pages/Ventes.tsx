@@ -5,6 +5,7 @@ import type { Session } from "../api";
 import FactureVente from "../components/FactureVente";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import { useDevise } from "../contexts/DeviseContext";
+import { useSynchro } from "../contexts/SynchroContext";
 import { formaterMontant } from "../lib/formatage";
 import {
   FOURNISSEURS_MOBILE_MONEY,
@@ -171,7 +172,6 @@ export function DetailVente({ venteId, session, onRetour }: { venteId: string; s
                 <th>Référence</th>
                 <th>Qté</th>
                 <th>PU</th>
-                <th>Remise</th>
                 <th>Sous-total</th>
               </tr>
             </thead>
@@ -183,7 +183,6 @@ export function DetailVente({ venteId, session, onRetour }: { venteId: string; s
                   <td data-label="Référence">{l.reference || ""}</td>
                   <td data-label="Qté">{l.quantite}</td>
                   <td data-label="PU">{formaterMontant(l.prixUnitaire)}</td>
-                  <td data-label="Remise">{formaterMontant(l.remise)}</td>
                   <td data-label="Sous-total">{formaterMontant(l.sousTotal)}</td>
                 </tr>
               ))}
@@ -252,6 +251,7 @@ const CERCLES_FOND = [
 
 export default function Ventes({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
+  const { etat: etatSynchro } = useSynchro();
   const [depots, setDepots] = useState<DepotResume[]>([]);
   const [depotId, setDepotId] = useState(peutGerer ? "" : (session.depotId ?? ""));
   const [statut, setStatut] = useState<StatutVente | "">("");
@@ -269,8 +269,13 @@ export default function Ventes({ session }: { session: Session }) {
   }
   useEffect(() => {
     rafraichir();
+    // Rejoue la requête locale quand une synchro se termine (derniereSynchro
+    // change) : sinon, ouvrir cet écran juste après connexion — avant la fin
+    // de la synchro initiale qui rapatrie l'historique — laisse "Aucune
+    // vente" affiché indéfiniment, sans qu'aucun filtre ne change pour
+    // relancer la requête.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [depotId, statut, terme]);
+  }, [depotId, statut, terme, etatSynchro?.derniereSynchro]);
 
   return (
     <div className="page-produits page-accueil">

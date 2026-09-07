@@ -234,6 +234,7 @@ export interface PaiementCreditLocal extends SuiviSync {
   credit_id: string;
   montant: number;
   mode: string;
+  utilisateur_id: string | null;
 }
 
 export interface DetteFournisseurLocale extends SuiviSync {

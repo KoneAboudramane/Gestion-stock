@@ -266,6 +266,7 @@ CREATE TABLE IF NOT EXISTS paiements_credit (
   credit_id TEXT NOT NULL,
   montant REAL NOT NULL,
   mode TEXT DEFAULT '',
+  utilisateur_id TEXT,
   ${SUIVI_SYNC}
 );
 

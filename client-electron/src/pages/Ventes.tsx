@@ -192,7 +192,6 @@ export function DetailVente({
             <th>Référence</th>
             <th>Qté</th>
             <th>PU</th>
-            <th>Remise</th>
             <th>Sous-total</th>
           </tr>
         </thead>
@@ -203,13 +202,11 @@ export function DetailVente({
               <td>{l.reference || ""}</td>
               <td>{l.quantite}</td>
               <td>{formaterMontant(l.prixUnitaire)}</td>
-              <td>{formaterMontant(l.remise)}</td>
               <td>{formaterMontant(l.sousTotal)}</td>
             </tr>
           ))}
           {Array.from({ length: Math.max(0, 10 - vente.lignes.length) }).map((_, i) => (
             <tr key={`vide-${i}`} className="ligne-groupe-vide">
-              <td>&nbsp;</td>
               <td>&nbsp;</td>
               <td>&nbsp;</td>
               <td>&nbsp;</td>

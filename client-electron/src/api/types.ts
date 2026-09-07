@@ -550,6 +550,7 @@ export interface PaiementCreditDetail {
   montant: number;
   mode: string;
   dateCreation: string;
+  utilisateurId: string | null;
 }
 
 export interface CreditDetail {

@@ -183,6 +183,7 @@ export interface PaiementCreditDetail {
   montant: number;
   mode: string;
   dateCreation: string;
+  utilisateurId: string | null;
 }
 
 export interface CreditDetail extends CreditResume {
@@ -211,7 +212,7 @@ export async function obtenirCredit(id: string): Promise<CreditDetail | undefine
     statut: cr.statut,
     dateCreation: cr.date_creation,
     paiements: paiements
-      .map((p) => ({ id: p.id, montant: p.montant, mode: p.mode, dateCreation: p.date_creation }))
+      .map((p) => ({ id: p.id, montant: p.montant, mode: p.mode, dateCreation: p.date_creation, utilisateurId: p.utilisateur_id ?? null }))
       .sort((a, b) => b.dateCreation.localeCompare(a.dateCreation)),
   };
 }
@@ -240,6 +241,7 @@ export async function rembourserCredit(
     credit_id: creditId,
     montant,
     mode,
+    utilisateur_id: utilisateurId,
     ...suiviSyncNeuf(),
   };
   await db.put("paiements_credit", paiement);

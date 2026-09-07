@@ -158,6 +158,7 @@ export interface PaiementCreditDetail {
   montant: number;
   mode: string;
   dateCreation: string;
+  utilisateurId: string | null;
 }
 
 export interface CreditDetail {
@@ -188,7 +189,7 @@ export function obtenirCredit(id: string): CreditDetail | undefined {
   if (!credit) return undefined;
 
   const paiements = tousLesResultats<PaiementCreditDetail>(
-    "SELECT id, montant, mode, date_creation as dateCreation FROM paiements_credit WHERE credit_id = ? AND supprime = 0 ORDER BY date_creation DESC",
+    "SELECT id, montant, mode, date_creation as dateCreation, utilisateur_id as utilisateurId FROM paiements_credit WHERE credit_id = ? AND supprime = 0 ORDER BY date_creation DESC",
     [id],
   );
 
@@ -223,9 +224,9 @@ export function rembourserCredit(
     const maintenant = new Date().toISOString();
     const paiementId = randomUUID();
     executer(
-      `INSERT INTO paiements_credit (id, credit_id, montant, mode, date_creation, date_modification)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [paiementId, creditId, montant, mode, maintenant, maintenant],
+      `INSERT INTO paiements_credit (id, credit_id, montant, mode, utilisateur_id, date_creation, date_modification)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [paiementId, creditId, montant, mode, utilisateurId, maintenant, maintenant],
     );
 
     const nouveauMontantPaye = Number(credit.montant_paye) + montant;

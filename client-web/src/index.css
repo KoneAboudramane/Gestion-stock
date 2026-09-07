@@ -5195,13 +5195,12 @@ input.champ-invalide:focus {
   line-height: 1.6;
 }
 
-.facture-paiements {
-  margin-top: 1.2rem;
+.facture-totaux {
+  margin-top: 1rem;
 }
 
-.ligne-total-facture td {
-  border-top: 2px solid var(--bordure-tableau-forte);
-  background: var(--gris-50);
+.facture-paiements {
+  margin-top: 1.2rem;
 }
 
 /* Facture (aperçu et impression/export PDF) : angles droits, pas les coins
@@ -5249,8 +5248,7 @@ input.champ-invalide:focus {
     display: block !important;
   }
 
-  .zone-impression-facture .tableau-catalogue th,
-  .zone-impression-facture .ligne-total-facture td {
+  .zone-impression-facture .tableau-catalogue th {
     background: #f1f5f9 !important;
   }
 
@@ -5294,6 +5292,13 @@ input.champ-invalide:focus {
     flex-direction: column;
     align-items: flex-start;
     gap: 0.3rem;
+  }
+
+  .zone-impression-facture.format-ticket-80mm .facture-totaux,
+  .zone-impression-facture.format-ticket-58mm .facture-totaux {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.15rem;
   }
 
   .zone-impression-facture.format-ticket-80mm .tableau-catalogue th,
