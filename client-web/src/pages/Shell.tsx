@@ -40,7 +40,15 @@ const ZONES = [
 
 export type Zone = (typeof ZONES)[number]["cle"] | "accueil";
 
-export default function Shell({ session, onDeconnexion }: { session: Session; onDeconnexion: () => void }) {
+export default function Shell({
+  session,
+  onDeconnexion,
+  onVerrouiller,
+}: {
+  session: Session;
+  onDeconnexion: () => void;
+  onVerrouiller: () => void;
+}) {
   const [zone, setZone] = useState<Zone>("accueil");
   const [barreReduite, setBarreReduite] = useState(() => localStorage.getItem("gs_barre_laterale_reduite") === "1");
   const zonesAccessibles = ZONES.filter((z) => !("permission" in z) || session.permissions[z.permission]);
@@ -188,6 +196,15 @@ export default function Shell({ session, onDeconnexion }: { session: Session; on
             <span className="sous-info"> · {session.username} ({session.role})</span>
           </div>
           <div className="entete-droite">
+            <button
+              type="button"
+              className="lien-deconnexion lien-deconnexion-entete bouton-verrouiller-entete"
+              onClick={onVerrouiller}
+              title="Verrouiller la session"
+            >
+              <span className="icone-deconnexion">🔒</span>
+              <span className="texte-deconnexion">Verrouiller</span>
+            </button>
             <button className="lien-deconnexion lien-deconnexion-entete" onClick={onDeconnexion}>
               <span className="icone-deconnexion">🚪</span>
               <span className="texte-deconnexion">Déconnexion</span>

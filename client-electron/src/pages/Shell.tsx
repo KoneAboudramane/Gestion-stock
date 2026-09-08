@@ -64,10 +64,12 @@ export default function Shell({
   session,
   onDeconnexion,
   onSessionMiseAJour,
+  onVerrouiller,
 }: {
   session: Session;
   onDeconnexion: () => void;
   onSessionMiseAJour: (session: Session) => void;
+  onVerrouiller: () => void;
 }) {
   const [zone, setZone] = useState<Zone>("accueil");
   const [barreReduite, setBarreReduite] = useState(
@@ -235,6 +237,15 @@ export default function Shell({
             </div>
           </div>
           <div className="entete-droite">
+            <button
+              type="button"
+              className="lien-deconnexion lien-deconnexion-entete bouton-verrouiller-entete"
+              onClick={onVerrouiller}
+              title="Verrouiller la session"
+            >
+              <span className="icone-deconnexion">🔒</span>
+              <span className="texte-deconnexion">Verrouiller</span>
+            </button>
             <button className="lien-deconnexion lien-deconnexion-entete" onClick={onDeconnexion}>
               <span className="icone-deconnexion">🚪</span>
               <span className="texte-deconnexion">Déconnexion</span>

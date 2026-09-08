@@ -2,19 +2,30 @@ import { useEffect, useState } from "react";
 
 import { api } from "./api/client";
 import type { Session } from "./api/client";
+import EcranVerrouillage from "./components/EcranVerrouillage";
 import { DeviseProvider } from "./contexts/DeviseContext";
 import { LogoProvider } from "./contexts/LogoContext";
 import { NomBoutiqueProvider } from "./contexts/NomBoutiqueContext";
 import { SynchroProvider } from "./contexts/SynchroContext";
+import { useDelaiVerrouillage, VerrouillageProvider } from "./contexts/VerrouillageContext";
+import { useInactivite } from "./hooks/useInactivite";
 import AccesCreationBoutique from "./pages/AccesCreationBoutique";
 import Connexion from "./pages/Connexion";
 import Shell from "./pages/Shell";
 
 type Ecran = "chargement" | "connexion" | "accesCreation" | "shell";
 
+/** Ne rend rien : arme juste le minuteur d'inactivité pour verrouiller Shell (voir contexts/VerrouillageContext.tsx). */
+function GestionnaireInactivite({ actif, onInactif }: { actif: boolean; onInactif: () => void }) {
+  const delaiMinutes = useDelaiVerrouillage();
+  useInactivite(delaiMinutes > 0 ? delaiMinutes * 60_000 : 0, actif, onInactif);
+  return null;
+}
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [ecran, setEcran] = useState<Ecran>("chargement");
+  const [verrouille, setVerrouille] = useState(false);
 
   useEffect(() => {
     api.auth.session().then((s) => {
@@ -44,7 +55,13 @@ export default function App() {
   async function surDeconnexion() {
     await api.auth.deconnexion();
     setSession(null);
+    setVerrouille(false);
     setEcran("connexion");
+  }
+
+  function surDeverrouille(s: Session) {
+    setSession(s);
+    setVerrouille(false);
   }
 
   if (ecran === "chargement") {
@@ -60,9 +77,20 @@ export default function App() {
     <DeviseProvider session={session!}>
       <LogoProvider session={session!}>
         <NomBoutiqueProvider session={session!}>
-          <SynchroProvider session={session!} onSessionMiseAJour={surSessionMiseAJour}>
-            <Shell session={session!} onDeconnexion={surDeconnexion} onSessionMiseAJour={surSessionMiseAJour} />
-          </SynchroProvider>
+          <VerrouillageProvider session={session!}>
+            <SynchroProvider session={session!} onSessionMiseAJour={surSessionMiseAJour}>
+              <GestionnaireInactivite actif={!verrouille} onInactif={() => setVerrouille(true)} />
+              <Shell
+                session={session!}
+                onDeconnexion={surDeconnexion}
+                onSessionMiseAJour={surSessionMiseAJour}
+                onVerrouiller={() => setVerrouille(true)}
+              />
+              {verrouille && (
+                <EcranVerrouillage session={session!} onDeverrouille={surDeverrouille} onDeconnexion={surDeconnexion} />
+              )}
+            </SynchroProvider>
+          </VerrouillageProvider>
         </NomBoutiqueProvider>
       </LogoProvider>
     </DeviseProvider>

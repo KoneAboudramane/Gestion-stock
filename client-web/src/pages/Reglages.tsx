@@ -15,6 +15,11 @@ import {
 import { ErreurBoutique, modifierBoutique, obtenirBoutique, type BoutiqueDetail } from "../services/boutique";
 import { definirParametre, ErreurConfiguration, listerParametres } from "../services/configuration";
 import {
+  CLE_PARAMETRE_DELAI_VERROUILLAGE,
+  useDelaiVerrouillage,
+  useRafraichirDelaiVerrouillage,
+} from "../contexts/VerrouillageContext";
+import {
   activerEnLigne,
   lireBoutiqueLocaleEnAttente,
   type BoutiqueLocaleEnAttente,
@@ -932,16 +937,59 @@ function OngletUtilisateursRoles({ session }: { session: Session }) {
 
 // --- Onglet Paramètres > Général ---
 
-function OngletParametresGeneral() {
+const OPTIONS_DELAI_VERROUILLAGE = [
+  { valeur: "1", label: "1 minute" },
+  { valeur: "2", label: "2 minutes" },
+  { valeur: "5", label: "5 minutes" },
+  { valeur: "10", label: "10 minutes" },
+  { valeur: "15", label: "15 minutes" },
+  { valeur: "30", label: "30 minutes" },
+  { valeur: "0", label: "Jamais" },
+];
+
+function OngletParametresGeneral({ session }: { session: Session }) {
   const [theme, setTheme] = useState<Theme>(() => themeActuel());
+  const peutGerer = !!session.permissions.gerer_utilisateurs_reglages;
+  const delaiVerrouillage = useDelaiVerrouillage();
+  const rafraichirDelaiVerrouillage = useRafraichirDelaiVerrouillage();
+  const [enregistrementDelai, setEnregistrementDelai] = useState(false);
 
   function changerTheme(nouveauTheme: Theme) {
     appliquerTheme(nouveauTheme);
     setTheme(nouveauTheme);
   }
 
+  async function changerDelaiVerrouillage(valeur: string) {
+    setEnregistrementDelai(true);
+    try {
+      await definirParametre(session.boutiqueId, CLE_PARAMETRE_DELAI_VERROUILLAGE, valeur);
+      rafraichirDelaiVerrouillage();
+    } finally {
+      setEnregistrementDelai(false);
+    }
+  }
+
   return (
     <div className="reglage-catalogue">
+      {peutGerer && (
+        <div className="bloc-apparence">
+          <h3>Verrouillage automatique</h3>
+          <p className="note-aide">
+            Verrouille l'application après une période d'inactivité, pour protéger l'accès si un poste reste ouvert.
+          </p>
+          <select
+            value={String(delaiVerrouillage)}
+            disabled={enregistrementDelai}
+            onChange={(e) => changerDelaiVerrouillage(e.target.value)}
+          >
+            {OPTIONS_DELAI_VERROUILLAGE.map((o) => (
+              <option key={o.valeur} value={o.valeur}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div className="bloc-apparence">
         <h3>Thème</h3>
         <div className="groupe-theme">
@@ -1390,7 +1438,7 @@ function OngletParametresGeneraux({ session }: { session: Session }) {
         ))}
       </nav>
       <div className="contenu-onglet contenu-parametres">
-        {sousOnglet === "general" && <OngletParametresGeneral />}
+        {sousOnglet === "general" && <OngletParametresGeneral session={session} />}
         {sousOnglet === "unites" && <OngletUnites session={session} />}
         {sousOnglet === "attributs" && <OngletAttributs session={session} />}
         {sousOnglet === "depots" && <OngletDepots session={session} />}

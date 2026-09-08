@@ -1050,6 +1050,43 @@ input[type="number"]::-webkit-outer-spin-button {
   }
 }
 
+/* Écran de verrouillage automatique (voir components/EcranVerrouillage.tsx) :
+   superposé à Shell (pas un remplacement d'écran, contrairement à .ecran-auth)
+   pour ne jamais perdre la navigation/saisie en cours pendant le verrouillage. */
+.ecran-verrouillage {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+/* Réutilise .carte-auth (voir Connexion.tsx) pour la même carte/champs/bouton — juste plus étroite. */
+.carte-verrouillage {
+  max-width: 400px;
+  text-align: center;
+}
+
+.icone-verrouillage {
+  font-size: 2.2rem;
+  align-self: center;
+}
+
+.bouton-verrouiller-entete {
+  margin-right: 0.5rem;
+}
+
+/* Distingue "Verrouiller" (réversible, un mot de passe suffit) de
+   "Déconnexion" (.lien-deconnexion-entete:hover, plus bas) qui vire au rouge
+   danger au survol : le verrouillage n'a rien de destructif. */
+.bouton-verrouiller-entete:hover:not(:disabled) {
+  color: var(--couleur-primaire);
+}
+
 .lien {
   background: none;
   border: none;
