@@ -416,6 +416,9 @@ export function enregistrerLesHandlers(): void {
     (_evt, boutiqueId: string, nom: string, telephone?: string, adresse?: string, contact?: string) =>
       executerEnSecurite(() => achats.creerFournisseur(boutiqueId, nom, telephone, adresse, contact)),
   );
+  ipcMain.handle("fournisseurs:supprimer", (_evt, id: string) =>
+    executerEnSecurite(() => achats.supprimerFournisseur(id)),
+  );
   ipcMain.handle(
     "fournisseurs:modifier",
     (_evt, id: string, champs: Parameters<typeof achats.modifierFournisseur>[1]) =>

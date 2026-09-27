@@ -6865,3 +6865,11 @@ button.tuile-dormance.active {
   width: 1%;
   white-space: nowrap;
 }
+
+/* Achats → Fournisseurs : modification directement dans la ligne. */
+.ligne-edition-fournisseur td input {
+  width: 100%;
+  min-width: 0;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.5rem;
+}

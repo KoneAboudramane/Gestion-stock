@@ -1331,6 +1331,7 @@ export interface WindowApi {
     ): Promise<ResultatEcriture<string>>;
     modifier(id: string, champs: ChampsFournisseur): Promise<ResultatEcriture<void>>;
     derniers(boutiqueId: string, varianteIds: string[]): Promise<Record<string, { id: string; nom: string }>>;
+    supprimer(id: string): Promise<ResultatEcriture<void>>;
   };
   commandes: {
     lister(

@@ -71,6 +71,23 @@ export function obtenirDerniersFournisseurs(
   return resultat;
 }
 
+/** Nom comparable : sans accents, sans majuscules, sans espaces autour. */
+function cleNomFournisseur(nom: string): string {
+  return nom
+    .trim()
+    .toLocaleLowerCase("fr")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function verifierNomFournisseurLibre(boutiqueId: string, nom: string, saufId?: string): void {
+  if (!nom.trim()) throw new ErreurAchat("Le nom du fournisseur est obligatoire.");
+  const cle = cleNomFournisseur(nom);
+  if (listerFournisseurs(boutiqueId).some((f) => f.id !== saufId && cleNomFournisseur(f.nom) === cle)) {
+    throw new ErreurAchat(`Le fournisseur « ${nom.trim()} » existe déjà.`);
+  }
+}
+
 export function creerFournisseur(
   boutiqueId: string,
   nom: string,
@@ -78,7 +95,7 @@ export function creerFournisseur(
   adresse = "",
   contact = "",
 ): string {
-  if (!nom.trim()) throw new ErreurAchat("Le nom du fournisseur est obligatoire.");
+  verifierNomFournisseurLibre(boutiqueId, nom);
   const id = randomUUID();
   const maintenant = new Date().toISOString();
   executer(
@@ -92,10 +109,17 @@ export function creerFournisseur(
 
 export function modifierFournisseur(
   id: string,
-  champs: Partial<{ nom: string; telephone: string; adresse: string; contact: string }>,
+  champsEntree: Partial<{ nom: string; telephone: string; adresse: string; contact: string }>,
 ): void {
+  let champs = champsEntree;
   const colonnes = Object.keys(champs);
   if (colonnes.length === 0) return;
+  if (champs.nom !== undefined) {
+    const fournisseur = unResultat<{ boutique_id: string }>("SELECT boutique_id FROM fournisseurs WHERE id = ?", [id]);
+    if (!fournisseur) throw new ErreurAchat("Fournisseur introuvable.");
+    verifierNomFournisseurLibre(fournisseur.boutique_id, champs.nom, id);
+    champs = { ...champs, nom: champs.nom.trim() };
+  }
   const maintenant = new Date().toISOString();
   const valeurs = colonnes.map((c) => (champs as Record<string, string>)[c]);
   executer(
@@ -103,6 +127,39 @@ export function modifierFournisseur(
      WHERE id = ?`,
     [...valeurs, maintenant, id],
   );
+  sauvegarder();
+}
+
+/**
+ * Retire un fournisseur des listes (suppression douce, synchronisée) : ses
+ * commandes, paiements et historiques restent consultables sous son nom.
+ * Refusé tant qu'il a des commandes en cours ou une dette à payer.
+ */
+export function supprimerFournisseur(id: string): void {
+  const enCours = Number(
+    unResultat<{ n: number }>(
+      "SELECT COUNT(*) as n FROM commandes_achat WHERE fournisseur_id = ? AND supprime = 0 AND statut IN ('brouillon', 'commandee')",
+      [id],
+    )?.n ?? 0,
+  );
+  if (enCours > 0) {
+    throw new ErreurAchat(
+      `Ce fournisseur a ${enCours} commande(s) en cours : recevez-les ou annulez-les avant de le supprimer.`,
+    );
+  }
+  const reste = Number(
+    unResultat<{ reste: number }>(
+      "SELECT COALESCE(SUM(solde), 0) as reste FROM dettes_fournisseur WHERE fournisseur_id = ? AND supprime = 0 AND statut = 'en_cours'",
+      [id],
+    )?.reste ?? 0,
+  );
+  if (reste > 0) {
+    throw new ErreurAchat(`Il reste ${reste} à payer à ce fournisseur : soldez ses dettes avant de le supprimer.`);
+  }
+  executer("UPDATE fournisseurs SET supprime = 1, synchronise = 0, date_modification = ? WHERE id = ?", [
+    new Date().toISOString(),
+    id,
+  ]);
   sauvegarder();
 }
 

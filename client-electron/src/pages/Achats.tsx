@@ -1710,6 +1710,10 @@ function OngletFournisseurs({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [fournisseurs, setFournisseurs] = useState<FournisseurResume[]>([]);
   const [afficherModal, setAfficherModal] = useState(false);
+  const [enEdition, setEnEdition] = useState<FournisseurResume | null>(null);
+  const [brouillon, setBrouillon] = useState({ nom: "", telephone: "", adresse: "", contact: "" });
+  const [aSupprimer, setASupprimer] = useState<FournisseurResume | null>(null);
+  const [erreur, setErreur] = useState<string | null>(null);
 
   async function rafraichir() {
     setFournisseurs(await api.fournisseurs.lister(session.boutiqueId));
@@ -1718,6 +1722,36 @@ function OngletFournisseurs({ session }: { session: Session }) {
     rafraichir();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function commencerEdition(f: FournisseurResume) {
+    setErreur(null);
+    setEnEdition(f);
+    setBrouillon({ nom: f.nom, telephone: f.telephone ?? "", adresse: f.adresse ?? "", contact: f.contact ?? "" });
+  }
+
+  async function enregistrerEdition() {
+    if (!enEdition || !brouillon.nom.trim()) return;
+    const resultat = await api.fournisseurs.modifier(enEdition.id, brouillon);
+    if (resultat.succes) {
+      setEnEdition(null);
+      setErreur(null);
+      rafraichir();
+    } else {
+      setErreur(resultat.message);
+    }
+  }
+
+  async function supprimer() {
+    if (!aSupprimer) return;
+    const resultat = await api.fournisseurs.supprimer(aSupprimer.id);
+    if (resultat.succes) {
+      setErreur(null);
+      rafraichir();
+    } else {
+      setErreur(resultat.message);
+    }
+    setASupprimer(null);
+  }
 
   return (
     <div>
@@ -1728,6 +1762,7 @@ function OngletFournisseurs({ session }: { session: Session }) {
           </button>
         )}
       </div>
+      {erreur && <div className="message-erreur">{erreur}</div>}
       {afficherModal && (
         <div className="fond-modale" onClick={() => setAfficherModal(false)}>
           <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
@@ -1742,42 +1777,143 @@ function OngletFournisseurs({ session }: { session: Session }) {
           </div>
         </div>
       )}
+      {aSupprimer && (
+        <ModaleConfirmation
+          titre={`Supprimer le fournisseur « ${aSupprimer.nom} » ?`}
+          description="Il disparaîtra des listes et des choix de fournisseur. Ses commandes, paiements et historiques restent consultables."
+          labelConfirmer="Supprimer"
+          dangereux
+          onAnnuler={() => setASupprimer(null)}
+          onConfirmer={supprimer}
+        />
+      )}
       <div className="zone-tableau-scroll">
-      <table className="tableau-catalogue">
-        <thead>
-          <tr>
-            <th>Nom</th>
-            <th>Téléphone</th>
-            <th>Adresse</th>
-            <th>Contact</th>
-          </tr>
-        </thead>
-        <tbody>
-          {fournisseurs.map((f) => (
-            <tr key={f.id}>
-              <td>{f.nom}</td>
-              <td>{f.telephone || ""}</td>
-              <td>{f.adresse || ""}</td>
-              <td>{f.contact || ""}</td>
-            </tr>
-          ))}
-          {fournisseurs.length === 0 && (
+        <table className="tableau-catalogue">
+          <thead>
             <tr>
-              <td colSpan={4} className="liste-vide">
-                Aucun fournisseur.
-              </td>
+              <th>N°</th>
+              <th>Nom</th>
+              <th>Téléphone</th>
+              <th>Adresse</th>
+              <th>Contact</th>
+              {peutGerer && <th className="colonne-actions-categorie">Actions</th>}
             </tr>
-          )}
-          {Array.from({ length: Math.max(0, 10 - Math.max(1, fournisseurs.length)) }).map((_, i) => (
-            <tr key={`vide-${i}`} className="ligne-groupe-vide">
+          </thead>
+          <tbody>
+            {fournisseurs.map((f, index) =>
+              enEdition?.id === f.id ? (
+                <tr key={f.id} className="ligne-edition-fournisseur">
+                  <td>{index + 1}</td>
+                  <td>
+                  <input
+                    autoFocus
+                    value={brouillon.nom}
+                    onChange={(e) => setBrouillon({ ...brouillon, nom: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") enregistrerEdition();
+                      if (e.key === "Escape") setEnEdition(null);
+                    }}
+                    placeholder="Nom"
+                  />
+                  </td>
+                  <td>
+                  <input
+                    value={brouillon.telephone}
+                    onChange={(e) => setBrouillon({ ...brouillon, telephone: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") enregistrerEdition();
+                      if (e.key === "Escape") setEnEdition(null);
+                    }}
+                    placeholder="Téléphone"
+                  />
+                  </td>
+                  <td>
+                  <input
+                    value={brouillon.adresse}
+                    onChange={(e) => setBrouillon({ ...brouillon, adresse: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") enregistrerEdition();
+                      if (e.key === "Escape") setEnEdition(null);
+                    }}
+                    placeholder="Adresse"
+                  />
+                  </td>
+                  <td>
+                  <input
+                    value={brouillon.contact}
+                    onChange={(e) => setBrouillon({ ...brouillon, contact: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") enregistrerEdition();
+                      if (e.key === "Escape") setEnEdition(null);
+                    }}
+                    placeholder="Contact"
+                  />
+                  </td>
+                  <td className="colonne-actions-categorie">
+                    <span className="actions-ligne">
+                      <button type="button" onClick={() => setEnEdition(null)}>
+                        Annuler
+                      </button>
+                      <button
+                        type="button"
+                        className="bouton-primaire"
+                        disabled={!brouillon.nom.trim()}
+                        onClick={enregistrerEdition}
+                      >
+                        Enregistrer
+                      </button>
+                    </span>
+                  </td>
+                </tr>
+              ) : (
+              <tr key={f.id}>
+                <td>{index + 1}</td>
+                <td>{f.nom}</td>
+                <td>{f.telephone || ""}</td>
+                <td>{f.adresse || ""}</td>
+                <td>{f.contact || ""}</td>
+                {peutGerer && (
+                  <td className="colonne-actions-categorie">
+                    <span className="actions-ligne">
+                      <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(f)}>
+                        ✎
+                      </button>
+                      <button
+                        type="button"
+                        className="lien-icone lien-icone-danger"
+                        title="Supprimer"
+                        onClick={() => {
+                          setErreur(null);
+                          setASupprimer(f);
+                        }}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  </td>
+                )}
+              </tr>
+              ),
+            )}
+            {fournisseurs.length === 0 && (
+              <tr>
+                <td colSpan={peutGerer ? 6 : 5} className="liste-vide">
+                  Aucun fournisseur.
+                </td>
+              </tr>
+            )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, fournisseurs.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
               <td>&nbsp;</td>
               <td>&nbsp;</td>
               <td>&nbsp;</td>
               <td>&nbsp;</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              <td>&nbsp;</td>
+                {peutGerer && <td>&nbsp;</td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

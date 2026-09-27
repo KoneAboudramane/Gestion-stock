@@ -77,6 +77,23 @@ export async function obtenirDerniersFournisseurs(
   return resultat;
 }
 
+/** Nom comparable : sans accents, sans majuscules, sans espaces autour. */
+function cleNomFournisseur(nom: string): string {
+  return nom
+    .trim()
+    .toLocaleLowerCase("fr")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+async function verifierNomFournisseurLibre(boutiqueId: string, nom: string, saufId?: string): Promise<void> {
+  if (!nom.trim()) throw new ErreurAchat("Le nom du fournisseur est obligatoire.");
+  const cle = cleNomFournisseur(nom);
+  if ((await listerFournisseurs(boutiqueId)).some((f) => f.id !== saufId && cleNomFournisseur(f.nom) === cle)) {
+    throw new ErreurAchat(`Le fournisseur « ${nom.trim()} » existe déjà.`);
+  }
+}
+
 export async function creerFournisseur(
   boutiqueId: string,
   nom: string,
@@ -84,7 +101,7 @@ export async function creerFournisseur(
   adresse = "",
   contact = "",
 ): Promise<string> {
-  if (!nom.trim()) throw new ErreurAchat("Le nom du fournisseur est obligatoire.");
+  await verifierNomFournisseurLibre(boutiqueId, nom);
   const id = crypto.randomUUID();
   const fournisseur: FournisseurLocal = {
     id,
@@ -105,15 +122,42 @@ export async function modifierFournisseur(
 ): Promise<void> {
   const fournisseur = await obtenirLigne("fournisseurs", id);
   if (!fournisseur) throw new ErreurAchat("Fournisseur introuvable.");
+  if (champs.nom !== undefined) await verifierNomFournisseurLibre(fournisseur.boutique_id, champs.nom, id);
   await ecrireLigne("fournisseurs", {
     ...fournisseur,
-    nom: champs.nom ?? fournisseur.nom,
+    nom: champs.nom?.trim() ?? fournisseur.nom,
     telephone: champs.telephone ?? fournisseur.telephone,
     adresse: champs.adresse ?? fournisseur.adresse,
     contact: champs.contact ?? fournisseur.contact,
     date_modification: maintenant(),
     synchronise: 0,
   });
+}
+
+/**
+ * Retire un fournisseur des listes (suppression douce, synchronisée) : ses
+ * commandes, paiements et historiques restent consultables sous son nom.
+ * Refusé tant qu'il a des commandes en cours ou une dette à payer.
+ */
+export async function supprimerFournisseur(id: string): Promise<void> {
+  const db = await ouvrirBaseDeDonnees();
+  const fournisseur = await obtenirLigne("fournisseurs", id);
+  if (!fournisseur) return;
+  const enCours = (await db.getAllFromIndex("commandes_achat", "boutique_id", fournisseur.boutique_id)).filter(
+    (c) => !c.supprime && c.fournisseur_id === id && (c.statut === "brouillon" || c.statut === "commandee"),
+  ).length;
+  if (enCours > 0) {
+    throw new ErreurAchat(
+      `Ce fournisseur a ${enCours} commande(s) en cours : recevez-les ou annulez-les avant de le supprimer.`,
+    );
+  }
+  const reste = (await db.getAllFromIndex("dettes_fournisseur", "fournisseur_id", id))
+    .filter((d) => !d.supprime && d.statut === "en_cours")
+    .reduce((t, d) => t + Number(d.solde), 0);
+  if (reste > 0) {
+    throw new ErreurAchat(`Il reste ${reste} à payer à ce fournisseur : soldez ses dettes avant de le supprimer.`);
+  }
+  await ecrireLigne("fournisseurs", { ...fournisseur, supprime: 1, synchronise: 0, date_modification: maintenant() });
 }
 
 // --- Recherche d'articles pour la saisie d'une commande ---

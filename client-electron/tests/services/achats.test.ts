@@ -6,6 +6,10 @@ import {
   ErreurAchat,
   annulerReception,
   creerCommande,
+  creerFournisseur,
+  listerFournisseurs,
+  modifierFournisseur,
+  supprimerFournisseur,
   historiqueAchats,
   suiviCommande,
   listerCommandes,
@@ -722,5 +726,56 @@ describe("achats.suiviCommande (suivi des étapes d'une commande)", () => {
     expect(suivi.map((e) => e.type).sort()).toEqual(["creee", "paiement", "paiement", "reception", "retour"].sort());
     expect(suivi.every((e) => e.reconstitue)).toBe(true);
     expect(unResultat<{ n: number }>("SELECT COUNT(*) as n FROM evenements_commande", [])!.n).toBe(0);
+  });
+});
+
+describe("fournisseurs : modifier / supprimer", () => {
+  const boutiqueId = randomUUID();
+  const depotId = randomUUID();
+  let varianteId: string;
+
+  beforeEach(async () => {
+    await creerBaseDeTest();
+    executer("INSERT INTO depots (id, boutique_id, nom) VALUES (?, ?, ?)", [depotId, boutiqueId, "Magasin"]);
+    const produitId = randomUUID();
+    varianteId = randomUUID();
+    executer("INSERT INTO produits (id, boutique_id, nom) VALUES (?, ?, ?)", [produitId, boutiqueId, "Riz 25kg"]);
+    executer("INSERT INTO variantes (id, produit_id, prix_achat, prix_vente) VALUES (?, ?, ?, ?)", [
+      varianteId,
+      produitId,
+      10000,
+      12500,
+    ]);
+  });
+
+  it("refuse un nom déjà pris (accents et majuscules ignorés), à la création comme au renommage", () => {
+    creerFournisseur(boutiqueId, "Établissement Diarra");
+    const autre = creerFournisseur(boutiqueId, "Grossiste Konan");
+    expect(() => creerFournisseur(boutiqueId, " etablissement diarra ")).toThrow(/existe déjà/);
+    expect(() => modifierFournisseur(autre, { nom: "ETABLISSEMENT DIARRA" })).toThrow(/existe déjà/);
+    modifierFournisseur(autre, { nom: "Grossiste Konan", telephone: "0700" });
+    expect(listerFournisseurs(boutiqueId).find((f) => f.id === autre)!.telephone).toBe("0700");
+  });
+
+  it("refuse de supprimer avec une commande en cours ou une dette à payer, puis le retire des listes", () => {
+    const fournisseurId = creerFournisseur(boutiqueId, "Grossiste Konan");
+    const commande = creerCommande({
+      boutiqueId,
+      fournisseurId,
+      utilisateurId: "u1",
+      statut: "commandee",
+      lignes: [{ varianteId, quantite: 2, prixAchat: 10000 }],
+    });
+    expect(() => supprimerFournisseur(fournisseurId)).toThrow(/commande\(s\) en cours/);
+
+    receptionnerCommande({ commandeId: commande.id, depotId, utilisateurId: "u1", lignes: [{ varianteId, quantite: 2 }] });
+    expect(() => supprimerFournisseur(fournisseurId)).toThrow(/Il reste 20000 à payer/);
+
+    const detteId = unResultat<{ id: string }>("SELECT id FROM dettes_fournisseur WHERE commande_id = ?", [commande.id])!.id;
+    payerDette(detteId, 20000);
+    supprimerFournisseur(fournisseurId);
+    expect(listerFournisseurs(boutiqueId)).toHaveLength(0);
+    // L'historique garde son nom.
+    expect(listerCommandes(boutiqueId)[0].fournisseurNom).toBe("Grossiste Konan");
   });
 });

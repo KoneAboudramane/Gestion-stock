@@ -172,6 +172,7 @@ contextBridge.exposeInMainWorld("api", {
     creer: (boutiqueId: string, nom: string, telephone?: string, adresse?: string, contact?: string) =>
       ipcRenderer.invoke("fournisseurs:creer", boutiqueId, nom, telephone, adresse, contact),
     modifier: (id: string, champs: unknown) => ipcRenderer.invoke("fournisseurs:modifier", id, champs),
+    supprimer: (id: string) => ipcRenderer.invoke("fournisseurs:supprimer", id),
     derniers: (boutiqueId: string, varianteIds: string[]) =>
       ipcRenderer.invoke("fournisseurs:derniers", boutiqueId, varianteIds),
   },
