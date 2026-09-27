@@ -13,7 +13,7 @@ from rest_framework.exceptions import ValidationError
 from clients.models import Credit
 from core.services import generer_numero_sequentiel
 from stock.models import MouvementStock
-from stock.services import appliquer_mouvement
+from stock.services import appliquer_mouvement, destockage_actif, terminer_destockage_si_epuise
 from tresorerie.models import MouvementCaisse
 from tresorerie.services import enregistrer_mouvement
 
@@ -34,9 +34,10 @@ def creer_vente(
     for donnee in lignes_donnees:
         variante = donnee["variante"]
         quantite = donnee["quantite"]
+        destockage = destockage_actif(variante)
         prix_unitaire = donnee.get("prix_unitaire")
         if prix_unitaire is None:
-            prix_unitaire = variante.prix_vente
+            prix_unitaire = destockage.prix_destockage if destockage else variante.prix_vente
         remise_ligne = donnee.get("remise") or 0
         sous_total = round(quantite * prix_unitaire - remise_ligne)
         if sous_total < 0:
@@ -49,6 +50,8 @@ def creer_vente(
             "cout_unitaire": variante.prix_achat,
             "remise": remise_ligne,
             "sous_total": sous_total,
+            "prix_normal": destockage.prix_normal if destockage else None,
+            "destockage": destockage,
         })
 
     total_net = round(total_brut - remise_globale)
@@ -75,6 +78,8 @@ def creer_vente(
             motif=f"Vente {numero}", utilisateur=utilisateur,
             reference_type="ventes.Vente", reference_id=vente.id,
         )
+        if donnee["destockage"]:
+            terminer_destockage_si_epuise(donnee["variante"])
 
     for donnee_paiement in paiements_donnees:
         paiement = Paiement.objects.create(vente=vente, **donnee_paiement)

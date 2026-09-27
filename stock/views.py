@@ -6,16 +6,19 @@ from rest_framework.response import Response
 from comptes.models import Boutique
 from core.permissions import EstMembreBoutique, FiltreBoutiqueMixin, a_la_permission
 
-from .models import Depot, Inventaire, LigneInventaire, MouvementStock, Stock, TransfertStock
+from .models import Depot, Destockage, Inventaire, OperationDestockage, LigneInventaire, MouvementStock, PerteStock, Stock, TransfertStock
 from .serializers import (
     DepotSerializer,
+    DestockageSerializer,
     InventaireSerializer,
+    OperationDestockageSerializer,
     LigneInventaireSerializer,
     MouvementStockSerializer,
+    PerteStockSerializer,
     StockSerializer,
     TransfertStockSerializer,
 )
-from .services import valider_inventaire
+from .services import arreter_destockage, arreter_operation_destockage, valider_inventaire
 
 PeutConsulterStock = a_la_permission("consulter_stock")
 PeutGererStock = a_la_permission("gerer_produits_stock_achats")
@@ -102,6 +105,43 @@ class TransfertStockViewSet(
     serializer_class = TransfertStockSerializer
     queryset = TransfertStock.objects.select_related("variante", "depot_source", "depot_destination")
     chemin_boutique = "depot_source__boutique"
+
+
+class PerteStockViewSet(
+    _LectureStockMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin, viewsets.GenericViewSet,
+):
+    serializer_class = PerteStockSerializer
+    queryset = PerteStock.objects.select_related("variante", "depot", "utilisateur")
+    chemin_boutique = "depot__boutique"
+
+
+class DestockageViewSet(
+    _LectureStockMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin, viewsets.GenericViewSet,
+):
+    serializer_class = DestockageSerializer
+    queryset = Destockage.objects.select_related("variante", "utilisateur")
+    chemin_boutique = "variante__produit__boutique"
+
+    @action(detail=True, methods=["post"])
+    def arreter(self, request, pk=None):
+        destockage = arreter_destockage(self.get_object())
+        return Response(DestockageSerializer(destockage).data)
+
+
+class OperationDestockageViewSet(
+    _LectureStockMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin, viewsets.GenericViewSet,
+):
+    serializer_class = OperationDestockageSerializer
+    queryset = OperationDestockage.objects.prefetch_related("destockages")
+    chemin_boutique = "boutique"
+
+    @action(detail=True, methods=["post"])
+    def arreter(self, request, pk=None):
+        operation = arreter_operation_destockage(self.get_object())
+        return Response(OperationDestockageSerializer(operation, context={"request": request}).data)
 
 
 class InventaireViewSet(_LectureStockMixin, viewsets.ModelViewSet):

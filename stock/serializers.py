@@ -1,9 +1,17 @@
 from rest_framework import serializers
 
 from catalogue.models import Variante
+from configuration.services import MESSAGE_ENTREE_RESERVEE_FABRICATION, fabrication_propre_active
 
-from .models import Depot, Inventaire, LigneInventaire, MouvementStock, Stock, TransfertStock
-from .services import appliquer_mouvement, demarrer_inventaire, transferer_stock
+from .models import Depot, Destockage, Inventaire, OperationDestockage, LigneInventaire, MouvementStock, PerteStock, Stock, TransfertStock
+from .services import (
+    appliquer_mouvement,
+    declarer_perte,
+    demarrer_destockage,
+    demarrer_inventaire,
+    demarrer_operation_destockage,
+    transferer_stock,
+)
 
 
 class DepotSerializer(serializers.ModelSerializer):
@@ -70,6 +78,16 @@ class MouvementStockSerializer(_RestreintABoutiqueMixin, serializers.ModelSerial
             raise serializers.ValidationError(
                 "La quantité doit être strictement positive pour une entrée ou une sortie."
             )
+        # Entrée manuelle réservée aux boutiques qui fabriquent, sauf pour le
+        # tout premier stock d'une variante (stock initial à la création).
+        variante = attrs.get("variante")
+        depot = attrs.get("depot")
+        if (
+            type_mouvement == MouvementStock.Type.ENTREE
+            and not fabrication_propre_active(depot.boutique)
+            and MouvementStock.objects.filter(variante=variante).exists()
+        ):
+            raise serializers.ValidationError(MESSAGE_ENTREE_RESERVEE_FABRICATION)
         return attrs
 
     def create(self, validated_data):
@@ -113,6 +131,83 @@ class TransfertStockSerializer(_RestreintABoutiqueMixin, serializers.ModelSerial
             depot_source=validated_data["depot_source"],
             depot_destination=validated_data["depot_destination"],
             quantite=validated_data["quantite"],
+            utilisateur=request.user,
+        )
+
+
+class PerteStockSerializer(_RestreintABoutiqueMixin, serializers.ModelSerializer):
+    champs_boutique = {"variante": "produit__boutique", "depot": "boutique"}
+
+    class Meta:
+        model = PerteStock
+        fields = [
+            "id", "variante", "depot", "quantite", "motif", "detail", "valeur",
+            "utilisateur", "date_creation",
+        ]
+        read_only_fields = ["id", "valeur", "utilisateur", "date_creation"]
+
+    def create(self, validated_data):
+        request = self.context["request"]
+        return declarer_perte(
+            variante=validated_data["variante"],
+            depot=validated_data["depot"],
+            quantite=validated_data["quantite"],
+            motif=validated_data["motif"],
+            detail=validated_data.get("detail", ""),
+            utilisateur=request.user,
+        )
+
+
+class DestockageSerializer(_RestreintABoutiqueMixin, serializers.ModelSerializer):
+    champs_boutique = {"variante": "produit__boutique"}
+
+    class Meta:
+        model = Destockage
+        fields = [
+            "id", "variante", "prix_normal", "prix_destockage", "date_fin", "statut", "motif_fin",
+            "date_arret", "utilisateur", "operation", "date_creation",
+        ]
+        read_only_fields = [
+            "id", "prix_normal", "statut", "motif_fin", "date_arret", "utilisateur", "operation", "date_creation",
+        ]
+
+    def create(self, validated_data):
+        return demarrer_destockage(
+            variante=validated_data["variante"],
+            prix_destockage=validated_data["prix_destockage"],
+            date_fin=validated_data.get("date_fin"),
+            utilisateur=self.context["request"].user,
+        )
+
+
+class LigneOperationDestockageSerializer(serializers.Serializer):
+    variante = serializers.PrimaryKeyRelatedField(queryset=Variante.objects.all())
+    prix_destockage = serializers.DecimalField(max_digits=12, decimal_places=2)
+
+
+class OperationDestockageSerializer(serializers.ModelSerializer):
+    lignes = LigneOperationDestockageSerializer(many=True, write_only=True)
+    destockages = DestockageSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = OperationDestockage
+        fields = ["id", "nom", "date_fin", "utilisateur", "date_creation", "lignes", "destockages"]
+        read_only_fields = ["id", "utilisateur", "date_creation", "destockages"]
+
+    def validate_lignes(self, lignes):
+        boutique = self.context["request"].user.boutique
+        for ligne in lignes:
+            if ligne["variante"].produit.boutique_id != boutique.id:
+                raise serializers.ValidationError("Article introuvable.")
+        return lignes
+
+    def create(self, validated_data):
+        request = self.context["request"]
+        return demarrer_operation_destockage(
+            boutique=request.user.boutique,
+            nom=validated_data["nom"],
+            lignes=validated_data["lignes"],
+            date_fin=validated_data.get("date_fin"),
             utilisateur=request.user,
         )
 

@@ -47,6 +47,12 @@ class LigneVente(ModeleBase):
     cout_unitaire = models.DecimalField(max_digits=12, decimal_places=2, default=0)  # prix d'achat figé pour le calcul du bénéfice
     remise = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     sous_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Vendue pendant un déstockage : prix normal du moment (pour le manque à
+    # gagner) et lien vers le déstockage (pour son bilan). Vides sinon.
+    prix_normal = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    destockage = models.ForeignKey(
+        "stock.Destockage", on_delete=models.SET_NULL, null=True, blank=True, related_name="lignes_vente"
+    )
 
     def __str__(self):
         return f"{self.quantite} x {self.variante}"

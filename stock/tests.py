@@ -5,8 +5,10 @@ from rest_framework.test import APITestCase
 from catalogue.models import Produit, Variante
 from comptes.models import Boutique, Role, Utilisateur
 from comptes.services import inscrire_boutique
+from configuration.models import Parametre
+from configuration.services import CLE_FABRICATION_PROPRE
 
-from .models import Depot, MouvementStock, Stock
+from .models import Depot, Destockage, MouvementStock, OperationDestockage, PerteStock, Stock
 from .services import appliquer_mouvement, demarrer_inventaire, transferer_stock, valider_inventaire
 
 
@@ -80,6 +82,86 @@ class MouvementsTests(APITestCase):
         variantes_en_rupture = {str(ligne["variante"]) for ligne in reponse.data}
         self.assertIn(str(self.variante.id), variantes_en_rupture)
         self.assertNotIn(str(variante2.id), variantes_en_rupture)
+
+
+class EntreeManuelleFabricationTests(APITestCase):
+    """Réglage "fabrication propre" : l'entrée manuelle n'est permise qu'aux
+    boutiques qui fabriquent, sauf pour le tout premier stock d'une variante."""
+
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique F"}, {"username": "patronF", "password": "UnMotDePasseSolide123"}
+        )
+        self.depot = Depot.objects.create(boutique=self.boutique, nom="Magasin")
+        produit = Produit.objects.create(boutique=self.boutique, nom="Savon")
+        self.variante = Variante.objects.create(produit=produit, prix_achat=100, prix_vente=150)
+        self.client.force_authenticate(user=self.patron)
+
+    def _entree(self, quantite="10"):
+        return self.client.post(
+            reverse("mouvement-list"),
+            {"variante": str(self.variante.id), "depot": str(self.depot.id), "type": "entree", "quantite": quantite},
+            format="json",
+        )
+
+    def test_stock_initial_permis_puis_entree_suivante_refusee(self):
+        self.assertEqual(self._entree().status_code, status.HTTP_201_CREATED)
+        reponse = self._entree()
+        self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST, reponse.data)
+        self.assertEqual(Stock.objects.get(variante=self.variante, depot=self.depot).quantite, 10)
+
+    def test_entree_permise_si_la_boutique_fabrique(self):
+        Parametre.objects.create(boutique=self.boutique, cle=CLE_FABRICATION_PROPRE, valeur="1")
+        self.assertEqual(self._entree().status_code, status.HTTP_201_CREATED)
+        self.assertEqual(self._entree().status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Stock.objects.get(variante=self.variante, depot=self.depot).quantite, 20)
+
+    def test_ajustement_et_sortie_restent_permis(self):
+        self._entree()
+        for type_mouvement, quantite in (("sortie", "2"), ("ajustement", "-1")):
+            reponse = self.client.post(
+                reverse("mouvement-list"),
+                {"variante": str(self.variante.id), "depot": str(self.depot.id), "type": type_mouvement, "quantite": quantite},
+                format="json",
+            )
+            self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+
+
+class PerteStockTests(APITestCase):
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique P"}, {"username": "patronP", "password": "UnMotDePasseSolide123"}
+        )
+        self.depot = Depot.objects.create(boutique=self.boutique, nom="Magasin")
+        produit = Produit.objects.create(boutique=self.boutique, nom="Yaourt")
+        self.variante = Variante.objects.create(produit=produit, prix_achat=250, prix_vente=400)
+        appliquer_mouvement(self.variante, self.depot, MouvementStock.Type.ENTREE, 20)
+        self.client.force_authenticate(user=self.patron)
+
+    def _declarer(self, **donnees):
+        corps = {"variante": str(self.variante.id), "depot": str(self.depot.id), "quantite": "4", "motif": "perime"}
+        corps.update(donnees)
+        return self.client.post(reverse("perte-list"), corps, format="json")
+
+    def test_perte_sort_du_stock_valorisee_au_cump(self):
+        reponse = self._declarer()
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+        self.assertEqual(Stock.objects.get(variante=self.variante, depot=self.depot).quantite, 16)
+        perte = PerteStock.objects.get()
+        self.assertEqual(perte.valeur, 1000)
+        mouvement = MouvementStock.objects.get(reference_type="stock.PerteStock", reference_id=perte.id)
+        self.assertEqual(mouvement.type, MouvementStock.Type.SORTIE)
+        self.assertEqual(mouvement.motif, "Perte : Périmé")
+
+    def test_motif_autre_exige_une_detail(self):
+        self.assertEqual(self._declarer(motif="autre").status_code, status.HTTP_400_BAD_REQUEST)
+        reponse = self._declarer(motif="autre", detail="Mangé par les rats")
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+
+    def test_perte_superieure_au_stock_refusee(self):
+        self.assertEqual(self._declarer(quantite="50").status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(PerteStock.objects.count(), 0)
+        self.assertEqual(Stock.objects.get(variante=self.variante, depot=self.depot).quantite, 20)
 
 
 class TransfertTests(APITestCase):
@@ -184,3 +266,79 @@ class PermissionsStockTests(APITestCase):
             format="json",
         )
         self.assertEqual(reponse_creation.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class OperationDestockageTests(APITestCase):
+    """Opération de déstockage : plusieurs articles d'un coup, tout ou rien, arrêt global."""
+
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique O"}, {"username": "patronO", "password": "UnMotDePasseSolide123"}
+        )
+        self.depot = Depot.objects.create(boutique=self.boutique, nom="Magasin")
+        self.chemise = Variante.objects.create(
+            produit=Produit.objects.create(boutique=self.boutique, nom="Chemise"), prix_achat=3000, prix_vente=5000,
+        )
+        self.pantalon = Variante.objects.create(
+            produit=Produit.objects.create(boutique=self.boutique, nom="Pantalon"), prix_achat=4000, prix_vente=8000,
+        )
+        self.client.force_authenticate(user=self.patron)
+
+    def _creer(self, lignes, nom="Liquidation fin d'année"):
+        return self.client.post(
+            reverse("operationdestockage-list"),
+            {"nom": nom, "lignes": [{"variante": str(v.id), "prix_destockage": p} for v, p in lignes]},
+            format="json",
+        )
+
+    def test_cree_un_destockage_par_article_rattache_a_l_operation(self):
+        reponse = self._creer([(self.chemise, "3500"), (self.pantalon, "6000")])
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+        operation = OperationDestockage.objects.get()
+        self.assertEqual(operation.destockages.count(), 2)
+        self.assertEqual(Destockage.objects.get(variante=self.pantalon).prix_destockage, 6000)
+
+    def test_tout_ou_rien_si_un_article_est_refuse(self):
+        reponse = self._creer([(self.chemise, "3500"), (self.pantalon, "9000")])  # 9000 > prix normal
+        self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(OperationDestockage.objects.count(), 0)
+        self.assertEqual(Destockage.objects.count(), 0)
+
+    def test_arreter_l_operation_arrete_tous_ses_articles(self):
+        self._creer([(self.chemise, "3500"), (self.pantalon, "6000")])
+        operation = OperationDestockage.objects.get()
+        reponse = self.client.post(reverse("operationdestockage-arreter", args=[operation.id]))
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK, reponse.data)
+        self.assertEqual(
+            set(Destockage.objects.values_list("motif_fin", flat=True)), {Destockage.MotifFin.MANUEL}
+        )
+        self.assertEqual(
+            self.client.post(reverse("operationdestockage-arreter", args=[operation.id])).status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class SuppressionBoutiqueAvecPertesEtDestockagesTests(APITestCase):
+    """La suppression définitive d'une boutique (admin) ne doit pas buter sur
+    les FK PROTECT de PerteStock / Destockage."""
+
+    def test_suppression_definitive(self):
+        from comptes.models import Boutique
+        from comptes.services import supprimer_boutique_definitivement
+        from .services import declarer_perte, demarrer_destockage
+
+        boutique, _ = inscrire_boutique(
+            {"nom": "Boutique S"}, {"username": "patronS", "password": "UnMotDePasseSolide123"}
+        )
+        depot = Depot.objects.create(boutique=boutique, nom="Magasin")
+        variante = Variante.objects.create(
+            produit=Produit.objects.create(boutique=boutique, nom="Sac"), prix_achat=100, prix_vente=200,
+        )
+        appliquer_mouvement(variante, depot, MouvementStock.Type.ENTREE, 10)
+        declarer_perte(variante, depot, 1, PerteStock.Motif.ABIME)
+        demarrer_destockage(variante, 150)
+
+        supprimer_boutique_definitivement(boutique)
+        self.assertFalse(Boutique.objects.filter(id=boutique.id).exists())
+        self.assertEqual(PerteStock.objects.count(), 0)
+        self.assertEqual(Destockage.objects.count(), 0)

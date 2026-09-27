@@ -6,10 +6,10 @@ from catalogue.models import Produit, Variante
 from clients.models import Client, Credit
 from comptes.models import Role, Utilisateur
 from comptes.services import inscrire_boutique
-from stock.models import MouvementStock, Stock
+from stock.models import Destockage, MouvementStock, Stock
 from stock.services import appliquer_mouvement
 
-from .models import Vente
+from .models import LigneVente, Vente
 
 
 class VenteSimpleTests(APITestCase):
@@ -177,3 +177,82 @@ class PermissionsVenteTests(APITestCase):
 
         reponse_annulation = self.client.post(reverse("vente-annuler", args=[reponse.data["id"]]))
         self.assertEqual(reponse_annulation.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class DestockageTests(APITestCase):
+    """Déstockage : prix réduit appliqué en caisse, trace sur la ligne de vente,
+    fin automatique quand le stock est épuisé."""
+
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique D"}, {"username": "patronD", "password": "UnMotDePasseSolide123"}
+        )
+        from stock.models import Depot
+        self.depot = Depot.objects.create(boutique=self.boutique, nom="Magasin")
+        produit = Produit.objects.create(boutique=self.boutique, nom="Chemise")
+        self.variante = Variante.objects.create(produit=produit, prix_achat=3000, prix_vente=5000)
+        appliquer_mouvement(self.variante, self.depot, MouvementStock.Type.ENTREE, 5)
+
+        self.caissier = Utilisateur(
+            boutique=self.boutique,
+            role=Role.objects.get(boutique=self.boutique, nom="Caissier"),
+            username="caissierD",
+        )
+        self.caissier.set_password("UnMotDePasseSolide123")
+        self.caissier.save()
+
+    def _demarrer(self, prix="2500", **donnees):
+        self.client.force_authenticate(user=self.patron)
+        corps = {"variante": str(self.variante.id), "prix_destockage": prix}
+        corps.update(donnees)
+        return self.client.post(reverse("destockage-list"), corps, format="json")
+
+    def _vendre(self, quantite, montant, **ligne):
+        self.client.force_authenticate(user=self.caissier)
+        return self.client.post(
+            reverse("vente-list"),
+            {
+                "depot": str(self.depot.id),
+                "statut": "payee",
+                "lignes_saisie": [{"variante": str(self.variante.id), "quantite": quantite, **ligne}],
+                "paiements_saisie": [{"mode": "especes", "montant": montant}],
+            },
+            format="json",
+        )
+
+    def test_prix_de_destockage_applique_et_trace_sur_la_ligne(self):
+        reponse = self._demarrer()
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+        destockage = Destockage.objects.get()
+        self.assertEqual(destockage.prix_normal, 5000)
+
+        # Le caissier (sans droit "modifier_prix") peut envoyer le prix de déstockage.
+        reponse = self._vendre("2", "5000", prix_unitaire="2500")
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+        ligne = LigneVente.objects.get()
+        self.assertEqual(ligne.prix_unitaire, 2500)
+        self.assertEqual(ligne.prix_normal, 5000)
+        self.assertEqual(ligne.destockage, destockage)
+
+    def test_termine_automatiquement_quand_le_stock_est_epuise(self):
+        self._demarrer()
+        self.assertEqual(self._vendre("5", "12500").status_code, status.HTTP_201_CREATED)
+        destockage = Destockage.objects.get()
+        self.assertEqual(destockage.statut, Destockage.Statut.TERMINE)
+        self.assertEqual(destockage.motif_fin, Destockage.MotifFin.EPUISE)
+
+    def test_refus_prix_superieur_au_prix_normal_et_double_destockage(self):
+        self.assertEqual(self._demarrer(prix="6000").status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self._demarrer().status_code, status.HTTP_201_CREATED)
+        self.assertEqual(self._demarrer(prix="2000").status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_arret_manuel_puis_prix_normal(self):
+        self._demarrer()
+        destockage = Destockage.objects.get()
+        reponse = self.client.post(reverse("destockage-arreter", args=[destockage.id]))
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK, reponse.data)
+        destockage.refresh_from_db()
+        self.assertEqual(destockage.motif_fin, Destockage.MotifFin.MANUEL)
+        # Après l'arrêt, le prix de déstockage n'est plus accepté pour un caissier.
+        self.assertEqual(self._vendre("1", "2500", prix_unitaire="2500").status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self._vendre("1", "5000").status_code, status.HTTP_201_CREATED)

@@ -2,9 +2,13 @@ from django.contrib import admin
 
 from .models import (
     Depot,
+    Destockage,
     Inventaire,
+    OperationDestockage,
     LigneInventaire,
     MouvementStock,
+    PerteStock,
+    ReleveDormants,
     Stock,
     TransfertStock,
 )
@@ -35,6 +39,31 @@ class MouvementStockAdmin(admin.ModelAdmin):
 class TransfertStockAdmin(admin.ModelAdmin):
     list_display = ("variante", "depot_source", "depot_destination", "quantite", "utilisateur")
     list_filter = ("depot_source", "depot_destination")
+
+
+@admin.register(PerteStock)
+class PerteStockAdmin(admin.ModelAdmin):
+    list_display = ("variante", "depot", "quantite", "motif", "valeur", "utilisateur", "date_creation")
+    list_filter = ("motif", "depot")
+
+
+@admin.register(ReleveDormants)
+class ReleveDormantsAdmin(admin.ModelAdmin):
+    list_display = ("boutique", "date", "jours_seuil", "nombre_articles", "valeur_immobilisee")
+    list_filter = ("boutique",)
+
+
+@admin.register(OperationDestockage)
+class OperationDestockageAdmin(admin.ModelAdmin):
+    list_display = ("nom", "boutique", "date_fin", "date_creation")
+
+
+@admin.register(Destockage)
+class DestockageAdmin(admin.ModelAdmin):
+    list_display = (
+        "variante", "operation", "prix_normal", "prix_destockage", "date_fin", "statut", "motif_fin", "date_creation",
+    )
+    list_filter = ("statut", "motif_fin")
 
 
 class LigneInventaireInline(admin.TabularInline):

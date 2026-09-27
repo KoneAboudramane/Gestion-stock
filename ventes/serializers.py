@@ -8,6 +8,7 @@ from stock.models import Depot
 
 from .models import LigneVente, Paiement, Vente
 from .services import creer_vente
+from stock.services import destockage_actif
 
 
 class LigneVenteEntreeSerializer(serializers.Serializer):
@@ -35,7 +36,10 @@ class PaiementEntreeSerializer(serializers.Serializer):
 class LigneVenteSerializer(serializers.ModelSerializer):
     class Meta:
         model = LigneVente
-        fields = ["id", "variante", "quantite", "prix_unitaire", "cout_unitaire", "remise", "sous_total"]
+        fields = [
+            "id", "variante", "quantite", "prix_unitaire", "cout_unitaire", "remise", "sous_total",
+            "prix_normal", "destockage",
+        ]
         read_only_fields = fields
 
     def to_representation(self, instance):
@@ -90,7 +94,9 @@ class VenteSerializer(serializers.ModelSerializer):
         peut_modifier_prix = bool(role and role.permissions.get("modifier_prix", False))
         for ligne in attrs.get("lignes_saisie", []):
             prix_unitaire = ligne.get("prix_unitaire")
-            if prix_unitaire is not None and prix_unitaire != ligne["variante"].prix_vente and not peut_modifier_prix:
+            destockage = destockage_actif(ligne["variante"])
+            prix_attendu = destockage.prix_destockage if destockage else ligne["variante"].prix_vente
+            if prix_unitaire is not None and prix_unitaire != prix_attendu and not peut_modifier_prix:
                 raise serializers.ValidationError("Votre rôle ne permet pas de modifier les prix.")
         return attrs
 

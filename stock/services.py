@@ -5,9 +5,11 @@ partir des mouvements, jamais écrasé directement ; le stock négatif est inter
 par défaut.
 """
 from django.db import transaction
+from django.db.models import Sum
+from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from .models import Inventaire, MouvementStock, Stock, TransfertStock
+from .models import Destockage, Inventaire, OperationDestockage, MouvementStock, PerteStock, Stock, TransfertStock
 
 
 def _delta_pour(type_mouvement, quantite):
@@ -45,6 +47,126 @@ def appliquer_mouvement(
         reference_id=reference_id,
         utilisateur=utilisateur,
     )
+
+
+# --- Déstockage (même logique que client-electron/electron/services/stock.ts) ---
+
+def destockage_actif(variante):
+    """Déstockage en cours et pas encore arrivé à sa date de fin, ou None."""
+    aujourdhui = timezone.localdate()
+    return (
+        Destockage.objects.filter(variante=variante, statut=Destockage.Statut.EN_COURS)
+        .exclude(date_fin__lt=aujourdhui)
+        .order_by("-date_creation")
+        .first()
+    )
+
+
+def _terminer(destockage, motif):
+    destockage.statut = Destockage.Statut.TERMINE
+    destockage.motif_fin = motif
+    destockage.date_arret = timezone.now()
+    destockage.save(update_fields=["statut", "motif_fin", "date_arret", "date_modification"])
+
+
+@transaction.atomic
+def demarrer_destockage(variante, prix_destockage, date_fin=None, utilisateur=None, operation=None):
+    if prix_destockage <= 0:
+        raise ValidationError("Le prix de déstockage doit être positif.")
+    if prix_destockage >= variante.prix_vente:
+        raise ValidationError("Le prix de déstockage doit être inférieur au prix de vente normal.")
+    if date_fin and date_fin < timezone.localdate():
+        raise ValidationError("La date de fin est déjà passée.")
+    if destockage_actif(variante):
+        raise ValidationError("Cet article est déjà en déstockage.")
+    # Déstockages restés "en cours" mais dont la date de fin est passée : on les clôt.
+    for ancien in Destockage.objects.filter(variante=variante, statut=Destockage.Statut.EN_COURS):
+        _terminer(ancien, Destockage.MotifFin.DATE)
+    return Destockage.objects.create(
+        variante=variante, prix_normal=variante.prix_vente, prix_destockage=prix_destockage,
+        date_fin=date_fin, utilisateur=utilisateur, operation=operation,
+    )
+
+
+@transaction.atomic
+def demarrer_operation_destockage(boutique, nom, lignes, date_fin=None, utilisateur=None):
+    """Déstocke plusieurs articles d'un coup sous un même nom. `lignes` :
+    [{"variante": Variante, "prix_destockage": Decimal}]. Tout ou rien : si un
+    article est refusé, aucun déstockage de l'opération n'est créé."""
+    if not lignes:
+        raise ValidationError("Choisissez au moins un article.")
+    nom = (nom or "").strip()
+    if not nom:
+        raise ValidationError("Donnez un nom à l'opération de déstockage.")
+    variantes = [l["variante"] for l in lignes]
+    if len(set(v.id for v in variantes)) != len(variantes):
+        raise ValidationError("Un même article apparaît deux fois.")
+    operation = OperationDestockage.objects.create(
+        boutique=boutique, nom=nom, date_fin=date_fin, utilisateur=utilisateur,
+    )
+    for ligne in lignes:
+        try:
+            demarrer_destockage(
+                ligne["variante"], ligne["prix_destockage"], date_fin=date_fin,
+                utilisateur=utilisateur, operation=operation,
+            )
+        except ValidationError as erreur:
+            detail = erreur.detail[0] if isinstance(erreur.detail, list) else erreur.detail
+            raise ValidationError(f"{ligne['variante']} : {detail}")
+    return operation
+
+
+def arreter_operation_destockage(operation):
+    """Arrête tous les déstockages encore en cours de l'opération."""
+    en_cours = [d for d in operation.destockages.all() if d.statut == Destockage.Statut.EN_COURS]
+    if not en_cours:
+        raise ValidationError("Cette opération est déjà terminée.")
+    for destockage in en_cours:
+        _terminer(destockage, Destockage.MotifFin.MANUEL)
+    return operation
+
+
+def arreter_destockage(destockage):
+    if destockage.statut == Destockage.Statut.TERMINE:
+        raise ValidationError("Ce déstockage est déjà terminé.")
+    _terminer(destockage, Destockage.MotifFin.MANUEL)
+    return destockage
+
+
+def terminer_destockage_si_epuise(variante):
+    """Appelé après une sortie de stock (vente, perte) : le déstockage s'arrête
+    tout seul quand l'article n'a plus de stock, tous dépôts confondus."""
+    destockage = destockage_actif(variante)
+    if not destockage:
+        return
+    total = Stock.objects.filter(variante=variante).aggregate(total=Sum("quantite"))["total"] or 0
+    if total <= 0:
+        _terminer(destockage, Destockage.MotifFin.EPUISE)
+
+
+@transaction.atomic
+def declarer_perte(variante, depot, quantite, motif, detail="", utilisateur=None):
+    """Sortie de stock sans vente, valorisée au CUMP courant de la variante.
+    Même logique que client-electron/electron/services/stock.ts::declarerPerte."""
+    if quantite <= 0:
+        raise ValidationError("La quantité doit être strictement positive.")
+    detail = (detail or "").strip()
+    if motif == PerteStock.Motif.AUTRE and not detail:
+        raise ValidationError("Précisez la raison de la perte.")
+    perte = PerteStock.objects.create(
+        variante=variante, depot=depot, quantite=quantite, motif=motif,
+        detail=detail, valeur=round(quantite * variante.prix_achat),
+        utilisateur=utilisateur,
+    )
+    libelle = PerteStock.Motif(motif).label
+    appliquer_mouvement(
+        variante, depot, MouvementStock.Type.SORTIE, quantite,
+        motif=f"Perte : {libelle}" + (f" ({detail})" if detail else ""),
+        utilisateur=utilisateur,
+        reference_type="stock.PerteStock", reference_id=perte.id,
+    )
+    terminer_destockage_si_epuise(variante)
+    return perte
 
 
 @transaction.atomic
