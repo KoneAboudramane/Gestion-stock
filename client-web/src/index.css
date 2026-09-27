@@ -6948,3 +6948,15 @@ button.tuile-dormance.active {
 .modale-corps > .zone-tableau-scroll {
   flex-shrink: 0;
 }
+
+/* Fenêtre d'une dette : résumé, remboursement et échéancier restent en place,
+   seules les lignes des traces des paiements défilent. */
+.modale-corps > .zone-traces-dette {
+  flex: 1 1 auto;
+  min-height: 160px;
+  max-height: none;
+}
+
+.modale-corps > .zone-echeances-dette {
+  max-height: 200px;
+}

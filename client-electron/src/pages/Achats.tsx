@@ -2165,7 +2165,7 @@ function ModaleDette({
           )}
           {!planification &&
             (echeances.length > 0 ? (
-              <div className="zone-tableau-scroll">
+              <div className="zone-tableau-scroll zone-echeances-dette">
                 <table className="tableau-catalogue">
                   <thead>
                     <tr>
@@ -2196,7 +2196,7 @@ function ModaleDette({
             ))}
 
           <h4>Traces des paiements</h4>
-          <div className="zone-tableau-scroll">
+          <div className="zone-tableau-scroll zone-traces-dette">
             <table className="tableau-catalogue">
               <thead>
                 <tr>
