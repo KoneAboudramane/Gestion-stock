@@ -77,7 +77,13 @@ function ContenuFacture({
                 {colonneReference && <td>{l.reference || ""}</td>}
                 <td>{l.produitNom}</td>
                 <td>{l.quantite}</td>
-                <td>{formaterMontant(l.prixUnitaire)}</td>
+                <td>
+                  {l.prixNormal != null && l.prixNormal > l.prixUnitaire && (
+                    <s className="prix-barre">{formaterMontant(l.prixNormal)}</s>
+                  )}
+                  {formaterMontant(l.prixUnitaire)}
+                  {l.prixNormal != null && <div className="mention-destockage">Déstockage</div>}
+                </td>
                 <td>{formaterMontant(l.sousTotal)}</td>
               </tr>
             ))}

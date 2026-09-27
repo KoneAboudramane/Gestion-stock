@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 
 import type { Session } from "../api";
 import ChampMontant from "../components/ChampMontant";
+import ModaleConfirmation from "../components/ModaleConfirmation";
 import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant } from "../lib/formatage";
 import {
@@ -12,6 +13,9 @@ import {
   listerCommandes,
   listerDettes,
   listerFournisseurs,
+  listerPaiementsDette,
+  listerHistoriqueReceptions,
+  listerReceptionsCommande,
   modifierCommande,
   obtenirCommande,
   obtenirDerniersFournisseurs,
@@ -22,11 +26,14 @@ import {
   type CommandeResume,
   type DetteResume,
   type FournisseurResume,
+  type PaiementDetteDetail,
+  type ReceptionDetail,
+  type ReceptionHistorique,
   type StatutCommande,
   type StatutDette,
   type VarianteAchat,
 } from "../services/achats";
-import { MODES_REGLEMENT } from "../lib/libelles";
+import { libelleModeReglement, MODES_REGLEMENT } from "../lib/libelles";
 import { creerProduit, ErreurProduit, obtenirProduit } from "../services/produits";
 import { listerDepotsDetail, type DepotResume, type LigneAchatInitiale } from "../services/stock";
 
@@ -47,6 +54,15 @@ function libelleStatutCommande(statut: StatutCommande): string {
   return "Annulée";
 }
 
+/** "Partiellement reçue" n'est pas un statut stocké : une commande encore
+ * "commandee" dont une partie a déjà été livrée (voir receptionnerCommande). */
+function BadgeStatutCommande({ statut, partiellementRecue }: { statut: StatutCommande; partiellementRecue: boolean }) {
+  if (statut === "commandee" && partiellementRecue) {
+    return <span className="badge-partielle">Partiellement reçue</span>;
+  }
+  return <span className={`badge-${statut}`}>{libelleStatutCommande(statut)}</span>;
+}
+
 interface LigneSaisie {
   varianteId: string;
   produitNom: string;
@@ -58,20 +74,22 @@ interface LigneSaisie {
 function FormulaireCommande({
   session,
   fournisseurs,
+  commandeAModifier,
   onAnnuler,
   onCree,
 }: {
   session: Session;
   fournisseurs: FournisseurResume[];
+  commandeAModifier?: { id: string; fournisseurId: string; lignes: LigneSaisie[] };
   onAnnuler: () => void;
   onCree: () => void;
 }) {
   const devise = useDevise();
-  const [fournisseurId, setFournisseurId] = useState(fournisseurs[0]?.id ?? "");
+  const [fournisseurId, setFournisseurId] = useState(commandeAModifier?.fournisseurId ?? fournisseurs[0]?.id ?? "");
   const [terme, setTerme] = useState("");
   const [resultats, setResultats] = useState<VarianteAchat[]>([]);
   const [dropdownOuvert, setDropdownOuvert] = useState(false);
-  const [lignes, setLignes] = useState<LigneSaisie[]>([]);
+  const [lignes, setLignes] = useState<LigneSaisie[]>(commandeAModifier?.lignes ?? []);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
 
@@ -136,13 +154,18 @@ function FormulaireCommande({
     }
     setEnCours(true);
     try {
-      await creerCommande({
-        boutiqueId: session.boutiqueId,
-        fournisseurId,
-        utilisateurId: session.utilisateurId,
-        statut,
-        lignes: lignes.map((l) => ({ varianteId: l.varianteId, quantite: l.quantite, prixAchat: l.prixAchat })),
-      });
+      const lignesPayload = lignes.map((l) => ({ varianteId: l.varianteId, quantite: l.quantite, prixAchat: l.prixAchat }));
+      if (commandeAModifier) {
+        await modifierCommande(commandeAModifier.id, { fournisseurId, statut, lignes: lignesPayload });
+      } else {
+        await creerCommande({
+          boutiqueId: session.boutiqueId,
+          fournisseurId,
+          utilisateurId: session.utilisateurId,
+          statut,
+          lignes: lignesPayload,
+        });
+      }
       onCree();
     } catch (e) {
       setErreur(e instanceof ErreurAchat ? e.message : "Erreur inattendue.");
@@ -154,13 +177,13 @@ function FormulaireCommande({
   return (
     <div className="formulaire-mouvement-groupe">
       <div className="modale-entete entete-fixe">
-        <h3>Nouvelle commande</h3>
+        <h3>{commandeAModifier ? "Modifier la commande" : "Nouvelle commande"}</h3>
         <div className="actions-formulaire">
           <button type="button" onClick={() => soumettre("brouillon")} disabled={enCours}>
             {enCours ? "Enregistrement…" : "Enregistrer en brouillon"}
           </button>
           <button type="button" className="bouton-primaire" onClick={() => soumettre("commandee")} disabled={enCours}>
-            {enCours ? "Enregistrement…" : "Créer et commander"}
+            {enCours ? "Enregistrement…" : commandeAModifier ? "Enregistrer et commander" : "Créer et commander"}
           </button>
           <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
             ← Retour
@@ -470,15 +493,55 @@ function ApercuCommandesGroupees({
   );
 }
 
+/** Animation de confirmation après une réception : coche qui se dessine puis
+ * fermeture automatique (un clic ferme tout de suite). */
+function ConfirmationReception({
+  quantiteRecue,
+  quantiteRestante,
+  onTerminee,
+}: {
+  quantiteRecue: number;
+  quantiteRestante: number;
+  onTerminee: () => void;
+}) {
+  useEffect(() => {
+    const minuterie = setTimeout(onTerminee, 1800);
+    return () => clearTimeout(minuterie);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="fond-confirmation-reception" onClick={onTerminee}>
+      <div className="carte-confirmation-reception" role="status">
+        <svg className="coche-reception" viewBox="0 0 52 52" aria-hidden="true">
+          <circle className="coche-reception-cercle" cx="26" cy="26" r="24" />
+          <path className="coche-reception-trait" d="M15 27 l7 7 l15 -16" />
+        </svg>
+        <h3>Réception enregistrée</h3>
+        <p>
+          {quantiteRecue} article{quantiteRecue > 1 ? "s" : ""} entré{quantiteRecue > 1 ? "s" : ""} en stock
+        </p>
+        <p className="sous-info">
+          {quantiteRestante > 0
+            ? `Reste ${quantiteRestante} à réceptionner`
+            : "Commande entièrement reçue"}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function DetailCommande({
   commandeId,
   session,
   fournisseurs,
+  ouvrirReceptionInitial,
   onRetour,
 }: {
   commandeId: string;
   session: Session;
   fournisseurs: FournisseurResume[];
+  ouvrirReceptionInitial?: boolean;
   onRetour: () => void;
 }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
@@ -488,9 +551,21 @@ function DetailCommande({
   const [depotId, setDepotId] = useState("");
   const [montantDejaPaye, setMontantDejaPaye] = useState("0");
   const [afficherReception, setAfficherReception] = useState(false);
+  const [receptionReussie, setReceptionReussie] = useState<{ quantiteRecue: number; quantiteRestante: number } | null>(
+    null,
+  );
+  const [afficherDetailCommande, setAfficherDetailCommande] = useState(false);
   const [prixVentes, setPrixVentes] = useState<Record<string, string>>({});
+  const [quantitesRecevoir, setQuantitesRecevoir] = useState<Record<string, string>>({});
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  const [afficherHistorique, setAfficherHistorique] = useState(false);
+  const [sectionHistorique, setSectionHistorique] = useState<"receptions" | "paiements">("receptions");
+  const [receptions, setReceptions] = useState<ReceptionDetail[]>([]);
+  const [receptionSelectionnee, setReceptionSelectionnee] = useState<ReceptionDetail | null>(null);
+  const [dettesCommande, setDettesCommande] = useState<(DetteResume & { paiements: PaiementDetteDetail[] })[]>([]);
+  const [afficherModification, setAfficherModification] = useState(false);
+  const [afficherConfirmationAnnulation, setAfficherConfirmationAnnulation] = useState(false);
 
   async function rafraichir() {
     const resultat = await obtenirCommande(commandeId);
@@ -523,31 +598,87 @@ function DetailCommande({
     }
   }
 
+  async function annulerCommande() {
+    setEnCours(true);
+    try {
+      await modifierCommande(commandeId, { statut: "annulee" });
+      setAfficherConfirmationAnnulation(false);
+      rafraichir();
+    } catch (e) {
+      setErreur(e instanceof ErreurAchat ? e.message : "Erreur inattendue.");
+    } finally {
+      setEnCours(false);
+    }
+  }
+
   function ouvrirReception() {
     if (commande) {
-      const initial: Record<string, string> = {};
+      const initialPrix: Record<string, string> = {};
+      const initialQuantites: Record<string, string> = {};
       for (const ligne of commande.lignes) {
-        initial[ligne.varianteId] = String(ligne.prixAchat || "");
+        initialPrix[ligne.varianteId] = String(ligne.prixAchat || "");
+        initialQuantites[ligne.varianteId] = String(ligne.quantite - ligne.quantiteRecue);
       }
-      setPrixVentes(initial);
+      setPrixVentes(initialPrix);
+      setQuantitesRecevoir(initialQuantites);
     }
+    setAfficherDetailCommande(false);
     setAfficherReception(true);
   }
 
+  async function ouvrirHistorique() {
+    if (!commande) return;
+    const [receptionsResultat, dettesResultat] = await Promise.all([
+      listerReceptionsCommande(commandeId),
+      listerDettes(session.boutiqueId, commande.fournisseurId),
+    ]);
+    const dettesCommandeSeules = dettesResultat.filter((d) => d.commandeId === commandeId);
+    const dettesAvecPaiements = await Promise.all(
+      dettesCommandeSeules.map(async (d) => ({ ...d, paiements: await listerPaiementsDette(d.id) })),
+    );
+    setReceptions(receptionsResultat);
+    setReceptionSelectionnee(null);
+    setDettesCommande(dettesAvecPaiements);
+    setSectionHistorique("receptions");
+    setAfficherHistorique(true);
+  }
+
+  // Arrivée depuis la file d'attente « Réceptionner » : la commande est déjà
+  // au statut commandée, on ouvre directement le formulaire sans repasser par
+  // le bouton (ne se redéclenche pas après une réception réussie, puisque le
+  // statut passe alors à "recue").
+  useEffect(() => {
+    if (ouvrirReceptionInitial && commande?.statut === "commandee" && !afficherReception) {
+      ouvrirReception();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ouvrirReceptionInitial, commande]);
+
   async function receptionner() {
-    if (!depotId) return;
+    if (!depotId || !commande) return;
     setEnCours(true);
     setErreur(null);
+    const quantiteRecue = commande.lignes.reduce(
+      (somme, l) => somme + Math.max(0, Number(quantitesRecevoir[l.varianteId]) || 0),
+      0,
+    );
+    const quantiteRestante =
+      commande.lignes.reduce((somme, l) => somme + (l.quantite - l.quantiteRecue), 0) - quantiteRecue;
     try {
       await receptionnerCommande({
         commandeId,
         depotId,
         utilisateurId: session.utilisateurId,
         montantDejaPaye: Number(montantDejaPaye) || 0,
-        lignesPrix: Object.entries(prixVentes).map(([varianteId, prixVente]) => ({ varianteId, prixVente: Number(prixVente) || 0 })),
+        lignes: commande.lignes
+          .map((l) => ({
+            varianteId: l.varianteId,
+            quantite: Number(quantitesRecevoir[l.varianteId]) || 0,
+            prixVente: Number(prixVentes[l.varianteId]) || 0,
+          }))
+          .filter((l) => l.quantite > 0),
       });
-      setAfficherReception(false);
-      rafraichir();
+      setReceptionReussie({ quantiteRecue, quantiteRestante });
     } catch (e) {
       setErreur(e instanceof ErreurAchat ? e.message : "Erreur inattendue.");
     } finally {
@@ -557,35 +688,55 @@ function DetailCommande({
 
   if (!commande) return <p>Chargement…</p>;
   const fournisseurModifiable = commande.statut === "brouillon";
+  const peutAnnuler =
+    peutGerer &&
+    !afficherReception &&
+    (commande.statut === "brouillon" || commande.statut === "commandee") &&
+    commande.lignes.every((l) => l.quantiteRecue === 0);
+  const lignesAReceptionner = commande.lignes.filter((l) => l.quantite - l.quantiteRecue > 0);
+  const quantiteTotaleARecevoir = lignesAReceptionner.reduce(
+    (somme, l) => somme + Math.max(0, Number(quantitesRecevoir[l.varianteId] || 0)),
+    0,
+  );
+  const valeurARecevoir = lignesAReceptionner.reduce((somme, l) => {
+    const quantiteSaisie = Number(quantitesRecevoir[l.varianteId] || 0);
+    return somme + (quantiteSaisie > 0 ? quantiteSaisie * l.prixAchat : 0);
+  }, 0);
+  const resteAPayer = valeurARecevoir - (Number(montantDejaPaye) || 0);
 
-  return (
-    <div className="detail-produit">
-      <div className="entete-detail">
-        <h3>
-          Commande {commande.numero} <span className={`badge-${commande.statut}`}>{libelleStatutCommande(commande.statut)}</span>
-        </h3>
-        <button type="button" className="lien bouton-retour" onClick={onRetour}>
-          ← Retour à la liste
-        </button>
-      </div>
-      {erreur && <div className="message-erreur">{erreur}</div>}
+  // Paiements fournisseur de la commande : ce qui a été payé sur place à
+  // chaque réception (pas de dette créée si c'est tout payé) + les règlements
+  // de dette faits ensuite. Le reste à payer vient des dettes (seule source
+  // de vérité du solde).
+  const totalRecu = receptions.reduce((somme, r) => somme + r.valeurRecue, 0);
+  const paiementsCommande = [
+    ...receptions
+      .filter((r) => r.montantPaye > 0)
+      .map((r) => ({
+        id: `reception-${r.id}`,
+        dateCreation: r.dateCreation,
+        montant: r.montantPaye,
+        mode: "",
+        origine: "À la réception",
+      })),
+    ...dettesCommande
+      .flatMap((d) => d.paiements)
+      .map((p) => ({ ...p, origine: "Règlement de dette" })),
+  ].sort((a, b) => a.dateCreation.localeCompare(b.dateCreation));
+  const totalPaye = paiementsCommande.reduce((somme, p) => somme + p.montant, 0);
+  const resteAPayerCommande = dettesCommande.reduce((somme, d) => somme + d.solde, 0);
+  const receptionInvalide =
+    lignesAReceptionner.every((l) => !Number(quantitesRecevoir[l.varianteId])) ||
+    (Number(montantDejaPaye) || 0) > valeurARecevoir ||
+    lignesAReceptionner.some((l) => {
+      const restant = l.quantite - l.quantiteRecue;
+      const quantiteSaisie = Number(quantitesRecevoir[l.varianteId] || 0);
+      if (quantiteSaisie < 0 || quantiteSaisie > restant) return true;
+      return quantiteSaisie > 0 && Number(prixVentes[l.varianteId] || 0) < l.prixAchat;
+    });
 
-      <p>
-        Fournisseur :{" "}
-        {peutGerer && fournisseurModifiable ? (
-          <select value={commande.fournisseurId} onChange={(e) => changerFournisseur(e.target.value)}>
-            {fournisseurs.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.nom}
-              </option>
-            ))}
-          </select>
-        ) : (
-          commande.fournisseurNom
-        )}
-        <span className="sous-info"> {new Date(commande.dateCreation).toLocaleString("fr-FR")}</span>
-      </p>
-
+  const tableauLignesCommande = (
+    <>
       <div className="zone-tableau-scroll">
         <table className="tableau-catalogue carte-mobile">
           <thead>
@@ -594,6 +745,8 @@ function DetailCommande({
               <th>Désignation</th>
               <th>Référence</th>
               <th>Qté</th>
+              <th>Reçu</th>
+              <th>Non reçu</th>
               <th>Prix d'achat</th>
               <th>Sous-total</th>
             </tr>
@@ -605,6 +758,8 @@ function DetailCommande({
                 <td data-label="Désignation">{l.produitNom}</td>
                 <td data-label="Référence">{l.reference || ""}</td>
                 <td data-label="Qté">{l.quantite}</td>
+                <td data-label="Reçu">{l.quantiteRecue}</td>
+                <td data-label="Non reçu">{l.quantite - l.quantiteRecue}</td>
                 <td data-label="Prix d'achat">{formaterMontant(l.prixAchat)}</td>
                 <td data-label="Sous-total">{formaterMontant(l.sousTotal)}</td>
               </tr>
@@ -618,64 +773,338 @@ function DetailCommande({
           Total : {formaterMontant(commande.total)} {devise}
         </div>
       </div>
+    </>
+  );
 
-      {peutGerer && commande.statut === "brouillon" && (
-        <button type="button" className="bouton-primaire" onClick={passerEnCommandee}>
-          Passer en commandée
-        </button>
+  return (
+    <div className="detail-produit">
+      {receptionReussie && (
+        <ConfirmationReception
+          quantiteRecue={receptionReussie.quantiteRecue}
+          quantiteRestante={receptionReussie.quantiteRestante}
+          onTerminee={onRetour}
+        />
       )}
-
-      {peutGerer && commande.statut === "commandee" && !afficherReception && (
-        <button type="button" className="bouton-primaire" onClick={ouvrirReception}>
-          Réceptionner
-        </button>
-      )}
-      {peutGerer && commande.statut === "commandee" && afficherReception && (
-        <div className="formulaire-catalogue">
-          <h4>Réception de marchandise</h4>
-          <div className="grille-champs">
-            <label>
-              Dépôt
-              <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
-                {depots.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.nom}
+      <div className="entete-detail">
+        <div className="entete-detail-titre">
+          <h3>Commande {commande.numero}</h3>
+          <BadgeStatutCommande
+            statut={commande.statut}
+            partiellementRecue={commande.lignes.some((l) => l.quantiteRecue > 0)}
+          />
+          <span className="sous-info">
+            Fournisseur :{" "}
+            {peutGerer && fournisseurModifiable ? (
+              <select value={commande.fournisseurId} onChange={(e) => changerFournisseur(e.target.value)}>
+                {fournisseurs.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.nom}
                   </option>
                 ))}
               </select>
-            </label>
-            <label>
-              Montant déjà payé
-              <ChampMontant value={montantDejaPaye} onChange={setMontantDejaPaye} />
-            </label>
+            ) : (
+              commande.fournisseurNom
+            )}{" "}
+            {new Date(commande.dateCreation).toLocaleString("fr-FR")}
+          </span>
+        </div>
+        <div className="entete-detail-actions">
+          {peutGerer && commande.statut === "brouillon" && !afficherReception && (
+            <button type="button" onClick={() => setAfficherModification(true)}>
+              Modifier
+            </button>
+          )}
+          {peutGerer && commande.statut === "brouillon" && !afficherReception && (
+            <button type="button" onClick={passerEnCommandee} disabled={enCours}>
+              Passer en commandée
+            </button>
+          )}
+          {peutGerer && commande.statut === "commandee" && !afficherReception && (
+            <button type="button" className="bouton-primaire" onClick={ouvrirReception} disabled={enCours}>
+              Réceptionner
+            </button>
+          )}
+          {peutAnnuler && (
+            <button
+              type="button"
+              className="bouton-danger"
+              onClick={() => setAfficherConfirmationAnnulation(true)}
+              disabled={enCours}
+            >
+              Annuler la commande
+            </button>
+          )}
+          {commande.statut !== "brouillon" && (
+            <button type="button" onClick={ouvrirHistorique}>
+              Historique
+            </button>
+          )}
+          <button type="button" className="lien bouton-retour" onClick={onRetour}>
+            ← Retour à la liste
+          </button>
+        </div>
+      </div>
+      {erreur && <div className="message-erreur">{erreur}</div>}
+
+      {!afficherReception && tableauLignesCommande}
+
+      {afficherReception && afficherDetailCommande && (
+        <div className="fond-modale" onClick={() => setAfficherDetailCommande(false)}>
+          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+            <EnteteModale titre="Détails de la commande" onFermer={() => setAfficherDetailCommande(false)} />
+            <div className="modale-corps">{tableauLignesCommande}</div>
+          </div>
+        </div>
+      )}
+
+      {afficherModification && (
+        <div className="fond-modale" onClick={() => setAfficherModification(false)}>
+          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+            <FormulaireCommande
+              session={session}
+              fournisseurs={fournisseurs}
+              commandeAModifier={{
+                id: commande.id,
+                fournisseurId: commande.fournisseurId,
+                lignes: commande.lignes.map((l) => ({
+                  varianteId: l.varianteId,
+                  produitNom: l.produitNom,
+                  reference: l.reference,
+                  quantite: l.quantite,
+                  prixAchat: l.prixAchat,
+                })),
+              }}
+              onAnnuler={() => setAfficherModification(false)}
+              onCree={() => {
+                setAfficherModification(false);
+                rafraichir();
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {afficherConfirmationAnnulation && (
+        <ModaleConfirmation
+          titre="Annuler cette commande ?"
+          description="Cette action est définitive : la commande passera au statut « Annulée »."
+          labelConfirmer="Annuler la commande"
+          dangereux
+          enCours={enCours}
+          onAnnuler={() => setAfficherConfirmationAnnulation(false)}
+          onConfirmer={annulerCommande}
+        />
+      )}
+
+      {afficherHistorique && (
+        <div className="fond-modale" onClick={() => setAfficherHistorique(false)}>
+          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+            <EnteteModale titre="Historique de la commande" onFermer={() => setAfficherHistorique(false)} />
+            <div className="modale-avec-menu">
+              <nav className="menu-modale">
+                <button
+                  type="button"
+                  className={sectionHistorique === "receptions" ? "actif" : ""}
+                  onClick={() => setSectionHistorique("receptions")}
+                >
+                  <span className="icone-menu-modale">📥</span>
+                  Réceptions
+                  <span className="compteur-menu-modale">{receptions.length}</span>
+                </button>
+                <button
+                  type="button"
+                  className={sectionHistorique === "paiements" ? "actif" : ""}
+                  onClick={() => setSectionHistorique("paiements")}
+                >
+                  <span className="icone-menu-modale">💰</span>
+                  Paiements fournisseur
+                  <span className="compteur-menu-modale">{paiementsCommande.length}</span>
+                </button>
+              </nav>
+              <div className="modale-corps">
+                {sectionHistorique === "receptions" && (
+                  <>
+                    <h4>Réceptions</h4>
+                    <div className="zone-tableau-scroll">
+                      <table className="tableau-catalogue carte-mobile">
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Dépôt</th>
+                            <th>Valeur reçue</th>
+                            <th>Montant payé</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {receptions.map((r) => (
+                            <tr key={r.id} className="ligne-reception-cliquable" onClick={() => setReceptionSelectionnee(r)}>
+                              <td data-label="Date">{new Date(r.dateCreation).toLocaleString("fr-FR")}</td>
+                              <td data-label="Dépôt">{r.depotNom}</td>
+                              <td data-label="Valeur reçue">
+                                {formaterMontant(r.valeurRecue)} {devise}
+                              </td>
+                              <td data-label="Montant payé">
+                                {formaterMontant(r.montantPaye)} {devise}
+                              </td>
+                            </tr>
+                          ))}
+                          {receptions.length === 0 && (
+                            <tr>
+                              <td colSpan={4} className="liste-vide">Aucune réception enregistrée.</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+                {sectionHistorique === "paiements" && (
+                  <>
+                    <h4>Paiements fournisseur</h4>
+                    <div className="totaux">
+                      <div>
+                        Total reçu : {formaterMontant(totalRecu)} {devise}
+                      </div>
+                      <div>
+                        Total payé : {formaterMontant(totalPaye)} {devise}
+                      </div>
+                      <div className="total-net">
+                        Reste à payer : {formaterMontant(resteAPayerCommande)} {devise}
+                      </div>
+                    </div>
+                    <div className="zone-tableau-scroll">
+                      <table className="tableau-catalogue carte-mobile">
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Montant</th>
+                            <th>Mode</th>
+                            <th>Origine</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {paiementsCommande.map((p) => (
+                            <tr key={p.id}>
+                              <td data-label="Date">{new Date(p.dateCreation).toLocaleString("fr-FR")}</td>
+                              <td data-label="Montant">
+                                {formaterMontant(p.montant)} {devise}
+                              </td>
+                              <td data-label="Mode">{p.mode ? libelleModeReglement(p.mode) : "—"}</td>
+                              <td data-label="Origine">{p.origine}</td>
+                            </tr>
+                          ))}
+                          {paiementsCommande.length === 0 && (
+                            <tr>
+                              <td colSpan={4} className="liste-vide">
+                                Aucun paiement enregistré.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+              {receptionSelectionnee && (
+                <ModaleDetailReception
+                  reception={receptionSelectionnee}
+                  commandeNumero={commande.numero}
+                  fournisseurNom={commande.fournisseurNom}
+                  onFermer={() => setReceptionSelectionnee(null)}
+                />
+              )}
+          </div>
+        </div>
+      )}
+
+      {peutGerer && afficherReception && (
+        <div className="formulaire-catalogue formulaire-reception">
+          <div className="entete-detail entete-fixe">
+            <h4>Réception de marchandise</h4>
+            <div className="entete-detail-actions">
+              <label>
+                Dépôt
+                <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
+                  {depots.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.nom}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Montant déjà payé
+                <ChampMontant className="champ-montant-deja-paye" value={montantDejaPaye} onChange={setMontantDejaPaye} />
+              </label>
+              <button type="button" onClick={() => setAfficherReception(false)}>
+                Annuler
+              </button>
+              <button
+                type="button"
+                className="bouton-primaire"
+                onClick={receptionner}
+                disabled={enCours || receptionInvalide}
+              >
+                {enCours ? "Réception…" : "Confirmer la réception"}
+              </button>
+            </div>
           </div>
 
-          <h4>Prix de vente à la réception</h4>
+          <div className="totaux">
+            <div>Quantité à recevoir : {quantiteTotaleARecevoir}</div>
+            <div>Total à recevoir : {formaterMontant(valeurARecevoir)} {devise}</div>
+            <div className="total-net" style={{ visibility: Number(montantDejaPaye) > 0 ? "visible" : "hidden" }}>
+              Reste à payer : {formaterMontant(Math.max(0, resteAPayer))} {devise}
+            </div>
+          </div>
+
           <div className="zone-tableau-scroll">
             <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th>N°</th>
+                  <th>Référence</th>
                   <th>Désignation</th>
-                  <th>Prix d'achat</th>
-                  <th>Prix de vente</th>
+                  <th className="colonne-sous-total">Qté à recevoir</th>
+                  <th className="colonne-sous-total">Prix d'achat</th>
+                  <th className="colonne-sous-total">Prix de vente</th>
                 </tr>
               </thead>
               <tbody>
-                {commande.lignes.map((l, index) => {
-                  const invalide = Number(prixVentes[l.varianteId] || 0) < l.prixAchat;
+                {lignesAReceptionner.map((l, index) => {
+                  const restant = l.quantite - l.quantiteRecue;
+                  const quantiteSaisie = Number(quantitesRecevoir[l.varianteId] || 0);
+                  const quantiteInvalide = quantiteSaisie < 0 || quantiteSaisie > restant;
+                  const prixInvalide = quantiteSaisie > 0 && Number(prixVentes[l.varianteId] || 0) < l.prixAchat;
                   return (
                     <tr key={l.id}>
                       <td data-label="N°">{index + 1}</td>
+                      <td data-label="Référence">{l.reference || ""}</td>
                       <td data-label="Désignation">{l.produitNom}</td>
-                      <td data-label="Prix d'achat">{formaterMontant(l.prixAchat)}</td>
-                      <td data-label="Prix de vente">
+                      <td data-label="Qté à recevoir" className="colonne-sous-total">
+                        <input
+                          type="number"
+                          min={0}
+                          max={restant}
+                          step="any"
+                          className={quantiteInvalide ? "champ-invalide" : ""}
+                          value={quantitesRecevoir[l.varianteId] ?? ""}
+                          onChange={(e) =>
+                            setQuantitesRecevoir((prec) => ({ ...prec, [l.varianteId]: e.target.value }))
+                          }
+                        />
+                        <span className="sous-info"> / {restant} restant</span>
+                      </td>
+                      <td data-label="Prix d'achat" className="colonne-sous-total">{formaterMontant(l.prixAchat)}</td>
+                      <td data-label="Prix de vente" className="colonne-sous-total">
                         <ChampMontant
-                          className={invalide ? "champ-invalide" : ""}
+                          className={`champ-prix-vente-reception ${prixInvalide ? "champ-invalide" : ""}`}
                           value={prixVentes[l.varianteId] ?? ""}
                           onChange={(valeur) => setPrixVentes((prec) => ({ ...prec, [l.varianteId]: valeur }))}
                         />
-                        {invalide && (
+                        {prixInvalide && (
                           <span className="badge-rupture" title="Prix de vente inférieur au prix d'achat">
                             ⚠
                           </span>
@@ -687,20 +1116,14 @@ function DetailCommande({
               </tbody>
             </table>
           </div>
+        </div>
+      )}
 
-          <div className="actions-formulaire">
-            <button type="button" onClick={() => setAfficherReception(false)}>
-              Annuler
-            </button>
-            <button
-              type="button"
-              className="bouton-primaire"
-              onClick={receptionner}
-              disabled={enCours || commande.lignes.some((l) => Number(prixVentes[l.varianteId] || 0) < l.prixAchat)}
-            >
-              {enCours ? "Réception…" : "Confirmer la réception"}
-            </button>
-          </div>
+      {afficherReception && (
+        <div className="lien-details-reception">
+          <button type="button" className="lien" onClick={() => setAfficherDetailCommande(true)}>
+            ▸ Détails de la commande
+          </button>
         </div>
       )}
     </div>
@@ -728,6 +1151,8 @@ const CERCLES_FOND = [
 
 const SECTIONS = [
   { cle: "commandes", label: "Commandes", icone: "📦" },
+  { cle: "reception", label: "Réceptionner", icone: "📥" },
+  { cle: "historiqueReceptions", label: "Historique des réceptions", icone: "🗂️" },
   { cle: "fournisseurs", label: "Fournisseurs", icone: "🚚" },
   { cle: "dettes", label: "Dettes", icone: "💰" },
 ] as const;
@@ -791,20 +1216,6 @@ function OngletCommandes({
     rafraichir();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fournisseurId, statut, terme]);
-
-  if (commandeSelectionneeId) {
-    return (
-      <DetailCommande
-        commandeId={commandeSelectionneeId}
-        session={session}
-        fournisseurs={fournisseurs}
-        onRetour={() => {
-          setCommandeSelectionneeId(null);
-          rafraichir();
-        }}
-      />
-    );
-  }
 
   if (apercuGroupeActif) {
     return (
@@ -884,7 +1295,7 @@ function OngletCommandes({
                 <td data-label="Numéro">{c.numero}</td>
                 <td data-label="Fournisseur">{c.fournisseurNom}</td>
                 <td data-label="Statut">
-                  <span className={`badge-${c.statut}`}>{libelleStatutCommande(c.statut)}</span>
+                  <BadgeStatutCommande statut={c.statut} partiellementRecue={c.partiellementRecue} />
                 </td>
                 <td data-label="Total">{formaterMontant(c.total)}</td>
               </tr>
@@ -899,6 +1310,113 @@ function OngletCommandes({
           </tbody>
         </table>
       </div>
+
+      {commandeSelectionneeId && (
+        <div
+          className="fond-modale"
+          onClick={() => {
+            setCommandeSelectionneeId(null);
+            rafraichir();
+          }}
+        >
+          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+            <DetailCommande
+              commandeId={commandeSelectionneeId}
+              session={session}
+              fournisseurs={fournisseurs}
+              onRetour={() => {
+                setCommandeSelectionneeId(null);
+                rafraichir();
+              }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Onglet Réceptionner : file d'attente des commandes commandées, triées de
+// la plus ancienne à la plus récente (les plus urgentes à réceptionner). ---
+
+function OngletReception({ session }: { session: Session }) {
+  const [fournisseurs, setFournisseurs] = useState<FournisseurResume[]>([]);
+  const [commandes, setCommandes] = useState<CommandeResume[]>([]);
+  const [commandeSelectionneeId, setCommandeSelectionneeId] = useState<string | null>(null);
+
+  async function rafraichir() {
+    const liste = await listerCommandes(session.boutiqueId, undefined, "commandee");
+    liste.sort((a, b) => new Date(a.dateCreation).getTime() - new Date(b.dateCreation).getTime());
+    setCommandes(liste);
+  }
+  useEffect(() => {
+    rafraichir();
+    listerFournisseurs(session.boutiqueId).then(setFournisseurs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId]);
+
+  return (
+    <div>
+      <div className="zone-tableau-scroll">
+        <table className="tableau-catalogue carte-mobile">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Numéro</th>
+              <th>Fournisseur</th>
+              <th>Statut</th>
+              <th>Reste à recevoir</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {commandes.map((c) => (
+              <tr key={c.id} onClick={() => setCommandeSelectionneeId(c.id)}>
+                <td data-label="Date">{new Date(c.dateCreation).toLocaleString("fr-FR")}</td>
+                <td data-label="Numéro">{c.numero}</td>
+                <td data-label="Fournisseur">{c.fournisseurNom}</td>
+                <td data-label="Statut">
+                  <BadgeStatutCommande statut={c.statut} partiellementRecue={c.partiellementRecue} />
+                </td>
+                <td data-label="Reste à recevoir">
+                  {c.quantiteCommandee - c.quantiteRecue} / {c.quantiteCommandee}
+                </td>
+                <td data-label="Total">{formaterMontant(c.total)}</td>
+              </tr>
+            ))}
+            {commandes.length === 0 && (
+              <tr>
+                <td colSpan={6} className="liste-vide">
+                  Aucune commande en attente de réception.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {commandeSelectionneeId && (
+        <div
+          className="fond-modale"
+          onClick={() => {
+            setCommandeSelectionneeId(null);
+            rafraichir();
+          }}
+        >
+          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+            <DetailCommande
+              commandeId={commandeSelectionneeId}
+              session={session}
+              fournisseurs={fournisseurs}
+              ouvrirReceptionInitial
+              onRetour={() => {
+                setCommandeSelectionneeId(null);
+                rafraichir();
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1293,6 +1811,19 @@ function ModaleCommandes({
   );
 }
 
+function ModaleReception({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Réceptionner" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletReception session={session} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ModaleFournisseurs({ session, onFermer }: { session: Session; onFermer: () => void }) {
   return (
     <div className="fond-modale" onClick={onFermer}>
@@ -1319,6 +1850,212 @@ function ModaleDettes({ session, onFermer }: { session: Session; onFermer: () =>
   );
 }
 
+/** Détail d'une réception (articles livrés, valeur, paiement), ouvert depuis
+ * l'historique d'une commande ou l'historique de toutes les réceptions. */
+function ModaleDetailReception({
+  reception,
+  commandeNumero,
+  fournisseurNom,
+  onFermer,
+}: {
+  reception: ReceptionDetail;
+  commandeNumero?: string;
+  fournisseurNom?: string;
+  onFermer: () => void;
+}) {
+  const devise = useDevise();
+  const quantiteArticles = reception.lignes.reduce((somme, l) => somme + Number(l.quantite), 0);
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale
+          titre={`Réception du ${new Date(reception.dateCreation).toLocaleString("fr-FR")}`}
+          onFermer={onFermer}
+        />
+        <div className="modale-corps">
+          <div className="infos-reception">
+            {commandeNumero && (
+              <div>
+                <span className="sous-info">Commande</span>
+                <strong>{commandeNumero}</strong>
+              </div>
+            )}
+            {fournisseurNom && (
+              <div>
+                <span className="sous-info">Fournisseur</span>
+                <strong>{fournisseurNom}</strong>
+              </div>
+            )}
+            <div>
+              <span className="sous-info">Dépôt</span>
+              <strong>{reception.depotNom}</strong>
+            </div>
+          </div>
+          <div className="zone-tableau-scroll">
+            <table className="tableau-catalogue carte-mobile">
+              <thead>
+                <tr>
+                  <th>Désignation</th>
+                  <th>Référence</th>
+                  <th>Quantité reçue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reception.lignes.map((l, i) => (
+                  <tr key={i}>
+                    <td data-label="Désignation">{l.produitNom}</td>
+                    <td data-label="Référence">{l.reference}</td>
+                    <td data-label="Quantité reçue">{l.quantite}</td>
+                  </tr>
+                ))}
+                {reception.lignes.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="liste-vide">
+                      Détail des articles non disponible pour cette réception.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="totaux">
+            <div>Articles reçus : {reception.lignes.length > 0 ? quantiteArticles : "—"}</div>
+            <div>
+              Valeur reçue : {formaterMontant(reception.valeurRecue)} {devise}
+            </div>
+            <div>
+              Payé à la réception : {formaterMontant(reception.montantPaye)} {devise}
+            </div>
+            <div className="total-net">
+              Reste dû : {formaterMontant(Math.max(0, reception.valeurRecue - reception.montantPaye))} {devise}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Historique de toutes les réceptions, toutes commandes confondues. Chaque
+ * ligne se déplie pour montrer les articles livrés à cette réception. */
+function OngletHistoriqueReceptions({ session }: { session: Session }) {
+  const devise = useDevise();
+  const [fournisseurs, setFournisseurs] = useState<FournisseurResume[]>([]);
+  const [receptions, setReceptions] = useState<ReceptionHistorique[]>([]);
+  const [fournisseurId, setFournisseurId] = useState("");
+  const [terme, setTerme] = useState("");
+  const [receptionSelectionnee, setReceptionSelectionnee] = useState<ReceptionHistorique | null>(null);
+
+  useEffect(() => {
+    listerFournisseurs(session.boutiqueId).then(setFournisseurs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId]);
+
+  useEffect(() => {
+    listerHistoriqueReceptions(session.boutiqueId, fournisseurId || undefined, terme).then(setReceptions);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId, fournisseurId, terme]);
+
+  const valeurTotale = receptions.reduce((somme, r) => somme + r.valeurRecue, 0);
+  const payeTotal = receptions.reduce((somme, r) => somme + r.montantPaye, 0);
+
+  return (
+    <div>
+      <div className="barre-actions barre-actions-avec-onglets">
+        <select value={fournisseurId} onChange={(e) => setFournisseurId(e.target.value)}>
+          <option value="">Tous les fournisseurs</option>
+          {fournisseurs.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.nom}
+            </option>
+          ))}
+        </select>
+        <input
+          className="champ-recherche"
+          placeholder="Rechercher par numéro de commande…"
+          value={terme}
+          onChange={(e) => setTerme(e.target.value)}
+        />
+      </div>
+      <div className="zone-tableau-scroll">
+        <table className="tableau-catalogue carte-mobile">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Commande</th>
+              <th>Fournisseur</th>
+              <th>Dépôt</th>
+              <th>Articles</th>
+              <th>Valeur reçue</th>
+              <th>Montant payé</th>
+            </tr>
+          </thead>
+          <tbody>
+            {receptions.map((r) => (
+              <tr key={r.id} className="ligne-reception-cliquable" onClick={() => setReceptionSelectionnee(r)}>
+                <td data-label="Date">{new Date(r.dateCreation).toLocaleString("fr-FR")}</td>
+                <td data-label="Commande">{r.commandeNumero}</td>
+                <td data-label="Fournisseur">{r.fournisseurNom}</td>
+                <td data-label="Dépôt">{r.depotNom}</td>
+                <td data-label="Articles">
+                  {r.lignes.length > 0 ? r.lignes.reduce((somme, l) => somme + Number(l.quantite), 0) : "—"}
+                </td>
+                <td data-label="Valeur reçue">
+                  {formaterMontant(r.valeurRecue)} {devise}
+                </td>
+                <td data-label="Montant payé">
+                  {formaterMontant(r.montantPaye)} {devise}
+                </td>
+              </tr>
+            ))}
+            {receptions.length === 0 && (
+              <tr>
+                <td colSpan={7} className="liste-vide">
+                  Aucune réception enregistrée.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {receptionSelectionnee && (
+        <ModaleDetailReception
+          reception={receptionSelectionnee}
+          commandeNumero={receptionSelectionnee.commandeNumero}
+          fournisseurNom={receptionSelectionnee.fournisseurNom}
+          onFermer={() => setReceptionSelectionnee(null)}
+        />
+      )}
+      {receptions.length > 0 && (
+        <div className="totaux">
+          <div>
+            {receptions.length} réception{receptions.length > 1 ? "s" : ""}
+          </div>
+          <div>
+            Valeur reçue : {formaterMontant(valeurTotale)} {devise}
+          </div>
+          <div>
+            Payé à la réception : {formaterMontant(payeTotal)} {devise}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ModaleHistoriqueReceptions({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Historique des réceptions" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletHistoriqueReceptions session={session} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Achats({
   session,
   ouvrirNouvelleCommande,
@@ -1332,6 +2069,13 @@ export default function Achats({
 }) {
   const [sectionOuverte, setSectionOuverte] = useState<Section | null>(ouvrirNouvelleCommande ? "commandes" : null);
   const peutAcceder = !!session.permissions.gerer_produits_stock_achats;
+  const [compteReception, setCompteReception] = useState(0);
+
+  useEffect(() => {
+    if (!peutAcceder) return;
+    listerCommandes(session.boutiqueId, undefined, "commandee").then((liste) => setCompteReception(liste.length));
+    // Se rafraîchit à la fermeture d'une section (ex. après une réception).
+  }, [peutAcceder, session.boutiqueId, sectionOuverte]);
 
   if (!peutAcceder) {
     return (
@@ -1371,6 +2115,9 @@ export default function Achats({
             className="carte-document-comptable"
             onClick={() => setSectionOuverte(s.cle)}
           >
+            {s.cle === "reception" && compteReception > 0 && (
+              <span className="badge-compte-carte">{compteReception > 99 ? "99+" : compteReception}</span>
+            )}
             <span className="icone-document-comptable">{s.icone}</span>
             {s.label}
           </button>
@@ -1385,8 +2132,14 @@ export default function Achats({
           onFermer={() => setSectionOuverte(null)}
         />
       )}
+      {sectionOuverte === "reception" && (
+        <ModaleReception session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
       {sectionOuverte === "fournisseurs" && (
         <ModaleFournisseurs session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
+      {sectionOuverte === "historiqueReceptions" && (
+        <ModaleHistoriqueReceptions session={session} onFermer={() => setSectionOuverte(null)} />
       )}
       {sectionOuverte === "dettes" && (
         <ModaleDettes session={session} onFermer={() => setSectionOuverte(null)} />

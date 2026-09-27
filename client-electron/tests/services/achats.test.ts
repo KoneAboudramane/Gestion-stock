@@ -5,6 +5,9 @@ import { executer, unResultat } from "../../electron/db/helpers";
 import {
   ErreurAchat,
   creerCommande,
+  listerCommandes,
+  listerHistoriqueReceptions,
+  listerReceptionsCommande,
   modifierCommande,
   obtenirDerniersFournisseurs,
   payerDette,
@@ -96,6 +99,38 @@ describe("achats.modifierCommande (miroir de achats/services.py::modifier_comman
 
     expect(() => modifierCommande(commande.id, { statut: "brouillon" })).toThrow(ErreurAchat);
   });
+
+  it("autorise l'annulation d'une commande jamais réceptionnée", () => {
+    const commande = creerCommande({
+      boutiqueId,
+      fournisseurId,
+      utilisateurId: "1",
+      statut: "commandee",
+      lignes: [{ varianteId, quantite: 1, prixAchat: 10000 }],
+    });
+
+    expect(() => modifierCommande(commande.id, { statut: "annulee" })).not.toThrow();
+    const apres = unResultat<{ statut: string }>("SELECT statut FROM commandes_achat WHERE id = ?", [commande.id]);
+    expect(apres!.statut).toBe("annulee");
+  });
+
+  it("refuse l'annulation et la modification des lignes après une réception partielle", () => {
+    const depotId = randomUUID();
+    executer("INSERT INTO depots (id, boutique_id, nom) VALUES (?, ?, ?)", [depotId, boutiqueId, "Magasin"]);
+    const commande = creerCommande({
+      boutiqueId,
+      fournisseurId,
+      utilisateurId: "1",
+      statut: "commandee",
+      lignes: [{ varianteId, quantite: 10, prixAchat: 10000 }],
+    });
+    receptionnerCommande({ commandeId: commande.id, depotId, utilisateurId: "1", lignes: [{ varianteId, quantite: 3 }] });
+
+    expect(() => modifierCommande(commande.id, { statut: "annulee" })).toThrow(ErreurAchat);
+    expect(() =>
+      modifierCommande(commande.id, { lignes: [{ varianteId, quantite: 20, prixAchat: 10000 }] }),
+    ).toThrow(ErreurAchat);
+  });
 });
 
 describe("achats.receptionnerCommande (miroir de achats/services.py::receptionner_commande)", () => {
@@ -140,7 +175,13 @@ describe("achats.receptionnerCommande (miroir de achats/services.py::receptionne
       lignes: [{ varianteId, quantite: 5, prixAchat: 10000 }],
     });
 
-    receptionnerCommande({ commandeId: commande.id, depotId, utilisateurId: "1", montantDejaPaye: 20000 });
+    receptionnerCommande({
+      commandeId: commande.id,
+      depotId,
+      utilisateurId: "1",
+      montantDejaPaye: 20000,
+      lignes: [{ varianteId, quantite: 5 }],
+    });
 
     expect(stockActuel()).toBe(5);
 
@@ -166,7 +207,13 @@ describe("achats.receptionnerCommande (miroir de achats/services.py::receptionne
       lignes: [{ varianteId, quantite: 2, prixAchat: 10000 }],
     });
 
-    receptionnerCommande({ commandeId: commande.id, depotId, utilisateurId: "1", montantDejaPaye: 20000 });
+    receptionnerCommande({
+      commandeId: commande.id,
+      depotId,
+      utilisateurId: "1",
+      montantDejaPaye: 20000,
+      lignes: [{ varianteId, quantite: 2 }],
+    });
 
     const dette = unResultat<{ solde: number; statut: string }>(
       "SELECT solde, statut FROM dettes_fournisseur WHERE commande_id = ?",
@@ -184,12 +231,12 @@ describe("achats.receptionnerCommande (miroir de achats/services.py::receptionne
       lignes: [{ varianteId, quantite: 1, prixAchat: 10000 }],
     });
 
-    expect(() => receptionnerCommande({ commandeId: commande.id, depotId, utilisateurId: "1" })).toThrow(
-      ErreurAchat,
-    );
+    expect(() =>
+      receptionnerCommande({ commandeId: commande.id, depotId, utilisateurId: "1", lignes: [{ varianteId, quantite: 1 }] }),
+    ).toThrow(ErreurAchat);
   });
 
-  it("refuse si le montant déjà payé dépasse le total", () => {
+  it("refuse si le montant déjà payé dépasse la valeur reçue", () => {
     const commande = creerCommande({
       boutiqueId,
       fournisseurId,
@@ -199,7 +246,108 @@ describe("achats.receptionnerCommande (miroir de achats/services.py::receptionne
     });
 
     expect(() =>
-      receptionnerCommande({ commandeId: commande.id, depotId, utilisateurId: "1", montantDejaPaye: 999999 }),
+      receptionnerCommande({
+        commandeId: commande.id,
+        depotId,
+        utilisateurId: "1",
+        montantDejaPaye: 999999,
+        lignes: [{ varianteId, quantite: 1 }],
+      }),
+    ).toThrow(ErreurAchat);
+  });
+
+  it("réceptionne partiellement : la commande reste 'commandee' puis passe à 'recue' une fois le reste reçu", () => {
+    const commande = creerCommande({
+      boutiqueId,
+      fournisseurId,
+      utilisateurId: "1",
+      statut: "commandee",
+      lignes: [{ varianteId, quantite: 10, prixAchat: 10000 }],
+    });
+
+    receptionnerCommande({ commandeId: commande.id, depotId, utilisateurId: "1", lignes: [{ varianteId, quantite: 6 }] });
+
+    expect(stockActuel()).toBe(6);
+    let apres = unResultat<{ statut: string }>("SELECT statut FROM commandes_achat WHERE id = ?", [commande.id]);
+    expect(apres!.statut).toBe("commandee");
+    const ligne = unResultat<{ quantite_recue: number }>("SELECT quantite_recue FROM lignes_achat WHERE commande_id = ?", [
+      commande.id,
+    ]);
+    expect(Number(ligne!.quantite_recue)).toBe(6);
+
+    receptionnerCommande({ commandeId: commande.id, depotId, utilisateurId: "1", lignes: [{ varianteId, quantite: 4 }] });
+
+    expect(stockActuel()).toBe(10);
+    apres = unResultat<{ statut: string }>("SELECT statut FROM commandes_achat WHERE id = ?", [commande.id]);
+    expect(apres!.statut).toBe("recue");
+  });
+
+  it("trace les articles livrés à chaque réception et signale la commande partiellement reçue", () => {
+    const commande = creerCommande({
+      boutiqueId,
+      fournisseurId,
+      utilisateurId: "1",
+      statut: "commandee",
+      lignes: [{ varianteId, quantite: 10, prixAchat: 10000 }],
+    });
+    expect(listerCommandes(boutiqueId)[0].partiellementRecue).toBe(false);
+
+    receptionnerCommande({ commandeId: commande.id, depotId, utilisateurId: "1", lignes: [{ varianteId, quantite: 6 }] });
+    expect(listerCommandes(boutiqueId)[0].partiellementRecue).toBe(true);
+    expect(listerCommandes(boutiqueId)[0]).toMatchObject({ quantiteCommandee: 10, quantiteRecue: 6 });
+
+    receptionnerCommande({ commandeId: commande.id, depotId, utilisateurId: "1", lignes: [{ varianteId, quantite: 4 }] });
+    // Totalement reçue : c'est le statut "recue" qui s'affiche, plus le badge partiel.
+    expect(listerCommandes(boutiqueId)[0].partiellementRecue).toBe(false);
+
+    const receptions = listerReceptionsCommande(commande.id);
+    expect(receptions).toHaveLength(2);
+    expect(receptions.map((r) => r.lignes.map((l) => [l.produitNom, Number(l.quantite)]))).toEqual([
+      [["Riz 25kg", 6]],
+      [["Riz 25kg", 4]],
+    ]);
+  });
+
+  it("liste toutes les réceptions de la boutique, les plus récentes d'abord, filtrables par numéro", () => {
+    const premiere = creerCommande({
+      boutiqueId,
+      fournisseurId,
+      utilisateurId: "1",
+      statut: "commandee",
+      lignes: [{ varianteId, quantite: 10, prixAchat: 10000 }],
+    });
+    const seconde = creerCommande({
+      boutiqueId,
+      fournisseurId,
+      utilisateurId: "1",
+      statut: "commandee",
+      lignes: [{ varianteId, quantite: 3, prixAchat: 10000 }],
+    });
+    receptionnerCommande({ commandeId: premiere.id, depotId, utilisateurId: "1", lignes: [{ varianteId, quantite: 6 }] });
+    receptionnerCommande({ commandeId: seconde.id, depotId, utilisateurId: "1", lignes: [{ varianteId, quantite: 3 }] });
+
+    const historique = listerHistoriqueReceptions(boutiqueId);
+    expect(historique).toHaveLength(2);
+    expect(historique[0]).toMatchObject({ commandeNumero: seconde.numero, fournisseurNom: "Grossiste Konan", depotNom: "Magasin" });
+    expect(historique.map((r) => Number(r.lignes[0].quantite))).toEqual([3, 6]);
+
+    expect(listerHistoriqueReceptions(boutiqueId, undefined, premiere.numero)).toHaveLength(1);
+    expect(listerHistoriqueReceptions(randomUUID())).toHaveLength(0);
+  });
+
+  it("refuse de réceptionner plus que la quantité restante", () => {
+    const commande = creerCommande({
+      boutiqueId,
+      fournisseurId,
+      utilisateurId: "1",
+      statut: "commandee",
+      lignes: [{ varianteId, quantite: 10, prixAchat: 10000 }],
+    });
+
+    receptionnerCommande({ commandeId: commande.id, depotId, utilisateurId: "1", lignes: [{ varianteId, quantite: 6 }] });
+
+    expect(() =>
+      receptionnerCommande({ commandeId: commande.id, depotId, utilisateurId: "1", lignes: [{ varianteId, quantite: 5 }] }),
     ).toThrow(ErreurAchat);
   });
 
@@ -216,7 +364,7 @@ describe("achats.receptionnerCommande (miroir de achats/services.py::receptionne
       commandeId: commande.id,
       depotId,
       utilisateurId: "1",
-      lignesPrix: [{ varianteId, prixVente: 14000 }],
+      lignes: [{ varianteId, quantite: 5, prixVente: 14000 }],
     });
 
     const variante = unResultat<{ prix_achat: number; prix_vente: number }>(
@@ -243,7 +391,7 @@ describe("achats.receptionnerCommande (miroir de achats/services.py::receptionne
       lignes: [{ varianteId, quantite: 5, prixAchat: 11000 }],
     });
 
-    receptionnerCommande({ commandeId: commande.id, depotId, utilisateurId: "1" });
+    receptionnerCommande({ commandeId: commande.id, depotId, utilisateurId: "1", lignes: [{ varianteId, quantite: 5 }] });
 
     const variante = unResultat<{ prix_achat: number; prix_vente: number }>(
       "SELECT prix_achat, prix_vente FROM variantes WHERE id = ?",
@@ -267,7 +415,7 @@ describe("achats.receptionnerCommande (miroir de achats/services.py::receptionne
         commandeId: commande.id,
         depotId,
         utilisateurId: "1",
-        lignesPrix: [{ varianteId, prixVente: 9000 }],
+        lignes: [{ varianteId, quantite: 5, prixVente: 9000 }],
       }),
     ).toThrow(ErreurAchat);
   });

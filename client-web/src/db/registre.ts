@@ -49,6 +49,17 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
   { table: "clients.Client", store: "clients", champsFK: ["boutique"] },
   { table: "fournisseurs.Fournisseur", store: "fournisseurs", champsFK: ["boutique"] },
   {
+    table: "stock.OperationDestockage",
+    store: "operations_destockage",
+    champsFK: ["boutique", "utilisateur"],
+  },
+  {
+    table: "stock.Destockage",
+    store: "destockages",
+    champsFK: ["variante", "utilisateur", "operation"],
+    champsNumeriques: ["prix_normal", "prix_destockage"],
+  },
+  {
     table: "ventes.Vente",
     store: "ventes",
     champsFK: ["boutique", "depot", "client", "utilisateur"],
@@ -63,8 +74,8 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
   {
     table: "ventes.LigneVente",
     store: "lignes_vente",
-    champsFK: ["vente", "variante"],
-    champsNumeriques: ["quantite", "prix_unitaire", "cout_unitaire", "remise", "sous_total"],
+    champsFK: ["vente", "variante", "destockage"],
+    champsNumeriques: ["quantite", "prix_unitaire", "cout_unitaire", "remise", "sous_total", "prix_normal"],
   },
   {
     table: "ventes.Paiement",
@@ -96,6 +107,20 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
     champsFK: ["variante", "depot_source", "depot_destination", "utilisateur"],
     ajoutSeul: true,
     champsNumeriques: ["quantite"],
+  },
+  {
+    table: "stock.PerteStock",
+    store: "pertes_stock",
+    champsFK: ["variante", "depot", "utilisateur"],
+    ajoutSeul: true,
+    champsNumeriques: ["quantite", "valeur"],
+  },
+  {
+    table: "stock.ReleveDormants",
+    store: "releves_dormants",
+    champsFK: ["boutique"],
+    ajoutSeul: true,
+    champsNumeriques: ["valeur_immobilisee"],
   },
   {
     table: "stock.Inventaire",

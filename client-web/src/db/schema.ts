@@ -142,6 +142,9 @@ export interface LigneVenteLocale extends SuiviSync {
   cout_unitaire: number;
   remise: number;
   sous_total: number;
+  /** Vendue pendant un déstockage : prix normal du moment + lien (voir stock.Destockage). */
+  prix_normal?: number | null;
+  destockage_id?: string | null;
 }
 
 export interface PaiementLocal extends SuiviSync {
@@ -169,6 +172,7 @@ export interface LigneAchatLocale extends SuiviSync {
   quantite: number;
   prix_achat: number;
   sous_total: number;
+  quantite_recue: number;
 }
 
 export interface ReceptionLocale extends SuiviSync {
@@ -176,6 +180,8 @@ export interface ReceptionLocale extends SuiviSync {
   commande_id: string;
   depot_id: string;
   utilisateur_id: string | null;
+  valeur_recue: number;
+  montant_paye: number;
 }
 
 export interface MouvementStockLocal extends SuiviSync {
@@ -196,6 +202,51 @@ export interface TransfertStockLocal extends SuiviSync {
   depot_source_id: string;
   depot_destination_id: string;
   quantite: number;
+  utilisateur_id: string | null;
+}
+
+/** Article vendu à prix réduit en caisse (stock.Destockage). date_fin : "AAAA-MM-JJ" ou null. */
+export interface DestockageLocal extends SuiviSync {
+  id: string;
+  variante_id: string;
+  prix_normal: number;
+  prix_destockage: number;
+  date_fin: string | null;
+  statut: "en_cours" | "termine";
+  motif_fin: "" | "date" | "epuise" | "manuel";
+  date_arret: string | null;
+  utilisateur_id: string | null;
+  operation_id?: string | null;
+}
+
+/** Groupe nommé de déstockages lancés ensemble (stock.OperationDestockage). */
+export interface OperationDestockageLocale extends SuiviSync {
+  id: string;
+  boutique_id: string;
+  nom: string;
+  date_fin: string | null;
+  utilisateur_id: string | null;
+}
+
+/** Photo quotidienne des produits dormants (stock.ReleveDormants). date : "AAAA-MM-JJ". */
+export interface ReleveDormantsLocal extends SuiviSync {
+  id: string;
+  boutique_id: string;
+  date: string;
+  jours_seuil: number;
+  nombre_articles: number;
+  valeur_immobilisee: number;
+}
+
+/** Sortie de stock sans vente (stock.PerteStock) : valeur figée au CUMP du moment. */
+export interface PerteStockLocal extends SuiviSync {
+  id: string;
+  variante_id: string;
+  depot_id: string;
+  quantite: number;
+  motif: string;
+  detail: string;
+  valeur: number;
   utilisateur_id: string | null;
 }
 
@@ -458,6 +509,26 @@ export interface GestionStockDB extends DBSchema {
     value: TransfertStockLocal;
     indexes: { variante_id: string; synchronise: number };
   };
+  operations_destockage: {
+    key: string;
+    value: OperationDestockageLocale;
+    indexes: { boutique_id: string; synchronise: number };
+  };
+  destockages: {
+    key: string;
+    value: DestockageLocal;
+    indexes: { variante_id: string; operation_id: string; synchronise: number };
+  };
+  releves_dormants: {
+    key: string;
+    value: ReleveDormantsLocal;
+    indexes: { boutique_id: string; synchronise: number };
+  };
+  pertes_stock: {
+    key: string;
+    value: PerteStockLocal;
+    indexes: { depot_id: string; synchronise: number };
+  };
   inventaires: {
     key: string;
     value: InventaireLocal;
@@ -492,4 +563,4 @@ export interface GestionStockDB extends DBSchema {
 }
 
 export const NOM_BASE = "gestion-stock";
-export const VERSION_BASE = 3;
+export const VERSION_BASE = 7;

@@ -358,6 +358,27 @@ export function enregistrerLesHandlers(): void {
     stock.listerTransferts(boutiqueId, limite),
   );
 
+  ipcMain.handle("pertes:declarer", (_evt, params: stock.ParametresPerte) => {
+    const resultat = executerEnSecurite(() => stock.declarerPerte(params));
+    if (resultat.succes) signalerRuptureEnSecurite(params.depotId);
+    return resultat;
+  });
+  ipcMain.handle("pertes:lister", (_evt, boutiqueId: string, debut?: string, fin?: string) =>
+    stock.listerPertes(boutiqueId, debut, fin),
+  );
+
+  ipcMain.handle("destockages:lister", (_evt, boutiqueId: string) => stock.listerDestockages(boutiqueId));
+  ipcMain.handle("destockages:demarrer", (_evt, params: stock.ParametresDestockage) =>
+    executerEnSecurite(() => stock.demarrerDestockage(params)),
+  );
+  ipcMain.handle("destockages:arreter", (_evt, id: string) => executerEnSecurite(() => stock.arreterDestockage(id)));
+  ipcMain.handle("destockages:demarrerOperation", (_evt, params: stock.ParametresOperationDestockage) =>
+    executerEnSecurite(() => stock.demarrerOperationDestockage(params)),
+  );
+  ipcMain.handle("destockages:arreterOperation", (_evt, id: string) =>
+    executerEnSecurite(() => stock.arreterOperationDestockage(id)),
+  );
+
   ipcMain.handle("inventaires:lister", (_evt, boutiqueId: string) => stock.listerInventaires(boutiqueId));
   ipcMain.handle(
     "inventaires:demarrer",
@@ -403,6 +424,14 @@ export function enregistrerLesHandlers(): void {
   );
   ipcMain.handle("commandes:receptionner", (_evt, params: achats.ParametresReception) =>
     executerEnSecurite(() => achats.receptionnerCommande(params)),
+  );
+  ipcMain.handle("commandes:listerReceptions", (_evt, commandeId: string) =>
+    achats.listerReceptionsCommande(commandeId),
+  );
+  ipcMain.handle(
+    "commandes:historiqueReceptions",
+    (_evt, boutiqueId: string, fournisseurId?: string, terme?: string) =>
+      achats.listerHistoriqueReceptions(boutiqueId, fournisseurId, terme),
   );
 
   ipcMain.handle(
@@ -461,6 +490,16 @@ export function enregistrerLesHandlers(): void {
   );
   ipcMain.handle("rapports:valeurStock", (_evt, boutiqueId: string, depotId?: string) =>
     rapports.valeurStock(boutiqueId, depotId),
+  );
+  ipcMain.handle("rapports:produitsDormants", (_evt, boutiqueId: string, jours: number) =>
+    rapports.produitsDormants(boutiqueId, jours),
+  );
+  ipcMain.handle("rapports:enregistrerReleveDormants", (_evt, boutiqueId: string) =>
+    executerEnSecurite(() => rapports.enregistrerReleveDormants(boutiqueId)),
+  );
+  ipcMain.handle("rapports:relevesDormants", (_evt, boutiqueId: string) => rapports.listerRelevesDormants(boutiqueId));
+  ipcMain.handle("rapports:sortiesDormance", (_evt, boutiqueId: string, seuil: number) =>
+    rapports.sortiesDormance(boutiqueId, seuil),
   );
   ipcMain.handle(
     "rapports:ventesParVendeur",

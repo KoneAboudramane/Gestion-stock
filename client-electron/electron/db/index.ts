@@ -47,6 +47,12 @@ function migrerColonnesManquantes(base: Database): void {
     { table: "paiements", colonne: "operateur", definition: "TEXT DEFAULT ''" },
     { table: "clients", colonne: "est_permanent", definition: "INTEGER DEFAULT 1" },
     { table: "paiements_credit", colonne: "utilisateur_id", definition: "TEXT" },
+    { table: "lignes_achat", colonne: "quantite_recue", definition: "REAL DEFAULT 0" },
+    { table: "receptions", colonne: "valeur_recue", definition: "REAL DEFAULT 0" },
+    { table: "receptions", colonne: "montant_paye", definition: "REAL DEFAULT 0" },
+    { table: "lignes_vente", colonne: "prix_normal", definition: "REAL" },
+    { table: "lignes_vente", colonne: "destockage_id", definition: "TEXT" },
+    { table: "destockages", colonne: "operation_id", definition: "TEXT" },
   ];
 
   for (const { table, colonne, definition } of colonnesAAjouter) {

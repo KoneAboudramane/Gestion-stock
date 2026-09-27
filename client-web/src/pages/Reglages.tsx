@@ -46,6 +46,8 @@ import {
   type DepotResume,
 } from "../services/stock";
 import { appliquerTheme, themeActuel, type Theme } from "../lib/theme";
+import { CLE_PARAMETRE_FABRICATION_PROPRE } from "../hooks/useFabricationPropre";
+import { fabricationPropreActive } from "../services/stock";
 
 /**
  * Port simplifié de client-electron/src/pages/Reglages.tsx. Non repris ici :
@@ -953,6 +955,9 @@ function OngletParametresGeneral({ session }: { session: Session }) {
   const delaiVerrouillage = useDelaiVerrouillage();
   const rafraichirDelaiVerrouillage = useRafraichirDelaiVerrouillage();
   const [enregistrementDelai, setEnregistrementDelai] = useState(false);
+  const [fabricationPropre, setFabricationPropre] = useState<boolean | null>(null);
+  const [enregistrementFabrication, setEnregistrementFabrication] = useState(false);
+  const [erreurFabrication, setErreurFabrication] = useState<string | null>(null);
 
   function changerTheme(nouveauTheme: Theme) {
     appliquerTheme(nouveauTheme);
@@ -969,8 +974,47 @@ function OngletParametresGeneral({ session }: { session: Session }) {
     }
   }
 
+  useEffect(() => {
+    fabricationPropreActive(session.boutiqueId).then(setFabricationPropre);
+  }, [session.boutiqueId]);
+
+  async function changerFabricationPropre(active: boolean) {
+    setEnregistrementFabrication(true);
+    setErreurFabrication(null);
+    try {
+      await definirParametre(session.boutiqueId, CLE_PARAMETRE_FABRICATION_PROPRE, active ? "1" : "0");
+      setFabricationPropre(active);
+    } catch (e) {
+      setErreurFabrication(e instanceof ErreurConfiguration ? e.message : "Erreur inattendue.");
+    } finally {
+      setEnregistrementFabrication(false);
+    }
+  }
+
   return (
     <div className="reglage-catalogue">
+      {peutGerer && (
+        <div className="bloc-apparence">
+          <h3>Approvisionnement</h3>
+          {erreurFabrication && <div className="message-erreur">{erreurFabrication}</div>}
+          <label className="option-fabrication-propre">
+            <input
+              type="checkbox"
+              checked={!!fabricationPropre}
+              disabled={fabricationPropre === null || enregistrementFabrication}
+              onChange={(e) => changerFabricationPropre(e.target.checked)}
+            />
+            <span>
+              Ma boutique fabrique ses propres produits
+              <span className="note-aide">
+                À cocher si vous fabriquez vous-même ce que vous vendez (pain, savon, couture…) : vous pourrez
+                ajouter du stock directement. Sinon, le stock s'ajoute en réceptionnant vos achats auprès de vos
+                fournisseurs.
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
       {peutGerer && (
         <div className="bloc-apparence">
           <h3>Verrouillage automatique</h3>

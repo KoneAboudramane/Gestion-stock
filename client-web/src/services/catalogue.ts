@@ -1,5 +1,6 @@
 import { ouvrirBaseDeDonnees } from "../db";
 import { obtenirQuantiteStock } from "../db/helpers";
+import { destockageActif } from "./stock";
 
 /**
  * Port navigateur (lecture locale IndexedDB) de client-electron/electron/services/catalogue.ts,
@@ -19,6 +20,8 @@ export interface VarianteCatalogue {
   seuilAlerte: number;
   categorieNom: string | null;
   quantiteDisponible: number;
+  /** Article en déstockage : prixVente est alors le prix de déstockage, prixNormal l'ancien prix. */
+  prixNormal: number | null;
 }
 
 export async function listerVariantesCatalogue(boutiqueId: string, depotId?: string): Promise<VarianteCatalogue[]> {
@@ -36,17 +39,19 @@ export async function listerVariantesCatalogue(boutiqueId: string, depotId?: str
     );
     for (const variante of variantes) {
       const quantiteDisponible = await obtenirQuantiteStock(variante.id, depotId);
+      const destockage = await destockageActif(variante.id);
       resultat.push({
         id: variante.id,
         produitId: variante.produit_id,
         produitNom: produitsParId.get(variante.produit_id)?.nom ?? "",
         reference: variante.reference,
         codeBarres: variante.code_barres,
-        prixVente: variante.prix_vente,
+        prixVente: destockage ? destockage.prixDestockage : variante.prix_vente,
         prixAchat: variante.prix_achat,
         seuilAlerte: variante.seuil_alerte,
         categorieNom: null,
         quantiteDisponible,
+        prixNormal: destockage ? variante.prix_vente : null,
       });
     }
   }

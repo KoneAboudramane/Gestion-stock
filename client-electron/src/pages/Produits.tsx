@@ -18,6 +18,7 @@ import ChampMontant from "../components/ChampMontant";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import { formaterMontant } from "../lib/formatage";
 import { libelleStatutVente } from "../lib/libelles";
+import { useFabricationPropre } from "../hooks/useFabricationPropre";
 
 // --- Onglet Produits : liste, formulaire de création, fiche détail ---
 
@@ -466,6 +467,9 @@ function DetailProduit({
 }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const peutVoirCout = !!session.permissions.voir_benefices_achat;
+  // Ajout de stock depuis la fiche : réservé aux boutiques qui fabriquent
+  // (voir hooks/useFabricationPropre.ts) — les autres passent par les Achats.
+  const fabricationPropre = useFabricationPropre(session.boutiqueId);
 
   const [produit, setProduit] = useState<ProduitDetail | null>(null);
   const [afficherFormVariante, setAfficherFormVariante] = useState(false);
@@ -660,13 +664,15 @@ function DetailProduit({
                                 >
                                   Modifier
                                 </button>
-                                <button
-                                  type="button"
-                                  className="bouton-ajouter-stock-ligne"
-                                  onClick={() => setActionVarianteOuverte({ id: v.id, type: "stock" })}
-                                >
-                                  + Ajouter du stock
-                                </button>
+                                {fabricationPropre && (
+                                  <button
+                                    type="button"
+                                    className="bouton-ajouter-stock-ligne"
+                                    onClick={() => setActionVarianteOuverte({ id: v.id, type: "stock" })}
+                                  >
+                                    + Ajouter du stock
+                                  </button>
+                                )}
                               </span>
                             </td>
                           )}

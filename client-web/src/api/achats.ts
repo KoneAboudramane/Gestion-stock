@@ -199,7 +199,7 @@ export interface ReceptionnerEntree {
   commandeId: string;
   depotId: string;
   montantDejaPaye: number;
-  lignesPrix: { varianteId: string; prixVente: number }[];
+  lignes: { varianteId: string; quantite: number; prixVente?: number }[];
 }
 
 export function receptionnerCommande(entree: ReceptionnerEntree): Promise<ResultatEcriture<void>> {
@@ -210,7 +210,7 @@ export function receptionnerCommande(entree: ReceptionnerEntree): Promise<Result
         commande: entree.commandeId,
         depot: entree.depotId,
         montant_deja_paye: entree.montantDejaPaye,
-        lignes_prix: entree.lignesPrix.map((l) => ({ variante: l.varianteId, prix_vente: l.prixVente })),
+        lignes: entree.lignes.map((l) => ({ variante: l.varianteId, quantite: l.quantite, prix_vente: l.prixVente })),
       }),
     });
     if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import type { Session } from "../api";
 import { listerFournisseurs } from "../services/achats";
-import type { Periode } from "../services/rapports";
+import { enregistrerReleveDormants, type Periode } from "../services/rapports";
 import { compterNotificationsNonLues } from "../services/notifications";
 import type { LigneAchatInitiale } from "../services/stock";
 import Accueil from "./Accueil";
@@ -20,6 +20,7 @@ import Stock from "./Stock";
 import TableauDeBord from "./TableauDeBord";
 import Tresorerie from "./Tresorerie";
 import Ventes from "./Ventes";
+import { fabricationPropreActive } from "../services/stock";
 
 const ZONES = [
   { cle: "tableauDeBord", label: "Tableau de bord", icone: "📊" },
@@ -79,8 +80,14 @@ export default function Shell({
    * choisies (voir ApercuCommandesGroupees dans Achats.tsx).
    */
   async function commanderProduit(lignes: LigneAchatInitiale[]) {
-    const fournisseurs = await listerFournisseurs(session.boutiqueId);
-    if (fournisseurs.length === 0) {
+    // Entrée de production seulement si la boutique fabrique (réglage
+    // "fabrication propre", voir hooks/useFabricationPropre.ts) et n'a aucun
+    // fournisseur ; sinon commande fournisseur.
+    const [fournisseurs, fabricationPropre] = await Promise.all([
+      listerFournisseurs(session.boutiqueId),
+      fabricationPropreActive(session.boutiqueId),
+    ]);
+    if (fabricationPropre && fournisseurs.length === 0) {
       setZone("stock");
       setLignesEntreeInitiales(lignes);
     } else {
@@ -94,6 +101,12 @@ export default function Shell({
     rafraichirNonLues();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zone]);
+
+  // Photo du jour des produits dormants (historique de l'argent qui dort,
+  // Stock → Historique) : une fois par jour, sans rien bloquer si ça échoue.
+  useEffect(() => {
+    enregistrerReleveDormants(session.boutiqueId).catch(() => {});
+  }, [session.boutiqueId]);
 
   function naviguer(cible: string) {
     if (cible === "achats:nouveau") {

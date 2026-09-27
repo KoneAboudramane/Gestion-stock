@@ -1,6 +1,15 @@
 import { ouvrirBaseDeDonnees } from "../db";
 import { listerParIndex, maintenant, obtenirLigne, ecrireLigne, suiviSyncNeuf } from "../db/helpers";
-import type { DepotLocal, InventaireLocal, LigneInventaireLocale, MouvementStockLocal, TransfertStockLocal } from "../db/schema";
+import type {
+  DepotLocal,
+  DestockageLocal,
+  OperationDestockageLocale,
+  InventaireLocal,
+  LigneInventaireLocale,
+  MouvementStockLocal,
+  PerteStockLocal,
+  TransfertStockLocal,
+} from "../db/schema";
 
 /**
  * Port navigateur de client-electron/electron/services/stock.ts. Mouvements/
@@ -13,6 +22,55 @@ import type { DepotLocal, InventaireLocal, LigneInventaireLocale, MouvementStock
  */
 
 export class ErreurStock extends Error {}
+
+/**
+ * Réglage boutique "fabrication propre" (configuration.Parametre, clé
+ * fabrication_propre = "1") : seules ces boutiques peuvent faire entrer du
+ * stock hors réception d'achat (entrée manuelle, ajout depuis la fiche
+ * produit, entrée de production). Les autres réapprovisionnent par les
+ * Achats, qui tiennent le coût moyen (CUMP), la dette fournisseur et la
+ * comptabilité à jour. Exception : le tout premier stock d'une variante
+ * (stock initial à la création du produit) reste permis à tous.
+ */
+export const CLE_PARAMETRE_FABRICATION_PROPRE = "fabrication_propre";
+
+export const MESSAGE_ENTREE_RESERVEE_FABRICATION =
+  "Cette boutique réapprovisionne par les Achats : l'entrée de stock manuelle est réservée aux boutiques qui fabriquent leurs produits (Réglages → Informations boutique).";
+
+export async function fabricationPropreActive(boutiqueId: string): Promise<boolean> {
+  const parametres = await listerParIndex("parametres", "boutique_id", boutiqueId);
+  return parametres.some((p) => !p.supprime && p.cle === CLE_PARAMETRE_FABRICATION_PROPRE && p.valeur === "1");
+}
+
+async function fabricationPropreActivePourDepot(depotId: string): Promise<boolean> {
+  const depot = await obtenirLigne("depots", depotId);
+  return depot ? fabricationPropreActive(depot.boutique_id) : false;
+}
+
+/** Entrée manuelle permise si la boutique fabrique, ou s'il s'agit du tout
+ * premier stock de la variante (stock initial à la création du produit). */
+async function verifierEntreeManuelle(varianteId: string, depotId: string): Promise<void> {
+  if (await fabricationPropreActivePourDepot(depotId)) return;
+  const db = await ouvrirBaseDeDonnees();
+  const mouvements = await db.getAllFromIndex(
+    "mouvements_stock",
+    "variante_depot",
+    IDBKeyRange.bound([varianteId, ""], [varianteId, "\uffff"]),
+  );
+  if (mouvements.some((m) => !m.supprime)) {
+    throw new ErreurStock(MESSAGE_ENTREE_RESERVEE_FABRICATION);
+  }
+}
+
+/**
+ * Mouvement saisi à la main (écran Stock, fiche produit, stock initial) —
+ * contrairement à appliquerMouvement, utilisé aussi par les ventes, achats,
+ * transferts et inventaires, applique la règle "fabrication propre" ci-dessus.
+ */
+export async function creerMouvementManuel(params: ParametresMouvement): Promise<string> {
+  if (params.type === "entree") await verifierEntreeManuelle(params.varianteId, params.depotId);
+  return appliquerMouvement(params);
+}
 
 export type TypeMouvement = "entree" | "sortie" | "ajustement";
 
@@ -106,6 +164,9 @@ export interface ParametresEntreeProduction {
  */
 export async function creerEntreeProduction(params: ParametresEntreeProduction): Promise<string> {
   const { varianteId, depotId, quantite, prixAchat, prixVente, motif = "", utilisateurId = null } = params;
+  if (!(await fabricationPropreActivePourDepot(depotId))) {
+    throw new ErreurStock(MESSAGE_ENTREE_RESERVEE_FABRICATION);
+  }
 
   const variante = await obtenirLigne("variantes", varianteId);
   if (!variante) throw new ErreurStock("Produit introuvable.");
@@ -408,6 +469,418 @@ export interface InventaireResume {
   statut: string;
   dateCreation: string;
 }
+// --- Pertes (port de client-electron/electron/services/stock.ts::declarerPerte) ---
+
+export type MotifPerte = "perime" | "abime" | "vol" | "don" | "consommation" | "autre";
+
+const LIBELLES_MOTIF_PERTE: Record<MotifPerte, string> = {
+  perime: "Périmé",
+  abime: "Abîmé / cassé",
+  vol: "Vol / disparu",
+  don: "Don",
+  consommation: "Consommation interne",
+  autre: "Autre",
+};
+
+export interface ParametresPerte {
+  varianteId: string;
+  depotId: string;
+  quantite: number;
+  motif: MotifPerte;
+  detail?: string;
+  utilisateurId: string | null;
+}
+
+/**
+ * Sortie de stock sans vente : une vraie perte (périmé, casse, vol, don...),
+ * à distinguer d'un ajustement qui corrige une erreur de saisie. Valorisée au
+ * CUMP courant de la variante et figée sur la perte. Le stock est vérifié
+ * AVANT d'écrire quoi que ce soit (IndexedDB n'a pas de transaction commune
+ * ici) : une perte refusée ne laisse aucune trace.
+ */
+export async function declarerPerte(params: ParametresPerte): Promise<string> {
+  const { varianteId, depotId, quantite, motif, utilisateurId } = params;
+  const detail = (params.detail ?? "").trim();
+  if (!(quantite > 0)) throw new ErreurStock("La quantité doit être strictement positive.");
+  if (!(motif in LIBELLES_MOTIF_PERTE)) throw new ErreurStock("Motif de perte inconnu.");
+  if (motif === "autre" && !detail) throw new ErreurStock("Précisez la raison de la perte.");
+
+  const variante = await obtenirLigne("variantes", varianteId);
+  if (!variante) throw new ErreurStock("Produit introuvable.");
+  const db = await ouvrirBaseDeDonnees();
+  const stock = await db.getFromIndex("stocks", "variante_depot", [varianteId, depotId]);
+  if ((stock?.quantite ?? 0) < quantite) throw new ErreurStock("Stock insuffisant pour cette opération.");
+
+  const id = crypto.randomUUID();
+  const perte: PerteStockLocal = {
+    id,
+    variante_id: varianteId,
+    depot_id: depotId,
+    quantite,
+    motif,
+    detail,
+    valeur: Math.round(quantite * variante.prix_achat),
+    utilisateur_id: utilisateurId,
+    ...suiviSyncNeuf(),
+  };
+  await ecrireLigne("pertes_stock", perte);
+  await appliquerMouvement({
+    varianteId,
+    depotId,
+    type: "sortie",
+    quantite,
+    motif: `Perte : ${LIBELLES_MOTIF_PERTE[motif]}${detail ? ` (${detail})` : ""}`,
+    utilisateurId,
+    referenceType: "stock.PerteStock",
+    referenceId: id,
+  });
+  await terminerDestockageSiEpuise(varianteId);
+  return id;
+}
+
+export interface PerteResume {
+  id: string;
+  dateCreation: string;
+  produitNom: string;
+  reference: string;
+  depotNom: string;
+  quantite: number;
+  motif: MotifPerte;
+  detail: string;
+  valeur: number;
+}
+
+/** Pertes de la boutique, les plus récentes d'abord ; debut/fin (ISO) optionnels. */
+export async function listerPertes(boutiqueId: string, debut?: string, fin?: string): Promise<PerteResume[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const depots = (await db.getAllFromIndex("depots", "boutique_id", boutiqueId)).filter((d) => !d.supprime);
+  const resultat: PerteResume[] = [];
+  for (const depot of depots) {
+    for (const p of await db.getAllFromIndex("pertes_stock", "depot_id", depot.id)) {
+      if (p.supprime) continue;
+      if (debut && p.date_creation < debut) continue;
+      if (fin && p.date_creation > fin) continue;
+      const variante = await db.get("variantes", p.variante_id);
+      const produit = variante ? await db.get("produits", variante.produit_id) : undefined;
+      resultat.push({
+        id: p.id,
+        dateCreation: p.date_creation,
+        produitNom: produit?.nom ?? "",
+        reference: variante?.reference ?? "",
+        depotNom: depot.nom,
+        quantite: p.quantite,
+        motif: p.motif as MotifPerte,
+        detail: p.detail ?? "",
+        valeur: p.valeur,
+      });
+    }
+  }
+  return resultat.sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));
+}
+
+// --- Déstockage (port de client-electron/electron/services/stock.ts) ---
+
+function aujourdhui(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function estActif(d: DestockageLocal, jour = aujourdhui()): boolean {
+  return !d.supprime && d.statut === "en_cours" && (!d.date_fin || d.date_fin >= jour);
+}
+
+export interface DestockageActif {
+  id: string;
+  prixNormal: number;
+  prixDestockage: number;
+}
+
+/** Déstockage en cours et pas encore arrivé à sa date de fin, ou undefined. */
+export async function destockageActif(varianteId: string): Promise<DestockageActif | undefined> {
+  const db = await ouvrirBaseDeDonnees();
+  const actifs = (await db.getAllFromIndex("destockages", "variante_id", varianteId))
+    .filter((d) => estActif(d))
+    .sort((a, b) => b.date_creation.localeCompare(a.date_creation));
+  const d = actifs[0];
+  return d ? { id: d.id, prixNormal: d.prix_normal, prixDestockage: d.prix_destockage } : undefined;
+}
+
+async function terminerDestockage(d: DestockageLocal, motif: "date" | "epuise" | "manuel"): Promise<void> {
+  await ecrireLigne("destockages", {
+    ...d,
+    statut: "termine",
+    motif_fin: motif,
+    date_arret: maintenant(),
+    date_modification: maintenant(),
+    synchronise: 0,
+  });
+}
+
+export interface ParametresDestockage {
+  varianteId: string;
+  prixDestockage: number;
+  /** "AAAA-MM-JJ", optionnelle. */
+  dateFin?: string | null;
+  utilisateurId: string | null;
+}
+
+async function verifierDestockage(varianteId: string, prixDestockage: number, dateFin: string | null): Promise<void> {
+  const variante = await obtenirLigne("variantes", varianteId);
+  if (!variante) throw new ErreurStock("Produit introuvable.");
+  if (!(prixDestockage > 0)) throw new ErreurStock("Le prix de déstockage doit être positif.");
+  if (prixDestockage >= variante.prix_vente) {
+    throw new ErreurStock("Le prix de déstockage doit être inférieur au prix de vente normal.");
+  }
+  if (dateFin && dateFin < aujourdhui()) throw new ErreurStock("La date de fin est déjà passée.");
+  if (await destockageActif(varianteId)) throw new ErreurStock("Cet article est déjà en déstockage.");
+}
+
+/** À appeler après verifierDestockage. */
+async function insererDestockage(
+  varianteId: string,
+  prixDestockage: number,
+  dateFin: string | null,
+  utilisateurId: string | null,
+  operationId: string | null,
+): Promise<string> {
+  const db = await ouvrirBaseDeDonnees();
+  // Déstockages restés "en cours" mais dont la date de fin est passée : on les clôt.
+  for (const ancien of await db.getAllFromIndex("destockages", "variante_id", varianteId)) {
+    if (!ancien.supprime && ancien.statut === "en_cours") await terminerDestockage(ancien, "date");
+  }
+  const variante = (await obtenirLigne("variantes", varianteId))!;
+  const id = crypto.randomUUID();
+  const destockage: DestockageLocal = {
+    id,
+    variante_id: varianteId,
+    prix_normal: variante.prix_vente,
+    prix_destockage: prixDestockage,
+    date_fin: dateFin,
+    statut: "en_cours",
+    motif_fin: "",
+    date_arret: null,
+    utilisateur_id: utilisateurId,
+    operation_id: operationId,
+    ...suiviSyncNeuf(),
+  };
+  await ecrireLigne("destockages", destockage);
+  return id;
+}
+
+export async function demarrerDestockage(params: ParametresDestockage): Promise<string> {
+  const { varianteId, prixDestockage, utilisateurId } = params;
+  const dateFin = params.dateFin || null;
+  await verifierDestockage(varianteId, prixDestockage, dateFin);
+  return insererDestockage(varianteId, prixDestockage, dateFin, utilisateurId, null);
+}
+
+export interface ParametresOperationDestockage {
+  boutiqueId: string;
+  nom: string;
+  lignes: { varianteId: string; prixDestockage: number }[];
+  dateFin?: string | null;
+  utilisateurId: string | null;
+}
+
+/**
+ * Déstocke plusieurs articles d'un coup sous un même nom (port de
+ * demarrerOperationDestockage côté Electron). Tout ou rien : tout est vérifié
+ * avant la moindre écriture.
+ */
+export async function demarrerOperationDestockage(params: ParametresOperationDestockage): Promise<string> {
+  const { boutiqueId, lignes, utilisateurId } = params;
+  const nom = params.nom.trim();
+  const dateFin = params.dateFin || null;
+  if (lignes.length === 0) throw new ErreurStock("Choisissez au moins un article.");
+  if (!nom) throw new ErreurStock("Donnez un nom à l'opération de déstockage.");
+  if (new Set(lignes.map((l) => l.varianteId)).size !== lignes.length) {
+    throw new ErreurStock("Un même article apparaît deux fois.");
+  }
+  const db = await ouvrirBaseDeDonnees();
+  for (const ligne of lignes) {
+    try {
+      await verifierDestockage(ligne.varianteId, ligne.prixDestockage, dateFin);
+    } catch (erreur) {
+      const variante = await db.get("variantes", ligne.varianteId);
+      const produit = variante ? await db.get("produits", variante.produit_id) : undefined;
+      throw new ErreurStock(`${produit?.nom ?? "Article"} : ${(erreur as Error).message}`);
+    }
+  }
+
+  const operationId = crypto.randomUUID();
+  const operation: OperationDestockageLocale = {
+    id: operationId,
+    boutique_id: boutiqueId,
+    nom,
+    date_fin: dateFin,
+    utilisateur_id: utilisateurId,
+    ...suiviSyncNeuf(),
+  };
+  await ecrireLigne("operations_destockage", operation);
+  for (const ligne of lignes) {
+    await insererDestockage(ligne.varianteId, ligne.prixDestockage, dateFin, utilisateurId, operationId);
+  }
+  return operationId;
+}
+
+/** Arrête tous les déstockages encore en cours de l'opération. */
+export async function arreterOperationDestockage(id: string): Promise<void> {
+  const db = await ouvrirBaseDeDonnees();
+  const enCours = (await db.getAllFromIndex("destockages", "operation_id", id)).filter(
+    (d) => !d.supprime && d.statut === "en_cours",
+  );
+  if (enCours.length === 0) throw new ErreurStock("Cette opération est déjà terminée.");
+  for (const d of enCours) await terminerDestockage(d, "manuel");
+}
+
+export async function arreterDestockage(id: string): Promise<void> {
+  const destockage = await obtenirLigne("destockages", id);
+  if (!destockage) throw new ErreurStock("Déstockage introuvable.");
+  if (destockage.statut === "termine") throw new ErreurStock("Ce déstockage est déjà terminé.");
+  await terminerDestockage(destockage, "manuel");
+}
+
+/** Après une sortie de stock (vente, perte) : fin automatique quand l'article
+ * n'a plus de stock, tous dépôts confondus. */
+export async function terminerDestockageSiEpuise(varianteId: string): Promise<void> {
+  const actif = await destockageActif(varianteId);
+  if (!actif) return;
+  const db = await ouvrirBaseDeDonnees();
+  const stocks = await db.getAllFromIndex(
+    "stocks",
+    "variante_depot",
+    IDBKeyRange.bound([varianteId, ""], [varianteId, "\uffff"]),
+  );
+  if (stocks.reduce((total, s) => total + s.quantite, 0) <= 0) {
+    const destockage = await obtenirLigne("destockages", actif.id);
+    if (destockage) await terminerDestockage(destockage, "epuise");
+  }
+}
+
+export interface VarianteDestockage {
+  id: string;
+  produitNom: string;
+  reference: string;
+  prixVente: number;
+  prixAchat: number;
+}
+
+/** Recherche d'articles pour le formulaire de déstockage (nom, référence, code-barres). */
+export async function rechercherVariantesDestockage(boutiqueId: string, terme: string): Promise<VarianteDestockage[]> {
+  const t = terme.trim().toLowerCase();
+  if (!t) return [];
+  const db = await ouvrirBaseDeDonnees();
+  const produits = (await db.getAllFromIndex("produits", "boutique_id", boutiqueId)).filter((p) => !p.supprime);
+  const resultat: VarianteDestockage[] = [];
+  for (const produit of produits) {
+    for (const v of await db.getAllFromIndex("variantes", "produit_id", produit.id)) {
+      if (v.supprime) continue;
+      const texte = `${produit.nom} ${v.reference ?? ""} ${v.code_barres ?? ""}`.toLowerCase();
+      if (!texte.includes(t)) continue;
+      resultat.push({
+        id: v.id,
+        produitNom: produit.nom,
+        reference: v.reference ?? "",
+        prixVente: v.prix_vente,
+        prixAchat: v.prix_achat,
+      });
+    }
+  }
+  return resultat.sort((a, b) => a.produitNom.localeCompare(b.produitNom)).slice(0, 20);
+}
+
+export type StatutDestockage = "en_cours" | "termine";
+export type MotifFinDestockage = "" | "date" | "epuise" | "manuel";
+
+export interface DestockageResume {
+  id: string;
+  varianteId: string;
+  produitNom: string;
+  reference: string;
+  prixAchat: number;
+  prixNormal: number;
+  prixDestockage: number;
+  dateCreation: string;
+  dateFin: string | null;
+  dateArret: string | null;
+  /** Statut réel : un déstockage "en cours" dont la date de fin est passée est terminé ("date"). */
+  statut: StatutDestockage;
+  motifFin: MotifFinDestockage;
+  /** Opération de déstockage (groupe nommé) à laquelle l'article appartient. */
+  operationId: string | null;
+  operationNom: string | null;
+  quantiteVendue: number;
+  chiffreAffaires: number;
+  marge: number;
+  manqueAGagner: number;
+  stockRestant: number;
+}
+
+/** Tous les déstockages de la boutique avec leur bilan (ventes non annulées). */
+export async function listerDestockages(boutiqueId: string): Promise<DestockageResume[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const jour = aujourdhui();
+  const produits = (await db.getAllFromIndex("produits", "boutique_id", boutiqueId)).filter((p) => !p.supprime);
+  const nomsOperations = new Map(
+    (await db.getAllFromIndex("operations_destockage", "boutique_id", boutiqueId)).map((o) => [o.id, o.nom]),
+  );
+
+  // Bilan des ventes par déstockage (lignes liées, ventes non annulées de la boutique).
+  const bilans = new Map<string, { quantite: number; ca: number; cout: number; normal: number }>();
+  for (const vente of await db.getAllFromIndex("ventes", "boutique_id", boutiqueId)) {
+    if (vente.supprime || vente.statut === "annulee") continue;
+    for (const l of await db.getAllFromIndex("lignes_vente", "vente_id", vente.id)) {
+      if (l.supprime || !l.destockage_id) continue;
+      const b = bilans.get(l.destockage_id) ?? { quantite: 0, ca: 0, cout: 0, normal: 0 };
+      b.quantite += l.quantite;
+      b.ca += l.sous_total;
+      b.cout += l.quantite * l.cout_unitaire;
+      b.normal += l.quantite * (l.prix_normal ?? l.prix_unitaire);
+      bilans.set(l.destockage_id, b);
+    }
+  }
+
+  const resultat: DestockageResume[] = [];
+  for (const produit of produits) {
+    for (const v of await db.getAllFromIndex("variantes", "produit_id", produit.id)) {
+      const destockages = (await db.getAllFromIndex("destockages", "variante_id", v.id)).filter((d) => !d.supprime);
+      if (destockages.length === 0) continue;
+      const stocks = await db.getAllFromIndex(
+        "stocks",
+        "variante_depot",
+        IDBKeyRange.bound([v.id, ""], [v.id, "\uffff"]),
+      );
+      const stockRestant = stocks.reduce((total, s) => total + s.quantite, 0);
+      for (const d of destockages) {
+        const b = bilans.get(d.id) ?? { quantite: 0, ca: 0, cout: 0, normal: 0 };
+        const expire = d.statut === "en_cours" && !!d.date_fin && d.date_fin < jour;
+        resultat.push({
+          id: d.id,
+          varianteId: v.id,
+          produitNom: produit.nom,
+          reference: v.reference ?? "",
+          prixAchat: v.prix_achat,
+          prixNormal: d.prix_normal,
+          prixDestockage: d.prix_destockage,
+          dateCreation: d.date_creation,
+          dateFin: d.date_fin || null,
+          dateArret: d.date_arret,
+          statut: expire ? "termine" : d.statut,
+          motifFin: expire ? "date" : d.motif_fin,
+          operationId: d.operation_id ?? null,
+          operationNom: d.operation_id ? (nomsOperations.get(d.operation_id) ?? null) : null,
+          quantiteVendue: b.quantite,
+          chiffreAffaires: b.ca,
+          marge: b.ca - b.cout,
+          manqueAGagner: b.normal - b.ca,
+          stockRestant,
+        });
+      }
+    }
+  }
+  return resultat.sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));
+}
+
 
 export async function listerInventaires(boutiqueId: string): Promise<InventaireResume[]> {
   const inventaires = (await listerParIndex("inventaires", "boutique_id", boutiqueId)).filter((i) => !i.supprime);

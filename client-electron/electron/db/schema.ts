@@ -160,6 +160,8 @@ CREATE TABLE IF NOT EXISTS lignes_vente (
   cout_unitaire REAL DEFAULT 0,
   remise REAL DEFAULT 0,
   sous_total REAL DEFAULT 0,
+  prix_normal REAL,
+  destockage_id TEXT,
   ${SUIVI_SYNC}
 );
 
@@ -190,6 +192,7 @@ CREATE TABLE IF NOT EXISTS lignes_achat (
   quantite REAL NOT NULL,
   prix_achat REAL NOT NULL,
   sous_total REAL DEFAULT 0,
+  quantite_recue REAL DEFAULT 0,
   ${SUIVI_SYNC}
 );
 
@@ -198,6 +201,8 @@ CREATE TABLE IF NOT EXISTS receptions (
   commande_id TEXT NOT NULL,
   depot_id TEXT NOT NULL,
   utilisateur_id TEXT,
+  valeur_recue REAL DEFAULT 0,
+  montant_paye REAL DEFAULT 0,
   ${SUIVI_SYNC}
 );
 
@@ -221,6 +226,57 @@ CREATE TABLE IF NOT EXISTS transferts_stock (
   depot_destination_id TEXT NOT NULL,
   quantite REAL NOT NULL,
   utilisateur_id TEXT,
+  ${SUIVI_SYNC}
+);
+
+-- pertes_stock : sortie sans vente (périmé, casse, vol, don...), valeur figée
+-- au CUMP du moment (voir services/stock.ts::declarerPerte).
+CREATE TABLE IF NOT EXISTS pertes_stock (
+  id TEXT PRIMARY KEY,
+  variante_id TEXT NOT NULL,
+  depot_id TEXT NOT NULL,
+  quantite REAL NOT NULL,
+  motif TEXT NOT NULL,
+  detail TEXT DEFAULT '',
+  valeur REAL DEFAULT 0,
+  utilisateur_id TEXT,
+  ${SUIVI_SYNC}
+);
+
+-- destockages : article vendu à prix réduit en caisse jusqu'à date_fin, stock
+-- épuisé ou arrêt manuel (voir services/stock.ts::demarrerDestockage).
+-- operations_destockage : groupe nommé de déstockages lancés ensemble.
+CREATE TABLE IF NOT EXISTS operations_destockage (
+  id TEXT PRIMARY KEY,
+  boutique_id TEXT NOT NULL,
+  nom TEXT NOT NULL,
+  date_fin TEXT,
+  utilisateur_id TEXT,
+  ${SUIVI_SYNC}
+);
+
+CREATE TABLE IF NOT EXISTS destockages (
+  id TEXT PRIMARY KEY,
+  variante_id TEXT NOT NULL,
+  prix_normal REAL NOT NULL,
+  prix_destockage REAL NOT NULL,
+  date_fin TEXT,
+  statut TEXT DEFAULT 'en_cours',
+  motif_fin TEXT DEFAULT '',
+  date_arret TEXT,
+  utilisateur_id TEXT,
+  operation_id TEXT,
+  ${SUIVI_SYNC}
+);
+
+-- releves_dormants : photo quotidienne des produits dormants (argent qui dort).
+CREATE TABLE IF NOT EXISTS releves_dormants (
+  id TEXT PRIMARY KEY,
+  boutique_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  jours_seuil INTEGER DEFAULT 60,
+  nombre_articles INTEGER DEFAULT 0,
+  valeur_immobilisee REAL DEFAULT 0,
   ${SUIVI_SYNC}
 );
 

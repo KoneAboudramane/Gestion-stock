@@ -22,6 +22,7 @@ import Stock from "./Stock";
 import TableauDeBord from "./TableauDeBord";
 import Tresorerie from "./Tresorerie";
 import Ventes from "./Ventes";
+import { CLE_PARAMETRE_FABRICATION_PROPRE } from "../hooks/useFabricationPropre";
 
 const ZONES = [
   { cle: "tableauDeBord", label: "Tableau de bord", icone: "📊", disponible: true },
@@ -80,6 +81,11 @@ export default function Shell({
   useEffect(() => {
     api.systeme.version().then(setVersion);
   }, []);
+  // Photo du jour des produits dormants (historique de l'argent qui dort,
+  // Stock → Historique) : une fois par jour, sans rien bloquer si ça échoue.
+  useEffect(() => {
+    api.rapports.enregistrerReleveDormants(session.boutiqueId).catch(() => {});
+  }, [session.boutiqueId]);
   const [notificationsNonLues, setNotificationsNonLues] = useState(0);
   const [ouvrirNouvelleCommande, setOuvrirNouvelleCommande] = useState(false);
   const [ongletRapportsInitial, setOngletRapportsInitial] = useState<OngletRapports | undefined>(undefined);
@@ -94,13 +100,18 @@ export default function Shell({
 
   /**
    * Bouton "Commander" sur une/des ligne(s) en rupture (Stock ou détail d'une
-   * notification) : une boutique sans fournisseur fabrique elle-même ses
-   * produits — pas de commande possible, on l'emmène directement enregistrer
-   * une entrée de stock à la place.
+   * notification) : une boutique qui fabrique ses produits (réglage
+   * "fabrication propre", voir hooks/useFabricationPropre.ts) et n'a aucun
+   * fournisseur est emmenée directement enregistrer une entrée de production.
+   * Toutes les autres passent par une commande fournisseur.
    */
   async function commanderProduit(lignes: LigneAchatInitiale[]) {
-    const fournisseurs = await api.fournisseurs.lister(session.boutiqueId);
-    if (fournisseurs.length === 0) {
+    const [fournisseurs, parametres] = await Promise.all([
+      api.fournisseurs.lister(session.boutiqueId),
+      api.reglages.listerParametres(session.boutiqueId),
+    ]);
+    const fabricationPropre = parametres.some((p) => p.cle === CLE_PARAMETRE_FABRICATION_PROPRE && p.valeur === "1");
+    if (fabricationPropre && fournisseurs.length === 0) {
       setZone("stock");
       setLignesEntreeInitiales(lignes);
     } else {

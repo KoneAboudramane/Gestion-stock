@@ -17,6 +17,46 @@ export type TypeMouvement = "entree" | "sortie" | "ajustement";
 
 export class ErreurStock extends Error {}
 
+/**
+ * Réglage boutique "fabrication propre" (configuration.Parametre, clé
+ * fabrication_propre = "1") : seules ces boutiques peuvent faire entrer du
+ * stock hors réception d'achat (entrée manuelle, ajout depuis la fiche
+ * produit, entrée de production). Les autres réapprovisionnent par les
+ * Achats, qui tiennent le coût moyen (CUMP), la dette fournisseur et la
+ * comptabilité à jour. Exception : le tout premier stock d'une variante
+ * (stock initial à la création du produit) reste permis à tous.
+ */
+export const CLE_PARAMETRE_FABRICATION_PROPRE = "fabrication_propre";
+
+export const MESSAGE_ENTREE_RESERVEE_FABRICATION =
+  "Cette boutique réapprovisionne par les Achats : l'entrée de stock manuelle est réservée aux boutiques qui fabriquent leurs produits (Réglages → Informations boutique).";
+
+export function fabricationPropreActive(boutiqueId: string): boolean {
+  const parametre = unResultat<{ valeur: string }>(
+    "SELECT valeur FROM parametres WHERE boutique_id = ? AND cle = ? AND supprime = 0",
+    [boutiqueId, CLE_PARAMETRE_FABRICATION_PROPRE],
+  );
+  return parametre?.valeur === "1";
+}
+
+function fabricationPropreActivePourDepot(depotId: string): boolean {
+  const depot = unResultat<{ boutique_id: string }>("SELECT boutique_id FROM depots WHERE id = ?", [depotId]);
+  return depot ? fabricationPropreActive(depot.boutique_id) : false;
+}
+
+/** Entrée manuelle permise si la boutique fabrique, ou s'il s'agit du tout
+ * premier stock de la variante (stock initial à la création du produit). */
+function verifierEntreeManuelle(varianteId: string, depotId: string): void {
+  if (fabricationPropreActivePourDepot(depotId)) return;
+  const dejaMouvementee = unResultat<{ n: number }>(
+    "SELECT COUNT(*) as n FROM mouvements_stock WHERE variante_id = ? AND supprime = 0",
+    [varianteId],
+  );
+  if (Number(dejaMouvementee?.n ?? 0) > 0) {
+    throw new ErreurStock(MESSAGE_ENTREE_RESERVEE_FABRICATION);
+  }
+}
+
 function deltaPour(type: TypeMouvement, quantite: number): number {
   if (type === "entree") return quantite;
   if (type === "sortie") return -quantite;
@@ -101,6 +141,7 @@ export function appliquerMouvement(params: ParametresMouvement): string {
  * pas seule, donc on l'entoure ici pour ne pas oublier l'écriture sur disque.
  */
 export function creerMouvementManuel(params: ParametresMouvement): string {
+  if (params.type === "entree") verifierEntreeManuelle(params.varianteId, params.depotId);
   const id = appliquerMouvement(params);
   sauvegarder();
   return id;
@@ -125,6 +166,9 @@ export interface ParametresEntreeProduction {
  */
 export function creerEntreeProduction(params: ParametresEntreeProduction): string {
   const { varianteId, depotId, quantite, prixAchat, prixVente, motif = "", utilisateurId = null } = params;
+  if (!fabricationPropreActivePourDepot(depotId)) {
+    throw new ErreurStock(MESSAGE_ENTREE_RESERVEE_FABRICATION);
+  }
 
   const resultat = dansUneTransaction(() => {
     const variante = unResultat<{ prix_achat: number; prix_vente: number }>(
@@ -461,6 +505,380 @@ export function listerTransferts(boutiqueId: string, limite = 100): TransfertRes
      LIMIT ?`,
     [boutiqueId, limite],
   );
+}
+
+// --- Pertes (miroir de stock/services.py::declarer_perte) ---
+
+export type MotifPerte = "perime" | "abime" | "vol" | "don" | "consommation" | "autre";
+
+export const LIBELLES_MOTIF_PERTE: Record<MotifPerte, string> = {
+  perime: "Périmé",
+  abime: "Abîmé / cassé",
+  vol: "Vol / disparu",
+  don: "Don",
+  consommation: "Consommation interne",
+  autre: "Autre",
+};
+
+export interface ParametresPerte {
+  varianteId: string;
+  depotId: string;
+  quantite: number;
+  motif: MotifPerte;
+  detail?: string;
+  utilisateurId: string | null;
+}
+
+/**
+ * Sortie de stock sans vente : une vraie perte (périmé, casse, vol, don...),
+ * à distinguer d'un ajustement qui corrige une erreur de saisie. Valorisée au
+ * CUMP courant de la variante et figée sur la perte, pour que le rapport des
+ * pertes reste juste même si le prix d'achat évolue ensuite.
+ */
+export function declarerPerte(params: ParametresPerte): string {
+  const { varianteId, depotId, quantite, motif, utilisateurId } = params;
+  const detail = (params.detail ?? "").trim();
+  if (!(quantite > 0)) throw new ErreurStock("La quantité doit être strictement positive.");
+  if (!(motif in LIBELLES_MOTIF_PERTE)) throw new ErreurStock("Motif de perte inconnu.");
+  if (motif === "autre" && !detail) throw new ErreurStock("Précisez la raison de la perte.");
+
+  const variante = unResultat<{ prix_achat: number }>("SELECT prix_achat FROM variantes WHERE id = ?", [varianteId]);
+  if (!variante) throw new ErreurStock("Produit introuvable.");
+
+  const perteId = dansUneTransaction(() => {
+    const id = randomUUID();
+    const maintenant = new Date().toISOString();
+    executer(
+      `INSERT INTO pertes_stock
+         (id, variante_id, depot_id, quantite, motif, detail, valeur, utilisateur_id, date_creation, date_modification)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        varianteId,
+        depotId,
+        quantite,
+        motif,
+        detail,
+        Math.round(quantite * Number(variante.prix_achat)),
+        utilisateurId,
+        maintenant,
+        maintenant,
+      ],
+    );
+    appliquerMouvement({
+      varianteId,
+      depotId,
+      type: "sortie",
+      quantite,
+      motif: `Perte : ${LIBELLES_MOTIF_PERTE[motif]}${detail ? ` (${detail})` : ""}`,
+      utilisateurId,
+      referenceType: "stock.PerteStock",
+      referenceId: id,
+    });
+    terminerDestockageSiEpuise(varianteId);
+    return id;
+  });
+  sauvegarder();
+  return perteId;
+}
+
+export interface PerteResume {
+  id: string;
+  dateCreation: string;
+  produitNom: string;
+  reference: string;
+  depotNom: string;
+  quantite: number;
+  motif: MotifPerte;
+  detail: string;
+  valeur: number;
+}
+
+/** Pertes de la boutique, les plus récentes d'abord ; debut/fin (ISO) optionnels. */
+export function listerPertes(boutiqueId: string, debut?: string, fin?: string): PerteResume[] {
+  const conditions = ["d.boutique_id = ?", "pe.supprime = 0"];
+  const parametres: string[] = [boutiqueId];
+  if (debut) {
+    conditions.push("pe.date_creation >= ?");
+    parametres.push(debut);
+  }
+  if (fin) {
+    conditions.push("pe.date_creation <= ?");
+    parametres.push(fin);
+  }
+  return tousLesResultats<PerteResume>(
+    `SELECT pe.id as id, pe.date_creation as dateCreation, p.nom as produitNom, COALESCE(v.reference, '') as reference,
+            d.nom as depotNom, pe.quantite as quantite, pe.motif as motif, COALESCE(pe.detail, '') as detail,
+            pe.valeur as valeur
+     FROM pertes_stock pe
+     JOIN variantes v ON v.id = pe.variante_id
+     JOIN produits p ON p.id = v.produit_id
+     JOIN depots d ON d.id = pe.depot_id
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY pe.date_creation DESC`,
+    parametres,
+  );
+}
+
+// --- Déstockage (miroir de stock/services.py) ---
+
+function aujourdhui(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+export interface DestockageActif {
+  id: string;
+  prixNormal: number;
+  prixDestockage: number;
+}
+
+/** Déstockage en cours et pas encore arrivé à sa date de fin, ou undefined. */
+export function destockageActif(varianteId: string): DestockageActif | undefined {
+  const ligne = unResultat<DestockageActif>(
+    `SELECT id, prix_normal as prixNormal, prix_destockage as prixDestockage
+     FROM destockages
+     WHERE variante_id = ? AND statut = 'en_cours' AND supprime = 0 AND (date_fin IS NULL OR date_fin = '' OR date_fin >= ?)
+     ORDER BY date_creation DESC LIMIT 1`,
+    [varianteId, aujourdhui()],
+  );
+  return ligne ? { ...ligne, prixNormal: Number(ligne.prixNormal), prixDestockage: Number(ligne.prixDestockage) } : undefined;
+}
+
+function terminerDestockage(id: string, motif: "date" | "epuise" | "manuel"): void {
+  const maintenant = new Date().toISOString();
+  executer(
+    `UPDATE destockages SET statut = 'termine', motif_fin = ?, date_arret = ?, synchronise = 0, date_modification = ?
+     WHERE id = ?`,
+    [motif, maintenant, maintenant, id],
+  );
+}
+
+export interface ParametresDestockage {
+  varianteId: string;
+  prixDestockage: number;
+  /** "AAAA-MM-JJ", optionnelle. */
+  dateFin?: string | null;
+  utilisateurId: string | null;
+}
+
+function verifierDestockage(varianteId: string, prixDestockage: number, dateFin: string | null): void {
+  const variante = unResultat<{ prix_vente: number }>("SELECT prix_vente FROM variantes WHERE id = ?", [varianteId]);
+  if (!variante) throw new ErreurStock("Produit introuvable.");
+  if (!(prixDestockage > 0)) throw new ErreurStock("Le prix de déstockage doit être positif.");
+  if (prixDestockage >= Number(variante.prix_vente)) {
+    throw new ErreurStock("Le prix de déstockage doit être inférieur au prix de vente normal.");
+  }
+  if (dateFin && dateFin < aujourdhui()) throw new ErreurStock("La date de fin est déjà passée.");
+  if (destockageActif(varianteId)) throw new ErreurStock("Cet article est déjà en déstockage.");
+}
+
+/** À appeler dans une transaction, après verifierDestockage. */
+function insererDestockage(
+  varianteId: string,
+  prixDestockage: number,
+  dateFin: string | null,
+  utilisateurId: string | null,
+  operationId: string | null,
+): string {
+  // Déstockages restés "en cours" mais dont la date de fin est passée : on les clôt.
+  for (const ancien of tousLesResultats<{ id: string }>(
+    "SELECT id FROM destockages WHERE variante_id = ? AND statut = 'en_cours' AND supprime = 0",
+    [varianteId],
+  )) {
+    terminerDestockage(ancien.id, "date");
+  }
+  const variante = unResultat<{ prix_vente: number }>("SELECT prix_vente FROM variantes WHERE id = ?", [varianteId])!;
+  const id = randomUUID();
+  const maintenant = new Date().toISOString();
+  executer(
+    `INSERT INTO destockages
+       (id, variante_id, prix_normal, prix_destockage, date_fin, statut, motif_fin, utilisateur_id, operation_id,
+        date_creation, date_modification)
+     VALUES (?, ?, ?, ?, ?, 'en_cours', '', ?, ?, ?, ?)`,
+    [id, varianteId, Number(variante.prix_vente), prixDestockage, dateFin, utilisateurId, operationId, maintenant, maintenant],
+  );
+  return id;
+}
+
+/**
+ * Met un article en déstockage : son prix de vente est remplacé en caisse par
+ * prixDestockage (vente à perte permise — l'écran avertit). S'arrête à la date
+ * de fin, quand le stock de l'article tombe à 0, ou à la main.
+ */
+export function demarrerDestockage(params: ParametresDestockage): string {
+  const { varianteId, prixDestockage, utilisateurId } = params;
+  const dateFin = params.dateFin || null;
+  verifierDestockage(varianteId, prixDestockage, dateFin);
+  const id = dansUneTransaction(() => insererDestockage(varianteId, prixDestockage, dateFin, utilisateurId, null));
+  sauvegarder();
+  return id;
+}
+
+export interface LigneOperationDestockage {
+  varianteId: string;
+  prixDestockage: number;
+}
+
+export interface ParametresOperationDestockage {
+  boutiqueId: string;
+  nom: string;
+  lignes: LigneOperationDestockage[];
+  dateFin?: string | null;
+  utilisateurId: string | null;
+}
+
+/**
+ * Déstocke plusieurs articles d'un coup sous un même nom (miroir de
+ * stock/services.py::demarrer_operation_destockage). Tout ou rien : tout est
+ * vérifié avant d'écrire, puis écrit dans une seule transaction.
+ */
+export function demarrerOperationDestockage(params: ParametresOperationDestockage): string {
+  const { boutiqueId, lignes, utilisateurId } = params;
+  const nom = params.nom.trim();
+  const dateFin = params.dateFin || null;
+  if (lignes.length === 0) throw new ErreurStock("Choisissez au moins un article.");
+  if (!nom) throw new ErreurStock("Donnez un nom à l'opération de déstockage.");
+  if (new Set(lignes.map((l) => l.varianteId)).size !== lignes.length) {
+    throw new ErreurStock("Un même article apparaît deux fois.");
+  }
+  for (const ligne of lignes) {
+    try {
+      verifierDestockage(ligne.varianteId, ligne.prixDestockage, dateFin);
+    } catch (erreur) {
+      const article = unResultat<{ nom: string }>(
+        "SELECT p.nom as nom FROM variantes v JOIN produits p ON p.id = v.produit_id WHERE v.id = ?",
+        [ligne.varianteId],
+      );
+      throw new ErreurStock(`${article?.nom ?? "Article"} : ${(erreur as Error).message}`);
+    }
+  }
+
+  const operationId = dansUneTransaction(() => {
+    const id = randomUUID();
+    const maintenant = new Date().toISOString();
+    executer(
+      `INSERT INTO operations_destockage (id, boutique_id, nom, date_fin, utilisateur_id, date_creation, date_modification)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, boutiqueId, nom, dateFin, utilisateurId, maintenant, maintenant],
+    );
+    for (const ligne of lignes) {
+      insererDestockage(ligne.varianteId, ligne.prixDestockage, dateFin, utilisateurId, id);
+    }
+    return id;
+  });
+  sauvegarder();
+  return operationId;
+}
+
+/** Arrête tous les déstockages encore en cours de l'opération. */
+export function arreterOperationDestockage(id: string): void {
+  const enCours = tousLesResultats<{ id: string }>(
+    "SELECT id FROM destockages WHERE operation_id = ? AND statut = 'en_cours' AND supprime = 0",
+    [id],
+  );
+  if (enCours.length === 0) throw new ErreurStock("Cette opération est déjà terminée.");
+  dansUneTransaction(() => {
+    for (const d of enCours) terminerDestockage(d.id, "manuel");
+  });
+  sauvegarder();
+}
+
+export function arreterDestockage(id: string): void {
+  const destockage = unResultat<{ statut: string }>("SELECT statut FROM destockages WHERE id = ?", [id]);
+  if (!destockage) throw new ErreurStock("Déstockage introuvable.");
+  if (destockage.statut === "termine") throw new ErreurStock("Ce déstockage est déjà terminé.");
+  terminerDestockage(id, "manuel");
+  sauvegarder();
+}
+
+/** Après une sortie de stock (vente, perte) : fin automatique quand l'article
+ * n'a plus de stock, tous dépôts confondus. N'appelle pas sauvegarder(). */
+export function terminerDestockageSiEpuise(varianteId: string): void {
+  const destockage = destockageActif(varianteId);
+  if (!destockage) return;
+  const total = Number(
+    unResultat<{ total: number }>("SELECT COALESCE(SUM(quantite), 0) as total FROM stocks WHERE variante_id = ?", [
+      varianteId,
+    ])?.total ?? 0,
+  );
+  if (total <= 0) terminerDestockage(destockage.id, "epuise");
+}
+
+export type StatutDestockage = "en_cours" | "termine";
+export type MotifFinDestockage = "" | "date" | "epuise" | "manuel";
+
+export interface DestockageResume {
+  id: string;
+  varianteId: string;
+  produitNom: string;
+  reference: string;
+  prixAchat: number;
+  prixNormal: number;
+  prixDestockage: number;
+  dateCreation: string;
+  dateFin: string | null;
+  dateArret: string | null;
+  /** Statut réel : un déstockage "en cours" dont la date de fin est passée est terminé ("date"). */
+  statut: StatutDestockage;
+  motifFin: MotifFinDestockage;
+  /** Opération de déstockage (groupe nommé) à laquelle l'article appartient. */
+  operationId: string | null;
+  operationNom: string | null;
+  quantiteVendue: number;
+  chiffreAffaires: number;
+  marge: number;
+  manqueAGagner: number;
+  stockRestant: number;
+}
+
+/** Tous les déstockages de la boutique avec leur bilan (ventes non annulées). */
+export function listerDestockages(boutiqueId: string): DestockageResume[] {
+  const lignes = tousLesResultats<
+    Omit<DestockageResume, "statut" | "motifFin"> & { statut: string; motifFin: string }
+  >(
+    `SELECT d.id as id, d.variante_id as varianteId, p.nom as produitNom, COALESCE(v.reference, '') as reference,
+            v.prix_achat as prixAchat, d.prix_normal as prixNormal, d.prix_destockage as prixDestockage,
+            d.date_creation as dateCreation, NULLIF(d.date_fin, '') as dateFin, d.date_arret as dateArret,
+            d.statut as statut, COALESCE(d.motif_fin, '') as motifFin,
+            d.operation_id as operationId, o.nom as operationNom,
+            COALESCE(b.quantite, 0) as quantiteVendue, COALESCE(b.ca, 0) as chiffreAffaires,
+            COALESCE(b.cout, 0) as cout, COALESCE(b.normal, 0) as normal,
+            (SELECT COALESCE(SUM(s.quantite), 0) FROM stocks s WHERE s.variante_id = d.variante_id) as stockRestant
+     FROM destockages d
+     JOIN variantes v ON v.id = d.variante_id
+     JOIN produits p ON p.id = v.produit_id
+     LEFT JOIN operations_destockage o ON o.id = d.operation_id
+     LEFT JOIN (
+       SELECT lv.destockage_id as destockage_id, SUM(lv.quantite) as quantite, SUM(lv.sous_total) as ca,
+              SUM(lv.quantite * lv.cout_unitaire) as cout, SUM(lv.quantite * COALESCE(lv.prix_normal, lv.prix_unitaire)) as normal
+       FROM lignes_vente lv
+       JOIN ventes ve ON ve.id = lv.vente_id
+       WHERE lv.destockage_id IS NOT NULL AND lv.supprime = 0 AND ve.statut != 'annulee'
+       GROUP BY lv.destockage_id
+     ) b ON b.destockage_id = d.id
+     WHERE p.boutique_id = ? AND d.supprime = 0
+     ORDER BY d.date_creation DESC`,
+    [boutiqueId],
+  );
+  const jour = aujourdhui();
+  return lignes.map((l) => {
+    const { cout, normal, ...reste } = l as typeof l & { cout: number; normal: number };
+    const expire = l.statut === "en_cours" && !!l.dateFin && l.dateFin < jour;
+    return {
+      ...reste,
+      prixAchat: Number(l.prixAchat),
+      prixNormal: Number(l.prixNormal),
+      prixDestockage: Number(l.prixDestockage),
+      quantiteVendue: Number(l.quantiteVendue),
+      chiffreAffaires: Number(l.chiffreAffaires),
+      marge: Number(l.chiffreAffaires) - Number(cout),
+      manqueAGagner: Number(normal) - Number(l.chiffreAffaires),
+      stockRestant: Number(l.stockRestant),
+      statut: expire ? "termine" : (l.statut as StatutDestockage),
+      motifFin: (expire ? "date" : l.motifFin) as MotifFinDestockage,
+    };
+  });
 }
 
 // --- Inventaire (miroir de demarrer_inventaire / valider_inventaire) ---

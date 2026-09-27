@@ -127,6 +127,13 @@ export interface CommandeResume {
   fournisseurNom: string;
   statut: StatutCommande;
   total: number;
+  /** Commande encore "commandee" dont au moins une ligne a déjà été livrée
+   * — simple affichage (badge), pas un statut stocké. */
+  partiellementRecue: boolean;
+  /** Somme des quantités commandées / déjà reçues sur toutes les lignes
+   * (colonne "Reste à recevoir" de l'onglet Réceptionner). */
+  quantiteCommandee: number;
+  quantiteRecue: number;
 }
 
 export function listerCommandes(
@@ -152,16 +159,29 @@ export function listerCommandes(
   }
   parametres.push(limite);
 
-  return tousLesResultats<CommandeResume>(
+  return tousLesResultats<Omit<CommandeResume, "partiellementRecue"> & { partiellementRecue: number }>(
     `SELECT c.id as id, c.numero as numero, c.date_creation as dateCreation,
-            f.nom as fournisseurNom, c.statut as statut, c.total as total
+            f.nom as fournisseurNom, c.statut as statut, c.total as total,
+            (c.statut = 'commandee' AND EXISTS (
+               SELECT 1 FROM lignes_achat la
+               WHERE la.commande_id = c.id AND la.supprime = 0 AND la.quantite_recue > 0
+            )) as partiellementRecue,
+            (SELECT COALESCE(SUM(la.quantite), 0) FROM lignes_achat la
+             WHERE la.commande_id = c.id AND la.supprime = 0) as quantiteCommandee,
+            (SELECT COALESCE(SUM(la.quantite_recue), 0) FROM lignes_achat la
+             WHERE la.commande_id = c.id AND la.supprime = 0) as quantiteRecue
      FROM commandes_achat c
      JOIN fournisseurs f ON f.id = c.fournisseur_id
      WHERE ${conditions.join(" AND ")}
      ORDER BY c.date_creation DESC
      LIMIT ?`,
     parametres,
-  );
+  ).map((c) => ({
+    ...c,
+    partiellementRecue: Boolean(c.partiellementRecue),
+    quantiteCommandee: Number(c.quantiteCommandee),
+    quantiteRecue: Number(c.quantiteRecue),
+  }));
 }
 
 export interface LigneAchatDetail {
@@ -173,6 +193,7 @@ export interface LigneAchatDetail {
   prixAchat: number;
   sousTotal: number;
   prixVenteActuel: number;
+  quantiteRecue: number;
 }
 
 export interface CommandeDetail {
@@ -201,7 +222,7 @@ export function obtenirCommande(id: string): CommandeDetail | undefined {
   const lignes = tousLesResultats<LigneAchatDetail>(
     `SELECT la.id as id, la.variante_id as varianteId, p.nom as produitNom, va.reference as reference,
             la.quantite as quantite, la.prix_achat as prixAchat, la.sous_total as sousTotal,
-            va.prix_vente as prixVenteActuel
+            va.prix_vente as prixVenteActuel, la.quantite_recue as quantiteRecue
      FROM lignes_achat la
      JOIN variantes va ON va.id = la.variante_id
      JOIN produits p ON p.id = va.produit_id
@@ -284,6 +305,19 @@ export function modifierCommande(id: string, champs: ParametresModifierCommande)
     throw new ErreurAchat("Cette commande ne peut plus être modifiée.");
   }
 
+  const dejaReceptionnee =
+    (unResultat<{ n: number }>("SELECT COUNT(*) as n FROM lignes_achat WHERE commande_id = ? AND quantite_recue > 0", [
+      id,
+    ])?.n ?? 0) > 0;
+  if (champs.statut === "annulee" && dejaReceptionnee) {
+    throw new ErreurAchat("Cette commande a déjà été partiellement réceptionnée, elle ne peut plus être annulée.");
+  }
+  if (champs.lignes && dejaReceptionnee) {
+    throw new ErreurAchat(
+      "Cette commande a déjà été partiellement réceptionnée, ses lignes ne peuvent plus être modifiées.",
+    );
+  }
+
   dansUneTransaction(() => {
     const maintenant = new Date().toISOString();
     let total: number | undefined;
@@ -323,9 +357,10 @@ export function modifierCommande(id: string, champs: ParametresModifierCommande)
   sauvegarder();
 }
 
-export interface LigneReceptionPrix {
+export interface LigneReceptionEntree {
   varianteId: string;
-  prixVente: number;
+  quantite: number;
+  prixVente?: number;
 }
 
 export interface ParametresReception {
@@ -333,38 +368,67 @@ export interface ParametresReception {
   depotId: string;
   utilisateurId: string | null;
   montantDejaPaye?: number;
-  lignesPrix?: LigneReceptionPrix[];
+  lignes: LigneReceptionEntree[];
 }
 
+/**
+ * Réceptionne tout ou partie d'une commande : `lignes` porte la quantité
+ * effectivement livrée pour chaque variante (réception partielle possible sur
+ * plusieurs livraisons). La commande ne repasse au statut "recue" que
+ * lorsque toutes ses lignes ont atteint leur quantité commandée.
+ */
 export function receptionnerCommande(params: ParametresReception): string {
-  const { commandeId, depotId, utilisateurId, montantDejaPaye = 0, lignesPrix = [] } = params;
-  const commande = unResultat<{ numero: string; statut: string; total: number; fournisseur_id: string }>(
-    "SELECT numero, statut, total, fournisseur_id FROM commandes_achat WHERE id = ?",
+  const { commandeId, depotId, utilisateurId, montantDejaPaye = 0, lignes: lignesEntree } = params;
+  const commande = unResultat<{ numero: string; statut: string; fournisseur_id: string }>(
+    "SELECT numero, statut, fournisseur_id FROM commandes_achat WHERE id = ?",
     [commandeId],
   );
   if (!commande) throw new ErreurAchat("Commande introuvable.");
   if (commande.statut !== "commandee") {
     throw new ErreurAchat("Seule une commande au statut 'commandée' peut être réceptionnée.");
   }
-  if (montantDejaPaye > Number(commande.total)) {
-    throw new ErreurAchat("Le montant déjà payé ne peut pas dépasser le total de la commande.");
+
+  const aReceptionner = lignesEntree.filter((l) => l.quantite > 0);
+  if (aReceptionner.length === 0) {
+    throw new ErreurAchat("Indiquez au moins une quantité à réceptionner.");
   }
 
-  const prixVenteParVariante = new Map(lignesPrix.map((l) => [l.varianteId, l.prixVente]));
+  const lignesCommande = tousLesResultats<{
+    id: string;
+    variante_id: string;
+    quantite: number;
+    quantite_recue: number;
+    prix_achat: number;
+  }>("SELECT id, variante_id, quantite, quantite_recue, prix_achat FROM lignes_achat WHERE commande_id = ?", [
+    commandeId,
+  ]);
+  const ligneParVariante = new Map(lignesCommande.map((l) => [l.variante_id, l]));
+
+  let valeurRecue = 0;
+  for (const donnee of aReceptionner) {
+    const ligne = ligneParVariante.get(donnee.varianteId);
+    if (!ligne) throw new ErreurAchat("Cette variante ne fait pas partie de la commande.");
+    const restant = Number(ligne.quantite) - Number(ligne.quantite_recue);
+    if (donnee.quantite > restant) {
+      throw new ErreurAchat("Quantité reçue supérieure à la quantité restante pour un article.");
+    }
+    valeurRecue += donnee.quantite * Number(ligne.prix_achat);
+  }
+  if (montantDejaPaye > valeurRecue) {
+    throw new ErreurAchat("Le montant déjà payé ne peut pas dépasser la valeur reçue.");
+  }
+
   const receptionId = randomUUID();
 
   dansUneTransaction(() => {
     const maintenant = new Date().toISOString();
-    const lignes = tousLesResultats<{ variante_id: string; quantite: number; prix_achat: number }>(
-      "SELECT variante_id, quantite, prix_achat FROM lignes_achat WHERE commande_id = ?",
-      [commandeId],
-    );
-    for (const ligne of lignes) {
+
+    for (const donnee of aReceptionner) {
+      const ligne = ligneParVariante.get(donnee.varianteId)!;
       const prixAchatReception = Number(ligne.prix_achat);
-      const nouveauPrixVente = prixVenteParVariante.get(ligne.variante_id);
       let motif = `Réception ${commande.numero}`;
 
-      if (nouveauPrixVente !== undefined) {
+      if (donnee.prixVente !== undefined) {
         const variante = unResultat<{ prix_achat: number; prix_vente: number }>(
           "SELECT prix_achat, prix_vente FROM variantes WHERE id = ?",
           [ligne.variante_id],
@@ -381,22 +445,21 @@ export function receptionnerCommande(params: ParametresReception): string {
             ])?.total ?? 0,
           );
           const ancienPrixAchat = Number(variante.prix_achat);
-          const quantiteRecue = Number(ligne.quantite);
           const nouveauPrixAchat =
             stockActuel > 0
               ? Math.round(
-                  (stockActuel * ancienPrixAchat + quantiteRecue * prixAchatReception) / (stockActuel + quantiteRecue),
+                  (stockActuel * ancienPrixAchat + donnee.quantite * prixAchatReception) / (stockActuel + donnee.quantite),
                 )
               : prixAchatReception;
 
-          if (nouveauPrixVente < nouveauPrixAchat) {
+          if (donnee.prixVente < nouveauPrixAchat) {
             throw new ErreurAchat("Le prix de vente ne peut pas être inférieur au prix d'achat (CUMP).");
           }
 
-          motif += ` (Prix achat : ${ancienPrixAchat} → ${nouveauPrixAchat} FCFA [CUMP], Prix vente : ${Number(variante.prix_vente)} → ${nouveauPrixVente} FCFA)`;
+          motif += ` (Prix achat : ${ancienPrixAchat} → ${nouveauPrixAchat} FCFA [CUMP], Prix vente : ${Number(variante.prix_vente)} → ${donnee.prixVente} FCFA)`;
           executer(
             "UPDATE variantes SET prix_achat = ?, prix_vente = ?, synchronise = 0, date_modification = ? WHERE id = ?",
-            [nouveauPrixAchat, nouveauPrixVente, maintenant, ligne.variante_id],
+            [nouveauPrixAchat, donnee.prixVente, maintenant, ligne.variante_id],
           );
         }
       }
@@ -405,39 +468,154 @@ export function receptionnerCommande(params: ParametresReception): string {
         varianteId: ligne.variante_id,
         depotId,
         type: "entree",
-        quantite: Number(ligne.quantite),
+        quantite: donnee.quantite,
         motif,
         utilisateurId,
-        referenceType: "achats.CommandeAchat",
-        referenceId: commandeId,
+        // Référencé sur la réception (pas la commande) pour pouvoir
+        // retrouver ce qui a été livré à chaque livraison, voir
+        // listerReceptionsCommande.
+        referenceType: "achats.Reception",
+        referenceId: receptionId,
       });
+
+      executer(
+        "UPDATE lignes_achat SET quantite_recue = quantite_recue + ?, synchronise = 0, date_modification = ? WHERE id = ?",
+        [donnee.quantite, maintenant, ligne.id],
+      );
     }
 
     executer(
-      `INSERT INTO receptions (id, commande_id, depot_id, utilisateur_id, date_creation, date_modification)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [receptionId, commandeId, depotId, utilisateurId, maintenant, maintenant],
+      `INSERT INTO receptions (id, commande_id, depot_id, utilisateur_id, valeur_recue, montant_paye, date_creation, date_modification)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [receptionId, commandeId, depotId, utilisateurId, valeurRecue, montantDejaPaye, maintenant, maintenant],
     );
 
-    const total = Number(commande.total);
-    const solde = total - montantDejaPaye;
+    const solde = valeurRecue - montantDejaPaye;
     if (solde > 0) {
       executer(
         `INSERT INTO dettes_fournisseur
            (id, fournisseur_id, commande_id, montant, montant_paye, solde, statut, date_creation, date_modification)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [randomUUID(), commande.fournisseur_id, commandeId, total, montantDejaPaye, solde, "en_cours", maintenant, maintenant],
+        [randomUUID(), commande.fournisseur_id, commandeId, valeurRecue, montantDejaPaye, solde, "en_cours", maintenant, maintenant],
       );
     }
 
-    executer(
-      "UPDATE commandes_achat SET statut = 'recue', synchronise = 0, date_modification = ? WHERE id = ?",
-      [maintenant, commandeId],
-    );
+    const totalementRecue = tousLesResultats<{ n: number }>(
+      "SELECT COUNT(*) as n FROM lignes_achat WHERE commande_id = ? AND quantite_recue < quantite",
+      [commandeId],
+    )[0]?.n === 0;
+    if (totalementRecue) {
+      executer(
+        "UPDATE commandes_achat SET statut = 'recue', synchronise = 0, date_modification = ? WHERE id = ?",
+        [maintenant, commandeId],
+      );
+    }
   });
 
   sauvegarder();
   return receptionId;
+}
+
+export interface LigneReceptionDetail {
+  produitNom: string;
+  reference: string;
+  quantite: number;
+}
+
+export interface ReceptionDetail {
+  id: string;
+  dateCreation: string;
+  depotNom: string;
+  valeurRecue: number;
+  montantPaye: number;
+  lignes: LigneReceptionDetail[];
+}
+
+function lignesDesMouvements(referenceType: string, referenceId: string): LigneReceptionDetail[] {
+  return tousLesResultats<LigneReceptionDetail>(
+    `SELECT p.nom as produitNom, COALESCE(va.reference, '') as reference, SUM(m.quantite) as quantite
+     FROM mouvements_stock m
+     JOIN variantes va ON va.id = m.variante_id
+     JOIN produits p ON p.id = va.produit_id
+     WHERE m.reference_type = ? AND m.reference_id = ? AND m.type = 'entree' AND m.supprime = 0
+     GROUP BY m.variante_id, p.nom, va.reference
+     ORDER BY p.nom`,
+    [referenceType, referenceId],
+  );
+}
+
+/** Historique des réceptions d'une commande (une par livraison, voir
+ * receptionnerCommande) — trié de la plus ancienne à la plus récente, avec
+ * les articles livrés à chacune (lus dans les mouvements de stock). */
+export function listerReceptionsCommande(commandeId: string): ReceptionDetail[] {
+  const receptions = tousLesResultats<Omit<ReceptionDetail, "lignes">>(
+    `SELECT r.id as id, r.date_creation as dateCreation, d.nom as depotNom,
+            r.valeur_recue as valeurRecue, r.montant_paye as montantPaye
+     FROM receptions r
+     JOIN depots d ON d.id = r.depot_id
+     WHERE r.commande_id = ? AND r.supprime = 0
+     ORDER BY r.date_creation ASC`,
+    [commandeId],
+  );
+  return receptions.map((r) => {
+    let lignes = lignesDesMouvements("achats.Reception", r.id);
+    // Anciennes réceptions : les mouvements étaient référencés sur la
+    // commande. Tant qu'il n'y a qu'une réception, ils lui reviennent tous.
+    if (lignes.length === 0 && receptions.length === 1) {
+      lignes = lignesDesMouvements("achats.CommandeAchat", commandeId);
+    }
+    return { ...r, lignes };
+  });
+}
+
+export interface ReceptionHistorique extends ReceptionDetail {
+  commandeId: string;
+  commandeNumero: string;
+  fournisseurNom: string;
+}
+
+/** Toutes les réceptions de la boutique, toutes commandes confondues (modale
+ * "Historique des réceptions"), de la plus récente à la plus ancienne. */
+export function listerHistoriqueReceptions(
+  boutiqueId: string,
+  fournisseurId?: string,
+  terme = "",
+  limite = 200,
+): ReceptionHistorique[] {
+  const conditions = ["c.boutique_id = ?", "r.supprime = 0", "c.supprime = 0"];
+  const parametres: (string | number)[] = [boutiqueId];
+  if (fournisseurId) {
+    conditions.push("c.fournisseur_id = ?");
+    parametres.push(fournisseurId);
+  }
+  if (terme.trim()) {
+    conditions.push("c.numero LIKE ?");
+    parametres.push(`%${terme.trim()}%`);
+  }
+  parametres.push(limite);
+
+  const receptions = tousLesResultats<Omit<ReceptionHistorique, "lignes"> & { nbReceptions: number }>(
+    `SELECT r.id as id, r.date_creation as dateCreation, d.nom as depotNom,
+            r.valeur_recue as valeurRecue, r.montant_paye as montantPaye,
+            c.id as commandeId, c.numero as commandeNumero, f.nom as fournisseurNom,
+            (SELECT COUNT(*) FROM receptions r2 WHERE r2.commande_id = c.id AND r2.supprime = 0) as nbReceptions
+     FROM receptions r
+     JOIN commandes_achat c ON c.id = r.commande_id
+     JOIN fournisseurs f ON f.id = c.fournisseur_id
+     JOIN depots d ON d.id = r.depot_id
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY r.date_creation DESC
+     LIMIT ?`,
+    parametres,
+  );
+  return receptions.map(({ nbReceptions, ...r }) => {
+    let lignes = lignesDesMouvements("achats.Reception", r.id);
+    // Même repli que listerReceptionsCommande pour les anciennes réceptions.
+    if (lignes.length === 0 && Number(nbReceptions) === 1) {
+      lignes = lignesDesMouvements("achats.CommandeAchat", r.commandeId);
+    }
+    return { ...r, lignes };
+  });
 }
 
 // --- Dettes fournisseur ---
@@ -445,6 +623,7 @@ export function receptionnerCommande(params: ParametresReception): string {
 export interface DetteResume {
   id: string;
   fournisseurNom: string;
+  commandeId: string | null;
   commandeNumero: string | null;
   montant: number;
   montantPaye: number;
@@ -466,7 +645,7 @@ export function listerDettes(boutiqueId: string, fournisseurId?: string, statut?
   }
 
   return tousLesResultats<DetteResume>(
-    `SELECT d.id as id, f.nom as fournisseurNom, c.numero as commandeNumero,
+    `SELECT d.id as id, f.nom as fournisseurNom, d.commande_id as commandeId, c.numero as commandeNumero,
             d.montant as montant, d.montant_paye as montantPaye, d.solde as solde,
             d.statut as statut, d.date_creation as dateCreation
      FROM dettes_fournisseur d

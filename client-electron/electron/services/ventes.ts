@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { dansUneTransaction, executer, tousLesResultats, unResultat } from "../db/helpers";
 import { sauvegarder } from "../db/index";
 import { verifierAbonnementActif } from "./abonnement";
-import { appliquerMouvement } from "./stock";
+import { appliquerMouvement, destockageActif, terminerDestockageSiEpuise } from "./stock";
 import { enregistrerMouvement } from "./tresorerie";
 
 /**
@@ -87,7 +87,8 @@ export function creerVente(params: ParametresVente): VenteCreee {
     );
     if (!variante) throw new ErreurVente("Variante introuvable.");
 
-    const prixUnitaire = ligne.prixUnitaire ?? Number(variante.prix_vente);
+    const destockage = destockageActif(ligne.varianteId);
+    const prixUnitaire = ligne.prixUnitaire ?? (destockage ? destockage.prixDestockage : Number(variante.prix_vente));
     const remiseLigne = ligne.remise ?? 0;
     const sousTotal = Math.round(ligne.quantite * prixUnitaire - remiseLigne);
     if (sousTotal < 0) {
@@ -100,6 +101,9 @@ export function creerVente(params: ParametresVente): VenteCreee {
       coutUnitaire: Number(variante.prix_achat),
       remise: remiseLigne,
       sousTotal,
+      // Vendue pendant un déstockage : prix normal du moment + lien, pour son bilan.
+      prixNormal: destockage ? destockage.prixNormal : null,
+      destockageId: destockage ? destockage.id : null,
     };
   });
 
@@ -150,8 +154,9 @@ export function creerVente(params: ParametresVente): VenteCreee {
     for (const ligne of lignesCalculees) {
       executer(
         `INSERT INTO lignes_vente
-           (id, vente_id, variante_id, quantite, prix_unitaire, cout_unitaire, remise, sous_total, date_creation, date_modification)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, vente_id, variante_id, quantite, prix_unitaire, cout_unitaire, remise, sous_total,
+            prix_normal, destockage_id, date_creation, date_modification)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           randomUUID(),
           venteId,
@@ -161,6 +166,8 @@ export function creerVente(params: ParametresVente): VenteCreee {
           ligne.coutUnitaire,
           ligne.remise,
           ligne.sousTotal,
+          ligne.prixNormal,
+          ligne.destockageId,
           maintenant,
           maintenant,
         ],
@@ -175,6 +182,7 @@ export function creerVente(params: ParametresVente): VenteCreee {
         referenceType: "ventes.Vente",
         referenceId: venteId,
       });
+      if (ligne.destockageId) terminerDestockageSiEpuise(ligne.varianteId);
     }
 
     for (const paiement of paiements) {
@@ -278,6 +286,7 @@ export interface LigneVenteDetail {
   prixUnitaire: number;
   remise: number;
   sousTotal: number;
+  prixNormal: number | null;
 }
 
 export interface PaiementDetail {
@@ -346,7 +355,7 @@ export function obtenirVente(id: string): VenteDetail | undefined {
   const lignes = tousLesResultats<LigneVenteDetail>(
     `SELECT lv.id as id, p.nom as produitNom, va.reference as reference,
             lv.quantite as quantite, lv.prix_unitaire as prixUnitaire,
-            lv.remise as remise, lv.sous_total as sousTotal
+            lv.remise as remise, lv.sous_total as sousTotal, lv.prix_normal as prixNormal
      FROM lignes_vente lv
      JOIN variantes va ON va.id = lv.variante_id
      JOIN produits p ON p.id = va.produit_id

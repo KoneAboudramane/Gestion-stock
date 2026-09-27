@@ -135,6 +135,18 @@ contextBridge.exposeInMainWorld("api", {
     creer: (params: unknown) => ipcRenderer.invoke("mouvements:creer", params),
     creerEntreeProduction: (params: unknown) => ipcRenderer.invoke("mouvements:creerEntreeProduction", params),
   },
+  destockages: {
+    lister: (boutiqueId: string) => ipcRenderer.invoke("destockages:lister", boutiqueId),
+    demarrer: (params: unknown) => ipcRenderer.invoke("destockages:demarrer", params),
+    arreter: (id: string) => ipcRenderer.invoke("destockages:arreter", id),
+    demarrerOperation: (params: unknown) => ipcRenderer.invoke("destockages:demarrerOperation", params),
+    arreterOperation: (id: string) => ipcRenderer.invoke("destockages:arreterOperation", id),
+  },
+  pertes: {
+    declarer: (params: unknown) => ipcRenderer.invoke("pertes:declarer", params),
+    lister: (boutiqueId: string, debut?: string, fin?: string) =>
+      ipcRenderer.invoke("pertes:lister", boutiqueId, debut, fin),
+  },
   transferts: {
     creer: (params: unknown) => ipcRenderer.invoke("transferts:creer", params),
     lister: (boutiqueId: string, limite?: number) => ipcRenderer.invoke("transferts:lister", boutiqueId, limite),
@@ -163,6 +175,9 @@ contextBridge.exposeInMainWorld("api", {
     creer: (params: unknown) => ipcRenderer.invoke("commandes:creer", params),
     modifier: (id: string, champs: unknown) => ipcRenderer.invoke("commandes:modifier", id, champs),
     receptionner: (params: unknown) => ipcRenderer.invoke("commandes:receptionner", params),
+    listerReceptions: (commandeId: string) => ipcRenderer.invoke("commandes:listerReceptions", commandeId),
+    historiqueReceptions: (boutiqueId: string, fournisseurId?: string, terme?: string) =>
+      ipcRenderer.invoke("commandes:historiqueReceptions", boutiqueId, fournisseurId, terme),
   },
   dettes: {
     lister: (boutiqueId: string, fournisseurId?: string, statut?: string) =>
@@ -195,6 +210,13 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("rapports:topProduits", boutiqueId, debut, fin, limite, ordre),
     valeurStock: (boutiqueId: string, depotId?: string) =>
       ipcRenderer.invoke("rapports:valeurStock", boutiqueId, depotId),
+    produitsDormants: (boutiqueId: string, jours: number) =>
+      ipcRenderer.invoke("rapports:produitsDormants", boutiqueId, jours),
+    enregistrerReleveDormants: (boutiqueId: string) =>
+      ipcRenderer.invoke("rapports:enregistrerReleveDormants", boutiqueId),
+    relevesDormants: (boutiqueId: string) => ipcRenderer.invoke("rapports:relevesDormants", boutiqueId),
+    sortiesDormance: (boutiqueId: string, seuil: number) =>
+      ipcRenderer.invoke("rapports:sortiesDormance", boutiqueId, seuil),
     ventesParVendeur: (boutiqueId: string, debut: string, fin: string) =>
       ipcRenderer.invoke("rapports:ventesParVendeur", boutiqueId, debut, fin),
     ventesParCategorie: (boutiqueId: string, debut: string, fin: string) =>

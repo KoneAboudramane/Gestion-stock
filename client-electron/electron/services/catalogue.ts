@@ -31,6 +31,8 @@ export function rechercherVariantes(boutiqueId: string, terme: string): Variante
 export interface VarianteCatalogue extends VarianteRecherchee {
   categorieNom: string | null;
   quantiteDisponible: number;
+  /** Article en déstockage : prixVente est alors le prix de déstockage, prixNormal l'ancien prix. */
+  prixNormal: number | null;
 }
 
 /**
@@ -42,11 +44,19 @@ export interface VarianteCatalogue extends VarianteRecherchee {
  * n'est pas vendable et ne doit pas y figurer. Sans dépôt, liste vide.
  */
 export function listerVariantesCatalogue(boutiqueId: string, depotId?: string): VarianteCatalogue[] {
-  return tousLesResultats<VarianteCatalogue>(
+  const d = new Date();
+  const aujourdhui = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  // Article en déstockage : la caisse vend au prix de déstockage (prixVente),
+  // prixNormal garde l'ancien prix pour l'afficher barré.
+  return tousLesResultats<VarianteCatalogue & { prixDestockage: number | null }>(
     `SELECT v.id as id, v.produit_id as produitId, p.nom as produitNom, v.reference as reference,
             v.code_barres as codeBarres, v.prix_vente as prixVente, v.prix_achat as prixAchat,
             v.seuil_alerte as seuilAlerte, c.nom as categorieNom,
-            s.quantite as quantiteDisponible
+            s.quantite as quantiteDisponible,
+            (SELECT d.prix_destockage FROM destockages d
+             WHERE d.variante_id = v.id AND d.statut = 'en_cours' AND d.supprime = 0
+               AND (d.date_fin IS NULL OR d.date_fin = '' OR d.date_fin >= ?)
+             ORDER BY d.date_creation DESC LIMIT 1) as prixDestockage
      FROM stocks s
      JOIN variantes v ON v.id = s.variante_id
      JOIN produits p ON p.id = v.produit_id
@@ -54,7 +64,11 @@ export function listerVariantesCatalogue(boutiqueId: string, depotId?: string): 
      WHERE s.depot_id = ? AND p.boutique_id = ? AND p.actif = 1 AND v.actif = 1
        AND p.supprime = 0 AND v.supprime = 0
      ORDER BY (c.nom IS NULL), c.nom, p.nom`,
-    [depotId ?? null, boutiqueId],
+    [aujourdhui, depotId ?? null, boutiqueId],
+  ).map(({ prixDestockage, ...v }) =>
+    prixDestockage == null
+      ? { ...v, prixNormal: null }
+      : { ...v, prixVente: Number(prixDestockage), prixNormal: Number(v.prixVente) },
   );
 }
 

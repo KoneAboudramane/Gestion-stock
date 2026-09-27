@@ -2796,6 +2796,20 @@ input.champ-invalide:focus {
   margin-bottom: 1.25rem;
 }
 
+/* Réception de marchandise (Achats.tsx) : le tableau prix d'achat/prix de
+   vente a 6 colonnes et doit profiter de toute la largeur du modal, pas être
+   plafonné comme un formulaire isolé (même raison que .formulaire-tresorerie
+   ci-dessus). */
+.formulaire-reception {
+  max-width: none;
+}
+
+.formulaire-reception .entete-detail-actions label {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 /* Dépenses en attente (saisie groupée) : hauteur fixe, pas juste un plafond
    (max-height) — le tableau ne doit pas changer de taille selon le nombre de
    lignes ajoutées, seules ses lignes défilent dedans. */
@@ -3119,6 +3133,11 @@ input.champ-invalide:focus {
 .colonne-sous-total {
   width: 1%;
   white-space: nowrap;
+}
+
+.champ-prix-vente-reception,
+.champ-montant-deja-paye {
+  max-width: 100px;
 }
 
 .formulaire-produits-groupe {
@@ -3555,6 +3574,38 @@ input.champ-invalide:focus {
   font-weight: 600;
 }
 
+.badge-partielle {
+  background: var(--indigo-clair);
+  color: var(--indigo-fonce);
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--rayon-pilule);
+  font-weight: 600;
+}
+
+/* Historiques des réceptions : une ligne par réception, cliquable pour ouvrir
+   sa modale de détail (ModaleDetailReception). */
+.ligne-reception-cliquable {
+  cursor: pointer;
+}
+
+.ligne-reception-cliquable:hover td {
+  background: var(--couleur-primaire-clair);
+}
+
+.infos-reception {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 2rem;
+  margin-bottom: 1rem;
+}
+
+.infos-reception > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
 .badge-brouillon {
   background: var(--gris-200);
   color: var(--gris-700);
@@ -3654,6 +3705,7 @@ input.champ-invalide:focus {
 }
 
 .carte-document-comptable {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3669,6 +3721,22 @@ input.champ-invalide:focus {
   cursor: pointer;
   text-align: center;
   transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.badge-compte-carte {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: var(--rayon-pilule);
+  background: #dc2626;
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 22px;
+  text-align: center;
 }
 
 .carte-document-comptable:hover {
@@ -4277,6 +4345,44 @@ input.champ-invalide:focus {
   border-radius: var(--rayon-lg);
   box-shadow: var(--ombre-lg);
   overflow: hidden;
+}
+
+/* DetailCommande imbriqué dans son propre modal (Achats.tsx) : la page
+   ENTIÈRE ne doit pas défiler — seul le tableau des articles a sa propre
+   zone de défilement, le reste (en-tête, boutons) restant fixe.
+   .detail-produit devient donc une colonne flex qui remplit le modal sans
+   défiler lui-même ; c'est son enfant tableau/formulaire-reception qui
+   reçoit flex:1 + overflow-y:auto. */
+.modale-selection-produits > .detail-produit {
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+  max-width: none;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  padding: 1.4rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modale-selection-produits > .detail-produit > .zone-tableau-scroll {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+.modale-selection-produits > .detail-produit > .formulaire-reception {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.modale-selection-produits > .detail-produit > .formulaire-reception > .zone-tableau-scroll {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
 }
 
 .ajustements-modale {
@@ -5787,4 +5893,649 @@ input.champ-invalide:focus {
   font-size: 0.85rem;
   font-weight: 700;
   color: var(--gris-900);
+}
+
+/* Confirmation de réception (Achats) : coche qui se dessine, puis la modale
+   de la commande se ferme toute seule. */
+.fond-confirmation-reception {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+  animation: fondu-confirmation-reception 0.2s ease-out;
+}
+
+.carte-confirmation-reception {
+  background: var(--surface);
+  color: inherit;
+  border-radius: var(--rayon-lg);
+  padding: 1.75rem 2.5rem;
+  text-align: center;
+  box-shadow: var(--ombre-lg);
+  animation: apparition-confirmation-reception 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.3);
+}
+
+.carte-confirmation-reception h3 {
+  margin: 0.75rem 0 0.25rem;
+  color: var(--succes-fonce);
+}
+
+.carte-confirmation-reception p {
+  margin: 0.15rem 0;
+}
+
+.coche-reception {
+  width: 72px;
+  height: 72px;
+}
+
+.coche-reception-cercle {
+  fill: var(--succes-clair);
+  stroke: var(--succes-fonce);
+  stroke-width: 2;
+  stroke-dasharray: 151;
+  stroke-dashoffset: 151;
+  animation: dessin-coche-reception 0.5s ease-out 0.1s forwards;
+}
+
+.coche-reception-trait {
+  fill: none;
+  stroke: var(--succes-fonce);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 40;
+  stroke-dashoffset: 40;
+  animation: dessin-coche-reception 0.35s ease-out 0.55s forwards;
+}
+
+@keyframes dessin-coche-reception {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes fondu-confirmation-reception {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes apparition-confirmation-reception {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fond-confirmation-reception,
+  .carte-confirmation-reception,
+  .coche-reception-cercle,
+  .coche-reception-trait {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Modale avec menu latéral à gauche (ex. Historique de la commande dans
+   Achats : Réceptions / Paiements fournisseur). */
+.modale-avec-menu {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.menu-modale {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  width: 220px;
+  flex-shrink: 0;
+  padding: 1rem 0.6rem;
+  border-right: 1px solid var(--bordure-tableau, var(--gris-200));
+  overflow-y: auto;
+}
+
+.menu-modale button {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: none;
+  border-left: 3px solid transparent;
+  border-radius: var(--rayon-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-modale button:hover {
+  background: var(--couleur-primaire-clair);
+}
+
+.menu-modale button.actif {
+  background: var(--couleur-primaire-clair);
+  border-left-color: var(--couleur-primaire);
+  color: var(--couleur-primaire);
+  font-weight: 600;
+}
+
+.icone-menu-modale {
+  font-size: 1.1rem;
+}
+
+.compteur-menu-modale {
+  margin-left: auto;
+  min-width: 1.5rem;
+  padding: 0 0.4rem;
+  border-radius: var(--rayon-pilule);
+  background: var(--gris-200);
+  color: var(--gris-700);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .modale-avec-menu {
+    flex-direction: column;
+  }
+
+  .menu-modale {
+    flex-direction: row;
+    width: auto;
+    padding: 0.5rem;
+    border-right: none;
+    border-bottom: 1px solid var(--bordure-tableau, var(--gris-200));
+    overflow-x: auto;
+  }
+
+  .menu-modale button {
+    width: auto;
+    white-space: nowrap;
+    border-left: none;
+    border-bottom: 3px solid transparent;
+  }
+
+  .menu-modale button.actif {
+    border-bottom-color: var(--couleur-primaire);
+  }
+}
+
+/* Lien "Détails de la commande" pendant une réception : en bas à droite de la
+   modale, sous le tableau (qui défile seul), donc toujours visible. */
+.lien-details-reception {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  margin-top: auto;
+  padding-top: 0.5rem;
+}
+
+/* Réglages → Paramètres → Général : case "fabrication propre", avec son
+   explication sous le libellé (voir hooks/useFabricationPropre.ts). */
+.option-fabrication-propre {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  cursor: pointer;
+}
+
+.option-fabrication-propre input {
+  width: auto;
+  margin-top: 0.2rem;
+}
+
+.option-fabrication-propre > span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-weight: 600;
+}
+
+.option-fabrication-propre .note-aide {
+  font-weight: 400;
+}
+
+/* Déstockage (Stock → Déstockage, Caisse, ticket) : badge rose-violet pour
+   repérer un article vendu à prix réduit, ancien prix barré à côté. */
+.badge-destockage {
+  background: var(--violet-clair);
+  color: var(--violet-fonce);
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--rayon-pilule);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.prix-barre {
+  color: var(--gris-500);
+  font-weight: 400;
+  margin-right: 0.3rem;
+}
+
+.message-avertissement {
+  background: var(--avertissement-clair);
+  color: var(--avertissement-fonce);
+  border-radius: var(--rayon-sm);
+  padding: 0.6rem 0.8rem;
+  font-weight: 600;
+}
+
+.bloc-destockage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.bloc-destockage h4 {
+  margin: 0;
+}
+
+.mention-destockage {
+  font-size: 0.7rem;
+  font-style: italic;
+}
+
+.montant-negatif {
+  color: var(--danger-fonce);
+  font-weight: 600;
+}
+
+/* Formulaire « Mettre un article en déstockage » : liste des articles en stock
+   à gauche, réglage du prix et résumé à droite (remplit la modale fixe). */
+.modale-selection-produits > .formulaire-destockage {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 0.9rem;
+  padding: 1.4rem;
+}
+
+.colonnes-destockage {
+  display: grid;
+  grid-template-columns: minmax(280px, 2fr) 3fr;
+  gap: 1.4rem;
+  flex: 1;
+  min-height: 0;
+}
+
+.colonne-articles-destockage,
+.colonne-reglage-destockage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-height: 0;
+}
+
+.colonne-reglage-destockage {
+  overflow-y: auto;
+  padding-right: 0.3rem;
+}
+
+.colonnes-destockage h4 {
+  margin: 0;
+}
+
+.liste-articles-destockage {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--bordure-tableau, var(--gris-200));
+  border-radius: var(--rayon-sm);
+}
+
+.liste-articles-destockage li + li {
+  border-top: 1px solid var(--bordure-tableau, var(--gris-200));
+}
+
+.liste-articles-destockage button {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  border: none;
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.liste-articles-destockage button:hover:not(:disabled) {
+  background: var(--couleur-primaire-clair);
+}
+
+.liste-articles-destockage button.actif {
+  background: var(--couleur-primaire-clair);
+  border-left-color: var(--couleur-primaire);
+}
+
+.liste-articles-destockage button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.liste-articles-destockage .liste-vide {
+  padding: 1rem;
+}
+
+.nom-article-destockage {
+  font-weight: 600;
+}
+
+.details-article-destockage {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--gris-500);
+}
+
+.etat-vide-destockage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0.4rem;
+  padding: 2rem;
+  border: 2px dashed var(--bordure-tableau, var(--gris-200));
+  border-radius: var(--rayon-lg);
+}
+
+.etat-vide-destockage p {
+  margin: 0;
+  max-width: 420px;
+}
+
+.icone-etat-vide-destockage {
+  font-size: 2.5rem;
+}
+
+.carte-article-destockage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--bordure-tableau, var(--gris-200));
+  border-radius: var(--rayon-lg);
+}
+
+.chiffres-article-destockage {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.8rem;
+}
+
+.chiffres-article-destockage > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.ligne-prix-destockage {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 260px;
+}
+
+.ligne-prix-destockage input {
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.raccourcis-destockage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.raccourcis-destockage button {
+  padding: 0.35rem 0.8rem;
+  border-radius: var(--rayon-pilule);
+}
+
+.raccourcis-destockage button.actif {
+  background: var(--couleur-primaire);
+  border-color: var(--couleur-primaire);
+  color: #fff;
+}
+
+.raccourcis-destockage input[type="date"] {
+  width: auto;
+}
+
+.resume-destockage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--rayon-lg);
+  background: var(--violet-clair);
+}
+
+.resume-destockage > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.montant-positif {
+  color: var(--succes-fonce);
+}
+
+@media (max-width: 760px) {
+  .colonnes-destockage {
+    grid-template-columns: 1fr;
+  }
+
+  .liste-articles-destockage {
+    max-height: 240px;
+  }
+}
+
+.alerte-perte-destockage {
+  margin: 0;
+  color: var(--avertissement-fonce);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* Déstockage multi-articles : case à cocher dans la liste, tableau des
+   articles choisis, opérations en cours au-dessus de la liste. */
+.liste-articles-destockage button {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.liste-articles-destockage input[type="checkbox"] {
+  width: auto;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.texte-article-destockage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.champ-nom-operation {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-weight: 600;
+}
+
+.champ-nom-operation input {
+  font-weight: 400;
+}
+
+.zone-tableau-destockage {
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.zone-tableau-destockage td {
+  vertical-align: middle;
+}
+
+.cellule-prix-destockage {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.cellule-prix-destockage input {
+  width: 110px;
+}
+
+.operations-destockage-en-cours {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.8rem;
+}
+
+.operation-destockage {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--rayon-sm);
+  background: var(--violet-clair);
+}
+
+/* Tableau des articles choisis : compact pour tenir sans défilement avec
+   plusieurs articles (en-têtes sur une ligne, cellules resserrées). */
+.colonnes-destockage {
+  grid-template-columns: minmax(250px, 1.1fr) 2fr;
+}
+
+.zone-tableau-destockage th {
+  white-space: nowrap;
+  font-size: 0.7rem;
+  padding: 0.5rem 0.6rem;
+}
+
+.zone-tableau-destockage td {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.9rem;
+}
+
+.zone-tableau-destockage td:first-child {
+  min-width: 160px;
+}
+
+.zone-tableau-destockage .cellule-prix-destockage input {
+  width: 95px;
+  padding: 0.3rem 0.5rem;
+}
+
+/* Résumé toujours visible en bas de la colonne, même avec beaucoup
+   d'articles choisis (le reste de la colonne défile au-dessus). */
+.colonne-reglage-destockage .resume-destockage {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  box-shadow: 0 -8px 16px -8px rgba(0, 0, 0, 0.35);
+}
+
+.colonne-reglage-destockage > .note-aide {
+  margin: 0;
+}
+
+/* Stock → Historique : filtres sur une ligne, qui passent à la ligne si besoin. */
+.barre-filtres-historique {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 0.5rem;
+}
+
+.barre-filtres-historique select,
+.barre-filtres-historique input[type="date"] {
+  width: auto;
+}
+
+/* Stock → Historique → Dormants : barres de l'argent qui dort (une seule
+   série, couleur du thème ; la barre survolée ou la plus récente ressort). */
+.bloc-graphique-dormants {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.entete-graphique-dormants {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  font-size: 1.1rem;
+}
+
+.graphique-dormants {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  height: 140px;
+  padding-top: 0.4rem;
+  border-bottom: 1px solid var(--bordure-tableau, var(--gris-200));
+}
+
+.colonne-graphique-dormants {
+  flex: 1;
+  max-width: 48px;
+  display: flex;
+  align-items: flex-end;
+  cursor: default;
+}
+
+.colonne-graphique-dormants span {
+  display: block;
+  width: 100%;
+  border-radius: 4px 4px 0 0;
+  background: var(--couleur-primaire);
+  opacity: 0.45;
+}
+
+.colonne-graphique-dormants.active span {
+  opacity: 1;
+}
+
+.axe-graphique-dormants {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+}
+
+.details-releves-dormants summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.details-releves-dormants table {
+  margin-top: 0.5rem;
 }

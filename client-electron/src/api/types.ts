@@ -71,6 +71,8 @@ export interface VarianteRecherchee {
 export interface VarianteCatalogue extends VarianteRecherchee {
   categorieNom: string | null;
   quantiteDisponible: number;
+  /** Article en déstockage : prixVente est alors le prix de déstockage, prixNormal l'ancien prix. */
+  prixNormal: number | null;
 }
 
 export interface Depot {
@@ -142,6 +144,8 @@ export interface LigneVenteDetail {
   prixUnitaire: number;
   remise: number;
   sousTotal: number;
+  /** Renseigné si l'article a été vendu en déstockage (prix normal du moment). */
+  prixNormal: number | null;
 }
 
 export interface LigneVenteHistorique {
@@ -381,6 +385,107 @@ export interface TransfertResume {
   dateCreation: string;
 }
 
+export interface ReleveDormants {
+  date: string;
+  nombreArticles: number;
+  valeurImmobilisee: number;
+}
+
+export type ActionSortieDormance = "revendu" | "perte" | "destockage";
+
+export interface SortieDormance {
+  id: string;
+  date: string;
+  varianteId: string;
+  produitNom: string;
+  reference: string;
+  joursSansVente: number;
+  action: ActionSortieDormance;
+  motif: string;
+  detail: string;
+  quantite: number;
+  montant: number;
+}
+
+export interface LigneProduitDormant {
+  varianteId: string;
+  produitId: string;
+  produitNom: string;
+  reference: string;
+  codeBarres: string;
+  prixVente: number;
+  prixAchat: number;
+  seuilAlerte: number;
+  quantiteStock: number;
+  derniereVente: string | null;
+  joursSansVente: number;
+  valeurImmobilisee: number;
+  enDestockage: boolean;
+}
+
+export interface ParametresDestockage {
+  varianteId: string;
+  prixDestockage: number;
+  dateFin?: string | null;
+  utilisateurId: string | null;
+}
+
+export interface ParametresOperationDestockage {
+  boutiqueId: string;
+  nom: string;
+  lignes: { varianteId: string; prixDestockage: number }[];
+  dateFin?: string | null;
+  utilisateurId: string | null;
+}
+
+export type StatutDestockage = "en_cours" | "termine";
+export type MotifFinDestockage = "" | "date" | "epuise" | "manuel";
+
+export interface DestockageResume {
+  id: string;
+  varianteId: string;
+  produitNom: string;
+  reference: string;
+  prixAchat: number;
+  prixNormal: number;
+  prixDestockage: number;
+  dateCreation: string;
+  dateFin: string | null;
+  dateArret: string | null;
+  statut: StatutDestockage;
+  motifFin: MotifFinDestockage;
+  operationId: string | null;
+  operationNom: string | null;
+  quantiteVendue: number;
+  chiffreAffaires: number;
+  marge: number;
+  manqueAGagner: number;
+  stockRestant: number;
+}
+
+export type MotifPerte = "perime" | "abime" | "vol" | "don" | "consommation" | "autre";
+
+export interface ParametresPerte {
+  varianteId: string;
+  depotId: string;
+  quantite: number;
+  motif: MotifPerte;
+  detail?: string;
+  utilisateurId: string | null;
+}
+
+export interface PerteResume {
+  id: string;
+  dateCreation: string;
+  produitNom: string;
+  reference: string;
+  depotNom: string;
+  quantite: number;
+  motif: MotifPerte;
+  detail: string;
+  valeur: number;
+}
+
 export interface InventaireResume {
   id: string;
   depotNom: string;
@@ -441,6 +546,9 @@ export interface CommandeResume {
   fournisseurNom: string;
   statut: StatutCommande;
   total: number;
+  partiellementRecue: boolean;
+  quantiteCommandee: number;
+  quantiteRecue: number;
 }
 
 export interface LigneAchatDetail {
@@ -452,6 +560,7 @@ export interface LigneAchatDetail {
   prixAchat: number;
   sousTotal: number;
   prixVenteActuel: number;
+  quantiteRecue: number;
 }
 
 export interface CommandeDetail {
@@ -485,9 +594,10 @@ export interface ParametresModifierCommande {
   lignes?: LigneAchatEntree[];
 }
 
-export interface LigneReceptionPrix {
+export interface LigneReceptionEntree {
   varianteId: string;
-  prixVente: number;
+  quantite: number;
+  prixVente?: number;
 }
 
 export interface ParametresReception {
@@ -495,12 +605,13 @@ export interface ParametresReception {
   depotId: string;
   utilisateurId: string | null;
   montantDejaPaye?: number;
-  lignesPrix?: LigneReceptionPrix[];
+  lignes: LigneReceptionEntree[];
 }
 
 export interface DetteResume {
   id: string;
   fournisseurNom: string;
+  commandeId: string | null;
   commandeNumero: string | null;
   montant: number;
   montantPaye: number;
@@ -514,6 +625,27 @@ export interface PaiementDetteDetail {
   montant: number;
   mode: string;
   dateCreation: string;
+}
+
+export interface LigneReceptionDetail {
+  produitNom: string;
+  reference: string;
+  quantite: number;
+}
+
+export interface ReceptionDetail {
+  id: string;
+  dateCreation: string;
+  depotNom: string;
+  valeurRecue: number;
+  montantPaye: number;
+  lignes: LigneReceptionDetail[];
+}
+
+export interface ReceptionHistorique extends ReceptionDetail {
+  commandeId: string;
+  commandeNumero: string;
+  fournisseurNom: string;
 }
 
 export type StatutCredit = "en_cours" | "solde";
@@ -1036,6 +1168,17 @@ export interface WindowApi {
     creer(params: ParametresMouvement): Promise<ResultatEcriture<string>>;
     creerEntreeProduction(params: ParametresEntreeProduction): Promise<ResultatEcriture<string>>;
   };
+  destockages: {
+    lister(boutiqueId: string): Promise<DestockageResume[]>;
+    demarrer(params: ParametresDestockage): Promise<ResultatEcriture<string>>;
+    arreter(id: string): Promise<ResultatEcriture<void>>;
+    demarrerOperation(params: ParametresOperationDestockage): Promise<ResultatEcriture<string>>;
+    arreterOperation(id: string): Promise<ResultatEcriture<void>>;
+  };
+  pertes: {
+    declarer(params: ParametresPerte): Promise<ResultatEcriture<string>>;
+    lister(boutiqueId: string, debut?: string, fin?: string): Promise<PerteResume[]>;
+  };
   transferts: {
     creer(params: ParametresTransfert): Promise<ResultatEcriture<string>>;
     lister(boutiqueId: string, limite?: number): Promise<TransfertResume[]>;
@@ -1070,6 +1213,8 @@ export interface WindowApi {
     creer(params: ParametresCommande): Promise<ResultatEcriture<{ id: string; numero: string; total: number }>>;
     modifier(id: string, champs: ParametresModifierCommande): Promise<ResultatEcriture<void>>;
     receptionner(params: ParametresReception): Promise<ResultatEcriture<string>>;
+    listerReceptions(commandeId: string): Promise<ReceptionDetail[]>;
+    historiqueReceptions(boutiqueId: string, fournisseurId?: string, terme?: string): Promise<ReceptionHistorique[]>;
   };
   dettes: {
     lister(boutiqueId: string, fournisseurId?: string, statut?: StatutDette): Promise<DetteResume[]>;
@@ -1117,6 +1262,10 @@ export interface WindowApi {
       ordre?: "asc" | "desc",
     ): Promise<LigneTopProduit[]>;
     valeurStock(boutiqueId: string, depotId?: string): Promise<ValeurStock>;
+    produitsDormants(boutiqueId: string, jours: number): Promise<LigneProduitDormant[]>;
+    enregistrerReleveDormants(boutiqueId: string): Promise<ResultatEcriture<void>>;
+    relevesDormants(boutiqueId: string): Promise<ReleveDormants[]>;
+    sortiesDormance(boutiqueId: string, seuil: number): Promise<SortieDormance[]>;
     ventesParVendeur(boutiqueId: string, debut: string, fin: string): Promise<LigneVentesVendeur[]>;
     ventesParCategorie(boutiqueId: string, debut: string, fin: string): Promise<LigneVentesCategorie[]>;
     ventesParModePaiement(boutiqueId: string, debut: string, fin: string): Promise<LigneVentesModePaiement[]>;

@@ -162,6 +162,13 @@ export interface CommandeResume {
   fournisseurNom: string;
   statut: StatutCommande;
   total: number;
+  /** Commande encore "commandee" dont au moins une ligne a déjà été livrée
+   * — simple affichage (badge), pas un statut stocké. */
+  partiellementRecue: boolean;
+  /** Somme des quantités commandées / déjà reçues sur toutes les lignes
+   * (colonne "Reste à recevoir" de l'onglet Réceptionner). */
+  quantiteCommandee: number;
+  quantiteRecue: number;
 }
 
 export async function listerCommandes(
@@ -176,6 +183,10 @@ export async function listerCommandes(
   const resultat: CommandeResume[] = [];
   for (const c of commandes) {
     const fournisseur = await db.get("fournisseurs", c.fournisseur_id);
+    const lignes = (await db.getAllFromIndex("lignes_achat", "commande_id", c.id)).filter((l) => !l.supprime);
+    const quantiteCommandee = lignes.reduce((total, l) => total + l.quantite, 0);
+    const quantiteRecue = lignes.reduce((total, l) => total + (l.quantite_recue ?? 0), 0);
+    const partiellementRecue = c.statut === "commandee" && quantiteRecue > 0;
     resultat.push({
       id: c.id,
       numero: c.numero,
@@ -184,6 +195,9 @@ export async function listerCommandes(
       fournisseurNom: fournisseur?.nom ?? "",
       statut: c.statut,
       total: c.total,
+      partiellementRecue,
+      quantiteCommandee,
+      quantiteRecue,
     });
   }
 
@@ -206,6 +220,7 @@ export interface LigneAchatDetail {
   prixAchat: number;
   sousTotal: number;
   prixVenteActuel: number;
+  quantiteRecue: number;
 }
 
 export interface CommandeDetail {
@@ -239,6 +254,7 @@ export async function obtenirCommande(id: string): Promise<CommandeDetail | unde
       prixAchat: l.prix_achat,
       sousTotal: l.sous_total,
       prixVenteActuel: variante?.prix_vente ?? 0,
+      quantiteRecue: l.quantite_recue ?? 0,
     });
   }
 
@@ -309,6 +325,7 @@ export async function creerCommande(params: ParametresCommande): Promise<{ id: s
       quantite: ligne.quantite,
       prix_achat: ligne.prixAchat,
       sous_total: ligne.sousTotal,
+      quantite_recue: 0,
       ...suiviSyncNeuf(),
     };
     await db.put("lignes_achat", ligneAchat);
@@ -320,26 +337,65 @@ export async function creerCommande(params: ParametresCommande): Promise<{ id: s
 export interface ParametresModifierCommande {
   fournisseurId?: string;
   statut?: StatutCommande;
+  lignes?: LigneAchatEntree[];
 }
 
 export async function modifierCommande(id: string, champs: ParametresModifierCommande): Promise<void> {
+  const db = await ouvrirBaseDeDonnees();
   const commande = await obtenirLigne("commandes_achat", id);
   if (!commande) throw new ErreurAchat("Commande introuvable.");
   if (commande.statut === "recue" || commande.statut === "annulee") {
     throw new ErreurAchat("Cette commande ne peut plus être modifiée.");
   }
+
+  const lignesActuelles = (await db.getAllFromIndex("lignes_achat", "commande_id", id)).filter((l) => !l.supprime);
+  const dejaReceptionnee = lignesActuelles.some((l) => (l.quantite_recue ?? 0) > 0);
+  if (champs.statut === "annulee" && dejaReceptionnee) {
+    throw new ErreurAchat("Cette commande a déjà été partiellement réceptionnée, elle ne peut plus être annulée.");
+  }
+  if (champs.lignes && dejaReceptionnee) {
+    throw new ErreurAchat(
+      "Cette commande a déjà été partiellement réceptionnée, ses lignes ne peuvent plus être modifiées.",
+    );
+  }
+
+  const heure = maintenant();
+  let total = commande.total;
+  if (champs.lignes) {
+    const calcul = calculerLignesEtTotal(champs.lignes);
+    total = calcul.total;
+    for (const ligne of lignesActuelles) {
+      await db.put("lignes_achat", { ...ligne, supprime: 1, synchronise: 0, date_modification: heure });
+    }
+    for (const ligne of calcul.lignes) {
+      const ligneAchat: LigneAchatLocale = {
+        id: crypto.randomUUID(),
+        commande_id: id,
+        variante_id: ligne.varianteId,
+        quantite: ligne.quantite,
+        prix_achat: ligne.prixAchat,
+        sous_total: ligne.sousTotal,
+        quantite_recue: 0,
+        ...suiviSyncNeuf(),
+      };
+      await db.put("lignes_achat", ligneAchat);
+    }
+  }
+
   await ecrireLigne("commandes_achat", {
     ...commande,
     fournisseur_id: champs.fournisseurId ?? commande.fournisseur_id,
     statut: champs.statut ?? commande.statut,
-    date_modification: maintenant(),
+    total,
+    date_modification: heure,
     synchronise: 0,
   });
 }
 
-export interface LigneReceptionPrix {
+export interface LigneReceptionEntree {
   varianteId: string;
-  prixVente: number;
+  quantite: number;
+  prixVente?: number;
 }
 
 export interface ParametresReception {
@@ -347,33 +403,57 @@ export interface ParametresReception {
   depotId: string;
   utilisateurId: string | null;
   montantDejaPaye?: number;
-  lignesPrix?: LigneReceptionPrix[];
+  lignes: LigneReceptionEntree[];
 }
 
+/**
+ * Réceptionne tout ou partie d'une commande : `lignes` porte la quantité
+ * effectivement livrée pour chaque variante (réception partielle possible sur
+ * plusieurs livraisons). La commande ne repasse au statut "recue" que
+ * lorsque toutes ses lignes ont atteint leur quantité commandée.
+ */
 export async function receptionnerCommande(params: ParametresReception): Promise<string> {
-  const { commandeId, depotId, utilisateurId, montantDejaPaye = 0, lignesPrix = [] } = params;
+  const { commandeId, depotId, utilisateurId, montantDejaPaye = 0, lignes: lignesEntree } = params;
   const db = await ouvrirBaseDeDonnees();
   const commande = await db.get("commandes_achat", commandeId);
   if (!commande) throw new ErreurAchat("Commande introuvable.");
   if (commande.statut !== "commandee") {
     throw new ErreurAchat("Seule une commande au statut 'commandée' peut être réceptionnée.");
   }
-  if (montantDejaPaye > commande.total) {
-    throw new ErreurAchat("Le montant déjà payé ne peut pas dépasser le total de la commande.");
+
+  const aReceptionner = lignesEntree.filter((l) => l.quantite > 0);
+  if (aReceptionner.length === 0) {
+    throw new ErreurAchat("Indiquez au moins une quantité à réceptionner.");
   }
 
-  const prixVenteParVariante = new Map(lignesPrix.map((l) => [l.varianteId, l.prixVente]));
+  const lignesCommande = (await db.getAllFromIndex("lignes_achat", "commande_id", commandeId)).filter(
+    (l) => !l.supprime,
+  );
+  const ligneParVariante = new Map(lignesCommande.map((l) => [l.variante_id, l]));
+
+  let valeurRecue = 0;
+  for (const donnee of aReceptionner) {
+    const ligne = ligneParVariante.get(donnee.varianteId);
+    if (!ligne) throw new ErreurAchat("Cette variante ne fait pas partie de la commande.");
+    const restant = ligne.quantite - (ligne.quantite_recue ?? 0);
+    if (donnee.quantite > restant) {
+      throw new ErreurAchat("Quantité reçue supérieure à la quantité restante pour un article.");
+    }
+    valeurRecue += donnee.quantite * ligne.prix_achat;
+  }
+  if (montantDejaPaye > valeurRecue) {
+    throw new ErreurAchat("Le montant déjà payé ne peut pas dépasser la valeur reçue.");
+  }
+
   const receptionId = crypto.randomUUID();
   const maintenantDate = maintenant();
 
-  const lignes = (await db.getAllFromIndex("lignes_achat", "commande_id", commandeId)).filter((l) => !l.supprime);
-
-  for (const ligne of lignes) {
+  for (const donnee of aReceptionner) {
+    const ligne = ligneParVariante.get(donnee.varianteId)!;
     const prixAchatReception = ligne.prix_achat;
-    const nouveauPrixVente = prixVenteParVariante.get(ligne.variante_id);
     let motif = `Réception ${commande.numero}`;
 
-    if (nouveauPrixVente !== undefined) {
+    if (donnee.prixVente !== undefined) {
       const variante = await db.get("variantes", ligne.variante_id);
       if (variante) {
         // CUMP (coût unitaire moyen pondéré) : on pondère le prix d'achat existant par le
@@ -388,21 +468,22 @@ export async function receptionnerCommande(params: ParametresReception): Promise
         );
         const stockActuel = stocks.reduce((somme, s) => somme + s.quantite, 0);
         const ancienPrixAchat = variante.prix_achat;
-        const quantiteRecue = ligne.quantite;
         const nouveauPrixAchat =
           stockActuel > 0
-            ? Math.round((stockActuel * ancienPrixAchat + quantiteRecue * prixAchatReception) / (stockActuel + quantiteRecue))
+            ? Math.round(
+                (stockActuel * ancienPrixAchat + donnee.quantite * prixAchatReception) / (stockActuel + donnee.quantite),
+              )
             : prixAchatReception;
 
-        if (nouveauPrixVente < nouveauPrixAchat) {
+        if (donnee.prixVente < nouveauPrixAchat) {
           throw new ErreurAchat("Le prix de vente ne peut pas être inférieur au prix d'achat (CUMP).");
         }
 
-        motif += ` (Prix achat : ${ancienPrixAchat} → ${nouveauPrixAchat} FCFA [CUMP], Prix vente : ${variante.prix_vente} → ${nouveauPrixVente} FCFA)`;
+        motif += ` (Prix achat : ${ancienPrixAchat} → ${nouveauPrixAchat} FCFA [CUMP], Prix vente : ${variante.prix_vente} → ${donnee.prixVente} FCFA)`;
         await db.put("variantes", {
           ...variante,
           prix_achat: nouveauPrixAchat,
-          prix_vente: nouveauPrixVente,
+          prix_vente: donnee.prixVente,
           synchronise: 0,
           date_modification: maintenantDate,
         });
@@ -413,11 +494,21 @@ export async function receptionnerCommande(params: ParametresReception): Promise
       varianteId: ligne.variante_id,
       depotId,
       type: "entree",
-      quantite: ligne.quantite,
+      quantite: donnee.quantite,
       motif,
       utilisateurId,
-      referenceType: "achats.CommandeAchat",
-      referenceId: commandeId,
+      // Référencé sur la réception (pas la commande) pour pouvoir
+      // retrouver ce qui a été livré à chaque livraison, voir
+      // listerReceptionsCommande.
+      referenceType: "achats.Reception",
+      referenceId: receptionId,
+    });
+
+    await db.put("lignes_achat", {
+      ...ligne,
+      quantite_recue: (ligne.quantite_recue ?? 0) + donnee.quantite,
+      synchronise: 0,
+      date_modification: maintenantDate,
     });
   }
 
@@ -426,18 +517,19 @@ export async function receptionnerCommande(params: ParametresReception): Promise
     commande_id: commandeId,
     depot_id: depotId,
     utilisateur_id: utilisateurId,
+    valeur_recue: valeurRecue,
+    montant_paye: montantDejaPaye,
     ...suiviSyncNeuf(),
   };
   await db.put("receptions", reception);
 
-  const total = commande.total;
-  const solde = total - montantDejaPaye;
+  const solde = valeurRecue - montantDejaPaye;
   if (solde > 0) {
     const dette: DetteFournisseurLocale = {
       id: crypto.randomUUID(),
       fournisseur_id: commande.fournisseur_id,
       commande_id: commandeId,
-      montant: total,
+      montant: valeurRecue,
       montant_paye: montantDejaPaye,
       solde,
       statut: "en_cours",
@@ -446,7 +538,11 @@ export async function receptionnerCommande(params: ParametresReception): Promise
     await db.put("dettes_fournisseur", dette);
   }
 
-  await db.put("commandes_achat", { ...commande, statut: "recue", synchronise: 0, date_modification: maintenantDate });
+  const lignesApres = (await db.getAllFromIndex("lignes_achat", "commande_id", commandeId)).filter((l) => !l.supprime);
+  const totalementRecue = lignesApres.every((l) => (l.quantite_recue ?? 0) >= l.quantite);
+  if (totalementRecue) {
+    await db.put("commandes_achat", { ...commande, statut: "recue", synchronise: 0, date_modification: maintenantDate });
+  }
 
   return receptionId;
 }
@@ -456,6 +552,7 @@ export async function receptionnerCommande(params: ParametresReception): Promise
 export interface DetteResume {
   id: string;
   fournisseurNom: string;
+  commandeId: string | null;
   commandeNumero: string | null;
   montant: number;
   montantPaye: number;
@@ -482,6 +579,7 @@ export async function listerDettes(boutiqueId: string, fournisseurId?: string, s
     resultat.push({
       id: d.id,
       fournisseurNom: fournisseur?.nom ?? "",
+      commandeId: d.commande_id ?? null,
       commandeNumero: commande?.numero ?? null,
       montant: d.montant,
       montantPaye: d.montant_paye,
@@ -491,6 +589,108 @@ export async function listerDettes(boutiqueId: string, fournisseurId?: string, s
     });
   }
   return resultat.sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));
+}
+
+export interface LigneReceptionDetail {
+  produitNom: string;
+  reference: string;
+  quantite: number;
+}
+
+export interface ReceptionDetail {
+  id: string;
+  dateCreation: string;
+  depotNom: string;
+  valeurRecue: number;
+  montantPaye: number;
+  lignes: LigneReceptionDetail[];
+}
+
+/** Historique des réceptions d'une commande (une par livraison, voir
+ * receptionnerCommande) — trié de la plus ancienne à la plus récente, avec
+ * les articles livrés à chacune (lus dans les mouvements de stock). */
+export async function listerReceptionsCommande(commandeId: string): Promise<ReceptionDetail[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const receptions = (await db.getAllFromIndex("receptions", "commande_id", commandeId)).filter((r) => !r.supprime);
+  const variantesCommande = [
+    ...new Set(
+      (await db.getAllFromIndex("lignes_achat", "commande_id", commandeId)).filter((l) => !l.supprime).map((l) => l.variante_id),
+    ),
+  ];
+
+  async function lignesDesMouvements(
+    depotId: string,
+    referenceType: string,
+    referenceId: string,
+  ): Promise<LigneReceptionDetail[]> {
+    const lignes: LigneReceptionDetail[] = [];
+    for (const varianteId of variantesCommande) {
+      const quantite = (await db.getAllFromIndex("mouvements_stock", "variante_depot", [varianteId, depotId]))
+        .filter(
+          (m) => !m.supprime && m.type === "entree" && m.reference_type === referenceType && m.reference_id === referenceId,
+        )
+        .reduce((total, m) => total + m.quantite, 0);
+      if (quantite === 0) continue;
+      const variante = await db.get("variantes", varianteId);
+      const produit = variante ? await db.get("produits", variante.produit_id) : undefined;
+      lignes.push({ produitNom: produit?.nom ?? "", reference: variante?.reference ?? "", quantite });
+    }
+    return lignes.sort((a, b) => a.produitNom.localeCompare(b.produitNom));
+  }
+
+  const resultat: ReceptionDetail[] = [];
+  for (const r of receptions) {
+    const depot = await db.get("depots", r.depot_id);
+    let lignes = await lignesDesMouvements(r.depot_id, "achats.Reception", r.id);
+    // Anciennes réceptions : les mouvements étaient référencés sur la
+    // commande. Tant qu'il n'y a qu'une réception, ils lui reviennent tous.
+    if (lignes.length === 0 && receptions.length === 1) {
+      lignes = await lignesDesMouvements(r.depot_id, "achats.CommandeAchat", commandeId);
+    }
+    resultat.push({
+      id: r.id,
+      dateCreation: r.date_creation,
+      depotNom: depot?.nom ?? "",
+      valeurRecue: r.valeur_recue,
+      montantPaye: r.montant_paye,
+      lignes,
+    });
+  }
+  return resultat.sort((a, b) => a.dateCreation.localeCompare(b.dateCreation));
+}
+
+export interface ReceptionHistorique extends ReceptionDetail {
+  commandeId: string;
+  commandeNumero: string;
+  fournisseurNom: string;
+}
+
+/** Toutes les réceptions de la boutique, toutes commandes confondues (modale
+ * "Historique des réceptions"), de la plus récente à la plus ancienne. */
+export async function listerHistoriqueReceptions(
+  boutiqueId: string,
+  fournisseurId?: string,
+  terme = "",
+  limite = 200,
+): Promise<ReceptionHistorique[]> {
+  const db = await ouvrirBaseDeDonnees();
+  let commandes = (await db.getAllFromIndex("commandes_achat", "boutique_id", boutiqueId)).filter((c) => !c.supprime);
+  if (fournisseurId) commandes = commandes.filter((c) => c.fournisseur_id === fournisseurId);
+  if (terme.trim()) {
+    const t = terme.trim().toLowerCase();
+    commandes = commandes.filter((c) => c.numero.toLowerCase().includes(t));
+  }
+
+  const resultat: ReceptionHistorique[] = [];
+  for (const c of commandes) {
+    const receptions = await listerReceptionsCommande(c.id);
+    if (receptions.length === 0) continue;
+    const fournisseur = await db.get("fournisseurs", c.fournisseur_id);
+    for (const r of receptions) {
+      resultat.push({ ...r, commandeId: c.id, commandeNumero: c.numero, fournisseurNom: fournisseur?.nom ?? "" });
+    }
+  }
+  return resultat.sort((a, b) => b.dateCreation.localeCompare(a.dateCreation)).slice(0, limite);
 }
 
 export interface PaiementDetteDetail {

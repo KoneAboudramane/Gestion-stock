@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 
 import type { Session } from "../api";
-import { libelleModePaiement } from "../lib/libelles";
+import { libelleModePaiement, libelleMotifPerte, libelleStatutDestockage } from "../lib/libelles";
 import {
   calculerPlageDates,
+  produitsDormants as produitsDormantsLocal,
   syntheseVentes as syntheseVentesLocale,
   topClients as topClientsLocal,
   topProduits as topProduitsLocal,
@@ -12,6 +13,7 @@ import {
   ventesParCategorie as ventesParCategorieLocal,
   ventesParModePaiement as ventesParModePaiementLocal,
   ventesParVendeur as ventesParVendeurLocal,
+  type LigneProduitDormant,
   type LigneTopClient,
   type LigneTopProduit,
   type LigneVentesCategorie,
@@ -22,7 +24,17 @@ import {
   type SyntheseVentes,
   type ValeurStock,
 } from "../services/rapports";
-import { listerDepotsDetail, type DepotResume } from "../services/stock";
+import {
+  listerDepotsDetail,
+  listerDestockages,
+  listerPertes,
+  type DepotResume,
+  type DestockageResume,
+  type PerteResume,
+} from "../services/stock";
+import { useDevise } from "../contexts/DeviseContext";
+import { FormulaireDestockage } from "./Stock";
+import { formaterMontant } from "../lib/formatage";
 
 /**
  * Port de client-electron/src/pages/Rapports.tsx, local d'abord (IndexedDB,
@@ -595,12 +607,460 @@ const DOCUMENTS = [
   { cle: "topProduits", label: "Top articles", icone: "🏷️" },
   { cle: "topClients", label: "Top clients", icone: "🏆" },
   { cle: "valeurStock", label: "Valeur du stock", icone: "📦" },
+  { cle: "dormants", label: "Produits dormants", icone: "😴" },
+  { cle: "pertes", label: "Pertes", icone: "🗑️" },
+  { cle: "destockages", label: "Déstockages", icone: "🏷️" },
   { cle: "vendeurs", label: "Ventes par vendeur", icone: "🧑‍💼" },
   { cle: "categories", label: "Ventes par catégorie", icone: "🗂️" },
   { cle: "modePaiement", label: "Ventes par mode de paiement", icone: "💳" },
 ] as const;
 
 export type DocumentRapport = (typeof DOCUMENTS)[number]["cle"];
+
+// --- Modale Pertes (sorties sans vente, voir Stock → Pertes) ---
+
+const COLONNES_PERTES: { cle: string; libelle: string }[] = [
+  { cle: "motif", libelle: "Motif" },
+  { cle: "nombre", libelle: "Déclarations" },
+  { cle: "quantite", libelle: "Quantité" },
+  { cle: "valeur", libelle: "Valeur perdue" },
+];
+
+function ModalePertes({ session, periodeInitiale, onFermer }: { session: Session; periodeInitiale?: Periode; onFermer: () => void }) {
+  const f = useFiltrePeriode(periodeInitiale ?? "mois");
+  const devise = useDevise();
+  const [pertes, setPertes] = useState<PerteResume[]>([]);
+
+  useEffect(() => {
+    if (!f.plage) return;
+    listerPertes(session.boutiqueId, f.plage.debut, f.plage.fin).then(setPertes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [f.plage]);
+
+  // Regroupement par motif, du plus coûteux au moins coûteux.
+  const parMotif = new Map<string, { motif: string; nombre: number; quantite: number; valeur: number }>();
+  for (const perte of pertes) {
+    const ligne = parMotif.get(perte.motif) ?? { motif: libelleMotifPerte(perte.motif), nombre: 0, quantite: 0, valeur: 0 };
+    ligne.nombre += 1;
+    ligne.quantite += perte.quantite;
+    ligne.valeur += perte.valeur;
+    parMotif.set(perte.motif, ligne);
+  }
+  const lignes = [...parMotif.values()].sort((a, b) => b.valeur - a.valeur);
+  const valeurTotale = lignes.reduce((somme, l) => somme + l.valeur, 0);
+
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Pertes" onFermer={onFermer} />
+        <div className="modale-corps">
+          <SelecteurPeriode
+            periode={f.periode} setPeriode={f.setPeriode}
+            dateDebutPerso={f.dateDebutPerso} setDateDebutPerso={f.setDateDebutPerso}
+            dateFinPerso={f.dateFinPerso} setDateFinPerso={f.setDateFinPerso}
+          />
+          <div className="zone-tableau-scroll">
+            <table className="tableau-catalogue carte-mobile">
+              <thead>
+                <tr>
+                  {COLONNES_PERTES.map((c) => (
+                    <th key={c.cle}>{c.libelle}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {lignes.map((l) => (
+                  <tr key={l.motif}>
+                    <td data-label="Motif">{l.motif}</td>
+                    <td data-label="Déclarations">{l.nombre}</td>
+                    <td data-label="Quantité">{l.quantite}</td>
+                    <td data-label="Valeur perdue">
+                      {formaterMontant(l.valeur)} {devise}
+                    </td>
+                  </tr>
+                ))}
+                {lignes.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="liste-vide">
+                      Aucune perte sur la période.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {lignes.length > 0 && (
+            <div className="totaux">
+              <div className="total-net">
+                Valeur totale perdue : {formaterMontant(valeurTotale)} {devise}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Modale Déstockages : bilan de chaque déstockage (voir Stock → Déstockage) ---
+
+const COLONNES_DESTOCKAGES: { cle: string; libelle: string }[] = [
+  { cle: "article", libelle: "Article" },
+  { cle: "operation", libelle: "Opération" },
+  { cle: "prix", libelle: "Prix normal → déstockage" },
+  { cle: "periode", libelle: "Période" },
+  { cle: "statut", libelle: "Statut" },
+  { cle: "quantiteVendue", libelle: "Vendus" },
+  { cle: "chiffreAffaires", libelle: "Argent récupéré" },
+  { cle: "marge", libelle: "Marge" },
+  { cle: "manqueAGagner", libelle: "Manque à gagner" },
+  { cle: "stockRestant", libelle: "Stock restant" },
+];
+
+function ModaleDestockages({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  const devise = useDevise();
+  const [destockages, setDestockages] = useState<DestockageResume[]>([]);
+  const [filtre, setFiltre] = useState<"tous" | "en_cours" | "termine">("tous");
+  const [vue, setVue] = useState<"article" | "operation">("article");
+
+  useEffect(() => {
+    listerDestockages(session.boutiqueId).then(setDestockages);
+  }, [session.boutiqueId]);
+
+  const lignes = destockages.filter((d) => filtre === "tous" || d.statut === filtre);
+  const total = (cle: "chiffreAffaires" | "marge" | "manqueAGagner") => lignes.reduce((somme, d) => somme + d[cle], 0);
+  const periode = (d: DestockageResume) => {
+    const debut = new Date(d.dateCreation).toLocaleDateString("fr-FR");
+    const fin = d.dateArret
+      ? new Date(d.dateArret).toLocaleDateString("fr-FR")
+      : d.dateFin
+        ? new Date(`${d.dateFin}T00:00:00`).toLocaleDateString("fr-FR")
+        : "…";
+    return `${debut} → ${fin}`;
+  };
+  // Vue par opération : les articles d'une même opération sont additionnés ;
+  // un article déstocké seul reste une ligne à part.
+  const operations = [
+    ...lignes
+      .reduce((parCle, d) => {
+        const cle = d.operationId ?? `article-${d.id}`;
+        const op = parCle.get(cle) ?? {
+          cle,
+          nom: d.operationNom ?? d.produitNom,
+          seul: !d.operationId,
+          articles: 0,
+          enCours: false,
+          debut: d.dateCreation,
+          quantiteVendue: 0,
+          chiffreAffaires: 0,
+          marge: 0,
+          manqueAGagner: 0,
+          stockRestant: 0,
+        };
+        op.articles += 1;
+        op.enCours = op.enCours || d.statut === "en_cours";
+        op.debut = d.dateCreation < op.debut ? d.dateCreation : op.debut;
+        op.quantiteVendue += d.quantiteVendue;
+        op.chiffreAffaires += d.chiffreAffaires;
+        op.marge += d.marge;
+        op.manqueAGagner += d.manqueAGagner;
+        op.stockRestant += d.stockRestant;
+        return parCle.set(cle, op);
+      }, new Map<string, { cle: string; nom: string; seul: boolean; articles: number; enCours: boolean; debut: string; quantiteVendue: number; chiffreAffaires: number; marge: number; manqueAGagner: number; stockRestant: number }>())
+      .values(),
+  ];
+
+  const lignesExport = lignes.map((d) => ({
+    article: `${d.produitNom}${d.reference ? ` (${d.reference})` : ""}`,
+    operation: d.operationNom ?? "",
+    prix: `${d.prixNormal} → ${d.prixDestockage}`,
+    periode: periode(d),
+    statut: libelleStatutDestockage(d.statut, d.motifFin),
+    quantiteVendue: d.quantiteVendue,
+    chiffreAffaires: d.chiffreAffaires,
+    marge: d.marge,
+    manqueAGagner: d.manqueAGagner,
+    stockRestant: d.stockRestant,
+  }));
+
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Déstockages" onFermer={onFermer} />
+        <div className="modale-corps">
+          <div className="barre-actions">
+            <select value={filtre} onChange={(e) => setFiltre(e.target.value as typeof filtre)}>
+              <option value="tous">Tous les déstockages</option>
+              <option value="en_cours">En cours</option>
+              <option value="termine">Terminés</option>
+            </select>
+            <select value={vue} onChange={(e) => setVue(e.target.value as typeof vue)}>
+              <option value="article">Par article</option>
+              <option value="operation">Par opération</option>
+            </select>
+          </div>
+          {vue === "article" ? (
+            <>
+            <div className="zone-tableau-scroll">
+              <table className="tableau-catalogue carte-mobile">
+                <thead>
+                  <tr>
+                    {COLONNES_DESTOCKAGES.map((c) => (
+                      <th key={c.cle}>{c.libelle}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {lignes.map((d) => (
+                    <tr key={d.id}>
+                      <td data-label="Article">
+                        {d.produitNom} {d.reference && <span className="sous-info">({d.reference})</span>}
+                      </td>
+                      <td data-label="Opération">{d.operationNom ?? "—"}</td>
+                    <td data-label="Prix normal → déstockage">
+                        <s className="prix-barre">{formaterMontant(d.prixNormal)}</s>
+                        {formaterMontant(d.prixDestockage)}
+                      </td>
+                      <td data-label="Période">{periode(d)}</td>
+                      <td data-label="Statut">
+                        <span className={d.statut === "en_cours" ? "badge-destockage" : "badge-brouillon"}>
+                          {libelleStatutDestockage(d.statut, d.motifFin)}
+                        </span>
+                      </td>
+                      <td data-label="Vendus">{d.quantiteVendue}</td>
+                      <td data-label="Argent récupéré">{formaterMontant(d.chiffreAffaires)}</td>
+                      <td data-label="Marge" className={d.marge < 0 ? "montant-negatif" : undefined}>
+                        {formaterMontant(d.marge)}
+                      </td>
+                      <td data-label="Manque à gagner">{formaterMontant(d.manqueAGagner)}</td>
+                      <td data-label="Stock restant">{d.stockRestant}</td>
+                    </tr>
+                  ))}
+                  {lignes.length === 0 && (
+                    <tr>
+                      <td colSpan={10} className="liste-vide">
+                        Aucun déstockage.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            </>
+          ) : (
+            <>
+            <div className="zone-tableau-scroll">
+              <table className="tableau-catalogue carte-mobile">
+                <thead>
+                  <tr>
+                    <th>Opération</th>
+                    <th>Articles</th>
+                    <th>Début</th>
+                    <th>Statut</th>
+                    <th>Vendus</th>
+                    <th>Argent récupéré</th>
+                    <th>Marge</th>
+                    <th>Manque à gagner</th>
+                    <th>Stock restant</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {operations.map((op) => (
+                    <tr key={op.cle}>
+                      <td data-label="Opération">
+                        {op.seul ? <span className="sous-info">{op.nom} (article seul)</span> : <strong>{op.nom}</strong>}
+                      </td>
+                      <td data-label="Articles">{op.articles}</td>
+                      <td data-label="Début">{new Date(op.debut).toLocaleDateString("fr-FR")}</td>
+                      <td data-label="Statut">
+                        <span className={op.enCours ? "badge-destockage" : "badge-brouillon"}>
+                          {op.enCours ? "En cours" : "Terminée"}
+                        </span>
+                      </td>
+                      <td data-label="Vendus">{op.quantiteVendue}</td>
+                      <td data-label="Argent récupéré">{formaterMontant(op.chiffreAffaires)}</td>
+                      <td data-label="Marge" className={op.marge < 0 ? "montant-negatif" : undefined}>
+                        {formaterMontant(op.marge)}
+                      </td>
+                      <td data-label="Manque à gagner">{formaterMontant(op.manqueAGagner)}</td>
+                      <td data-label="Stock restant">{op.stockRestant}</td>
+                    </tr>
+                  ))}
+                  {operations.length === 0 && (
+                    <tr>
+                      <td colSpan={9} className="liste-vide">
+                        Aucun déstockage.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            </>
+          )}
+          {lignes.length > 0 && (
+            <div className="totaux">
+              <div>
+                Argent récupéré : {formaterMontant(total("chiffreAffaires"))} {devise}
+              </div>
+              <div>
+                Marge : {formaterMontant(total("marge"))} {devise}
+              </div>
+              <div className="total-net">
+                Manque à gagner : {formaterMontant(total("manqueAGagner"))} {devise}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Modale Produits dormants : du stock qui ne se vend plus (argent qui dort) ---
+
+const DUREES_DORMANCE = [30, 60, 90, 180] as const;
+
+const COLONNES_DORMANTS: { cle: string; libelle: string }[] = [
+  { cle: "article", libelle: "Article" },
+  { cle: "quantiteStock", libelle: "En stock" },
+  { cle: "derniereVente", libelle: "Dernière vente" },
+  { cle: "joursSansVente", libelle: "Jours sans vente" },
+  { cle: "valeurImmobilisee", libelle: "Argent immobilisé" },
+];
+
+export function ModaleProduitsDormants({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  const devise = useDevise();
+  const peutDestocker = !!session.permissions.gerer_produits_stock_achats;
+  const [jours, setJours] = useState<number>(60);
+  const [lignes, setLignes] = useState<LigneProduitDormant[]>([]);
+  const [articleADestocker, setArticleADestocker] = useState<LigneProduitDormant | null>(null);
+
+  function rafraichir() {
+    produitsDormantsLocal(session.boutiqueId, jours).then(setLignes);
+  }
+  useEffect(() => {
+    rafraichir();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId, jours]);
+
+  const valeurTotale = lignes.reduce((somme, l) => somme + l.valeurImmobilisee, 0);
+  const derniereVente = (l: LigneProduitDormant) =>
+    l.derniereVente ? new Date(l.derniereVente).toLocaleDateString("fr-FR") : "Jamais vendu";
+  const lignesExport = lignes.map((l) => ({
+    article: `${l.produitNom}${l.reference ? ` (${l.reference})` : ""}`,
+    quantiteStock: l.quantiteStock,
+    derniereVente: derniereVente(l),
+    joursSansVente: l.joursSansVente,
+    valeurImmobilisee: l.valeurImmobilisee,
+  }));
+
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Produits dormants" onFermer={onFermer} />
+        <div className="modale-corps">
+          <div className="barre-actions">
+            <label className="case-a-cocher">
+              Sans vente depuis
+              <select value={jours} onChange={(e) => setJours(Number(e.target.value))}>
+                {DUREES_DORMANCE.map((d) => (
+                  <option key={d} value={d}>
+                    {d} jours
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p className="note-aide">
+            Articles en stock qui ne se sont pas vendus depuis {jours} jours ou plus (un article jamais vendu compte depuis
+            son entrée en stock). Pensez à les mettre en déstockage pour récupérer cet argent.
+          </p>
+          <div className="zone-tableau-scroll">
+            <table className="tableau-catalogue carte-mobile">
+              <thead>
+                <tr>
+                  {COLONNES_DORMANTS.map((c) => (
+                    <th key={c.cle}>{c.libelle}</th>
+                  ))}
+                  {peutDestocker && <th />}
+                </tr>
+              </thead>
+              <tbody>
+                {lignes.map((l) => (
+                  <tr key={l.varianteId}>
+                    <td data-label="Article">
+                      {l.produitNom} {l.reference && <span className="sous-info">({l.reference})</span>}
+                    </td>
+                    <td data-label="En stock">{l.quantiteStock}</td>
+                    <td data-label="Dernière vente">{derniereVente(l)}</td>
+                    <td data-label="Jours sans vente">{l.joursSansVente}</td>
+                    <td data-label="Argent immobilisé">
+                      {formaterMontant(l.valeurImmobilisee)} {devise}
+                    </td>
+                    {peutDestocker && (
+                      <td data-label="">
+                        {l.enDestockage ? (
+                          <span className="badge-destockage">En déstockage</span>
+                        ) : (
+                          <button type="button" onClick={() => setArticleADestocker(l)}>
+                            🏷️ Mettre en déstockage
+                          </button>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+                {lignes.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="liste-vide">
+                      Aucun produit dormant : tout votre stock s'est vendu dans les {jours} derniers jours.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {lignes.length > 0 && (
+            <div className="totaux">
+              <div>
+                {lignes.length} article{lignes.length > 1 ? "s" : ""} dormant{lignes.length > 1 ? "s" : ""}
+              </div>
+              <div className="total-net">
+                Argent qui dort : {formaterMontant(valeurTotale)} {devise}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      {articleADestocker && (
+        <div className="fond-modale" onClick={(e) => {
+            e.stopPropagation();
+            setArticleADestocker(null);
+          }}>
+          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+            <FormulaireDestockage
+              session={session}
+              articleInitial={{
+                id: articleADestocker.varianteId,
+                produitNom: articleADestocker.produitNom,
+                reference: articleADestocker.reference,
+                prixVente: articleADestocker.prixVente,
+                prixAchat: articleADestocker.prixAchat,
+                quantiteStock: articleADestocker.quantiteStock,
+              }}
+              onAnnuler={() => setArticleADestocker(null)}
+              onCree={() => {
+                setArticleADestocker(null);
+                rafraichir();
+              }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Rapports({
   session,
@@ -671,6 +1131,15 @@ export default function Rapports({
         <ModaleTopClients session={session} periodeInitiale={periodeInitiale} onFermer={() => setDocumentOuvert(null)} />
       )}
       {documentOuvert === "valeurStock" && <ModaleValeurStock session={session} onFermer={() => setDocumentOuvert(null)} />}
+      {documentOuvert === "dormants" && (
+        <ModaleProduitsDormants session={session} onFermer={() => setDocumentOuvert(null)} />
+      )}
+      {documentOuvert === "destockages" && (
+        <ModaleDestockages session={session} onFermer={() => setDocumentOuvert(null)} />
+      )}
+      {documentOuvert === "pertes" && (
+        <ModalePertes session={session} periodeInitiale={periodeInitiale} onFermer={() => setDocumentOuvert(null)} />
+      )}
       {documentOuvert === "vendeurs" && (
         <ModaleVentesParVendeur session={session} periodeInitiale={periodeInitiale} onFermer={() => setDocumentOuvert(null)} />
       )}

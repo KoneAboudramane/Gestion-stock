@@ -3,23 +3,31 @@ import type { CSSProperties } from "react";
 
 import { api } from "../api/client";
 import ChampMontant from "../components/ChampMontant";
+import ModaleConfirmation from "../components/ModaleConfirmation";
 import { useDevise } from "../contexts/DeviseContext";
 import type {
   DepotResume,
+  DestockageResume,
   InventaireDetail,
   InventaireResume,
   LigneAchatInitiale,
   LigneInventaireDetail,
   LigneStock,
+  MotifPerte,
   MouvementResume,
+  PerteResume,
+  ReleveDormants,
   ResultatEcriture,
   Session,
+  SortieDormance,
   TransfertResume,
   TypeMouvement,
   VarianteRecherchee,
 } from "../api/client";
 import { formaterMontant } from "../lib/formatage";
-import { libelleTypeMouvement } from "../lib/libelles";
+import { libelleMotifPerte, libelleStatutDestockage, libelleTypeMouvement, MOTIFS_PERTE } from "../lib/libelles";
+import { useFabricationPropre } from "../hooks/useFabricationPropre";
+import { ModaleProduitsDormants } from "./Rapports";
 
 // --- Onglet Stock : niveaux par dépôt ---
 
@@ -38,6 +46,10 @@ const SECTIONS = [
   { cle: "stock", label: "Stock", icone: "📦" },
   { cle: "mouvements", label: "Mouvements", icone: "🔄" },
   { cle: "transferts", label: "Transferts", icone: "🚚" },
+  { cle: "pertes", label: "Pertes", icone: "🗑️" },
+  { cle: "dormants", label: "Produits dormants", icone: "😴" },
+  { cle: "destockage", label: "Déstockage", icone: "🏷️" },
+  { cle: "historique", label: "Historique", icone: "🗂️" },
   { cle: "inventaire", label: "Inventaire", icone: "📋" },
 ] as const;
 
@@ -249,6 +261,13 @@ function FormulaireMouvementGroupe({
 }) {
   const [depotId, setDepotId] = useState(depots[0]?.id ?? "");
   const [type, setType] = useState<TypeMouvement>("entree");
+  // "Entrée" réservée aux boutiques qui fabriquent (hooks/useFabricationPropre.ts) :
+  // les autres réapprovisionnent par les Achats, et gardent Sortie/Ajustement
+  // pour corriger (casse, erreur de saisie…).
+  const fabricationPropre = useFabricationPropre(session.boutiqueId);
+  useEffect(() => {
+    if (fabricationPropre === false && type === "entree") setType("ajustement");
+  }, [fabricationPropre, type]);
   const [motif, setMotif] = useState("");
   const [terme, setTerme] = useState("");
   const [resultats, setResultats] = useState<VarianteRecherchee[]>([]);
@@ -349,7 +368,7 @@ function FormulaireMouvementGroupe({
             <label>
               Type
               <select value={type} onChange={(e) => setType(e.target.value as TypeMouvement)}>
-                <option value="entree">Entrée</option>
+                {fabricationPropre && <option value="entree">Entrée</option>}
                 <option value="sortie">Sortie</option>
                 <option value="ajustement">Ajustement (correction signée)</option>
               </select>
@@ -1400,6 +1419,1423 @@ function ModaleMouvements({ session, onFermer }: { session: Session; onFermer: (
   );
 }
 
+// --- Onglet Pertes : sortie sans vente (périmé, casse, vol, don…) ---
+
+function FormulairePerte({
+  session,
+  depots,
+  onAnnuler,
+  onCree,
+}: {
+  session: Session;
+  depots: DepotResume[];
+  onAnnuler: () => void;
+  onCree: () => void;
+}) {
+  const [depotId, setDepotId] = useState(depots[0]?.id ?? "");
+  const [motif, setMotif] = useState<MotifPerte>("perime");
+  const [detail, setDetail] = useState("");
+  const [terme, setTerme] = useState("");
+  const [resultats, setResultats] = useState<VarianteRecherchee[]>([]);
+  const [dropdownOuvert, setDropdownOuvert] = useState(false);
+  const [lignes, setLignes] = useState<LigneTransfertGroupe[]>([]);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState(false);
+
+  useEffect(() => {
+    if (!terme.trim()) {
+      setResultats([]);
+      return;
+    }
+    const identifiant = setTimeout(() => {
+      api.catalogue.rechercherVariantes(session.boutiqueId, terme.trim()).then(setResultats);
+    }, 200);
+    return () => clearTimeout(identifiant);
+  }, [terme, session.boutiqueId]);
+
+  function ajouterLigne(variante: VarianteRecherchee) {
+    setLignes((actuel) => {
+      if (actuel.some((l) => l.varianteId === variante.id)) return actuel;
+      return [
+        ...actuel,
+        { varianteId: variante.id, produitNom: variante.produitNom, reference: variante.reference, quantite: 1 },
+      ];
+    });
+  }
+
+  function modifierQuantite(varianteId: string, quantite: number) {
+    setLignes((actuel) => actuel.map((l) => (l.varianteId === varianteId ? { ...l, quantite } : l)));
+  }
+
+  function retirerLigne(varianteId: string) {
+    setLignes((actuel) => actuel.filter((l) => l.varianteId !== varianteId));
+  }
+
+  async function soumettre(evenement: React.FormEvent) {
+    evenement.preventDefault();
+    setErreur(null);
+    if (!depotId) {
+      setErreur("Choisissez un dépôt.");
+      return;
+    }
+    if (motif === "autre" && !detail.trim()) {
+      setErreur("Précisez la raison de la perte.");
+      return;
+    }
+    if (lignes.length === 0) {
+      setErreur("Ajoutez au moins un article.");
+      return;
+    }
+    setEnCours(true);
+    try {
+      for (const ligne of lignes) {
+        const resultat = await api.pertes.declarer({
+          varianteId: ligne.varianteId,
+          depotId,
+          quantite: ligne.quantite,
+          motif,
+          detail,
+          utilisateurId: session.utilisateurId,
+        });
+        if (!resultat.succes) {
+          setErreur(`${ligne.produitNom} : ${resultat.message}`);
+          return;
+        }
+      }
+      onCree();
+    } finally {
+      setEnCours(false);
+    }
+  }
+
+  return (
+    <form onSubmit={soumettre} className="formulaire-mouvement-groupe">
+      <div className="modale-entete entete-fixe">
+        <h3>Déclarer une perte</h3>
+        <div className="actions-formulaire">
+          <button type="submit" disabled={enCours}>
+            {enCours ? "Enregistrement…" : `Déclarer (${lignes.length})`}
+          </button>
+          <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
+            ← Retour
+          </button>
+        </div>
+      </div>
+      {erreur && <div className="message-erreur">{erreur}</div>}
+      <div className="colonnes-mouvement-groupe">
+        <div className="colonne-recherche-groupe">
+          <div className="ligne-champs-recherche-commande">
+            <label>
+              Dépôt
+              <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
+                {depots.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.nom}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Motif
+              <select value={motif} onChange={(e) => setMotif(e.target.value as MotifPerte)}>
+                {MOTIFS_PERTE.map((m) => (
+                  <option key={m.valeur} value={m.valeur}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              {motif === "autre" ? "Précision (obligatoire)" : "Précision (facultatif)"}
+              <input
+                value={detail}
+                onChange={(e) => setDetail(e.target.value)}
+                placeholder="ex. Lot du 12/09, carton tombé…"
+              />
+            </label>
+
+            <div className="recherche-commande-combobox">
+              <input
+                placeholder="Rechercher un article à ajouter…"
+                value={terme}
+                onChange={(e) => setTerme(e.target.value)}
+                onFocus={() => setDropdownOuvert(true)}
+                onBlur={() => setDropdownOuvert(false)}
+              />
+              {terme.trim() && dropdownOuvert && (
+                <ul className="resultats-recherche">
+                  {resultats
+                    .filter((v) => !lignes.some((l) => l.varianteId === v.id))
+                    .map((v) => (
+                      <li
+                        key={v.id}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          ajouterLigne(v);
+                        }}
+                      >
+                        <span>
+                          {v.produitNom} {v.reference && `(${v.reference})`}
+                        </span>
+                      </li>
+                    ))}
+                  {resultats.length === 0 && <li className="liste-vide">Aucun résultat.</li>}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="colonne-lignes-groupe">
+          <div className="lignes-groupe-scrollable">
+            <table className="tableau-catalogue">
+              <thead>
+                <tr>
+                  <th className="colonne-numero-groupe">N°</th>
+                  <th>Référence</th>
+                  <th className="col-designation-groupe">Désignation</th>
+                  <th>Quantité perdue</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {lignes.map((l, index) => (
+                  <tr key={l.varianteId}>
+                    <td className="colonne-numero-groupe">{index + 1}</td>
+                    <td>{l.reference || ""}</td>
+                    <td className="col-designation-groupe">{l.produitNom}</td>
+                    <td>
+                      <input
+                        type="number"
+                        min={0.01}
+                        step="any"
+                        value={l.quantite}
+                        onChange={(e) => modifierQuantite(l.varianteId, Number(e.target.value))}
+                      />
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="bouton-retirer-ligne-groupe"
+                        title="Retirer de la liste"
+                        onClick={() => retirerLigne(l.varianteId)}
+                      >
+                        ✕
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {Array.from({ length: Math.max(0, 10 - lignes.length) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td className="colonne-numero-groupe">&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td className="col-designation-groupe">&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+function OngletPertes({ session }: { session: Session }) {
+  // Déclarer une perte : réservé à ceux qui gèrent le stock (sinon un vendeur
+  // pourrait "perdre" de la marchandise pour couvrir un vol).
+  const peutGerer = !!session.permissions.gerer_produits_stock_achats;
+  const devise = useDevise();
+  const [depots, setDepots] = useState<DepotResume[]>([]);
+  const [pertes, setPertes] = useState<PerteResume[]>([]);
+  const [afficherForm, setAfficherForm] = useState(false);
+
+  async function rafraichir() {
+    const toutes = await api.pertes.lister(session.boutiqueId);
+    // Même règle que les transferts : sans droit de gestion, on ne voit que son dépôt.
+    setPertes(peutGerer || !session.depotNom ? toutes : toutes.filter((p) => p.depotNom === session.depotNom));
+  }
+  useEffect(() => {
+    api.depots.lister(session.boutiqueId).then(setDepots);
+    rafraichir();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId]);
+
+  const valeurTotale = pertes.reduce((somme, p) => somme + p.valeur, 0);
+
+  return (
+    <div>
+      <div className="barre-actions barre-actions-avec-onglets">
+        {peutGerer && (
+          <span className="actions-ligne">
+            <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherForm(true)}>
+              + Déclarer une perte
+            </button>
+          </span>
+        )}
+      </div>
+      {afficherForm && (
+        <div className="fond-modale" onClick={() => setAfficherForm(false)}>
+          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+            <FormulairePerte
+              session={session}
+              depots={depots}
+              onAnnuler={() => setAfficherForm(false)}
+              onCree={() => {
+                setAfficherForm(false);
+                rafraichir();
+              }}
+            />
+          </div>
+        </div>
+      )}
+      <div className="zone-tableau-scroll">
+        <table className="tableau-catalogue">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Désignation</th>
+              <th>Dépôt</th>
+              <th>Motif</th>
+              <th>Quantité</th>
+              <th>Valeur perdue</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pertes.map((p) => (
+              <tr key={p.id}>
+                <td>{new Date(p.dateCreation).toLocaleString("fr-FR")}</td>
+                <td>
+                  {p.produitNom} {p.reference && `(${p.reference})`}
+                </td>
+                <td>{p.depotNom}</td>
+                <td>
+                  {libelleMotifPerte(p.motif)}
+                  {p.detail && <span className="sous-info"> — {p.detail}</span>}
+                </td>
+                <td>{p.quantite}</td>
+                <td>
+                  {formaterMontant(p.valeur)} {devise}
+                </td>
+              </tr>
+            ))}
+            {pertes.length === 0 && (
+              <tr>
+                <td colSpan={6} className="liste-vide">
+                  Aucune perte déclarée.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {pertes.length > 0 && (
+        <div className="totaux">
+          <div className="total-net">
+            Valeur totale perdue : {formaterMontant(valeurTotale)} {devise}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ModalePertes({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Pertes" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletPertes session={session} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Onglet Déstockage : vendre à prix réduit un article qui dort ---
+
+/** Article proposé au déstockage : stock total tous dépôts confondus. */
+export interface ArticleDestockage {
+  id: string;
+  produitNom: string;
+  reference: string;
+  prixVente: number;
+  prixAchat: number;
+  quantiteStock: number;
+}
+
+const REDUCTIONS_RAPIDES = [10, 20, 30, 50] as const;
+
+const DUREES_RAPIDES = [
+  { label: "Sans date de fin", jours: 0 },
+  { label: "1 semaine", jours: 7 },
+  { label: "2 semaines", jours: 14 },
+  { label: "1 mois", jours: 30 },
+] as const;
+
+function dansNJours(jours: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + jours);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+export function FormulaireDestockage({
+  session,
+  articleInitial,
+  onAnnuler,
+  onCree,
+}: {
+  session: Session;
+  /** Article déjà choisi (ex. depuis Rapports → Produits dormants). */
+  articleInitial?: ArticleDestockage;
+  onAnnuler: () => void;
+  onCree: () => void;
+}) {
+  const devise = useDevise();
+  const [articles, setArticles] = useState<ArticleDestockage[]>([]);
+  const [dejaEnDestockage, setDejaEnDestockage] = useState<Set<string>>(new Set());
+  const [chargement, setChargement] = useState(true);
+  const [terme, setTerme] = useState("");
+  // Articles choisis, dans l'ordre de sélection, chacun avec son prix de déstockage.
+  const [selection, setSelection] = useState<{ article: ArticleDestockage; prixSaisi: string }[]>(
+    articleInitial ? [{ article: articleInitial, prixSaisi: "" }] : [],
+  );
+  const [nomOperation, setNomOperation] = useState("");
+  const [reductionCommune, setReductionCommune] = useState<number | null>(null);
+  const [dateFin, setDateFin] = useState("");
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState(false);
+
+  // Seuls les articles qui ont du stock (tous dépôts confondus) peuvent être déstockés.
+  useEffect(() => {
+    Promise.all([api.stock.lister(session.boutiqueId), api.destockages.lister(session.boutiqueId)]).then(
+      ([lignesStock, destockages]) => {
+        const parVariante = new Map<string, ArticleDestockage>();
+        for (const l of lignesStock) {
+          const existant = parVariante.get(l.varianteId);
+          if (existant) existant.quantiteStock += l.quantite;
+          else
+            parVariante.set(l.varianteId, {
+              id: l.varianteId,
+              produitNom: l.produitNom,
+              reference: l.reference ?? "",
+              prixVente: l.prixVente,
+              prixAchat: l.prixAchat,
+              quantiteStock: l.quantite,
+            });
+        }
+        setArticles(
+          [...parVariante.values()].filter((a) => a.quantiteStock > 0).sort((a, b) => a.produitNom.localeCompare(b.produitNom)),
+        );
+        setDejaEnDestockage(new Set(destockages.filter((d) => d.statut === "en_cours").map((d) => d.varianteId)));
+        setChargement(false);
+      },
+    );
+  }, [session.boutiqueId]);
+
+  const termeNormalise = terme.trim().toLowerCase();
+  const articlesFiltres = termeNormalise
+    ? articles.filter((a) => `${a.produitNom} ${a.reference}`.toLowerCase().includes(termeNormalise))
+    : articles;
+  const idsChoisis = new Set(selection.map((l) => l.article.id));
+
+  const prixAppliquant = (article: ArticleDestockage, reduction: number | null) =>
+    reduction === null ? "" : String(Math.round(article.prixVente * (1 - reduction / 100)));
+
+  function basculerArticle(article: ArticleDestockage) {
+    setErreur(null);
+    setSelection((actuelle) =>
+      actuelle.some((l) => l.article.id === article.id)
+        ? actuelle.filter((l) => l.article.id !== article.id)
+        : [...actuelle, { article, prixSaisi: prixAppliquant(article, reductionCommune) }],
+    );
+  }
+
+  function appliquerReduction(reduction: number) {
+    setReductionCommune(reduction);
+    setSelection((actuelle) => actuelle.map((l) => ({ ...l, prixSaisi: prixAppliquant(l.article, reduction) })));
+  }
+
+  function modifierPrix(id: string, prixSaisi: string) {
+    setReductionCommune(null);
+    setSelection((actuelle) => actuelle.map((l) => (l.article.id === id ? { ...l, prixSaisi } : l)));
+  }
+
+  const lignes = selection.map((l) => {
+    const prix = Number(l.prixSaisi) || 0;
+    return {
+      ...l,
+      prix,
+      valide: prix > 0 && prix < l.article.prixVente,
+      reduction: prix > 0 ? Math.round((1 - prix / l.article.prixVente) * 100) : null,
+      marge: prix - l.article.prixAchat,
+    };
+  });
+  // Plusieurs articles, ou un nom saisi : on crée une opération de déstockage nommée.
+  const utiliserOperation = selection.length > 1 || nomOperation.trim() !== "";
+  const nomManquant = selection.length > 1 && !nomOperation.trim();
+  const toutValide = lignes.length > 0 && lignes.every((l) => l.valide) && !nomManquant;
+  const argentRecupere = lignes.reduce((somme, l) => somme + (l.valide ? l.article.quantiteStock * l.prix : 0), 0);
+  const nombreAPerte = lignes.filter((l) => l.valide && l.marge < 0).length;
+
+  async function soumettre(evenement: React.FormEvent) {
+    evenement.preventDefault();
+    setErreur(null);
+    if (selection.length === 0) {
+      setErreur("Choisissez au moins un article dans la liste.");
+      return;
+    }
+    if (nomManquant) {
+      setErreur("Donnez un nom à cette opération de déstockage.");
+      return;
+    }
+    if (!toutValide) {
+      setErreur("Chaque prix de déstockage doit être positif et inférieur au prix normal de l'article.");
+      return;
+    }
+    setEnCours(true);
+    try {
+      const resultat = utiliserOperation
+        ? await api.destockages.demarrerOperation({
+            boutiqueId: session.boutiqueId,
+            nom: nomOperation.trim(),
+            lignes: selection.map((l) => ({ varianteId: l.article.id, prixDestockage: Number(l.prixSaisi) })),
+            dateFin: dateFin || null,
+            utilisateurId: session.utilisateurId,
+          })
+        : await api.destockages.demarrer({
+            varianteId: selection[0].article.id,
+            prixDestockage: Number(selection[0].prixSaisi),
+            dateFin: dateFin || null,
+            utilisateurId: session.utilisateurId,
+          });
+      if (!resultat.succes) {
+        setErreur(resultat.message);
+        return;
+      }
+      onCree();
+    } finally {
+      setEnCours(false);
+    }
+  }
+
+  return (
+    <form onSubmit={soumettre} className="formulaire-destockage">
+      <div className="modale-entete entete-fixe">
+        <h3>Mettre en déstockage</h3>
+        <div className="actions-formulaire">
+          <button type="submit" className="bouton-primaire" disabled={enCours || !toutValide}>
+            {enCours ? "Enregistrement…" : `Mettre en déstockage (${selection.length})`}
+          </button>
+          <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
+            ← Retour
+          </button>
+        </div>
+      </div>
+      {erreur && <div className="message-erreur">{erreur}</div>}
+      <div className="colonnes-destockage">
+        <section className="colonne-articles-destockage">
+          <h4>1. Choisissez un ou plusieurs articles</h4>
+          <input
+            placeholder="Rechercher par nom ou référence…"
+            value={terme}
+            onChange={(e) => setTerme(e.target.value)}
+          />
+          <ul className="liste-articles-destockage">
+            {articlesFiltres.map((a) => {
+              const deja = dejaEnDestockage.has(a.id);
+              const choisi = idsChoisis.has(a.id);
+              return (
+                <li key={a.id}>
+                  <button
+                    type="button"
+                    className={choisi ? "actif" : undefined}
+                    disabled={deja}
+                    onClick={() => basculerArticle(a)}
+                  >
+                    <input type="checkbox" checked={choisi} readOnly tabIndex={-1} disabled={deja} />
+                    <span className="texte-article-destockage">
+                      <span className="nom-article-destockage">
+                        {a.produitNom} {a.reference && <span className="sous-info">({a.reference})</span>}
+                      </span>
+                      <span className="details-article-destockage">
+                        Stock : {a.quantiteStock} · {formaterMontant(a.prixVente)} {devise}
+                        {deja && <span className="badge-destockage">Déjà en déstockage</span>}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+            {!chargement && articlesFiltres.length === 0 && (
+              <li className="liste-vide">
+                {articles.length === 0 ? "Aucun article en stock." : "Aucun article en stock ne correspond."}
+              </li>
+            )}
+          </ul>
+        </section>
+
+        <section className="colonne-reglage-destockage">
+          {selection.length === 0 ? (
+            <div className="etat-vide-destockage">
+              <span className="icone-etat-vide-destockage">🏷️</span>
+              <p>Cochez dans la liste le ou les articles à vendre moins cher.</p>
+              <p className="note-aide">
+                Le prix réduit s'appliquera automatiquement en caisse, jusqu'à la date de fin, jusqu'à ce que le stock
+                soit épuisé, ou jusqu'à ce que vous l'arrêtiez.
+              </p>
+            </div>
+          ) : (
+            <>
+              <label className="champ-nom-operation">
+                {selection.length > 1 ? "Nom de l'opération" : "Nom de l'opération (facultatif)"}
+                <input
+                  value={nomOperation}
+                  onChange={(e) => setNomOperation(e.target.value)}
+                  placeholder="ex. Liquidation fin d'année, Fin de saison…"
+                />
+              </label>
+
+              <h4>2. Nouveaux prix</h4>
+              <div className="raccourcis-destockage">
+                <span className="note-aide">Réduction pour {selection.length > 1 ? "tous" : "l'article"} :</span>
+                {REDUCTIONS_RAPIDES.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    className={reductionCommune === r ? "actif" : undefined}
+                    onClick={() => appliquerReduction(r)}
+                  >
+                    −{r} %
+                  </button>
+                ))}
+              </div>
+              <div className="zone-tableau-destockage">
+                <table className="tableau-catalogue">
+                  <thead>
+                    <tr>
+                      <th>Article</th>
+                      <th>Prix normal</th>
+                      <th>Prix de déstockage</th>
+                      <th>Marge / article</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lignes.map((l) => (
+                      <tr key={l.article.id}>
+                        <td>
+                          {l.article.produitNom}{" "}
+                          {l.article.reference && <span className="sous-info">({l.article.reference})</span>}
+                          <div className="sous-info">Stock : {l.article.quantiteStock}</div>
+                        </td>
+                        <td>
+                          {formaterMontant(l.article.prixVente)}
+                          <div className="sous-info">coût {formaterMontant(l.article.prixAchat)}</div>
+                        </td>
+                        <td>
+                          <div className="cellule-prix-destockage">
+                            <ChampMontant
+                              className={l.prix > 0 && !l.valide ? "champ-invalide" : undefined}
+                              value={l.prixSaisi}
+                              onChange={(valeur) => modifierPrix(l.article.id, valeur)}
+                            />
+                            {l.valide && <span className="badge-destockage">−{l.reduction} %</span>}
+                          </div>
+                        </td>
+                        <td>
+                          {l.valide && (
+                            <span className={l.marge < 0 ? "montant-negatif" : "montant-positif"}>
+                              {l.marge < 0 ? "−" : "+"}
+                              {formaterMontant(Math.abs(l.marge))}
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="bouton-retirer-ligne-groupe"
+                            title="Retirer de la sélection"
+                            onClick={() => basculerArticle(l.article)}
+                          >
+                            ✕
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <h4>3. Jusqu'à quand ?</h4>
+              <div className="raccourcis-destockage">
+                {DUREES_RAPIDES.map((d) => {
+                  const valeur = d.jours === 0 ? "" : dansNJours(d.jours);
+                  return (
+                    <button
+                      key={d.label}
+                      type="button"
+                      className={dateFin === valeur ? "actif" : undefined}
+                      onClick={() => setDateFin(valeur)}
+                    >
+                      {d.label}
+                    </button>
+                  );
+                })}
+                <input type="date" value={dateFin} min={dansNJours(0)} onChange={(e) => setDateFin(e.target.value)} />
+              </div>
+
+              <div className="resume-destockage">
+                <div>
+                  <span>{utiliserOperation ? "Opération" : "Déstockage"}</span>
+                  <strong>
+                    {utiliserOperation ? nomOperation.trim() || "(nom à saisir)" : selection[0].article.produitNom} ·{" "}
+                    {selection.length} article{selection.length > 1 ? "s" : ""}
+                  </strong>
+                </div>
+                <div>
+                  <span>Si tout le stock est vendu</span>
+                  <strong>
+                    {lignes.some((l) => l.valide)
+                      ? `${formaterMontant(Math.round(argentRecupere))} ${devise} récupérés`
+                      : "—"}
+                  </strong>
+                </div>
+                {nombreAPerte > 0 && (
+                  <p className="alerte-perte-destockage">
+                    ⚠ {nombreAPerte} article{nombreAPerte > 1 ? "s" : ""} vendu{nombreAPerte > 1 ? "s" : ""} à perte : c'est
+                    permis en déstockage, pour récupérer au moins une partie de l'argent.
+                  </p>
+                )}
+                <div>
+                  <span>Fin</span>
+                  <strong>
+                    {dateFin
+                      ? `Le ${new Date(`${dateFin}T00:00:00`).toLocaleDateString("fr-FR")} ou au stock épuisé`
+                      : "Au stock épuisé ou à l'arrêt manuel"}
+                  </strong>
+                </div>
+              </div>
+            </>
+          )}
+        </section>
+      </div>
+    </form>
+  );
+}
+
+function OngletDestockage({ session }: { session: Session }) {
+  const peutGerer = !!session.permissions.gerer_produits_stock_achats;
+  const devise = useDevise();
+  const [destockages, setDestockages] = useState<DestockageResume[]>([]);
+  const [afficherForm, setAfficherForm] = useState(false);
+  const [destockageAArreter, setDestockageAArreter] = useState<DestockageResume | null>(null);
+  const [operationAArreter, setOperationAArreter] = useState<{ id: string; nom: string } | null>(null);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState(false);
+
+  async function rafraichir() {
+    setDestockages(await api.destockages.lister(session.boutiqueId));
+  }
+  useEffect(() => {
+    rafraichir();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId]);
+
+  async function confirmerArret() {
+    if (!destockageAArreter) return;
+    setEnCours(true);
+    setErreur(null);
+    try {
+      const resultat = await api.destockages.arreter(destockageAArreter.id);
+      if (!resultat.succes) {
+        setErreur(resultat.message);
+        return;
+      }
+    } finally {
+      setEnCours(false);
+    }
+    setDestockageAArreter(null);
+    rafraichir();
+  }
+
+  async function confirmerArretOperation() {
+    if (!operationAArreter) return;
+    setEnCours(true);
+    setErreur(null);
+    try {
+      const resultat = await api.destockages.arreterOperation(operationAArreter.id);
+      if (!resultat.succes) {
+        setErreur(resultat.message);
+        return;
+      }
+    } finally {
+      setEnCours(false);
+    }
+    setOperationAArreter(null);
+    rafraichir();
+  }
+
+  // Opérations (groupes nommés) ayant encore au moins un article en déstockage.
+  const operationsEnCours = [
+    ...destockages
+      .filter((d) => d.operationId && d.statut === "en_cours")
+      .reduce((parId, d) => {
+        const op = parId.get(d.operationId!) ?? { id: d.operationId!, nom: d.operationNom ?? "", articles: 0 };
+        op.articles += 1;
+        return parId.set(d.operationId!, op);
+      }, new Map<string, { id: string; nom: string; articles: number }>())
+      .values(),
+  ];
+
+  return (
+    <div>
+      <div className="barre-actions barre-actions-avec-onglets">
+        {peutGerer && (
+          <span className="actions-ligne">
+            <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherForm(true)}>
+              + Mettre en déstockage
+            </button>
+          </span>
+        )}
+      </div>
+      {erreur && <div className="message-erreur">{erreur}</div>}
+      {afficherForm && (
+        <div className="fond-modale" onClick={() => setAfficherForm(false)}>
+          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+            <FormulaireDestockage
+              session={session}
+              onAnnuler={() => setAfficherForm(false)}
+              onCree={() => {
+                setAfficherForm(false);
+                rafraichir();
+              }}
+            />
+          </div>
+        </div>
+      )}
+      {operationAArreter && (
+        <ModaleConfirmation
+          titre="Arrêter toute l'opération ?"
+          description={`Tous les articles de « ${operationAArreter.nom} » encore en déstockage reviendront à leur prix normal en caisse.`}
+          labelConfirmer="Arrêter l'opération"
+          dangereux
+          enCours={enCours}
+          onAnnuler={() => setOperationAArreter(null)}
+          onConfirmer={confirmerArretOperation}
+        />
+      )}
+      {operationsEnCours.length > 0 && (
+        <div className="operations-destockage-en-cours">
+          {operationsEnCours.map((op) => (
+            <div key={op.id} className="operation-destockage">
+              <span>
+                🏷️ <strong>{op.nom}</strong>{" "}
+                <span className="sous-info">
+                  · {op.articles} article{op.articles > 1 ? "s" : ""} en déstockage
+                </span>
+              </span>
+              {peutGerer && (
+                <button type="button" className="bouton-danger" onClick={() => setOperationAArreter(op)}>
+                  Arrêter l'opération
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {destockageAArreter && (
+        <ModaleConfirmation
+          titre="Arrêter ce déstockage ?"
+          description={`${destockageAArreter.produitNom} reviendra à son prix normal en caisse.`}
+          labelConfirmer="Arrêter le déstockage"
+          dangereux
+          enCours={enCours}
+          onAnnuler={() => setDestockageAArreter(null)}
+          onConfirmer={confirmerArret}
+        />
+      )}
+      <div className="zone-tableau-scroll">
+        <table className="tableau-catalogue">
+          <thead>
+            <tr>
+              <th>Article</th>
+              <th>Opération</th>
+              <th>Prix</th>
+              <th>Début</th>
+              <th>Fin</th>
+              <th>Statut</th>
+              <th>Vendus</th>
+              <th>Stock restant</th>
+              {peutGerer && <th />}
+            </tr>
+          </thead>
+          <tbody>
+            {destockages.map((d) => (
+              <tr key={d.id}>
+                <td>
+                  {d.produitNom} {d.reference && <span className="sous-info">({d.reference})</span>}
+                </td>
+                <td>{d.operationNom ?? "—"}</td>
+                <td>
+                  <s className="prix-barre">{formaterMontant(d.prixNormal)}</s> {formaterMontant(d.prixDestockage)} {devise}
+                </td>
+                <td>{new Date(d.dateCreation).toLocaleDateString("fr-FR")}</td>
+                <td>
+                  {d.dateArret
+                    ? new Date(d.dateArret).toLocaleDateString("fr-FR")
+                    : d.dateFin
+                      ? `Prévue le ${new Date(`${d.dateFin}T00:00:00`).toLocaleDateString("fr-FR")}`
+                      : "—"}
+                </td>
+                <td>
+                  <span className={d.statut === "en_cours" ? "badge-destockage" : "badge-brouillon"}>
+                    {libelleStatutDestockage(d.statut, d.motifFin)}
+                  </span>
+                </td>
+                <td>{d.quantiteVendue}</td>
+                <td>{d.stockRestant}</td>
+                {peutGerer && (
+                  <td>
+                    {d.statut === "en_cours" && (
+                      <button type="button" className="bouton-danger" onClick={() => setDestockageAArreter(d)}>
+                        Arrêter
+                      </button>
+                    )}
+                  </td>
+                )}
+              </tr>
+            ))}
+            {destockages.length === 0 && (
+              <tr>
+                <td colSpan={9} className="liste-vide">
+                  Aucun déstockage.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ModaleDestockage({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Déstockage" onFermer={onFermer} />
+        <div className="modale-corps">
+          <OngletDestockage session={session} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Historique : pertes et déstockages, filtrables (carte « Historique » de la page Stock) ---
+
+type PeriodeHistorique = "tout" | "7j" | "30j" | "mois" | "personnalisee";
+
+function jourLocal(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+/** Bornes [début, fin] en "AAAA-MM-JJ" (incluses), ou null pour « tout ». */
+function bornesPeriode(periode: PeriodeHistorique, debutPerso: string, finPerso: string): [string, string] | null {
+  const aujourdhui = new Date();
+  if (periode === "tout") return null;
+  if (periode === "personnalisee") return [debutPerso || "0000-01-01", finPerso || "9999-12-31"];
+  if (periode === "mois") {
+    return [jourLocal(new Date(aujourdhui.getFullYear(), aujourdhui.getMonth(), 1)), jourLocal(aujourdhui)];
+  }
+  const debut = new Date(aujourdhui);
+  debut.setDate(debut.getDate() - (periode === "7j" ? 6 : 29));
+  return [jourLocal(debut), jourLocal(aujourdhui)];
+}
+
+function dansPeriode(dateIso: string, bornes: [string, string] | null): boolean {
+  if (!bornes) return true;
+  const jour = jourLocal(new Date(dateIso));
+  return jour >= bornes[0] && jour <= bornes[1];
+}
+
+function FiltrePeriodeHistorique({
+  periode,
+  setPeriode,
+  debutPerso,
+  setDebutPerso,
+  finPerso,
+  setFinPerso,
+}: {
+  periode: PeriodeHistorique;
+  setPeriode: (p: PeriodeHistorique) => void;
+  debutPerso: string;
+  setDebutPerso: (v: string) => void;
+  finPerso: string;
+  setFinPerso: (v: string) => void;
+}) {
+  return (
+    <>
+      <select value={periode} onChange={(e) => setPeriode(e.target.value as PeriodeHistorique)}>
+        <option value="tout">Toutes les dates</option>
+        <option value="7j">7 derniers jours</option>
+        <option value="30j">30 derniers jours</option>
+        <option value="mois">Ce mois</option>
+        <option value="personnalisee">Période personnalisée</option>
+      </select>
+      {periode === "personnalisee" && (
+        <>
+          <input type="date" value={debutPerso} onChange={(e) => setDebutPerso(e.target.value)} />
+          <input type="date" value={finPerso} onChange={(e) => setFinPerso(e.target.value)} />
+        </>
+      )}
+    </>
+  );
+}
+
+/** Barres de l'argent qui dort, un relevé par jour (ou le dernier de chaque mois
+ * au-delà de 60 relevés). Une seule série : couleur du thème, pas de légende. */
+function GraphiqueArgentQuiDort({ releves, devise }: { releves: ReleveDormants[]; devise: string }) {
+  const [survol, setSurvol] = useState<number | null>(null);
+  const parMois = releves.length > 60;
+  const points = parMois
+    ? [...releves.reduce((m, r) => m.set(r.date.slice(0, 7), r), new Map<string, ReleveDormants>()).values()]
+    : releves.slice(-60);
+  const libelle = (r: ReleveDormants) =>
+    parMois
+      ? new Date(`${r.date}T00:00:00`).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })
+      : new Date(`${r.date}T00:00:00`).toLocaleDateString("fr-FR");
+  const maximum = Math.max(1, ...points.map((r) => r.valeurImmobilisee));
+  const actif = points[survol ?? points.length - 1];
+
+  if (points.length === 0) {
+    return <p className="note-aide">Aucun relevé pour l'instant : le premier est pris à l'ouverture de l'appli.</p>;
+  }
+  return (
+    <div className="bloc-graphique-dormants">
+      <div className="entete-graphique-dormants">
+        <strong>
+          {formaterMontant(actif.valeurImmobilisee)} {devise}
+        </strong>
+        <span className="sous-info">
+          {libelle(actif)} · {actif.nombreArticles} article{actif.nombreArticles > 1 ? "s" : ""} dormant
+          {actif.nombreArticles > 1 ? "s" : ""}
+        </span>
+      </div>
+      <div className="graphique-dormants" onMouseLeave={() => setSurvol(null)}>
+        {points.map((r, i) => (
+          <div
+            key={r.date}
+            className={`colonne-graphique-dormants${i === (survol ?? points.length - 1) ? " active" : ""}`}
+            onMouseEnter={() => setSurvol(i)}
+            title={`${libelle(r)} : ${formaterMontant(r.valeurImmobilisee)} ${devise}`}
+          >
+            <span style={{ height: `${Math.max(2, (r.valeurImmobilisee / maximum) * 100)}%` }} />
+          </div>
+        ))}
+      </div>
+      <div className="axe-graphique-dormants sous-info">
+        <span>{libelle(points[0])}</span>
+        <span>{libelle(points[points.length - 1])}</span>
+      </div>
+      {points.length < 2 && (
+        <p className="note-aide">Le suivi commence : l'évolution apparaîtra au fil des jours.</p>
+      )}
+      <details className="details-releves-dormants">
+        <summary>Voir les relevés en chiffres</summary>
+        <table className="tableau-catalogue">
+          <thead>
+            <tr>
+              <th>{parMois ? "Mois" : "Jour"}</th>
+              <th>Articles dormants</th>
+              <th>Argent qui dort</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...points].reverse().map((r) => (
+              <tr key={r.date}>
+                <td>{libelle(r)}</td>
+                <td>{r.nombreArticles}</td>
+                <td>
+                  {formaterMontant(r.valeurImmobilisee)} {devise}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+    </div>
+  );
+}
+
+const LIBELLES_SORTIE_DORMANCE: Record<string, { label: string; classe: string }> = {
+  revendu: { label: "Revendu", classe: "badge-recue" },
+  perte: { label: "Perte", classe: "badge-rupture" },
+  destockage: { label: "Déstockage", classe: "badge-destockage" },
+};
+
+function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  const devise = useDevise();
+  const peutGerer = !!session.permissions.gerer_produits_stock_achats;
+  // Comme la carte Produits dormants : montre des coûts, réservé à la gestion / aux rapports.
+  const peutVoirDormants = peutGerer || !!session.permissions.voir_rapports_complets;
+  const [section, setSection] = useState<"pertes" | "destockages" | "dormants">("pertes");
+  const [releves, setReleves] = useState<ReleveDormants[]>([]);
+  const [sorties, setSorties] = useState<SortieDormance[]>([]);
+  const [seuilDormance, setSeuilDormance] = useState(60);
+  const [actionDormance, setActionDormance] = useState("");
+  const [pertes, setPertes] = useState<PerteResume[]>([]);
+  const [destockages, setDestockages] = useState<DestockageResume[]>([]);
+  const [depots, setDepots] = useState<DepotResume[]>([]);
+
+  const [periode, setPeriode] = useState<PeriodeHistorique>("tout");
+  const [debutPerso, setDebutPerso] = useState(jourLocal(new Date()));
+  const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
+  const [motif, setMotif] = useState("");
+  const [depot, setDepot] = useState("");
+  const [statut, setStatut] = useState<"" | "en_cours" | "termine">("");
+  const [operation, setOperation] = useState("");
+
+  useEffect(() => {
+    Promise.all([
+      api.pertes.lister(session.boutiqueId),
+      api.destockages.lister(session.boutiqueId),
+      api.depots.lister(session.boutiqueId),
+    ]).then(([toutesPertes, tousDestockages, listeDepots]) => {
+      // Sans droit de gestion, on ne voit que les pertes de son dépôt (même règle que la carte Pertes).
+      setPertes(
+        peutGerer || !session.depotNom ? toutesPertes : toutesPertes.filter((p) => p.depotNom === session.depotNom),
+      );
+      setDestockages(tousDestockages);
+      setDepots(listeDepots);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId]);
+
+  useEffect(() => {
+    api.rapports.relevesDormants(session.boutiqueId).then(setReleves);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId]);
+  useEffect(() => {
+    api.rapports.sortiesDormance(session.boutiqueId, seuilDormance).then(setSorties);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId, seuilDormance]);
+
+  const bornes = bornesPeriode(periode, debutPerso, finPerso);
+  const sortiesFiltrees = sorties.filter(
+    (s) => dansPeriode(s.date, bornes) && (!actionDormance || s.action === actionDormance),
+  );
+  const pertesFiltrees = pertes.filter(
+    (p) =>
+      dansPeriode(p.dateCreation, bornes) && (!motif || p.motif === motif) && (!depot || p.depotNom === depot),
+  );
+  const destockagesFiltres = destockages.filter(
+    (d) =>
+      dansPeriode(d.dateCreation, bornes) &&
+      (!statut || d.statut === statut) &&
+      (!operation || (operation === "__seul" ? !d.operationId : d.operationId === operation)),
+  );
+  const operations = [
+    ...new Map(destockages.filter((d) => d.operationId).map((d) => [d.operationId!, d.operationNom ?? ""])),
+  ];
+
+  const filtrePeriode = (
+    <FiltrePeriodeHistorique
+      periode={periode}
+      setPeriode={setPeriode}
+      debutPerso={debutPerso}
+      setDebutPerso={setDebutPerso}
+      finPerso={finPerso}
+      setFinPerso={setFinPerso}
+    />
+  );
+
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre="Historique" onFermer={onFermer} />
+        <div className="modale-avec-menu">
+          <nav className="menu-modale">
+            <button
+              type="button"
+              className={section === "pertes" ? "actif" : ""}
+              onClick={() => setSection("pertes")}
+            >
+              <span className="icone-menu-modale">🗑️</span>
+              Pertes
+              <span className="compteur-menu-modale">{pertesFiltrees.length}</span>
+            </button>
+            <button
+              type="button"
+              className={section === "destockages" ? "actif" : ""}
+              onClick={() => setSection("destockages")}
+            >
+              <span className="icone-menu-modale">🏷️</span>
+              Déstockages
+              <span className="compteur-menu-modale">{destockagesFiltres.length}</span>
+            </button>
+            {peutVoirDormants && (
+              <button
+                type="button"
+                className={section === "dormants" ? "actif" : ""}
+                onClick={() => setSection("dormants")}
+              >
+                <span className="icone-menu-modale">😴</span>
+                Dormants
+                <span className="compteur-menu-modale">{sortiesFiltrees.length}</span>
+              </button>
+            )}
+          </nav>
+          <div className="modale-corps">
+            {section === "pertes" ? (
+              <>
+                <div className="barre-actions barre-filtres-historique">
+                  {filtrePeriode}
+                  <select value={motif} onChange={(e) => setMotif(e.target.value)}>
+                    <option value="">Tous les motifs</option>
+                    {MOTIFS_PERTE.map((m) => (
+                      <option key={m.valeur} value={m.valeur}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                  {depots.length > 1 && (
+                    <select value={depot} onChange={(e) => setDepot(e.target.value)}>
+                      <option value="">Tous les dépôts</option>
+                      {depots.map((d) => (
+                        <option key={d.id} value={d.nom}>
+                          {d.nom}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+                <div className="zone-tableau-scroll">
+                  <table className="tableau-catalogue">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Désignation</th>
+                        <th>Dépôt</th>
+                        <th>Motif</th>
+                        <th>Quantité</th>
+                        <th>Valeur perdue</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pertesFiltrees.map((p) => (
+                        <tr key={p.id}>
+                          <td>{new Date(p.dateCreation).toLocaleString("fr-FR")}</td>
+                          <td>
+                            {p.produitNom} {p.reference && <span className="sous-info">({p.reference})</span>}
+                          </td>
+                          <td>{p.depotNom}</td>
+                          <td>
+                            {libelleMotifPerte(p.motif)}
+                            {p.detail && <span className="sous-info"> — {p.detail}</span>}
+                          </td>
+                          <td>{p.quantite}</td>
+                          <td>
+                            {formaterMontant(p.valeur)} {devise}
+                          </td>
+                        </tr>
+                      ))}
+                      {pertesFiltrees.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="liste-vide">
+                            Aucune perte pour ces filtres.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {pertesFiltrees.length > 0 && (
+                  <div className="totaux">
+                    <div>
+                      {pertesFiltrees.length} perte{pertesFiltrees.length > 1 ? "s" : ""} ·{" "}
+                      {pertesFiltrees.reduce((somme, p) => somme + p.quantite, 0)} article(s)
+                    </div>
+                    <div className="total-net">
+                      Valeur perdue : {formaterMontant(pertesFiltrees.reduce((somme, p) => somme + p.valeur, 0))} {devise}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : section === "dormants" ? (
+              <>
+                <div className="barre-actions barre-filtres-historique">
+                  {filtrePeriode}
+                  <label className="case-a-cocher">
+                    Sans vente depuis
+                    <select value={seuilDormance} onChange={(e) => setSeuilDormance(Number(e.target.value))}>
+                      {[30, 60, 90, 180].map((j) => (
+                        <option key={j} value={j}>
+                          {j} jours
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <select value={actionDormance} onChange={(e) => setActionDormance(e.target.value)}>
+                    <option value="">Toutes les actions</option>
+                    <option value="revendu">Revendus</option>
+                    <option value="perte">Pertes</option>
+                    <option value="destockage">Déstockages</option>
+                  </select>
+                </div>
+                <h4>Argent qui dort (produits sans vente depuis 60 jours)</h4>
+                <GraphiqueArgentQuiDort releves={releves} devise={devise} />
+                <h4>Ce qu'on en a fait</h4>
+                <div className="zone-tableau-scroll">
+                  <table className="tableau-catalogue">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Article</th>
+                        <th>Sans vente depuis</th>
+                        <th>Action</th>
+                        <th>Détail</th>
+                        <th>Quantité</th>
+                        <th>Montant</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortiesFiltrees.map((s) => (
+                        <tr key={s.id}>
+                          <td>{new Date(s.date).toLocaleDateString("fr-FR")}</td>
+                          <td>
+                            {s.produitNom} {s.reference && <span className="sous-info">({s.reference})</span>}
+                          </td>
+                          <td>{s.joursSansVente} jours</td>
+                          <td>
+                            <span className={LIBELLES_SORTIE_DORMANCE[s.action].classe}>
+                              {LIBELLES_SORTIE_DORMANCE[s.action].label}
+                            </span>
+                          </td>
+                          <td>
+                            {s.action === "perte"
+                              ? `${libelleMotifPerte(s.motif)}${s.detail ? ` — ${s.detail}` : ""}`
+                              : s.action === "destockage"
+                                ? `${s.detail} · ${libelleStatutDestockage(s.motif === "en_cours" ? "en_cours" : "termine", s.motif)}`
+                                : s.detail}
+                          </td>
+                          <td>{s.quantite}</td>
+                          <td>
+                            {formaterMontant(s.montant)} {devise}
+                          </td>
+                        </tr>
+                      ))}
+                      {sortiesFiltrees.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="liste-vide">
+                            Aucun article resté {seuilDormance} jours sans vente n'a encore été revendu, perdu ou déstocké.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="barre-actions barre-filtres-historique">
+                  {filtrePeriode}
+                  <select value={statut} onChange={(e) => setStatut(e.target.value as typeof statut)}>
+                    <option value="">Tous les statuts</option>
+                    <option value="en_cours">En cours</option>
+                    <option value="termine">Terminés</option>
+                  </select>
+                  {operations.length > 0 && (
+                    <select value={operation} onChange={(e) => setOperation(e.target.value)}>
+                      <option value="">Toutes les opérations</option>
+                      {operations.map(([id, nom]) => (
+                        <option key={id} value={id}>
+                          {nom}
+                        </option>
+                      ))}
+                      <option value="__seul">Articles déstockés seuls</option>
+                    </select>
+                  )}
+                </div>
+                <div className="zone-tableau-scroll">
+                  <table className="tableau-catalogue">
+                    <thead>
+                      <tr>
+                        <th>Début</th>
+                        <th>Article</th>
+                        <th>Opération</th>
+                        <th>Prix</th>
+                        <th>Fin</th>
+                        <th>Statut</th>
+                        <th>Vendus</th>
+                        <th>Argent récupéré</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {destockagesFiltres.map((d) => (
+                        <tr key={d.id}>
+                          <td>{new Date(d.dateCreation).toLocaleDateString("fr-FR")}</td>
+                          <td>
+                            {d.produitNom} {d.reference && <span className="sous-info">({d.reference})</span>}
+                          </td>
+                          <td>{d.operationNom ?? "—"}</td>
+                          <td>
+                            <s className="prix-barre">{formaterMontant(d.prixNormal)}</s>
+                            {formaterMontant(d.prixDestockage)}
+                          </td>
+                          <td>
+                            {d.dateArret
+                              ? new Date(d.dateArret).toLocaleDateString("fr-FR")
+                              : d.dateFin
+                                ? `Prévue le ${new Date(`${d.dateFin}T00:00:00`).toLocaleDateString("fr-FR")}`
+                                : "—"}
+                          </td>
+                          <td>
+                            <span className={d.statut === "en_cours" ? "badge-destockage" : "badge-brouillon"}>
+                              {libelleStatutDestockage(d.statut, d.motifFin)}
+                            </span>
+                          </td>
+                          <td>{d.quantiteVendue}</td>
+                          <td>
+                            {formaterMontant(d.chiffreAffaires)} {devise}
+                          </td>
+                        </tr>
+                      ))}
+                      {destockagesFiltres.length === 0 && (
+                        <tr>
+                          <td colSpan={8} className="liste-vide">
+                            Aucun déstockage pour ces filtres.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {destockagesFiltres.length > 0 && (
+                  <div className="totaux">
+                    <div>
+                      {destockagesFiltres.length} déstockage{destockagesFiltres.length > 1 ? "s" : ""} ·{" "}
+                      {destockagesFiltres.reduce((somme, d) => somme + d.quantiteVendue, 0)} article(s) vendu(s)
+                    </div>
+                    <div className="total-net">
+                      Argent récupéré :{" "}
+                      {formaterMontant(destockagesFiltres.reduce((somme, d) => somme + d.chiffreAffaires, 0))} {devise}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ModaleTransferts({ session, onFermer }: { session: Session; onFermer: () => void }) {
   return (
     <div className="fond-modale" onClick={onFermer}>
@@ -1498,7 +2934,13 @@ export default function Stock({
         />
       ))}
       <div className="grille-documents-comptables">
-        {SECTIONS.map((s) => (
+        {SECTIONS.filter(
+          // Produits dormants : montre des coûts d'achat, réservé à la gestion du stock / aux rapports.
+          (s) =>
+            s.cle !== "dormants" ||
+            !!session.permissions.gerer_produits_stock_achats ||
+            !!session.permissions.voir_rapports_complets,
+        ).map((s) => (
           <button
             key={s.cle}
             type="button"
@@ -1523,6 +2965,18 @@ export default function Stock({
       )}
       {sectionOuverte === "transferts" && (
         <ModaleTransferts session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
+      {sectionOuverte === "dormants" && (
+        <ModaleProduitsDormants session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
+      {sectionOuverte === "historique" && (
+        <ModaleHistoriqueStock session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
+      {sectionOuverte === "destockage" && (
+        <ModaleDestockage session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
+      {sectionOuverte === "pertes" && (
+        <ModalePertes session={session} onFermer={() => setSectionOuverte(null)} />
       )}
       {sectionOuverte === "inventaire" && (
         <ModaleInventaire session={session} onFermer={() => setSectionOuverte(null)} />

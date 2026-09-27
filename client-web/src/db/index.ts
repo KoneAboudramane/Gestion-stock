@@ -8,7 +8,7 @@ let promesseBase: Promise<IDBPDatabase<GestionStockDB>> | null = null;
 export function ouvrirBaseDeDonnees(): Promise<IDBPDatabase<GestionStockDB>> {
   if (!promesseBase) {
     promesseBase = openDB<GestionStockDB>(NOM_BASE, VERSION_BASE, {
-      upgrade(db, oldVersion) {
+      upgrade(db, oldVersion, _nouvelleVersion, transaction) {
         // v1 : périmètre Caisse (voir plan PWA Caisse hors-ligne).
         if (oldVersion < 1) {
           const boutiques = db.createObjectStore("boutiques", { keyPath: "id" });
@@ -153,6 +153,35 @@ export function ouvrirBaseDeDonnees(): Promise<IDBPDatabase<GestionStockDB>> {
           const mouvementsCaisse = db.createObjectStore("mouvements_caisse", { keyPath: "id" });
           mouvementsCaisse.createIndex("depot_id", "depot_id");
           mouvementsCaisse.createIndex("synchronise", "synchronise");
+        }
+
+        // v4 : pertes de stock (sorties sans vente) — additif uniquement.
+        if (oldVersion < 4) {
+          const pertesStock = db.createObjectStore("pertes_stock", { keyPath: "id" });
+          pertesStock.createIndex("depot_id", "depot_id");
+          pertesStock.createIndex("synchronise", "synchronise");
+        }
+
+        // v5 : déstockages (prix réduit en caisse) — additif uniquement.
+        if (oldVersion < 5) {
+          const destockages = db.createObjectStore("destockages", { keyPath: "id" });
+          destockages.createIndex("variante_id", "variante_id");
+          destockages.createIndex("synchronise", "synchronise");
+        }
+
+        // v6 : opérations de déstockage (plusieurs articles sous un même nom).
+        if (oldVersion < 6) {
+          const operations = db.createObjectStore("operations_destockage", { keyPath: "id" });
+          operations.createIndex("boutique_id", "boutique_id");
+          operations.createIndex("synchronise", "synchronise");
+          transaction.objectStore("destockages").createIndex("operation_id", "operation_id");
+        }
+
+        // v7 : relevés quotidiens des produits dormants (historique de l'argent qui dort).
+        if (oldVersion < 7) {
+          const releves = db.createObjectStore("releves_dormants", { keyPath: "id" });
+          releves.createIndex("boutique_id", "boutique_id");
+          releves.createIndex("synchronise", "synchronise");
         }
       },
     });

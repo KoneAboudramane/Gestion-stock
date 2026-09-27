@@ -31,7 +31,8 @@ import {
   type ValeurAttributResume,
   type VarianteResume,
 } from "../services/produits";
-import { appliquerMouvement, ErreurStock } from "../services/stock";
+import { creerMouvementManuel, ErreurStock } from "../services/stock";
+import { useFabricationPropre } from "../hooks/useFabricationPropre";
 
 /**
  * Port de client-electron/src/pages/Produits.tsx : gestion du catalogue
@@ -168,7 +169,7 @@ function FormulaireAjoutStock({
     }
     setEnCours(true);
     try {
-      await appliquerMouvement({
+      await creerMouvementManuel({
         varianteId,
         depotId,
         type: "entree",
@@ -476,6 +477,9 @@ function DetailProduit({
 }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const peutVoirCout = !!session.permissions.voir_benefices_achat;
+  // Ajout de stock depuis la fiche : réservé aux boutiques qui fabriquent
+  // (voir hooks/useFabricationPropre.ts) — les autres passent par les Achats.
+  const fabricationPropre = useFabricationPropre(session.boutiqueId);
   const peutModifierPrix = !!session.permissions.modifier_prix;
 
   const [produit, setProduit] = useState<ProduitDetail | null>(null);
@@ -631,13 +635,15 @@ function DetailProduit({
                                 <button type="button" onClick={() => setVarianteEnEdition(v.id)}>
                                   Modifier
                                 </button>
-                                <button
-                                  type="button"
-                                  className="bouton-ajouter-stock-ligne"
-                                  onClick={() => setVarianteAjoutStock(v.id)}
-                                >
-                                  + Ajouter du stock
-                                </button>
+                                {fabricationPropre && (
+                                  <button
+                                    type="button"
+                                    className="bouton-ajouter-stock-ligne"
+                                    onClick={() => setVarianteAjoutStock(v.id)}
+                                  >
+                                    + Ajouter du stock
+                                  </button>
+                                )}
                               </span>
                             </td>
                           )}
@@ -826,7 +832,7 @@ function FormulaireProduitsGroupe({
         const quantiteNombre = Number(ligne.quantiteInitiale) || 0;
         if (depotId && quantiteNombre > 0) {
           try {
-            await appliquerMouvement({
+            await creerMouvementManuel({
               varianteId: cree.varianteId,
               depotId,
               type: "entree",

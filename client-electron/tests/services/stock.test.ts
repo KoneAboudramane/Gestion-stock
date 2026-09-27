@@ -3,10 +3,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { executer, tousLesResultats, unResultat } from "../../electron/db/helpers";
 import {
+  CLE_PARAMETRE_FABRICATION_PROPRE,
   ErreurStock,
   appliquerMouvement,
   creerDepot,
   creerEntreeProduction,
+  creerMouvementManuel,
+  declarerPerte,
+  listerPertes,
   demarrerInventaire,
   listerDepotsDetail,
   modifierLigneInventaire,
@@ -215,6 +219,12 @@ describe("stock.creerEntreeProduction (boutique sans fournisseur : fabrication p
   beforeEach(async () => {
     await creerBaseDeTest();
     executer("INSERT INTO depots (id, boutique_id, nom) VALUES (?, ?, ?)", [depotId, boutiqueId, "Atelier"]);
+    executer("INSERT INTO parametres (id, boutique_id, cle, valeur) VALUES (?, ?, ?, ?)", [
+      randomUUID(),
+      boutiqueId,
+      CLE_PARAMETRE_FABRICATION_PROPRE,
+      "1",
+    ]);
     const produitId = randomUUID();
     varianteId = randomUUID();
     executer("INSERT INTO produits (id, boutique_id, nom) VALUES (?, ?, ?)", [produitId, boutiqueId, "Savon artisanal"]);
@@ -270,5 +280,131 @@ describe("stock.creerEntreeProduction (boutique sans fournisseur : fabrication p
     expect(() =>
       creerEntreeProduction({ varianteId: randomUUID(), depotId, quantite: 1, prixAchat: 100 }),
     ).toThrow(ErreurStock);
+  });
+});
+
+describe("réglage fabrication propre (entrées de stock hors Achats)", () => {
+  const boutiqueId = randomUUID();
+  const depotId = randomUUID();
+  let varianteId: string;
+
+  function stockActuel(): number {
+    const ligne = unResultat<{ quantite: number }>("SELECT quantite FROM stocks WHERE variante_id = ? AND depot_id = ?", [
+      varianteId,
+      depotId,
+    ]);
+    return ligne ? Number(ligne.quantite) : 0;
+  }
+
+  function activerFabrication(): void {
+    executer("INSERT INTO parametres (id, boutique_id, cle, valeur) VALUES (?, ?, ?, ?)", [
+      randomUUID(),
+      boutiqueId,
+      CLE_PARAMETRE_FABRICATION_PROPRE,
+      "1",
+    ]);
+  }
+
+  beforeEach(async () => {
+    await creerBaseDeTest();
+    executer("INSERT INTO depots (id, boutique_id, nom) VALUES (?, ?, ?)", [depotId, boutiqueId, "Magasin"]);
+    const produitId = randomUUID();
+    varianteId = randomUUID();
+    executer("INSERT INTO produits (id, boutique_id, nom) VALUES (?, ?, ?)", [produitId, boutiqueId, "Savon"]);
+    executer("INSERT INTO variantes (id, produit_id, prix_achat, prix_vente) VALUES (?, ?, ?, ?)", [
+      varianteId,
+      produitId,
+      100,
+      150,
+    ]);
+  });
+
+  it("sans le réglage : le stock initial passe, une entrée manuelle suivante est refusée", () => {
+    creerMouvementManuel({ varianteId, depotId, type: "entree", quantite: 10, motif: "Stock initial" });
+    expect(() => creerMouvementManuel({ varianteId, depotId, type: "entree", quantite: 5 })).toThrow(ErreurStock);
+    expect(stockActuel()).toBe(10);
+  });
+
+  it("sans le réglage : sortie et ajustement restent permis", () => {
+    creerMouvementManuel({ varianteId, depotId, type: "entree", quantite: 10 });
+    creerMouvementManuel({ varianteId, depotId, type: "sortie", quantite: 2 });
+    creerMouvementManuel({ varianteId, depotId, type: "ajustement", quantite: -1 });
+    expect(stockActuel()).toBe(7);
+  });
+
+  it("sans le réglage : l'entrée de production est refusée", () => {
+    expect(() => creerEntreeProduction({ varianteId, depotId, quantite: 5, prixAchat: 100 })).toThrow(ErreurStock);
+    expect(stockActuel()).toBe(0);
+  });
+
+  it("avec le réglage : entrées manuelles répétées et entrée de production permises", () => {
+    activerFabrication();
+    creerMouvementManuel({ varianteId, depotId, type: "entree", quantite: 10 });
+    creerMouvementManuel({ varianteId, depotId, type: "entree", quantite: 5 });
+    creerEntreeProduction({ varianteId, depotId, quantite: 5, prixAchat: 100 });
+    expect(stockActuel()).toBe(20);
+  });
+});
+
+describe("stock.declarerPerte (miroir de stock/services.py::declarer_perte)", () => {
+  const boutiqueId = randomUUID();
+  const depotId = randomUUID();
+  let varianteId: string;
+
+  function stockActuel(): number {
+    const ligne = unResultat<{ quantite: number }>("SELECT quantite FROM stocks WHERE variante_id = ? AND depot_id = ?", [
+      varianteId,
+      depotId,
+    ]);
+    return ligne ? Number(ligne.quantite) : 0;
+  }
+
+  beforeEach(async () => {
+    await creerBaseDeTest();
+    executer("INSERT INTO depots (id, boutique_id, nom) VALUES (?, ?, ?)", [depotId, boutiqueId, "Magasin"]);
+    const produitId = randomUUID();
+    varianteId = randomUUID();
+    executer("INSERT INTO produits (id, boutique_id, nom) VALUES (?, ?, ?)", [produitId, boutiqueId, "Yaourt"]);
+    executer("INSERT INTO variantes (id, produit_id, prix_achat, prix_vente) VALUES (?, ?, ?, ?)", [
+      varianteId,
+      produitId,
+      250,
+      400,
+    ]);
+    appliquerMouvement({ varianteId, depotId, type: "entree", quantite: 20 });
+  });
+
+  it("sort du stock, fige la valeur au CUMP et trace un mouvement de sortie référencé", () => {
+    const perteId = declarerPerte({ varianteId, depotId, quantite: 4, motif: "perime", utilisateurId: null });
+
+    expect(stockActuel()).toBe(16);
+    const pertes = listerPertes(boutiqueId);
+    expect(pertes).toHaveLength(1);
+    expect(pertes[0]).toMatchObject({ produitNom: "Yaourt", depotNom: "Magasin", motif: "perime" });
+    expect(Number(pertes[0].valeur)).toBe(1000);
+
+    const mouvement = unResultat<{ type: string; motif: string }>(
+      "SELECT type, motif FROM mouvements_stock WHERE reference_type = 'stock.PerteStock' AND reference_id = ?",
+      [perteId],
+    );
+    expect(mouvement).toMatchObject({ type: "sortie", motif: "Perte : Périmé" });
+  });
+
+  it("exige une précision pour le motif « autre »", () => {
+    expect(() => declarerPerte({ varianteId, depotId, quantite: 1, motif: "autre", utilisateurId: null })).toThrow(ErreurStock);
+    declarerPerte({ varianteId, depotId, quantite: 1, motif: "autre", detail: "Rongé", utilisateurId: null });
+    expect(listerPertes(boutiqueId)[0].detail).toBe("Rongé");
+  });
+
+  it("refuse une perte supérieure au stock, sans rien enregistrer", () => {
+    expect(() => declarerPerte({ varianteId, depotId, quantite: 50, motif: "vol", utilisateurId: null })).toThrow(ErreurStock);
+    expect(listerPertes(boutiqueId)).toHaveLength(0);
+    expect(stockActuel()).toBe(20);
+  });
+
+  it("filtre par période", () => {
+    declarerPerte({ varianteId, depotId, quantite: 1, motif: "don", utilisateurId: null });
+    expect(listerPertes(boutiqueId, "2000-01-01T00:00:00.000Z", "2999-12-31T23:59:59.999Z")).toHaveLength(1);
+    expect(listerPertes(boutiqueId, "2999-01-01T00:00:00.000Z")).toHaveLength(0);
   });
 });

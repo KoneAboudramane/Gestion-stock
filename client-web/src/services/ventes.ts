@@ -2,7 +2,7 @@ import { ouvrirBaseDeDonnees } from "../db";
 import { maintenant, suiviSyncNeuf } from "../db/helpers";
 import type { CreditLocal, LigneVenteLocale, PaiementLocal, VenteLocale } from "../db/schema";
 import { verifierAbonnementActif } from "./abonnement";
-import { appliquerMouvement } from "./stock";
+import { appliquerMouvement, destockageActif, terminerDestockageSiEpuise } from "./stock";
 import { enregistrerMouvement } from "./tresorerie";
 
 /**
@@ -79,7 +79,8 @@ export async function creerVente(params: ParametresVente): Promise<VenteCreee> {
     const variante = await db.get("variantes", ligne.varianteId);
     if (!variante) throw new ErreurVente("Variante introuvable.");
 
-    const prixUnitaire = ligne.prixUnitaire ?? variante.prix_vente;
+    const destockage = await destockageActif(ligne.varianteId);
+    const prixUnitaire = ligne.prixUnitaire ?? (destockage ? destockage.prixDestockage : variante.prix_vente);
     const remiseLigne = ligne.remise ?? 0;
     const sousTotal = Math.round(ligne.quantite * prixUnitaire - remiseLigne);
     if (sousTotal < 0) {
@@ -92,6 +93,9 @@ export async function creerVente(params: ParametresVente): Promise<VenteCreee> {
       coutUnitaire: variante.prix_achat,
       remise: remiseLigne,
       sousTotal,
+      // Vendue pendant un déstockage : prix normal du moment + lien, pour son bilan.
+      prixNormal: destockage ? destockage.prixNormal : null,
+      destockageId: destockage ? destockage.id : null,
     });
   }
 
@@ -142,6 +146,8 @@ export async function creerVente(params: ParametresVente): Promise<VenteCreee> {
       cout_unitaire: ligne.coutUnitaire,
       remise: ligne.remise,
       sous_total: ligne.sousTotal,
+      prix_normal: ligne.prixNormal,
+      destockage_id: ligne.destockageId,
       ...suiviSyncNeuf(),
     };
     await db.put("lignes_vente", ligneVente);
@@ -156,6 +162,7 @@ export async function creerVente(params: ParametresVente): Promise<VenteCreee> {
       referenceType: "ventes.Vente",
       referenceId: venteId,
     });
+    if (ligne.destockageId) await terminerDestockageSiEpuise(ligne.varianteId);
   }
 
   for (const paiement of paiements) {
@@ -213,6 +220,8 @@ export interface LigneVenteDetail {
   prixUnitaire: number;
   remise: number;
   sousTotal: number;
+  /** Renseigné si l'article a été vendu en déstockage (prix normal du moment). */
+  prixNormal: number | null;
 }
 
 export interface PaiementDetail {
@@ -362,6 +371,7 @@ export async function obtenirVenteDetail(venteId: string): Promise<VenteDetail |
       prixUnitaire: ligne.prix_unitaire,
       remise: ligne.remise,
       sousTotal: ligne.sous_total,
+      prixNormal: ligne.prix_normal ?? null,
     });
   }
 

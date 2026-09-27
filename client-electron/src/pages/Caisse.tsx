@@ -24,6 +24,28 @@ interface SelectionModaleVente {
   prixUnitaire: number;
 }
 
+/** Article en déstockage vendu au moins à son prix de déstockage : la vente à
+ * perte est alors voulue (Stock → Déstockage), on ne la bloque pas. */
+function venteAPertePermise(variante: VarianteCatalogue | undefined, prixUnitaire: number): boolean {
+  return !!variante && variante.prixNormal != null && prixUnitaire >= variante.prixVente;
+}
+
+function PrixCaisse({ variante, devise }: { variante: VarianteCatalogue; devise: string }) {
+  if (variante.prixNormal == null) {
+    return (
+      <>
+        {formaterMontant(variante.prixVente)} {devise}
+      </>
+    );
+  }
+  return (
+    <>
+      <s className="prix-barre">{formaterMontant(variante.prixNormal)}</s>
+      {formaterMontant(variante.prixVente)} {devise} <span className="badge-destockage">Déstockage</span>
+    </>
+  );
+}
+
 export default function Caisse({ session }: { session: Session }) {
   const peutModifierPrix = !!session.permissions.modifier_prix;
   const devise = useDevise();
@@ -232,7 +254,7 @@ export default function Caisse({ session }: { session: Session }) {
     }
     const ligneSousPrixAchat = selectionModale.find((s) => {
       const v = catalogue.find((c) => c.id === s.varianteId);
-      return v && s.prixUnitaire < v.prixAchat;
+      return v && s.prixUnitaire < v.prixAchat && !venteAPertePermise(v, s.prixUnitaire);
     });
     if (ligneSousPrixAchat) {
       const v = catalogue.find((c) => c.id === ligneSousPrixAchat.varianteId);
@@ -286,10 +308,12 @@ export default function Caisse({ session }: { session: Session }) {
     () =>
       panier.map((l) => {
         const sousTotal = Math.round(l.quantite * l.prixUnitaire - l.remise);
-        const sousPrixAchat = sousTotal < Math.round(l.quantite * l.prixAchat);
-        return { ...l, sousTotal, sousPrixAchat };
+        const variante = catalogue.find((v) => v.id === l.varianteId);
+        const sousPrixAchat =
+          sousTotal < Math.round(l.quantite * l.prixAchat) && !venteAPertePermise(variante, l.prixUnitaire);
+        return { ...l, sousTotal, sousPrixAchat, enDestockage: variante?.prixNormal != null };
       }),
-    [panier],
+    [panier, catalogue],
   );
   const totalBrut = lignesCalculees.reduce((somme, l) => somme + l.sousTotal, 0);
   const remiseGlobaleNombre =
@@ -501,7 +525,7 @@ export default function Caisse({ session }: { session: Session }) {
                           quantiteAjustee
                         )}
                         {" · "}
-                        {formaterMontant(v.prixVente)} {devise}
+                        <PrixCaisse variante={v} devise={devise} />
                       </span>
                     </li>
                   );
@@ -724,7 +748,11 @@ export default function Caisse({ session }: { session: Session }) {
                           <td onClick={selection ? (e) => e.stopPropagation() : undefined}>
                             {selection ? (
                               <ChampMontant
-                                className={selection.prixUnitaire < v.prixAchat ? "champ-invalide" : undefined}
+                                className={
+                                  selection.prixUnitaire < v.prixAchat && !venteAPertePermise(v, selection.prixUnitaire)
+                                    ? "champ-invalide"
+                                    : undefined
+                                }
                                 title={
                                   selection.prixUnitaire < v.prixAchat
                                     ? "Le prix de vente est inférieur au prix d'achat."
@@ -734,9 +762,7 @@ export default function Caisse({ session }: { session: Session }) {
                                 onChange={(valeur) => modifierPrixSelectionModale(v.id, Number(valeur) || 0)}
                               />
                             ) : (
-                              <>
-                                {formaterMontant(v.prixVente)} {devise}
-                              </>
+                              <PrixCaisse variante={v} devise={devise} />
                             )}
                           </td>
                           <td onClick={selection ? (e) => e.stopPropagation() : undefined}>
@@ -932,7 +958,10 @@ export default function Caisse({ session }: { session: Session }) {
               <tr key={l.varianteId}>
                 <td>{index + 1}</td>
                 <td>{l.reference || ""}</td>
-                <td>{l.produitNom}</td>
+                <td>
+                  {l.produitNom}{" "}
+                  {l.enDestockage && <span className="badge-destockage">Déstockage</span>}
+                </td>
                 <td>
                   <input
                     className="champ-quantite"

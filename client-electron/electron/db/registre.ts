@@ -68,6 +68,19 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
     clauseBoutique: "boutique_id = ?",
   },
   {
+    table: "stock.OperationDestockage",
+    tableLocale: "operations_destockage",
+    champsFK: ["boutique", "utilisateur"],
+    clauseBoutique: "boutique_id = ?",
+  },
+  {
+    table: "stock.Destockage",
+    tableLocale: "destockages",
+    champsFK: ["variante", "utilisateur", "operation"],
+    clauseBoutique:
+      "variante_id IN (SELECT v.id FROM variantes v JOIN produits p ON p.id = v.produit_id WHERE p.boutique_id = ?)",
+  },
+  {
     table: "ventes.Vente",
     tableLocale: "ventes",
     champsFK: ["boutique", "depot", "client", "utilisateur"],
@@ -82,7 +95,7 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
   {
     table: "ventes.LigneVente",
     tableLocale: "lignes_vente",
-    champsFK: ["vente", "variante"],
+    champsFK: ["vente", "variante", "destockage"],
     clauseBoutique: "vente_id IN (SELECT id FROM ventes WHERE boutique_id = ?)",
   },
   {
@@ -116,6 +129,20 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
     champsFK: ["variante", "depot_source", "depot_destination", "utilisateur"],
     ajoutSeul: true,
     clauseBoutique: "depot_source_id IN (SELECT id FROM depots WHERE boutique_id = ?)",
+  },
+  {
+    table: "stock.PerteStock",
+    tableLocale: "pertes_stock",
+    champsFK: ["variante", "depot", "utilisateur"],
+    ajoutSeul: true,
+    clauseBoutique: "depot_id IN (SELECT id FROM depots WHERE boutique_id = ?)",
+  },
+  {
+    table: "stock.ReleveDormants",
+    tableLocale: "releves_dormants",
+    champsFK: ["boutique"],
+    ajoutSeul: true,
+    clauseBoutique: "boutique_id = ?",
   },
   {
     table: "stock.Inventaire",

@@ -16,7 +16,7 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 6. **Montants et quantités** : `DecimalField(max_digits=12, decimal_places=2)`. Jamais de FloatField pour l'argent.
 7. Les labels d'app sont le nom du dossier : `core, comptes, catalogue, stock, ventes, achats, clients, fournisseurs, configuration, synchronisation`.
 
-## Les 10 apps et leurs 30 modèles
+## Les 10 apps et leurs 34 modèles
 
 ### core
 - `ModeleBase` (abstrait) — hérité par tous. Champs : id (UUID), date_creation, date_modification, synchronise, date_synchronisation.
@@ -40,12 +40,16 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 - `Stock` — variante (FK), depot (FK), quantite. unique_together(variante, depot).
 - `MouvementStock` — variante (FK), depot (FK), type {entree|sortie|ajustement}, quantite, motif, reference_type, reference_id (UUID), utilisateur (FK).
 - `TransfertStock` — variante (FK), depot_source (FK → transferts_sortants), depot_destination (FK → transferts_entrants), quantite, utilisateur (FK).
+- `PerteStock` — variante (FK, PROTECT), depot (FK → pertes, PROTECT), quantite, motif {perime|abime|vol|don|consommation|autre}, detail (obligatoire si « autre »), valeur (figée au CUMP), utilisateur (FK). **Sortie sans vente** : crée un `MouvementStock` `sortie` (reference_type `stock.PerteStock`). À distinguer d'un ajustement (correction d'erreur).
+- `OperationDestockage` — boutique (FK), nom, date_fin (null), utilisateur (FK). **Groupe nommé** de déstockages lancés ensemble (ex. « Liquidation fin d'année ») : création tout-ou-rien, arrêt en un clic, bilan commun.
+- `Destockage` — variante (FK → destockages, PROTECT), prix_normal (figé au démarrage), prix_destockage, date_fin (null), statut {en_cours|termine}, motif_fin {date|epuise|manuel}, date_arret, utilisateur (FK), operation (FK OperationDestockage, null). **Prix réduit appliqué automatiquement en caisse** ; s'arrête à date_fin, quand le stock (tous dépôts) tombe à 0, ou à la main. Vente à perte permise.
+- `ReleveDormants` — boutique (FK), date, jours_seuil (déf. 60), nombre_articles, valeur_immobilisee. **Photo quotidienne de l'argent qui dort**, prise par les clients à l'ouverture (ajout seul, pas d'unicité par date : plusieurs appareils → l'affichage garde le plus récent).
 - `Inventaire` — boutique (FK), depot (FK), statut {en_cours|valide}, utilisateur (FK).
 - `LigneInventaire` — inventaire (FK → lignes), variante (FK), qte_theorique, qte_physique, ecart.
 
 ### ventes  (une vente sort du stock d'un dépôt)
 - `Vente` — boutique (FK), **depot (FK, PROTECT)**, client (FK clients.Client, null), utilisateur (FK), numero, total_brut, remise, total_net, statut {payee|credit|annulee}.
-- `LigneVente` — vente (FK → lignes), variante (FK catalogue.Variante, PROTECT), quantite, prix_unitaire, remise, sous_total.
+- `LigneVente` — vente (FK → lignes), variante (FK catalogue.Variante, PROTECT), quantite, prix_unitaire, remise, sous_total, prix_normal (null), destockage (FK stock.Destockage, null) — ces deux derniers seulement si vendue en déstockage (bilan : marge, manque à gagner).
 - `Paiement` — vente (FK → paiements), mode {especes|mobile_money|carte|credit}, montant.
 
 ### achats  (une réception entre en stock d'un dépôt)

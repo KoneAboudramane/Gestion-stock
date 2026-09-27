@@ -4,6 +4,7 @@ import type {
   CategorieMouvementCaisse,
   FournisseurMobileMoney,
   ModePaiement,
+  MotifPerte,
   OperateurMobileMoney,
   StatutTransaction,
   StatutVenteHistorique,
@@ -145,4 +146,27 @@ export const CATEGORIES_DEPENSE: { valeur: CategorieDepense; label: string }[] =
 
 export function libelleCategorieDepense(categorie: string): string {
   return CATEGORIES_DEPENSE.find((c) => c.valeur === categorie)?.label ?? categorie;
+}
+
+/** Motifs de perte de stock (stock.PerteStock.Motif côté Django). */
+export const MOTIFS_PERTE: { valeur: MotifPerte; label: string }[] = [
+  { valeur: "perime", label: "Périmé" },
+  { valeur: "abime", label: "Abîmé / cassé" },
+  { valeur: "vol", label: "Vol / disparu" },
+  { valeur: "don", label: "Don" },
+  { valeur: "consommation", label: "Consommation interne" },
+  { valeur: "autre", label: "Autre" },
+];
+
+export function libelleMotifPerte(motif: string): string {
+  return MOTIFS_PERTE.find((m) => m.valeur === motif)?.label ?? motif;
+}
+
+/** Statut affiché d'un déstockage (stock.Destockage) : "En cours" ou la raison de sa fin. */
+export function libelleStatutDestockage(statut: string, motifFin: string): string {
+  if (statut === "en_cours") return "En cours";
+  if (motifFin === "epuise") return "Terminé (stock épuisé)";
+  if (motifFin === "date") return "Terminé (date de fin)";
+  if (motifFin === "manuel") return "Arrêté";
+  return "Terminé";
 }
