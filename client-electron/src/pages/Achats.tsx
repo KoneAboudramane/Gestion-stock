@@ -1950,6 +1950,11 @@ function ModaleDette({
   const [enCours, setEnCours] = useState(false);
   const [aAnnuler, setAAnnuler] = useState<PaiementDetteDetail | null>(null);
   const [tracesOuvertes, setTracesOuvertes] = useState(false);
+  const [fournisseur, setFournisseur] = useState<FournisseurResume | null>(null);
+  useEffect(() => {
+    api.fournisseurs.lister(session.boutiqueId).then((liste) => setFournisseur(liste.find((f) => f.nom === dette.fournisseurNom) ?? null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dette.fournisseurNom]);
   const [echeances, setEcheances] = useState<EcheanceDetail[]>([]);
   const [planification, setPlanification] = useState(false);
   const [motifAnnulation, setMotifAnnulation] = useState("");
@@ -2022,6 +2027,27 @@ function ModaleDette({
   }
 
 
+  const pourcentagePaye = dette.montant > 0 ? Math.min(100, Math.round((dette.montantPaye / dette.montant) * 100)) : 100;
+  const resumeEcheancier = (() => {
+    if (echeances.length === 0) {
+      return { texte: peutGerer && dette.statut === "en_cours"
+          ? "Pas d'échéancier : cliquez pour en planifier un."
+          : "Pas d'échéancier.", retard: false };
+    }
+    const prochaine = echeances.find((e) => e.statut !== "payee");
+    const payees = echeances.filter((e) => e.statut === "payee").length;
+    return {
+      texte:
+        `${echeances.length} tranche${echeances.length > 1 ? "s" : ""} · ${payees} payée${payees > 1 ? "s" : ""}` +
+        (prochaine
+          ? ` · prochaine le ${new Date(`${prochaine.dateEcheance}T00:00:00`).toLocaleDateString("fr-FR")} ` +
+            `(${formaterMontant(prochaine.montant - prochaine.couvert)} ${devise})` +
+            (prochaine.statut === "en_retard" ? " — en retard" : "")
+          : " · tout est payé"),
+      retard: prochaine?.statut === "en_retard",
+    };
+  })();
+
   // Traces : ce qui a été payé à la réception (s'il y en a), puis chaque règlement.
   const regle = paiements.filter((x) => !x.annulee).reduce((t, x) => t + Number(x.montant), 0);
   const payeALaReception = Math.max(0, dette.montantPaye - regle);
@@ -2052,101 +2078,133 @@ function ModaleDette({
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre={`Dette — ${dette.fournisseurNom}`} onFermer={onFermer} />
         <div className="modale-corps">
-          <div className="resume-dette">
-            <div>
-              <span className="sous-info">Commande</span>
-              <strong>{dette.commandeNumero ?? "—"}</strong>
-            </div>
-            <div>
-              <span className="sous-info">Née le</span>
-              <strong>{new Date(dette.dateCreation).toLocaleDateString("fr-FR")}</strong>
-            </div>
-            <div>
-              <span className="sous-info">Montant</span>
-              <strong>
-                {formaterMontant(dette.montant)} {devise}
-              </strong>
-            </div>
-            <div>
-              <span className="sous-info">Déjà payé</span>
-              <strong>
-                {formaterMontant(dette.montantPaye)} {devise}
-              </strong>
-            </div>
-            <div>
-              <span className="sous-info">Reste à payer</span>
-              <strong className={dette.solde > 0 ? "reste-dette" : undefined}>
-                {formaterMontant(dette.solde)} {devise}
-              </strong>
-            </div>
-            <div>
+          <div className="fiche-entete">
+            <div className="fiche-entete-haut">
+              <div>
+                <span className="sous-info">Reste à payer</span>
+                <strong className={`fiche-reste${dette.solde > 0 ? " reste-dette" : ""}`}>
+                  {formaterMontant(dette.solde)} {devise}
+                </strong>
+              </div>
               <span className={dette.statut === "solde" ? "badge-payee" : "badge-commandee"}>
                 {dette.statut === "solde" ? "Soldée" : "En cours"}
               </span>
             </div>
-          </div>
-
-          {peutGerer && dette.statut === "en_cours" && (
-            <div className="barre-actions barre-filtres-historique formulaire-remboursement">
-              <strong>Rembourser :</strong>
-              <ChampMontant placeholder="Montant" value={montant} onChange={setMontant} style={{ width: "140px" }} />
-              <button type="button" onClick={() => setMontant(String(dette.solde))}>
-                Tout le reste
-              </button>
-              <select value={mode} onChange={(e) => setMode(e.target.value)}>
-                {MODES_REGLEMENT.map((m) => (
-                  <option key={m.valeur} value={m.valeur}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-              {!session.depotId && (
-                <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
-                  <option value="">Dépôt…</option>
-                  {depots.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.nom}
-                    </option>
-                  ))}
-                </select>
-              )}
-              <button
-                type="button"
-                className="bouton-primaire"
-                onClick={rembourser}
-                disabled={enCours || !(Number(montant) > 0)}
-              >
-                {enCours ? "…" : "Enregistrer le remboursement"}
-              </button>
+            <div className="barre-progression" title={`${pourcentagePaye} % remboursé`}>
+              <span style={{ width: `${pourcentagePaye}%` }} />
             </div>
-          )}
-          {erreur && <div className="message-erreur">{erreur}</div>}
-          {message && <div className="message-succes">{message}</div>}
-
-          <div className="entete-section-echeancier">
-            <h4>Échéancier</h4>
-            {(echeances.length > 0 || (peutGerer && dette.statut === "en_cours")) && (
-              <button type="button" onClick={() => setPlanification(true)}>
-                {echeances.length > 0 ? "Voir l'échéancier" : "Planifier un échéancier"}
-              </button>
+            <span className="sous-info">
+              {formaterMontant(dette.montantPaye)} / {formaterMontant(dette.montant)} {devise} remboursés ({pourcentagePaye} %)
+            </span>
+          </div>
+          <div className="tuiles-fiche">
+            <div className="tuile-fiche">
+              <span className="sous-info">Commande</span>
+              <strong>{dette.commandeNumero ?? "—"}</strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">Née le</span>
+              <strong>{new Date(dette.dateCreation).toLocaleDateString("fr-FR")}</strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">Montant</span>
+              <strong>{formaterMontant(dette.montant)} {devise}</strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">Déjà payé</span>
+              <strong>{formaterMontant(dette.montantPaye)} {devise}</strong>
+            </div>
+          </div>
+          <div className="cartes-fiche">
+            <section className="carte-fiche">
+              <h4>🚚 Fournisseur</h4>
+              <strong>{dette.fournisseurNom}</strong>
+              <span>📞 {fournisseur?.telephone || "Téléphone non renseigné"}</span>
+              <span>👤 {fournisseur?.contact || "Contact non renseigné"}</span>
+              {fournisseur?.adresse && <span>📍 {fournisseur.adresse}</span>}
+            </section>
+            {peutGerer && dette.statut === "en_cours" ? (
+              <section className="carte-fiche carte-fiche--action">
+                <h4>💸 Rembourser</h4>
+                <div className="ligne-champs-fiche">
+                  <ChampMontant placeholder="Montant" value={montant} onChange={setMontant} />
+                  <button type="button" onClick={() => setMontant(String(dette.solde))}>
+                    Tout le reste
+                  </button>
+                </div>
+                <div className="ligne-champs-fiche">
+                  <select value={mode} onChange={(e) => setMode(e.target.value)}>
+                    {MODES_REGLEMENT.map((m) => (
+                      <option key={m.valeur} value={m.valeur}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                  {!session.depotId && (
+                    <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
+                      <option value="">Dépôt…</option>
+                      {depots.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.nom}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="bouton-primaire"
+                  onClick={rembourser}
+                  disabled={enCours || !(Number(montant) > 0)}
+                >
+                  {enCours ? "…" : "Enregistrer le remboursement"}
+                </button>
+                {erreur && <div className="message-erreur">{erreur}</div>}
+                {message && <div className="message-succes">{message}</div>}
+              </section>
+            ) : (
+              <section className="carte-fiche">
+                <h4>{dette.statut === "solde" ? "✅ Dette soldée" : "💸 Remboursement"}</h4>
+                <span className="sous-info">
+                  {dette.statut === "solde"
+                    ? `Tout a été payé (dernière mise à jour le ${new Date(dette.dateModification).toLocaleDateString("fr-FR")}).`
+                    : "Seuls les comptes qui gèrent les achats peuvent enregistrer un remboursement."}
+                </span>
+                {message && <div className="message-succes">{message}</div>}
+              </section>
             )}
           </div>
-          <p className="note-aide">
-            {echeances.length === 0
-              ? "Pas d'échéancier : le remboursement se fait librement, un peu à la fois ou d'un coup."
-              : (() => {
-                  const prochaine = echeances.find((e) => e.statut !== "payee");
-                  const payees = echeances.filter((e) => e.statut === "payee").length;
-                  return (
-                    `${echeances.length} tranche${echeances.length > 1 ? "s" : ""}, ${payees} payée${payees > 1 ? "s" : ""}` +
-                    (prochaine
-                      ? ` · prochaine le ${new Date(`${prochaine.dateEcheance}T00:00:00`).toLocaleDateString("fr-FR")} ` +
-                        `(${formaterMontant(prochaine.montant - prochaine.couvert)} ${devise})` +
-                        (prochaine.statut === "en_retard" ? " — en retard" : "")
-                      : "")
-                  );
-                })()}
-          </p>
+          <div className="cartes-liens-fiche">
+            <button type="button" className="carte-lien-fiche" onClick={() => setPlanification(true)} disabled={!(echeances.length > 0 || (peutGerer && dette.statut === "en_cours"))}>
+              <span className="carte-lien-fiche-icone" aria-hidden="true">
+                📅
+              </span>
+              <span className="carte-lien-fiche-corps">
+                <strong>Échéancier</strong>
+                <span className={resumeEcheancier.retard ? "texte-erreur" : "sous-info"}>{resumeEcheancier.texte}</span>
+              </span>
+              <span className="carte-lien-fiche-fleche" aria-hidden="true">
+                →
+              </span>
+            </button>
+            <button type="button" className="carte-lien-fiche" onClick={() => setTracesOuvertes(true)} disabled={false}>
+              <span className="carte-lien-fiche-icone" aria-hidden="true">
+                🧾
+              </span>
+              <span className="carte-lien-fiche-corps">
+                <strong>Traces des paiements</strong>
+                <span className="sous-info">{lignesTraces.length === 0
+                    ? "Aucun paiement pour l'instant."
+                    : `${lignesTraces.filter((x) => !x.annule).length} paiement(s)` +
+                      (lignesTraces.some((x) => x.annule) ? ` · ${lignesTraces.filter((x) => x.annule).length} annulé(s)` : "") +
+                      ` · dernier le ${new Date(lignesTraces[lignesTraces.length - 1].dateCreation).toLocaleDateString("fr-FR")}`}</span>
+              </span>
+              <span className="carte-lien-fiche-fleche" aria-hidden="true">
+                →
+              </span>
+            </button>
+          </div>
+
           {planification && (
             <ModaleEcheancier
               titre={`Échéancier — ${dette.fournisseurNom}`}
@@ -2158,20 +2216,6 @@ function ModaleDette({
               onFermer={() => setPlanification(false)}
             />
           )}
-
-          <div className="entete-section-echeancier">
-            <h4>Traces des paiements</h4>
-            <button type="button" onClick={() => setTracesOuvertes(true)}>
-              Voir les traces
-            </button>
-          </div>
-          <p className="note-aide">
-            {lignesTraces.length === 0
-              ? "Aucun paiement pour l'instant."
-              : `${lignesTraces.filter((x) => !x.annule).length} paiement(s)` +
-                (lignesTraces.some((x) => x.annule) ? ` · ${lignesTraces.filter((x) => x.annule).length} annulé(s)` : "") +
-                ` · dernier le ${new Date(lignesTraces[lignesTraces.length - 1].dateCreation).toLocaleDateString("fr-FR")}`}
-          </p>
           {tracesOuvertes && (
             <div className="fond-modale" onClick={() => setTracesOuvertes(false)}>
               <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>

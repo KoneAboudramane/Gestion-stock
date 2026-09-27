@@ -162,6 +162,26 @@ function DetailCredit({
 
   if (!credit) return <p>Chargement…</p>;
   const solde = credit.statut === "solde" ? 0 : credit.solde;
+  const pourcentagePaye = credit.montant > 0 ? Math.min(100, Math.round((credit.montantPaye / credit.montant) * 100)) : 100;
+  const resumeEcheancier = (() => {
+    if (echeances.length === 0) {
+      return { texte: peutGerer && credit.statut === "en_cours"
+          ? "Pas d'échéancier : cliquez pour en planifier un."
+          : "Pas d'échéancier.", retard: false };
+    }
+    const prochaine = echeances.find((e) => e.statut !== "payee");
+    const payees = echeances.filter((e) => e.statut === "payee").length;
+    return {
+      texte:
+        `${echeances.length} tranche${echeances.length > 1 ? "s" : ""} · ${payees} payée${payees > 1 ? "s" : ""}` +
+        (prochaine
+          ? ` · prochaine le ${new Date(`${prochaine.dateEcheance}T00:00:00`).toLocaleDateString("fr-FR")} ` +
+            `(${formaterMontant(prochaine.montant - prochaine.couvert)} ${devise})` +
+            (prochaine.statut === "en_retard" ? " — en retard" : "")
+          : " · tout est payé"),
+      retard: prochaine?.statut === "en_retard",
+    };
+  })();
 
   return (
     <>
@@ -177,109 +197,153 @@ function DetailCredit({
         </button>
       </div>
       <div className="modale-corps">
-      {infoClient && (
-        <>
-        <h4>Informations</h4>
-        {erreurInfos && <div className="message-erreur">{erreurInfos}</div>}
-        <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue">
-          <thead>
-            <tr>
-              <th>Nom</th>
-              <th>Téléphone</th>
-              <th>Adresse</th>
-              {peutGerer && <th />}
-            </tr>
-          </thead>
-          <tbody>
-            {modifierInfos ? (
-              <tr className="ligne-edition">
-                <td>
-                  <input value={nomClient} onChange={(e) => setNomClient(e.target.value)} autoFocus />
-                </td>
-                <td>
-                  <input
-                    value={telephoneClient}
-                    onChange={(e) => setTelephoneClient(normaliserTelephone(e.target.value))}
-                    placeholder="+2250712345678"
-                  />
-                  <span className="aide-format-telephone">Indicatif + numéro, ex. 2250712345678</span>
-                </td>
-                <td>
-                  <input value={adresseClient} onChange={(e) => setAdresseClient(e.target.value)} />
-                </td>
-                <td>
-                  <span className="actions-ligne">
-                    <button type="button" onClick={enregistrerInfosClient} disabled={enCoursInfos}>
-                      {enCoursInfos ? "Enregistrement…" : "Enregistrer"}
-                    </button>
-                    <button type="button" className="lien" onClick={() => setModifierInfos(false)}>
-                      Annuler
-                    </button>
-                  </span>
-                </td>
-              </tr>
-            ) : (
-              <tr>
-                <td>{infoClient.nom || ""}</td>
-                <td>{infoClient.telephone || ""}</td>
-                <td>{infoClient.adresse || ""}</td>
-                {peutGerer && (
-                  <td>
-                    <button type="button" onClick={() => setModifierInfos(true)}>
-                      Modifier
-                    </button>
-                  </td>
-                )}
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <div className="fiche-entete">
+        <div className="fiche-entete-haut">
+          <div>
+            <span className="sous-info">Reste dû</span>
+            <strong className={`fiche-reste${solde > 0 ? " reste-dette" : ""}`}>
+              {formaterMontant(solde)} {devise}
+            </strong>
+          </div>
+          <span className={credit.statut === "solde" ? "badge-payee" : "badge-credit"}>
+            {libelleStatutCredit(credit.statut)}
+          </span>
         </div>
-        </>
-      )}
-
-      <div className="grille-champs">
-        <div>
-          <p className="note-aide">Date d'achat</p>
-          <p>{new Date(credit.dateCreation).toLocaleString("fr-FR")}</p>
+        <div className="barre-progression" title={`${pourcentagePaye} % remboursé`}>
+          <span style={{ width: `${pourcentagePaye}%` }} />
         </div>
-        <div>
-          <p className="note-aide">Vente</p>
-          <p>{credit.venteNumero ?? ""}</p>
+        <span className="sous-info">
+          {formaterMontant(credit.montantPaye)} / {formaterMontant(credit.montant)} {devise} remboursés ({pourcentagePaye} %)
+        </span>
+      </div>
+      <div className="tuiles-fiche">
+        <div className="tuile-fiche">
+          <span className="sous-info">Vente</span>
+          <strong>{credit.venteNumero ?? "—"}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">Date d'achat</span>
+          <strong>{new Date(credit.dateCreation).toLocaleDateString("fr-FR")}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">Montant</span>
+          <strong>{formaterMontant(credit.montant)} {devise}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">Déjà payé</span>
+          <strong>{formaterMontant(credit.montantPaye)} {devise}</strong>
         </div>
       </div>
-
-      <div className="totaux">
-        <div>Montant : {formaterMontant(credit.montant)} {devise}</div>
-        <div>Payé : {formaterMontant(credit.montantPaye)} {devise}</div>
-        <div className="total-net">Solde : {formaterMontant(solde)} {devise}</div>
-      </div>
-
-      <div className="entete-section-echeancier">
-        <h4>Échéancier</h4>
-        {(echeances.length > 0 || (peutGerer && credit.statut === "en_cours")) && (
-          <button type="button" onClick={() => setPlanification(true)}>
-            {echeances.length > 0 ? "Voir l'échéancier" : "Planifier un échéancier"}
-          </button>
+      <div className="cartes-fiche">
+        <section className="carte-fiche">
+          <h4>👤 Client</h4>
+          {erreurInfos && <div className="message-erreur">{erreurInfos}</div>}
+          {infoClient && modifierInfos ? (
+            <>
+              <input value={nomClient} onChange={(e) => setNomClient(e.target.value)} placeholder="Nom" autoFocus />
+              <input
+                value={telephoneClient}
+                onChange={(e) => setTelephoneClient(normaliserTelephone(e.target.value))}
+                placeholder="+2250712345678"
+              />
+              <input value={adresseClient} onChange={(e) => setAdresseClient(e.target.value)} placeholder="Adresse" />
+              <span className="actions-ligne">
+                <button type="button" className="bouton-primaire" onClick={enregistrerInfosClient} disabled={enCoursInfos}>
+                  {enCoursInfos ? "Enregistrement…" : "Enregistrer"}
+                </button>
+                <button type="button" onClick={() => setModifierInfos(false)}>
+                  Annuler
+                </button>
+              </span>
+            </>
+          ) : (
+            <>
+              <strong>{infoClient?.nom ?? credit.clientNom}</strong>
+              <span>📞 {infoClient?.telephone || "Téléphone non renseigné"}</span>
+              <span>📍 {infoClient?.adresse || "Adresse non renseignée"}</span>
+              {peutGerer && infoClient && (
+                <span className="actions-ligne">
+                  <button type="button" onClick={() => setModifierInfos(true)}>
+                    Modifier
+                  </button>
+                </span>
+              )}
+            </>
+          )}
+        </section>
+        {peutGerer && solde > 0 ? (
+          <form className="carte-fiche carte-fiche--action" onSubmit={rembourser}>
+            <h4>💸 Nouveau règlement</h4>
+            <div className="ligne-champs-fiche">
+              <ChampMontant placeholder="Montant" value={montant} onChange={setMontant} />
+              <button type="button" onClick={() => setMontant(String(solde))}>
+                Tout le reste
+              </button>
+            </div>
+            <div className="ligne-champs-fiche">
+              <select value={mode} onChange={(e) => setMode(e.target.value)}>
+                {MODES_REGLEMENT.map((m) => (
+                  <option key={m.valeur} value={m.valeur}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+              {!session.depotId && (
+                <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
+                  <option value="">Dépôt (caisse)…</option>
+                  {depots.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.nom}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <button type="submit" className="bouton-primaire" disabled={enCours || !(Number(montant) > 0)}>
+              {enCours ? "Enregistrement…" : "Enregistrer le règlement"}
+            </button>
+            {erreur && <div className="message-erreur">{erreur}</div>}
+          </form>
+        ) : (
+          <section className="carte-fiche">
+            <h4>{credit.statut === "solde" ? "✅ Crédit soldé" : "💸 Règlement"}</h4>
+            <span className="sous-info">
+              {credit.statut === "solde"
+                ? "Le client a tout réglé."
+                : "Seuls les comptes qui gèrent les clients peuvent enregistrer un règlement."}
+            </span>
+          </section>
         )}
       </div>
-      <p className="note-aide">
-        {echeances.length === 0
-          ? "Pas d'échéancier : le remboursement se fait librement, un peu à la fois ou d'un coup."
-          : (() => {
-              const prochaine = echeances.find((e) => e.statut !== "payee");
-              const payees = echeances.filter((e) => e.statut === "payee").length;
-              return (
-                `${echeances.length} tranche${echeances.length > 1 ? "s" : ""}, ${payees} payée${payees > 1 ? "s" : ""}` +
-                (prochaine
-                  ? ` · prochaine le ${new Date(`${prochaine.dateEcheance}T00:00:00`).toLocaleDateString("fr-FR")} ` +
-                    `(${formaterMontant(prochaine.montant - prochaine.couvert)} ${devise})` +
-                    (prochaine.statut === "en_retard" ? " — en retard" : "")
-                  : "")
-              );
-            })()}
-      </p>
+      <div className="cartes-liens-fiche">
+        <button type="button" className="carte-lien-fiche" onClick={() => setPlanification(true)} disabled={!(echeances.length > 0 || (peutGerer && credit.statut === "en_cours"))}>
+          <span className="carte-lien-fiche-icone" aria-hidden="true">
+            📅
+          </span>
+          <span className="carte-lien-fiche-corps">
+            <strong>Échéancier</strong>
+            <span className={resumeEcheancier.retard ? "texte-erreur" : "sous-info"}>{resumeEcheancier.texte}</span>
+          </span>
+          <span className="carte-lien-fiche-fleche" aria-hidden="true">
+            →
+          </span>
+        </button>
+        <button type="button" className="carte-lien-fiche" onClick={() => setReglementsOuverts(true)} disabled={false}>
+          <span className="carte-lien-fiche-icone" aria-hidden="true">
+            🧾
+          </span>
+          <span className="carte-lien-fiche-corps">
+            <strong>Règlements</strong>
+            <span className="sous-info">{credit.paiements.length === 0
+                ? "Aucun règlement pour l'instant."
+                : `${credit.paiements.length} règlement(s) · dernier le ${new Date(credit.paiements[0].dateCreation).toLocaleDateString("fr-FR")}`}</span>
+          </span>
+          <span className="carte-lien-fiche-fleche" aria-hidden="true">
+            →
+          </span>
+        </button>
+      </div>
+
       {planification && (
         <ModaleEcheancier
           titre={`Échéancier — crédit de ${credit.clientNom}`}
@@ -291,25 +355,6 @@ function DetailCredit({
           onFermer={() => setPlanification(false)}
         />
       )}
-
-      <div className="entete-section-echeancier">
-        <h4>Règlements</h4>
-        <span className="actions-ligne">
-          <button type="button" onClick={() => setReglementsOuverts(true)}>
-            Voir les règlements
-          </button>
-          {peutGerer && solde > 0 && !afficherModalRembourser && (
-            <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherModalRembourser(true)}>
-              + Nouveau règlement
-            </button>
-          )}
-        </span>
-      </div>
-      <p className="note-aide">
-        {credit.paiements.length === 0
-          ? "Aucun règlement pour l'instant."
-          : `${credit.paiements.length} règlement(s) · dernier le ${new Date(credit.paiements[0].dateCreation).toLocaleDateString("fr-FR")}`}
-      </p>
       {reglementsOuverts && (
         <div className="fond-modale" onClick={() => setReglementsOuverts(false)}>
           <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
@@ -363,53 +408,6 @@ function DetailCredit({
         </div>
       )}
 
-      {afficherModalRembourser && (
-        <div className="fond-modale" onClick={() => setAfficherModalRembourser(false)}>
-          <div className="modale-confirmation" onClick={(e) => e.stopPropagation()}>
-            <form onSubmit={rembourser}>
-              <h3>Nouveau règlement</h3>
-              {erreur && <div className="message-erreur">{erreur}</div>}
-              <div className="grille-champs">
-                <label>
-                  Montant
-                  <ChampMontant value={montant} onChange={setMontant} autoFocus />
-                </label>
-                <label>
-                  Mode
-                  <select value={mode} onChange={(e) => setMode(e.target.value)}>
-                    {MODES_REGLEMENT.map((m) => (
-                      <option key={m.valeur} value={m.valeur}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {!session.depotId && (
-                  <label>
-                    Dépôt (caisse concernée)
-                    <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
-                      <option value="">Choisir…</option>
-                      {depots.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.nom}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-              </div>
-              <div className="actions-formulaire">
-                <button type="button" onClick={() => setAfficherModalRembourser(false)} disabled={enCours}>
-                  Annuler
-                </button>
-                <button type="submit" disabled={enCours}>
-                  {enCours ? "Enregistrement…" : "Régler"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
       </div>
     </>
   );
