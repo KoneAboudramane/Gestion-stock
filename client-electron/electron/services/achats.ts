@@ -134,6 +134,10 @@ export interface CommandeResume {
    * (colonne "Reste à recevoir" de l'onglet Réceptionner). */
   quantiteCommandee: number;
   quantiteRecue: number;
+  /** Qui a passé la commande. */
+  utilisateurId: string | null;
+  /** Valeur des réceptions non annulées de la commande. */
+  valeurRecue: number;
 }
 
 export function listerCommandes(
@@ -169,7 +173,10 @@ export function listerCommandes(
             (SELECT COALESCE(SUM(la.quantite), 0) FROM lignes_achat la
              WHERE la.commande_id = c.id AND la.supprime = 0) as quantiteCommandee,
             (SELECT COALESCE(SUM(la.quantite_recue), 0) FROM lignes_achat la
-             WHERE la.commande_id = c.id AND la.supprime = 0) as quantiteRecue
+             WHERE la.commande_id = c.id AND la.supprime = 0) as quantiteRecue,
+            c.utilisateur_id as utilisateurId,
+            (SELECT COALESCE(SUM(r.valeur_recue), 0) FROM receptions r
+             WHERE r.commande_id = c.id AND r.supprime = 0 AND COALESCE(r.annulee, 0) = 0) as valeurRecue
      FROM commandes_achat c
      JOIN fournisseurs f ON f.id = c.fournisseur_id
      WHERE ${conditions.join(" AND ")}
@@ -181,6 +188,7 @@ export function listerCommandes(
     partiellementRecue: Boolean(c.partiellementRecue),
     quantiteCommandee: Number(c.quantiteCommandee),
     quantiteRecue: Number(c.quantiteRecue),
+    valeurRecue: Number(c.valeurRecue),
   }));
 }
 
@@ -681,6 +689,91 @@ export function listerHistoriqueReceptions(
     }
     return completerReception(r, lignes);
   });
+}
+
+export interface PaiementFournisseurHistorique {
+  id: string;
+  dateCreation: string;
+  fournisseurNom: string;
+  commandeId: string | null;
+  commandeNumero: string | null;
+  montant: number;
+  mode: string;
+  /** Payé sur place à la réception, ou règlement d'une dette ensuite. */
+  origine: "reception" | "dette";
+  /** Paiement fait à une réception annulée depuis (hors totaux). */
+  annulee: boolean;
+}
+
+export interface RetourFournisseurHistorique {
+  id: string;
+  dateCreation: string;
+  commandeId: string;
+  commandeNumero: string;
+  fournisseurNom: string;
+  depotNom: string;
+  motif: string;
+  montant: number;
+  avoir: number;
+  /** Quantité totale renvoyée. */
+  quantite: number;
+  utilisateurId: string | null;
+}
+
+/** Tout l'historique des achats de la boutique (carte « Historique » d'Achats & fournisseurs). */
+export interface HistoriqueAchats {
+  commandes: CommandeResume[];
+  receptions: ReceptionHistorique[];
+  paiements: PaiementFournisseurHistorique[];
+  retours: RetourFournisseurHistorique[];
+}
+
+/** Sans limite de nombre : l'écran filtre ensuite par période, fournisseur et numéro. */
+export function historiqueAchats(boutiqueId: string): HistoriqueAchats {
+  const commandes = listerCommandes(boutiqueId, undefined, undefined, "", 1_000_000);
+  const receptions = listerHistoriqueReceptions(boutiqueId, undefined, "", 1_000_000);
+  const reglements = tousLesResultats<Omit<PaiementFournisseurHistorique, "origine" | "annulee">>(
+    `SELECT p.id as id, p.date_creation as dateCreation, f.nom as fournisseurNom,
+            d.commande_id as commandeId, c.numero as commandeNumero, p.montant as montant,
+            COALESCE(p.mode, '') as mode
+     FROM paiements_dette_fournisseur p
+     JOIN dettes_fournisseur d ON d.id = p.dette_id
+     JOIN fournisseurs f ON f.id = d.fournisseur_id
+     LEFT JOIN commandes_achat c ON c.id = d.commande_id
+     WHERE f.boutique_id = ? AND p.supprime = 0 AND d.supprime = 0`,
+    [boutiqueId],
+  );
+  const paiements: PaiementFournisseurHistorique[] = [
+    ...receptions
+      .filter((r) => r.montantPaye > 0)
+      .map((r) => ({
+        id: `reception-${r.id}`,
+        dateCreation: r.dateCreation,
+        fournisseurNom: r.fournisseurNom,
+        commandeId: r.commandeId,
+        commandeNumero: r.commandeNumero,
+        montant: r.montantPaye,
+        mode: "",
+        origine: "reception" as const,
+        annulee: r.annulee,
+      })),
+    ...reglements.map((p) => ({ ...p, montant: Number(p.montant), origine: "dette" as const, annulee: false })),
+  ].sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));
+  const retours = tousLesResultats<RetourFournisseurHistorique>(
+    `SELECT rf.id as id, rf.date_creation as dateCreation, c.id as commandeId, c.numero as commandeNumero,
+            f.nom as fournisseurNom, d.nom as depotNom, COALESCE(rf.motif, '') as motif,
+            rf.montant as montant, rf.avoir as avoir, rf.utilisateur_id as utilisateurId,
+            (SELECT COALESCE(SUM(l.quantite), 0) FROM lignes_retour_fournisseur l
+             WHERE l.retour_id = rf.id AND l.supprime = 0) as quantite
+     FROM retours_fournisseur rf
+     JOIN commandes_achat c ON c.id = rf.commande_id
+     JOIN fournisseurs f ON f.id = c.fournisseur_id
+     JOIN depots d ON d.id = rf.depot_id
+     WHERE c.boutique_id = ? AND rf.supprime = 0
+     ORDER BY rf.date_creation DESC`,
+    [boutiqueId],
+  ).map((r) => ({ ...r, montant: Number(r.montant), avoir: Number(r.avoir), quantite: Number(r.quantite) }));
+  return { commandes, receptions, paiements, retours };
 }
 
 // --- Annulation de réception et retour fournisseur (miroir de achats/services.py) ---

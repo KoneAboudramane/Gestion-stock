@@ -6,6 +6,7 @@ import {
   ErreurAchat,
   annulerReception,
   creerCommande,
+  historiqueAchats,
   listerCommandes,
   listerHistoriqueReceptions,
   listerReceptionsCommande,
@@ -604,5 +605,58 @@ describe("achats.obtenirDerniersFournisseurs", () => {
 
   it("retourne un objet vide si aucune variante n'est demandée", () => {
     expect(obtenirDerniersFournisseurs(boutiqueId, [])).toEqual({});
+  });
+});
+
+describe("achats.historiqueAchats (carte « Historique » d'Achats & fournisseurs)", () => {
+  const boutiqueId = randomUUID();
+  const fournisseurId = randomUUID();
+  const depotId = randomUUID();
+  let varianteId: string;
+
+  beforeEach(async () => {
+    await creerBaseDeTest();
+    executer("INSERT INTO fournisseurs (id, boutique_id, nom) VALUES (?, ?, ?)", [fournisseurId, boutiqueId, "Grossiste Konan"]);
+    executer("INSERT INTO depots (id, boutique_id, nom) VALUES (?, ?, ?)", [depotId, boutiqueId, "Magasin"]);
+    const produitId = randomUUID();
+    varianteId = randomUUID();
+    executer("INSERT INTO produits (id, boutique_id, nom) VALUES (?, ?, ?)", [produitId, boutiqueId, "Riz 25kg"]);
+    executer("INSERT INTO variantes (id, produit_id, prix_achat, prix_vente) VALUES (?, ?, ?, ?)", [
+      varianteId,
+      produitId,
+      10000,
+      12500,
+    ]);
+  });
+
+  it("réunit commandes (avec qui et combien reçu), réceptions, paiements des deux origines et retours", () => {
+    const commande = creerCommande({
+      boutiqueId,
+      fournisseurId,
+      utilisateurId: "u1",
+      statut: "commandee",
+      lignes: [{ varianteId, quantite: 5, prixAchat: 10000 }],
+    });
+    const receptionId = receptionnerCommande({
+      commandeId: commande.id,
+      depotId,
+      utilisateurId: "u1",
+      montantDejaPaye: 20000,
+      lignes: [{ varianteId, quantite: 5 }],
+    });
+    const detteId = unResultat<{ id: string }>("SELECT id FROM dettes_fournisseur WHERE commande_id = ?", [commande.id])!.id;
+    payerDette(detteId, 10000, "especes");
+    retournerAuFournisseur({ receptionId, lignes: [{ varianteId, quantite: 1 }], motif: "Sac percé", utilisateurId: "u1" });
+
+    const historique = historiqueAchats(boutiqueId);
+    expect(historique.commandes).toHaveLength(1);
+    expect(historique.commandes[0]).toMatchObject({ utilisateurId: "u1", valeurRecue: 50000 });
+    expect(historique.receptions).toHaveLength(1);
+    expect(historique.paiements.map((p) => [p.origine, p.montant]).sort()).toEqual([
+      ["dette", 10000],
+      ["reception", 20000],
+    ]);
+    expect(historique.retours).toHaveLength(1);
+    expect(historique.retours[0]).toMatchObject({ quantite: 1, motif: "Sac percé", commandeNumero: commande.numero });
   });
 });

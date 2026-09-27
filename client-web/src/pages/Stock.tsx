@@ -65,6 +65,8 @@ import {
   type SortieDormance,
 } from "../services/rapports";
 import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
+import FiltrePeriodeHistorique from "../components/FiltrePeriodeHistorique";
+import { bornesPeriode, dansPeriode, jourLocal, type PeriodeHistorique } from "../lib/periode";
 
 /**
  * Port de client-electron/src/pages/Stock.tsx : 4 sections (Stock/Mouvements/
@@ -2663,65 +2665,6 @@ function ModaleDestockage({ session, onFermer }: { session: Session; onFermer: (
 }
 
 // --- Historique : mouvements, pertes, déstockages, transferts, inventaires et dormants, filtrables (carte « Historique » de la page Stock) ---
-
-type PeriodeHistorique = "tout" | "7j" | "30j" | "mois" | "personnalisee";
-
-function jourLocal(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-/** Bornes [début, fin] en "AAAA-MM-JJ" (incluses), ou null pour « tout ». */
-function bornesPeriode(periode: PeriodeHistorique, debutPerso: string, finPerso: string): [string, string] | null {
-  const aujourdhui = new Date();
-  if (periode === "tout") return null;
-  if (periode === "personnalisee") return [debutPerso || "0000-01-01", finPerso || "9999-12-31"];
-  if (periode === "mois") {
-    return [jourLocal(new Date(aujourdhui.getFullYear(), aujourdhui.getMonth(), 1)), jourLocal(aujourdhui)];
-  }
-  const debut = new Date(aujourdhui);
-  debut.setDate(debut.getDate() - (periode === "7j" ? 6 : 29));
-  return [jourLocal(debut), jourLocal(aujourdhui)];
-}
-
-function dansPeriode(dateIso: string, bornes: [string, string] | null): boolean {
-  if (!bornes) return true;
-  const jour = jourLocal(new Date(dateIso));
-  return jour >= bornes[0] && jour <= bornes[1];
-}
-
-function FiltrePeriodeHistorique({
-  periode,
-  setPeriode,
-  debutPerso,
-  setDebutPerso,
-  finPerso,
-  setFinPerso,
-}: {
-  periode: PeriodeHistorique;
-  setPeriode: (p: PeriodeHistorique) => void;
-  debutPerso: string;
-  setDebutPerso: (v: string) => void;
-  finPerso: string;
-  setFinPerso: (v: string) => void;
-}) {
-  return (
-    <>
-      <select value={periode} onChange={(e) => setPeriode(e.target.value as PeriodeHistorique)}>
-        <option value="tout">Toutes les dates</option>
-        <option value="7j">7 derniers jours</option>
-        <option value="30j">30 derniers jours</option>
-        <option value="mois">Ce mois</option>
-        <option value="personnalisee">Période personnalisée</option>
-      </select>
-      {periode === "personnalisee" && (
-        <>
-          <input type="date" value={debutPerso} onChange={(e) => setDebutPerso(e.target.value)} />
-          <input type="date" value={finPerso} onChange={(e) => setFinPerso(e.target.value)} />
-        </>
-      )}
-    </>
-  );
-}
 
 const DUREES_GRAPHIQUE_DORMANTS = [
   { valeur: "30", label: "30 jours" },

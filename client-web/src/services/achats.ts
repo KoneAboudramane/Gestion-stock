@@ -171,6 +171,10 @@ export interface CommandeResume {
    * (colonne "Reste à recevoir" de l'onglet Réceptionner). */
   quantiteCommandee: number;
   quantiteRecue: number;
+  /** Qui a passé la commande. */
+  utilisateurId: string | null;
+  /** Valeur des réceptions non annulées de la commande. */
+  valeurRecue: number;
 }
 
 export async function listerCommandes(
@@ -189,6 +193,9 @@ export async function listerCommandes(
     const quantiteCommandee = lignes.reduce((total, l) => total + l.quantite, 0);
     const quantiteRecue = lignes.reduce((total, l) => total + (l.quantite_recue ?? 0), 0);
     const partiellementRecue = c.statut === "commandee" && quantiteRecue > 0;
+    const valeurRecue = (await db.getAllFromIndex("receptions", "commande_id", c.id))
+      .filter((r) => !r.supprime && !r.annulee)
+      .reduce((total, r) => total + Number(r.valeur_recue ?? 0), 0);
     resultat.push({
       id: c.id,
       numero: c.numero,
@@ -200,6 +207,8 @@ export async function listerCommandes(
       partiellementRecue,
       quantiteCommandee,
       quantiteRecue,
+      utilisateurId: c.utilisateur_id ?? null,
+      valeurRecue,
     });
   }
 
@@ -710,6 +719,113 @@ export async function listerHistoriqueReceptions(
     }
   }
   return resultat.sort((a, b) => b.dateCreation.localeCompare(a.dateCreation)).slice(0, limite);
+}
+
+export interface PaiementFournisseurHistorique {
+  id: string;
+  dateCreation: string;
+  fournisseurNom: string;
+  commandeId: string | null;
+  commandeNumero: string | null;
+  montant: number;
+  mode: string;
+  /** Payé sur place à la réception, ou règlement d'une dette ensuite. */
+  origine: "reception" | "dette";
+  /** Paiement fait à une réception annulée depuis (hors totaux). */
+  annulee: boolean;
+}
+
+export interface RetourFournisseurHistorique {
+  id: string;
+  dateCreation: string;
+  commandeId: string;
+  commandeNumero: string;
+  fournisseurNom: string;
+  depotNom: string;
+  motif: string;
+  montant: number;
+  avoir: number;
+  /** Quantité totale renvoyée. */
+  quantite: number;
+  utilisateurId: string | null;
+}
+
+/** Tout l'historique des achats de la boutique (carte « Historique » d'Achats & fournisseurs). */
+export interface HistoriqueAchats {
+  commandes: CommandeResume[];
+  receptions: ReceptionHistorique[];
+  paiements: PaiementFournisseurHistorique[];
+  retours: RetourFournisseurHistorique[];
+}
+
+/** Sans limite de nombre : l'écran filtre ensuite par période, fournisseur et numéro. */
+export async function historiqueAchats(boutiqueId: string): Promise<HistoriqueAchats> {
+  const db = await ouvrirBaseDeDonnees();
+  const commandes = await listerCommandes(boutiqueId);
+  const receptions = await listerHistoriqueReceptions(boutiqueId, undefined, "", 1_000_000);
+  const commandesParId = new Map(commandes.map((c) => [c.id, c]));
+  const fournisseurs = new Map(
+    (await db.getAllFromIndex("fournisseurs", "boutique_id", boutiqueId)).map((f) => [f.id, f.nom]),
+  );
+
+  const reglements: PaiementFournisseurHistorique[] = [];
+  for (const dette of await db.getAll("dettes_fournisseur")) {
+    if (dette.supprime || !fournisseurs.has(dette.fournisseur_id)) continue;
+    const commande = dette.commande_id ? commandesParId.get(dette.commande_id) : undefined;
+    for (const p of await db.getAllFromIndex("paiements_dette_fournisseur", "dette_id", dette.id)) {
+      if (p.supprime) continue;
+      reglements.push({
+        id: p.id,
+        dateCreation: p.date_creation,
+        fournisseurNom: fournisseurs.get(dette.fournisseur_id) ?? "",
+        commandeId: dette.commande_id ?? null,
+        commandeNumero: commande?.numero ?? null,
+        montant: Number(p.montant),
+        mode: p.mode ?? "",
+        origine: "dette",
+        annulee: false,
+      });
+    }
+  }
+  const paiements: PaiementFournisseurHistorique[] = [
+    ...receptions
+      .filter((r) => r.montantPaye > 0)
+      .map((r) => ({
+        id: `reception-${r.id}`,
+        dateCreation: r.dateCreation,
+        fournisseurNom: r.fournisseurNom,
+        commandeId: r.commandeId,
+        commandeNumero: r.commandeNumero,
+        montant: r.montantPaye,
+        mode: "",
+        origine: "reception" as const,
+        annulee: r.annulee,
+      })),
+    ...reglements,
+  ].sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));
+
+  const retours: RetourFournisseurHistorique[] = [];
+  for (const rf of await db.getAll("retours_fournisseur")) {
+    const commande = commandesParId.get(rf.commande_id);
+    if (rf.supprime || !commande) continue;
+    const depot = await db.get("depots", rf.depot_id);
+    const lignes = (await db.getAllFromIndex("lignes_retour_fournisseur", "retour_id", rf.id)).filter((l) => !l.supprime);
+    retours.push({
+      id: rf.id,
+      dateCreation: rf.date_creation,
+      commandeId: commande.id,
+      commandeNumero: commande.numero,
+      fournisseurNom: commande.fournisseurNom,
+      depotNom: depot?.nom ?? "",
+      motif: rf.motif ?? "",
+      montant: Number(rf.montant),
+      avoir: Number(rf.avoir),
+      quantite: lignes.reduce((total, l) => total + Number(l.quantite), 0),
+      utilisateurId: rf.utilisateur_id ?? null,
+    });
+  }
+  retours.sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));
+  return { commandes, receptions, paiements, retours };
 }
 
 export interface PaiementDetteDetail {

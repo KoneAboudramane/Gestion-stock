@@ -15,7 +15,7 @@ import {
   listerFournisseurs,
   listerPaiementsDette,
   annulerReception,
-  listerHistoriqueReceptions,
+  historiqueAchats,
   listerReceptionsCommande,
   modifierCommande,
   obtenirCommande,
@@ -30,6 +30,7 @@ import {
   type FournisseurResume,
   type PaiementDetteDetail,
   type ReceptionDetail,
+  type HistoriqueAchats,
   type ReceptionHistorique,
   type StatutCommande,
   type StatutDette,
@@ -39,6 +40,8 @@ import { libelleModeReglement, MODES_REGLEMENT } from "../lib/libelles";
 import { creerProduit, ErreurProduit, obtenirProduit } from "../services/produits";
 import { listerDepotsDetail, type DepotResume, type LigneAchatInitiale } from "../services/stock";
 import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
+import FiltrePeriodeHistorique from "../components/FiltrePeriodeHistorique";
+import { bornesPeriode, dansPeriode, jourLocal, type PeriodeHistorique } from "../lib/periode";
 
 /**
  * Port de client-electron/src/pages/Achats.tsx, local d'abord (IndexedDB, voir
@@ -1212,7 +1215,7 @@ const CERCLES_FOND = [
 const SECTIONS = [
   { cle: "commandes", label: "Commandes", icone: "📦" },
   { cle: "reception", label: "Réceptionner", icone: "📥" },
-  { cle: "historiqueReceptions", label: "Historique des réceptions", icone: "🗂️" },
+  { cle: "historique", label: "Historique", icone: "🗂️" },
   { cle: "fournisseurs", label: "Fournisseurs", icone: "🚚" },
   { cle: "dettes", label: "Dettes", icone: "💰" },
 ] as const;
@@ -2305,140 +2308,401 @@ function ModaleDetailReception({
 
 /** Historique de toutes les réceptions, toutes commandes confondues. Chaque
  * ligne se déplie pour montrer les articles livrés à cette réception. */
-function OngletHistoriqueReceptions({ session }: { session: Session }) {
-  const devise = useDevise();
-  const [fournisseurs, setFournisseurs] = useState<FournisseurResume[]>([]);
-  const [receptions, setReceptions] = useState<ReceptionHistorique[]>([]);
-  const [fournisseurId, setFournisseurId] = useState("");
-  const [terme, setTerme] = useState("");
-  const [receptionSelectionnee, setReceptionSelectionnee] = useState<ReceptionHistorique | null>(null);
+type SectionHistoriqueAchats = "commandes" | "receptions" | "paiements" | "retours";
 
+/** Carte « Historique » : tout ce qui s'est passé côté achats, filtrable par
+ * période, fournisseur et numéro de commande (sans limite de nombre). */
+function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  const devise = useDevise();
+  const nomUtilisateur = useNomsUtilisateurs(session);
+  const [section, setSection] = useState<SectionHistoriqueAchats>("commandes");
+  const [historique, setHistorique] = useState<HistoriqueAchats>({
+    commandes: [],
+    receptions: [],
+    paiements: [],
+    retours: [],
+  });
+  const [fournisseurs, setFournisseurs] = useState<FournisseurResume[]>([]);
+  const [periode, setPeriode] = useState<PeriodeHistorique>("tout");
+  const [debutPerso, setDebutPerso] = useState(jourLocal(new Date()));
+  const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
+  const [fournisseur, setFournisseur] = useState("");
+  const [recherche, setRecherche] = useState("");
+  const [statut, setStatut] = useState<StatutCommande | "">("");
+  const [commandeOuverteId, setCommandeOuverteId] = useState<string | null>(null);
+  const [receptionOuverte, setReceptionOuverte] = useState<ReceptionHistorique | null>(null);
+
+  function recharger() {
+    historiqueAchats(session.boutiqueId).then(setHistorique);
+  }
   useEffect(() => {
+    recharger();
     listerFournisseurs(session.boutiqueId).then(setFournisseurs);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.boutiqueId]);
 
-  function recharger() {
-    listerHistoriqueReceptions(session.boutiqueId, fournisseurId || undefined, terme).then(setReceptions);
-  }
-  useEffect(() => {
-    recharger();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.boutiqueId, fournisseurId, terme]);
+  const bornes = bornesPeriode(periode, debutPerso, finPerso);
+  const cle = recherche.trim().toLowerCase();
+  const garder = (x: { dateCreation: string; fournisseurNom: string; commandeNumero?: string | null; numero?: string }) =>
+    dansPeriode(x.dateCreation, bornes) &&
+    (!fournisseur || x.fournisseurNom === fournisseur) &&
+    (!cle || (x.numero ?? x.commandeNumero ?? "").toLowerCase().includes(cle));
+  const commandesFiltrees = historique.commandes.filter((c) => garder(c) && (!statut || c.statut === statut));
+  const receptionsFiltrees = historique.receptions.filter(garder);
+  const paiementsFiltres = historique.paiements.filter(garder);
+  const retoursFiltres = historique.retours.filter(garder);
 
-  const valeurTotale = receptions.reduce((somme, r) => somme + r.valeurRecue, 0);
-  const payeTotal = receptions.reduce((somme, r) => somme + r.montantPaye, 0);
+  const commandesValides = commandesFiltrees.filter((c) => c.statut !== "annulee");
+  const somme = (valeurs: number[]) => valeurs.reduce((t, v) => t + v, 0);
 
-  return (
-    <div>
-      <div className="barre-actions barre-actions-avec-onglets">
-        <select value={fournisseurId} onChange={(e) => setFournisseurId(e.target.value)}>
-          <option value="">Tous les fournisseurs</option>
-          {fournisseurs.map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.nom}
-            </option>
-          ))}
-        </select>
-        <input
-          className="champ-recherche"
-          placeholder="Rechercher par numéro de commande…"
-          value={terme}
-          onChange={(e) => setTerme(e.target.value)}
-        />
-      </div>
-      <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue carte-mobile">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Commande</th>
-              <th>Fournisseur</th>
-              <th>Dépôt</th>
-              <th>Articles</th>
-              <th>Valeur reçue</th>
-              <th>Montant payé</th>
-            </tr>
-          </thead>
-          <tbody>
-            {receptions.map((r) => (
-              <tr key={r.id} className="ligne-reception-cliquable" onClick={() => setReceptionSelectionnee(r)}>
-                <td data-label="Date">
-                          {new Date(r.dateCreation).toLocaleString("fr-FR")}{" "}
-                          {r.annulee && <span className="badge-brouillon">Annulée</span>}
-                        </td>
-                <td data-label="Commande">{r.commandeNumero}</td>
-                <td data-label="Fournisseur">{r.fournisseurNom}</td>
-                <td data-label="Dépôt">{r.depotNom}</td>
-                <td data-label="Articles">
-                  {r.lignes.length > 0 ? r.lignes.reduce((somme, l) => somme + Number(l.quantite), 0) : "—"}
-                </td>
-                <td data-label="Valeur reçue">
-                  {formaterMontant(r.valeurRecue)} {devise}
-                </td>
-                <td data-label="Montant payé">
-                  {formaterMontant(r.montantPaye)} {devise}
-                </td>
-              </tr>
-            ))}
-            {receptions.length === 0 && (
-              <tr>
-                <td colSpan={7} className="liste-vide">
-                  Aucune réception enregistrée.
-                </td>
-              </tr>
-            )}
-            {Array.from({ length: Math.max(0, 10 - Math.max(1, receptions.length)) }).map((_, i) => (
-              <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {receptionSelectionnee && (
-        <ModaleDetailReception
-          session={session}
-          reception={receptionSelectionnee}
-          commandeNumero={receptionSelectionnee.commandeNumero}
-          fournisseurNom={receptionSelectionnee.fournisseurNom}
-          onFermer={() => setReceptionSelectionnee(null)}
-          onModifie={() => {
-            setReceptionSelectionnee(null);
-            recharger();
-          }}
-        />
-      )}
-      {receptions.length > 0 && (
-        <div className="totaux">
-          <div>
-            {receptions.length} réception{receptions.length > 1 ? "s" : ""}
-          </div>
-          <div>
-            Valeur reçue : {formaterMontant(valeurTotale)} {devise}
-          </div>
-          <div>
-            Payé à la réception : {formaterMontant(payeTotal)} {devise}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+  const menu: [SectionHistoriqueAchats, string, string, number][] = [
+    ["commandes", "📦", "Commandes", commandesFiltrees.length],
+    ["receptions", "📥", "Réceptions", receptionsFiltrees.length],
+    ["paiements", "💰", "Paiements fournisseur", paiementsFiltres.length],
+    ["retours", "↩️", "Retours fournisseur", retoursFiltres.length],
+  ];
 
-function ModaleHistoriqueReceptions({ session, onFermer }: { session: Session; onFermer: () => void }) {
   return (
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
-        <EnteteModale titre="Historique des réceptions" onFermer={onFermer} />
-        <div className="modale-corps">
-          <OngletHistoriqueReceptions session={session} />
+        <EnteteModale titre="Historique des achats" onFermer={onFermer} />
+        {commandeOuverteId && (
+          <div className="fond-modale" onClick={() => setCommandeOuverteId(null)}>
+            <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+              <DetailCommande
+                commandeId={commandeOuverteId}
+                session={session}
+                fournisseurs={fournisseurs}
+                onRetour={() => {
+                  setCommandeOuverteId(null);
+                  recharger();
+                }}
+              />
+            </div>
+          </div>
+        )}
+        {receptionOuverte && (
+          <ModaleDetailReception
+            session={session}
+            reception={receptionOuverte}
+            commandeNumero={receptionOuverte.commandeNumero}
+            fournisseurNom={receptionOuverte.fournisseurNom}
+            onFermer={() => setReceptionOuverte(null)}
+            onModifie={() => {
+              setReceptionOuverte(null);
+              recharger();
+            }}
+          />
+        )}
+        <div className="modale-avec-menu">
+          <nav className="menu-modale">
+            {menu.map(([valeur, icone, libelle, nombre]) => (
+              <button
+                key={valeur}
+                type="button"
+                className={section === valeur ? "actif" : ""}
+                onClick={() => setSection(valeur)}
+              >
+                <span className="icone-menu-modale">{icone}</span>
+                {libelle}
+                <span className="compteur-menu-modale">{nombre}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="modale-corps">
+            <div className="barre-actions barre-filtres-historique">
+              <FiltrePeriodeHistorique
+                periode={periode}
+                setPeriode={setPeriode}
+                debutPerso={debutPerso}
+                setDebutPerso={setDebutPerso}
+                finPerso={finPerso}
+                setFinPerso={setFinPerso}
+              />
+              <select value={fournisseur} onChange={(e) => setFournisseur(e.target.value)}>
+                <option value="">Tous les fournisseurs</option>
+                {fournisseurs.map((f) => (
+                  <option key={f.id} value={f.nom}>
+                    {f.nom}
+                  </option>
+                ))}
+              </select>
+              {section === "commandes" && (
+                <select value={statut} onChange={(e) => setStatut(e.target.value as StatutCommande | "")}>
+                  <option value="">Tous les statuts</option>
+                  <option value="brouillon">Brouillon</option>
+                  <option value="commandee">Commandée</option>
+                  <option value="recue">Reçue</option>
+                  <option value="annulee">Annulée</option>
+                </select>
+              )}
+              <input
+                type="search"
+                placeholder="N° de commande…"
+                value={recherche}
+                onChange={(e) => setRecherche(e.target.value)}
+              />
+            </div>
+            {section === "commandes" ? (
+              <>
+                <div className="zone-tableau-scroll">
+                  <table className="tableau-catalogue carte-mobile">
+                    <thead>
+                      <tr>
+                      <th>Date</th>
+                      <th>Numéro</th>
+                      <th>Fournisseur</th>
+                      <th>Statut</th>
+                      <th>Total</th>
+                      <th>Reçu</th>
+                      <th>Fait par</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {commandesFiltrees.map((x) => (
+                      <tr key={x.id} onClick={() => setCommandeOuverteId(x.id)}>
+                        <td data-label="Date">{new Date(x.dateCreation).toLocaleString("fr-FR")}</td>
+                        <td data-label="Numéro">{x.numero}</td>
+                        <td data-label="Fournisseur">{x.fournisseurNom}</td>
+                        <td data-label="Statut"><BadgeStatutCommande statut={x.statut} partiellementRecue={x.partiellementRecue} /></td>
+                        <td data-label="Total">{formaterMontant(x.total)} {devise}</td>
+                        <td data-label="Reçu">{formaterMontant(x.valeurRecue)} {devise}</td>
+                        <td data-label="Fait par">{nomUtilisateur(x.utilisateurId)}</td>
+                      </tr>
+                      ))}
+                      {commandesFiltrees.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="liste-vide">
+                            Aucune commande pour ces filtres.
+                          </td>
+                        </tr>
+                      )}
+                      {Array.from({ length: Math.max(0, 10 - Math.max(1, commandesFiltrees.length)) }).map((_, i) => (
+                        <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {commandesFiltrees.length > 0 && (
+                  <div className="totaux">
+                    <div>
+                      {commandesFiltrees.length} commande{commandesFiltrees.length > 1 ? "s" : ""}
+                    </div>
+                    <div>
+                      Reçu : {formaterMontant(somme(commandesValides.map((c) => c.valeurRecue)))} {devise}
+                    </div>
+                    <div className="total-net">
+                      Commandé : {formaterMontant(somme(commandesValides.map((c) => c.total)))} {devise}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : section === "receptions" ? (
+              <>
+                <div className="zone-tableau-scroll">
+                  <table className="tableau-catalogue carte-mobile">
+                    <thead>
+                      <tr>
+                      <th>Date</th>
+                      <th>Commande</th>
+                      <th>Fournisseur</th>
+                      <th>Dépôt</th>
+                      <th>Articles</th>
+                      <th>Valeur reçue</th>
+                      <th>Montant payé</th>
+                      <th>Fait par</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {receptionsFiltrees.map((x) => (
+                      <tr key={x.id} className={x.annulee ? "ligne-annulee" : "ligne-reception-cliquable"} onClick={() => setReceptionOuverte(x)}>
+                        <td data-label="Date">{new Date(x.dateCreation).toLocaleString("fr-FR")} {x.annulee && <span className="badge-brouillon">Annulée</span>}</td>
+                        <td data-label="Commande">{x.commandeNumero}</td>
+                        <td data-label="Fournisseur">{x.fournisseurNom}</td>
+                        <td data-label="Dépôt">{x.depotNom}</td>
+                        <td data-label="Articles">{x.lignes.length > 0 ? x.lignes.reduce((t, l) => t + Number(l.quantite), 0) : "—"}</td>
+                        <td data-label="Valeur reçue">{formaterMontant(x.valeurRecue)} {devise}</td>
+                        <td data-label="Montant payé">{formaterMontant(x.montantPaye)} {devise}</td>
+                        <td data-label="Fait par">{nomUtilisateur(x.utilisateurId)}</td>
+                      </tr>
+                      ))}
+                      {receptionsFiltrees.length === 0 && (
+                        <tr>
+                          <td colSpan={8} className="liste-vide">
+                            Aucune réception pour ces filtres.
+                          </td>
+                        </tr>
+                      )}
+                      {Array.from({ length: Math.max(0, 10 - Math.max(1, receptionsFiltrees.length)) }).map((_, i) => (
+                        <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {receptionsFiltrees.length > 0 && (
+                  <div className="totaux">
+                    <div>
+                      {receptionsFiltrees.length} réception{receptionsFiltrees.length > 1 ? "s" : ""}
+                    </div>
+                    <div>
+                      Payé à la réception :{" "}
+                      {formaterMontant(somme(receptionsFiltrees.filter((r) => !r.annulee).map((r) => r.montantPaye)))}{" "}
+                      {devise}
+                    </div>
+                    <div className="total-net">
+                      Valeur reçue :{" "}
+                      {formaterMontant(somme(receptionsFiltrees.filter((r) => !r.annulee).map((r) => r.valeurRecue)))}{" "}
+                      {devise}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : section === "paiements" ? (
+              <>
+                <div className="zone-tableau-scroll">
+                  <table className="tableau-catalogue carte-mobile">
+                    <thead>
+                      <tr>
+                      <th>Date</th>
+                      <th>Commande</th>
+                      <th>Fournisseur</th>
+                      <th>Origine</th>
+                      <th>Mode</th>
+                      <th>Montant</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paiementsFiltres.map((x) => (
+                      <tr key={x.id} className={x.annulee ? "ligne-annulee" : undefined}>
+                        <td data-label="Date">{new Date(x.dateCreation).toLocaleString("fr-FR")} {x.annulee && <span className="badge-brouillon">Réception annulée</span>}</td>
+                        <td data-label="Commande">{x.commandeNumero ?? "—"}</td>
+                        <td data-label="Fournisseur">{x.fournisseurNom}</td>
+                        <td data-label="Origine">{x.origine === "reception" ? "À la réception" : "Règlement de dette"}</td>
+                        <td data-label="Mode">{x.mode ? libelleModeReglement(x.mode) : "—"}</td>
+                        <td data-label="Montant">{formaterMontant(x.montant)} {devise}</td>
+                      </tr>
+                      ))}
+                      {paiementsFiltres.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="liste-vide">
+                            Aucun paiement fournisseur pour ces filtres.
+                          </td>
+                        </tr>
+                      )}
+                      {Array.from({ length: Math.max(0, 10 - Math.max(1, paiementsFiltres.length)) }).map((_, i) => (
+                        <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {paiementsFiltres.length > 0 && (
+                  <div className="totaux">
+                    <div>
+                      {paiementsFiltres.length} paiement{paiementsFiltres.length > 1 ? "s" : ""}
+                    </div>
+                    <div className="total-net">
+                      Total payé :{" "}
+                      {formaterMontant(somme(paiementsFiltres.filter((x) => !x.annulee).map((x) => x.montant)))}{" "}
+                      {devise}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="zone-tableau-scroll">
+                  <table className="tableau-catalogue carte-mobile">
+                    <thead>
+                      <tr>
+                      <th>Date</th>
+                      <th>Commande</th>
+                      <th>Fournisseur</th>
+                      <th>Dépôt</th>
+                      <th>Articles</th>
+                      <th>Motif</th>
+                      <th>Montant</th>
+                      <th>Avoir</th>
+                      <th>Fait par</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {retoursFiltres.map((x) => (
+                      <tr key={x.id}>
+                        <td data-label="Date">{new Date(x.dateCreation).toLocaleString("fr-FR")}</td>
+                        <td data-label="Commande">{x.commandeNumero}</td>
+                        <td data-label="Fournisseur">{x.fournisseurNom}</td>
+                        <td data-label="Dépôt">{x.depotNom}</td>
+                        <td data-label="Articles">{x.quantite}</td>
+                        <td data-label="Motif">{x.motif || "—"}</td>
+                        <td data-label="Montant">{formaterMontant(x.montant)} {devise}</td>
+                        <td data-label="Avoir">{x.avoir > 0 ? `${formaterMontant(x.avoir)} ${devise}` : "—"}</td>
+                        <td data-label="Fait par">{nomUtilisateur(x.utilisateurId)}</td>
+                      </tr>
+                      ))}
+                      {retoursFiltres.length === 0 && (
+                        <tr>
+                          <td colSpan={9} className="liste-vide">
+                            Aucun retour fournisseur pour ces filtres.
+                          </td>
+                        </tr>
+                      )}
+                      {Array.from({ length: Math.max(0, 10 - Math.max(1, retoursFiltres.length)) }).map((_, i) => (
+                        <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {retoursFiltres.length > 0 && (
+                  <div className="totaux">
+                    <div>
+                      {retoursFiltres.length} retour{retoursFiltres.length > 1 ? "s" : ""} ·{" "}
+                      {somme(retoursFiltres.map((r) => r.quantite))} article(s)
+                    </div>
+                    <div>
+                      Avoirs : {formaterMontant(somme(retoursFiltres.map((r) => r.avoir)))} {devise}
+                    </div>
+                    <div className="total-net">
+                      Montant retourné : {formaterMontant(somme(retoursFiltres.map((r) => r.montant)))} {devise}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -2527,8 +2791,8 @@ export default function Achats({
       {sectionOuverte === "fournisseurs" && (
         <ModaleFournisseurs session={session} onFermer={() => setSectionOuverte(null)} />
       )}
-      {sectionOuverte === "historiqueReceptions" && (
-        <ModaleHistoriqueReceptions session={session} onFermer={() => setSectionOuverte(null)} />
+      {sectionOuverte === "historique" && (
+        <ModaleHistoriqueAchats session={session} onFermer={() => setSectionOuverte(null)} />
       )}
       {sectionOuverte === "dettes" && (
         <ModaleDettes session={session} onFermer={() => setSectionOuverte(null)} />

@@ -188,6 +188,7 @@ contextBridge.exposeInMainWorld("api", {
     retournerAuFournisseur: (params: unknown) => ipcRenderer.invoke("commandes:retournerAuFournisseur", params),
     historiqueReceptions: (boutiqueId: string, fournisseurId?: string, terme?: string) =>
       ipcRenderer.invoke("commandes:historiqueReceptions", boutiqueId, fournisseurId, terme),
+    historique: (boutiqueId: string) => ipcRenderer.invoke("commandes:historique", boutiqueId),
   },
   dettes: {
     lister: (boutiqueId: string, fournisseurId?: string, statut?: string) =>

@@ -587,6 +587,10 @@ export interface CommandeResume {
   partiellementRecue: boolean;
   quantiteCommandee: number;
   quantiteRecue: number;
+  /** Qui a passé la commande. */
+  utilisateurId: string | null;
+  /** Valeur des réceptions non annulées de la commande. */
+  valeurRecue: number;
 }
 
 export interface LigneAchatDetail {
@@ -699,6 +703,43 @@ export interface ReceptionHistorique extends ReceptionDetail {
   commandeId: string;
   commandeNumero: string;
   fournisseurNom: string;
+}
+
+export interface PaiementFournisseurHistorique {
+  id: string;
+  dateCreation: string;
+  fournisseurNom: string;
+  commandeId: string | null;
+  commandeNumero: string | null;
+  montant: number;
+  mode: string;
+  /** Payé sur place à la réception, ou règlement d'une dette ensuite. */
+  origine: "reception" | "dette";
+  /** Paiement fait à une réception annulée depuis (hors totaux). */
+  annulee: boolean;
+}
+
+export interface RetourFournisseurHistorique {
+  id: string;
+  dateCreation: string;
+  commandeId: string;
+  commandeNumero: string;
+  fournisseurNom: string;
+  depotNom: string;
+  motif: string;
+  montant: number;
+  avoir: number;
+  /** Quantité totale renvoyée. */
+  quantite: number;
+  utilisateurId: string | null;
+}
+
+/** Tout l'historique des achats de la boutique (carte « Historique » d'Achats & fournisseurs). */
+export interface HistoriqueAchats {
+  commandes: CommandeResume[];
+  receptions: ReceptionHistorique[];
+  paiements: PaiementFournisseurHistorique[];
+  retours: RetourFournisseurHistorique[];
 }
 
 export type StatutCredit = "en_cours" | "solde";
@@ -1286,6 +1327,7 @@ export interface WindowApi {
       utilisateurId: string | null;
     }): Promise<ResultatEcriture<{ montant: number; avoir: number }>>;
     historiqueReceptions(boutiqueId: string, fournisseurId?: string, terme?: string): Promise<ReceptionHistorique[]>;
+    historique(boutiqueId: string): Promise<HistoriqueAchats>;
   };
   dettes: {
     lister(boutiqueId: string, fournisseurId?: string, statut?: StatutDette): Promise<DetteResume[]>;

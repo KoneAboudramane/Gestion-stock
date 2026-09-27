@@ -5181,7 +5181,7 @@ input.champ-invalide:focus {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  width: 240px;
+  width: 248px;
   flex-shrink: 0;
   padding: 1rem 0.6rem;
   border-right: 1px solid var(--bordure-tableau, var(--gris-200));
@@ -5191,10 +5191,10 @@ input.champ-invalide:focus {
 .menu-modale button {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.35rem;
   width: 100%;
   white-space: nowrap;
-  padding: 0.6rem 0.6rem;
+  padding: 0.6rem 0.45rem 0.6rem 0.6rem;
   border: none;
   border-left: 3px solid transparent;
   border-radius: var(--rayon-sm);
