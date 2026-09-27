@@ -632,6 +632,9 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("comptes:listerUtilisateurs", (_evt, session: auth.Session) =>
     executerEnSecuriteAsync(() => comptes.listerUtilisateurs(session)),
   );
+  ipcMain.handle("comptes:annuaire", (_evt, session: auth.Session) =>
+    executerEnSecuriteAsync(() => comptes.annuaireUtilisateurs(session)),
+  );
   ipcMain.handle(
     "comptes:creerUtilisateur",
     (_evt, session: auth.Session, params: comptes.ParametresCreationUtilisateur) =>

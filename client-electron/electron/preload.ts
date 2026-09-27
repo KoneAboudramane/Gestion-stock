@@ -273,6 +273,7 @@ contextBridge.exposeInMainWorld("api", {
     modifierRole: (session: unknown, id: string, permissions: unknown) =>
       ipcRenderer.invoke("comptes:modifierRole", session, id, permissions),
     listerUtilisateurs: (session: unknown) => ipcRenderer.invoke("comptes:listerUtilisateurs", session),
+    annuaire: (session: unknown) => ipcRenderer.invoke("comptes:annuaire", session),
     creerUtilisateur: (session: unknown, params: unknown) =>
       ipcRenderer.invoke("comptes:creerUtilisateur", session, params),
     modifierUtilisateur: (session: unknown, id: number, champs: unknown) =>

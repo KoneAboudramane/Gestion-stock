@@ -354,6 +354,8 @@ export interface MouvementResume {
   quantite: number;
   motif: string;
   dateCreation: string;
+  /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
+  utilisateurId: string | null;
 }
 
 export interface ParametresMouvement {
@@ -383,6 +385,8 @@ export interface TransfertResume {
   depotDestinationNom: string;
   quantite: number;
   dateCreation: string;
+  /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
+  utilisateurId: string | null;
 }
 
 export interface ReleveDormants {
@@ -461,6 +465,8 @@ export interface DestockageResume {
   marge: number;
   manqueAGagner: number;
   stockRestant: number;
+  /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
+  utilisateurId: string | null;
 }
 
 export type MotifPerte = "perime" | "abime" | "vol" | "don" | "consommation" | "autre";
@@ -484,6 +490,8 @@ export interface PerteResume {
   motif: MotifPerte;
   detail: string;
   valeur: number;
+  /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
+  utilisateurId: string | null;
 }
 
 export interface InventaireResume {
@@ -1311,6 +1319,7 @@ export interface WindowApi {
     listerRoles(session: Session): Promise<ResultatComptes<RoleResume[]>>;
     modifierRole(session: Session, id: string, permissions: Record<string, boolean>): Promise<ResultatComptes<RoleResume>>;
     listerUtilisateurs(session: Session): Promise<ResultatComptes<UtilisateurResume[]>>;
+    annuaire(session: Session): Promise<ResultatComptes<{ id: number; nom: string }[]>>;
     creerUtilisateur(
       session: Session,
       params: ParametresCreationUtilisateur,

@@ -329,6 +329,8 @@ export interface MouvementResume {
   quantite: number;
   motif: string;
   dateCreation: string;
+  /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
+  utilisateurId: string | null;
 }
 
 export async function listerMouvements(boutiqueId: string, depotId?: string, limite = 100): Promise<MouvementResume[]> {
@@ -356,6 +358,7 @@ export async function listerMouvements(boutiqueId: string, depotId?: string, lim
       quantite: m.quantite,
       motif: m.motif,
       dateCreation: m.date_creation,
+      utilisateurId: m.utilisateur_id ?? null,
     });
   }
   resultat.sort((a, b) => (a.dateCreation < b.dateCreation ? 1 : -1));
@@ -428,6 +431,8 @@ export interface TransfertResume {
   depotDestinationNom: string;
   quantite: number;
   dateCreation: string;
+  /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
+  utilisateurId: string | null;
 }
 
 export async function listerTransferts(boutiqueId: string, limite = 100): Promise<TransfertResume[]> {
@@ -455,6 +460,7 @@ export async function listerTransferts(boutiqueId: string, limite = 100): Promis
       depotDestinationNom: depotDestination?.nom ?? "",
       quantite: t.quantite,
       dateCreation: t.date_creation,
+      utilisateurId: t.utilisateur_id ?? null,
     });
   }
   resultat.sort((a, b) => (a.dateCreation < b.dateCreation ? 1 : -1));
@@ -548,6 +554,8 @@ export interface PerteResume {
   motif: MotifPerte;
   detail: string;
   valeur: number;
+  /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
+  utilisateurId: string | null;
 }
 
 /** Pertes de la boutique, les plus récentes d'abord ; debut/fin (ISO) optionnels. */
@@ -572,6 +580,7 @@ export async function listerPertes(boutiqueId: string, debut?: string, fin?: str
         motif: p.motif as MotifPerte,
         detail: p.detail ?? "",
         valeur: p.valeur,
+        utilisateurId: p.utilisateur_id ?? null,
       });
     }
   }
@@ -814,6 +823,8 @@ export interface DestockageResume {
   marge: number;
   manqueAGagner: number;
   stockRestant: number;
+  /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
+  utilisateurId: string | null;
 }
 
 /** Tous les déstockages de la boutique avec leur bilan (ventes non annulées). */
@@ -868,6 +879,7 @@ export async function listerDestockages(boutiqueId: string): Promise<DestockageR
           statut: expire ? "termine" : d.statut,
           motifFin: expire ? "date" : d.motif_fin,
           operationId: d.operation_id ?? null,
+          utilisateurId: d.utilisateur_id ?? null,
           operationNom: d.operation_id ? (nomsOperations.get(d.operation_id) ?? null) : null,
           quantiteVendue: b.quantite,
           chiffreAffaires: b.ca,

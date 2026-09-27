@@ -332,6 +332,16 @@ class IsolationEtPermissionsTests(APITestCase):
         self.assertIn("caissierA", usernames)
         self.assertNotIn("patronB", usernames)
 
+    def test_annuaire_lisible_par_un_caissier_sans_donnees_sensibles(self):
+        self.client.force_authenticate(user=self.caissier_a)
+        reponse = self.client.get(reverse("utilisateur-annuaire"))
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK, reponse.data)
+        noms = {u["nom"] for u in reponse.data}
+        self.assertEqual(noms, {"patronA2", "caissierA"})
+        self.assertEqual(set(reponse.data[0].keys()), {"id", "nom"})
+        # La liste complète (e-mails, rôles...) reste réservée à la gestion des utilisateurs.
+        self.assertEqual(self.client.get(reverse("utilisateur-list")).status_code, status.HTTP_403_FORBIDDEN)
+
     def test_permission_caissier_ne_peut_pas_gerer_utilisateurs(self):
         self.client.force_authenticate(user=self.caissier_a)
         reponse = self.client.post(

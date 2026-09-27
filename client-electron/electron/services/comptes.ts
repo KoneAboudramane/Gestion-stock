@@ -77,6 +77,13 @@ export async function listerUtilisateurs(session: Session): Promise<UtilisateurR
   return reponse.json();
 }
 
+/** Noms des comptes de la boutique (lisible par tout membre, voir comptes/views.py::annuaire). */
+export async function annuaireUtilisateurs(session: Session): Promise<{ id: number; nom: string }[]> {
+  const reponse = await appelerAvecDelai(`${URL_BASE_API}/utilisateurs/annuaire/`, { headers: entetes(session) });
+  if (!reponse.ok) throw new ErreurComptes(await extraireMessageErreur(reponse));
+  return reponse.json();
+}
+
 export interface ParametresCreationUtilisateur {
   username: string;
   password: string;

@@ -28,6 +28,7 @@ import { formaterMontant } from "../lib/formatage";
 import { libelleMotifPerte, libelleStatutDestockage, libelleTypeMouvement, MOTIFS_PERTE } from "../lib/libelles";
 import { useFabricationPropre } from "../hooks/useFabricationPropre";
 import { ModaleProduitsDormants } from "./Rapports";
+import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
 
 // --- Onglet Stock : niveaux par dépôt ---
 
@@ -468,6 +469,7 @@ function FormulaireMouvementGroupe({
 }
 
 function OngletMouvements({ session }: { session: Session }) {
+  const nomUtilisateur = useNomsUtilisateurs(session);
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [depots, setDepots] = useState<DepotResume[]>([]);
   const [depotId, setDepotId] = useState(peutGerer ? "" : (session.depotId ?? ""));
@@ -535,6 +537,7 @@ function OngletMouvements({ session }: { session: Session }) {
             <th>Type</th>
             <th>Quantité</th>
             <th>Motif</th>
+            <th>Fait par</th>
           </tr>
         </thead>
         <tbody>
@@ -548,11 +551,12 @@ function OngletMouvements({ session }: { session: Session }) {
               <td>{libelleTypeMouvement(m.type)}</td>
               <td>{m.quantite}</td>
               <td>{m.motif || ""}</td>
+              <td>{nomUtilisateur(m.utilisateurId)}</td>
             </tr>
           ))}
           {mouvements.length === 0 && (
             <tr>
-              <td colSpan={6} className="liste-vide">
+              <td colSpan={7} className="liste-vide">
                 Aucun mouvement.
               </td>
             </tr>
@@ -560,6 +564,7 @@ function OngletMouvements({ session }: { session: Session }) {
           {mouvements.length > 0 &&
             Array.from({ length: Math.max(0, 10 - mouvements.length) }).map((_, i) => (
               <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
                 <td>&nbsp;</td>
                 <td>&nbsp;</td>
                 <td>&nbsp;</td>
@@ -797,6 +802,7 @@ function FormulaireTransfert({
 }
 
 function OngletTransferts({ session }: { session: Session }) {
+  const nomUtilisateur = useNomsUtilisateurs(session);
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [depots, setDepots] = useState<DepotResume[]>([]);
   const [transferts, setTransferts] = useState<TransfertResume[]>([]);
@@ -853,6 +859,7 @@ function OngletTransferts({ session }: { session: Session }) {
             <th>De</th>
             <th>Vers</th>
             <th>Quantité</th>
+            <th>Fait par</th>
           </tr>
         </thead>
         <tbody>
@@ -865,11 +872,12 @@ function OngletTransferts({ session }: { session: Session }) {
               <td>{t.depotSourceNom}</td>
               <td>{t.depotDestinationNom}</td>
               <td>{t.quantite}</td>
+              <td>{nomUtilisateur(t.utilisateurId)}</td>
             </tr>
           ))}
           {transferts.length === 0 && (
             <tr>
-              <td colSpan={5} className="liste-vide">
+              <td colSpan={6} className="liste-vide">
                 Aucun transfert.
               </td>
             </tr>
@@ -877,6 +885,7 @@ function OngletTransferts({ session }: { session: Session }) {
           {transferts.length > 0 &&
             Array.from({ length: Math.max(0, 10 - transferts.length) }).map((_, i) => (
               <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
                 <td>&nbsp;</td>
                 <td>&nbsp;</td>
                 <td>&nbsp;</td>
@@ -1644,6 +1653,7 @@ function FormulairePerte({
 }
 
 function OngletPertes({ session }: { session: Session }) {
+  const nomUtilisateur = useNomsUtilisateurs(session);
   // Déclarer une perte : réservé à ceux qui gèrent le stock (sinon un vendeur
   // pourrait "perdre" de la marchandise pour couvrir un vol).
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
@@ -1701,6 +1711,7 @@ function OngletPertes({ session }: { session: Session }) {
               <th>Motif</th>
               <th>Quantité</th>
               <th>Valeur perdue</th>
+              <th>Déclaré par</th>
             </tr>
           </thead>
           <tbody>
@@ -1719,11 +1730,12 @@ function OngletPertes({ session }: { session: Session }) {
                 <td>
                   {formaterMontant(p.valeur)} {devise}
                 </td>
+                <td>{nomUtilisateur(p.utilisateurId)}</td>
               </tr>
             ))}
             {pertes.length === 0 && (
               <tr>
-                <td colSpan={6} className="liste-vide">
+                <td colSpan={7} className="liste-vide">
                   Aucune perte déclarée.
                 </td>
               </tr>
@@ -2128,6 +2140,7 @@ export function FormulaireDestockage({
 }
 
 function OngletDestockage({ session }: { session: Session }) {
+  const nomUtilisateur = useNomsUtilisateurs(session);
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const devise = useDevise();
   const [destockages, setDestockages] = useState<DestockageResume[]>([]);
@@ -2270,6 +2283,7 @@ function OngletDestockage({ session }: { session: Session }) {
               <th>Statut</th>
               <th>Vendus</th>
               <th>Stock restant</th>
+              <th>Lancé par</th>
               {peutGerer && <th />}
             </tr>
           </thead>
@@ -2298,6 +2312,7 @@ function OngletDestockage({ session }: { session: Session }) {
                 </td>
                 <td>{d.quantiteVendue}</td>
                 <td>{d.stockRestant}</td>
+                <td>{nomUtilisateur(d.utilisateurId)}</td>
                 {peutGerer && (
                   <td>
                     {d.statut === "en_cours" && (
@@ -2311,7 +2326,7 @@ function OngletDestockage({ session }: { session: Session }) {
             ))}
             {destockages.length === 0 && (
               <tr>
-                <td colSpan={9} className="liste-vide">
+                <td colSpan={10} className="liste-vide">
                   Aucun déstockage.
                 </td>
               </tr>
@@ -2479,6 +2494,7 @@ const LIBELLES_SORTIE_DORMANCE: Record<string, { label: string; classe: string }
 };
 
 function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  const nomUtilisateur = useNomsUtilisateurs(session);
   const devise = useDevise();
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   // Comme la carte Produits dormants : montre des coûts, réservé à la gestion / aux rapports.
@@ -2624,6 +2640,7 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
                         <th>Motif</th>
                         <th>Quantité</th>
                         <th>Valeur perdue</th>
+                        <th>Déclaré par</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2642,11 +2659,12 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
                           <td>
                             {formaterMontant(p.valeur)} {devise}
                           </td>
+                          <td>{nomUtilisateur(p.utilisateurId)}</td>
                         </tr>
                       ))}
                       {pertesFiltrees.length === 0 && (
                         <tr>
-                          <td colSpan={6} className="liste-vide">
+                          <td colSpan={7} className="liste-vide">
                             Aucune perte pour ces filtres.
                           </td>
                         </tr>
@@ -2773,6 +2791,7 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
                         <th>Statut</th>
                         <th>Vendus</th>
                         <th>Argent récupéré</th>
+                        <th>Lancé par</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2803,11 +2822,12 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
                           <td>
                             {formaterMontant(d.chiffreAffaires)} {devise}
                           </td>
+                          <td>{nomUtilisateur(d.utilisateurId)}</td>
                         </tr>
                       ))}
                       {destockagesFiltres.length === 0 && (
                         <tr>
-                          <td colSpan={8} className="liste-vide">
+                          <td colSpan={9} className="liste-vide">
                             Aucun déstockage pour ces filtres.
                           </td>
                         </tr>

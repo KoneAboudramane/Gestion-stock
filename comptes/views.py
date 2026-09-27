@@ -1,5 +1,6 @@
 from django.contrib.auth import authenticate
 from rest_framework import generics, permissions, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -305,6 +306,22 @@ class UtilisateurViewSet(FiltreBoutiqueMixin, viewsets.ModelViewSet):
     serializer_class = UtilisateurSerializer
     queryset = Utilisateur.objects.all()
     permission_classes = [EstMembreBoutique, a_la_permission("gerer_utilisateurs_reglages")]
+
+    def get_permissions(self):
+        # L'annuaire (noms seulement) est lisible par tout membre de la boutique :
+        # il sert à afficher « Fait par » dans les historiques des clients.
+        if self.action == "annuaire":
+            return [EstMembreBoutique()]
+        return super().get_permissions()
+
+    @action(detail=False, methods=["get"])
+    def annuaire(self, request):
+        """Identifiant + nom affichable de chaque compte de la boutique, rien d'autre
+        (pas d'e-mail, de téléphone ni de rôle)."""
+        return Response([
+            {"id": u.id, "nom": u.get_full_name() or u.username}
+            for u in self.get_queryset().order_by("username")
+        ])
 
     # Formule Essentiel/Pro (voir Boutique.Formule) : Essentiel plafonne à 2
     # comptes (le Patron + 1). Pas de plafond en Pro.

@@ -379,6 +379,8 @@ export interface MouvementResume {
   quantite: number;
   motif: string;
   dateCreation: string;
+  /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
+  utilisateurId: string | null;
 }
 
 export function listerMouvements(boutiqueId: string, depotId?: string, limite = 100): MouvementResume[] {
@@ -391,7 +393,8 @@ export function listerMouvements(boutiqueId: string, depotId?: string, limite = 
   params.push(limite);
   return tousLesResultats<MouvementResume>(
     `SELECT m.id as id, p.nom as produitNom, v.reference as reference, d.nom as depotNom,
-            m.type as type, m.quantite as quantite, m.motif as motif, m.date_creation as dateCreation
+            m.type as type, m.quantite as quantite, m.motif as motif, m.date_creation as dateCreation,
+            m.utilisateur_id as utilisateurId
      FROM mouvements_stock m
      JOIN variantes v ON v.id = m.variante_id
      JOIN produits p ON p.id = v.produit_id
@@ -408,7 +411,8 @@ export function listerMouvements(boutiqueId: string, depotId?: string, limite = 
 export function listerMouvementsParProduit(produitId: string, limite = 100): MouvementResume[] {
   return tousLesResultats<MouvementResume>(
     `SELECT m.id as id, p.nom as produitNom, v.reference as reference, d.nom as depotNom,
-            m.type as type, m.quantite as quantite, m.motif as motif, m.date_creation as dateCreation
+            m.type as type, m.quantite as quantite, m.motif as motif, m.date_creation as dateCreation,
+            m.utilisateur_id as utilisateurId
      FROM mouvements_stock m
      JOIN variantes v ON v.id = m.variante_id
      JOIN produits p ON p.id = v.produit_id
@@ -488,13 +492,15 @@ export interface TransfertResume {
   depotDestinationNom: string;
   quantite: number;
   dateCreation: string;
+  /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
+  utilisateurId: string | null;
 }
 
 export function listerTransferts(boutiqueId: string, limite = 100): TransfertResume[] {
   return tousLesResultats<TransfertResume>(
     `SELECT t.id as id, p.nom as produitNom, v.reference as reference,
             ds.nom as depotSourceNom, dd.nom as depotDestinationNom,
-            t.quantite as quantite, t.date_creation as dateCreation
+            t.quantite as quantite, t.date_creation as dateCreation, t.utilisateur_id as utilisateurId
      FROM transferts_stock t
      JOIN variantes v ON v.id = t.variante_id
      JOIN produits p ON p.id = v.produit_id
@@ -592,6 +598,8 @@ export interface PerteResume {
   motif: MotifPerte;
   detail: string;
   valeur: number;
+  /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
+  utilisateurId: string | null;
 }
 
 /** Pertes de la boutique, les plus récentes d'abord ; debut/fin (ISO) optionnels. */
@@ -609,7 +617,7 @@ export function listerPertes(boutiqueId: string, debut?: string, fin?: string): 
   return tousLesResultats<PerteResume>(
     `SELECT pe.id as id, pe.date_creation as dateCreation, p.nom as produitNom, COALESCE(v.reference, '') as reference,
             d.nom as depotNom, pe.quantite as quantite, pe.motif as motif, COALESCE(pe.detail, '') as detail,
-            pe.valeur as valeur
+            pe.valeur as valeur, pe.utilisateur_id as utilisateurId
      FROM pertes_stock pe
      JOIN variantes v ON v.id = pe.variante_id
      JOIN produits p ON p.id = v.produit_id
@@ -830,6 +838,8 @@ export interface DestockageResume {
   marge: number;
   manqueAGagner: number;
   stockRestant: number;
+  /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
+  utilisateurId: string | null;
 }
 
 /** Tous les déstockages de la boutique avec leur bilan (ventes non annulées). */
@@ -841,7 +851,7 @@ export function listerDestockages(boutiqueId: string): DestockageResume[] {
             v.prix_achat as prixAchat, d.prix_normal as prixNormal, d.prix_destockage as prixDestockage,
             d.date_creation as dateCreation, NULLIF(d.date_fin, '') as dateFin, d.date_arret as dateArret,
             d.statut as statut, COALESCE(d.motif_fin, '') as motifFin,
-            d.operation_id as operationId, o.nom as operationNom,
+            d.operation_id as operationId, o.nom as operationNom, d.utilisateur_id as utilisateurId,
             COALESCE(b.quantite, 0) as quantiteVendue, COALESCE(b.ca, 0) as chiffreAffaires,
             COALESCE(b.cout, 0) as cout, COALESCE(b.normal, 0) as normal,
             (SELECT COALESCE(SUM(s.quantite), 0) FROM stocks s WHERE s.variante_id = d.variante_id) as stockRestant

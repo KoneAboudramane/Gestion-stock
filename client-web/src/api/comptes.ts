@@ -50,6 +50,15 @@ export function listerUtilisateurs(): Promise<ResultatEcriture<UtilisateurResume
   });
 }
 
+/** Noms des comptes de la boutique (lisible par tout membre, voir comptes/views.py::annuaire). */
+export function annuaireUtilisateurs(): Promise<ResultatEcriture<{ id: number; nom: string }[]>> {
+  return executerEnSecurite(async () => {
+    const reponse = await apiFetch("/utilisateurs/annuaire/");
+    if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
+    return reponse.json();
+  });
+}
+
 export interface ParametresCreationUtilisateur {
   username: string;
   password: string;
