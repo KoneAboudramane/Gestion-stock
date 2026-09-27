@@ -194,6 +194,7 @@ contextBridge.exposeInMainWorld("api", {
   },
   dettes: {
     echeancier: (detteId: string) => ipcRenderer.invoke("dettes:echeancier", detteId),
+    rembourseDepuis: (boutiqueId: string, depuis: string) => ipcRenderer.invoke("dettes:rembourseDepuis", boutiqueId, depuis),
     planifier: (detteId: string, tranches: unknown) => ipcRenderer.invoke("dettes:planifier", detteId, tranches),
     annulerPaiement: (paiementId: string, utilisateurId: string | null, motif?: string) =>
       ipcRenderer.invoke("dettes:annulerPaiement", paiementId, utilisateurId, motif),
@@ -216,6 +217,7 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("credits:lister", boutiqueId, clientId, statut),
     obtenir: (id: string) => ipcRenderer.invoke("credits:obtenir", id),
     echeancier: (creditId: string) => ipcRenderer.invoke("credits:echeancier", creditId),
+    regleDepuis: (boutiqueId: string, depuis: string) => ipcRenderer.invoke("credits:regleDepuis", boutiqueId, depuis),
     planifier: (creditId: string, tranches: unknown) => ipcRenderer.invoke("credits:planifier", creditId, tranches),
     rembourser: (id: string, montant: number, mode?: string, depotId?: string | null, utilisateurId?: string | null) =>
       ipcRenderer.invoke("credits:rembourser", id, montant, mode, depotId, utilisateurId),

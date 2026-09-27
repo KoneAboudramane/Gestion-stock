@@ -16,6 +16,7 @@ import {
   ErreurClient,
   listerClientsDetail,
   listerCredits,
+  montantRegleCreditsDepuis,
   modifierClient,
   obtenirClient,
   obtenirCredit,
@@ -1007,26 +1008,54 @@ function OngletClients({ session }: { session: Session }) {
 }
 
 function OngletCredits({ session }: { session: Session }) {
-  const [statut, setStatut] = useState<StatutCredit | "">("");
+  const devise = useDevise();
+  const [statut, setStatut] = useState<StatutCredit | "">("en_cours");
   // Les crédits de clients réguliers et de clients de passage ne doivent
   // jamais se mélanger dans la même vue (mémoire projet "clients permanents
-  // vs occasionnels").
+  // vs occasionnels") : tuiles, liste et totaux portent sur le type choisi.
   const [typeClient, setTypeClient] = useState<"reguliers" | "occasionnels">("reguliers");
+  const [clientNom, setClientNom] = useState("");
+  const [recherche, setRecherche] = useState("");
   const [credits, setCredits] = useState<CreditResume[]>([]);
+  const [regleMois, setRegleMois] = useState(0);
   const [creditSelectionneId, setCreditSelectionneId] = useState<string | null>(null);
 
   async function rafraichir() {
-    setCredits(await listerCredits(session.boutiqueId, undefined, statut || undefined));
+    setCredits(await listerCredits(session.boutiqueId));
+    const debutMois = new Date();
+    debutMois.setDate(1);
+    debutMois.setHours(0, 0, 0, 0);
+    setRegleMois(await montantRegleCreditsDepuis(session.boutiqueId, debutMois.toISOString()));
   }
   useEffect(() => {
     rafraichir();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statut]);
+  }, []);
 
-  const creditsFiltres = credits.filter((c) => (typeClient === "reguliers" ? c.clientEstPermanent : !c.clientEstPermanent));
+  const duType = credits.filter((c) => (typeClient === "reguliers" ? c.clientEstPermanent : !c.clientEstPermanent));
+  const enCours = duType.filter((c) => c.statut === "en_cours");
+  const enRetard = enCours.filter((c) => c.prochaineEcheance?.enRetard).length;
+  const clientsListe = [...new Set(duType.map((c) => c.clientNom))].sort((a, b) => a.localeCompare(b, "fr"));
+  const cle = recherche.trim().toLowerCase();
+  // Les crédits en retard d'abord, puis les plus anciens.
+  const creditsFiltres = duType
+    .filter(
+      (c) =>
+        (!statut || c.statut === statut) &&
+        (!clientNom || c.clientNom === clientNom) &&
+        (!cle || (c.venteNumero ?? "").toLowerCase().includes(cle)),
+    )
+    .sort(
+      (a, b) =>
+        Number(!!b.prochaineEcheance?.enRetard) - Number(!!a.prochaineEcheance?.enRetard) ||
+        a.dateCreation.localeCompare(b.dateCreation),
+    );
+  const pourcentage = (c: CreditResume) =>
+    c.montant > 0 ? Math.min(100, Math.round((c.montantPaye / c.montant) * 100)) : 100;
+  const somme = (valeurs: number[]) => valeurs.reduce((t, v) => t + v, 0);
 
   return (
-    <div>
+    <div className="liste-dettes-credits">
       {creditSelectionneId && (
         <div className="fond-modale" onClick={() => setCreditSelectionneId(null)}>
           <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
@@ -1041,20 +1070,72 @@ function OngletCredits({ session }: { session: Session }) {
           </div>
         </div>
       )}
-      <div className="barre-actions barre-actions-fixe barre-actions-avec-onglets">
+      <div className="barre-actions barre-actions-avec-onglets">
         <div className="barre-onglets">
-          <button type="button" className={`onglet ${typeClient === "reguliers" ? "actif" : ""}`} onClick={() => setTypeClient("reguliers")}>
+          <button
+            type="button"
+            className={`onglet ${typeClient === "reguliers" ? "actif" : ""}`}
+            onClick={() => {
+              setTypeClient("reguliers");
+              setClientNom("");
+            }}
+          >
             Clients réguliers
           </button>
-          <button type="button" className={`onglet ${typeClient === "occasionnels" ? "actif" : ""}`} onClick={() => setTypeClient("occasionnels")}>
+          <button
+            type="button"
+            className={`onglet ${typeClient === "occasionnels" ? "actif" : ""}`}
+            onClick={() => {
+              setTypeClient("occasionnels");
+              setClientNom("");
+            }}
+          >
             Clients de passage
           </button>
         </div>
+      </div>
+      <div className="tuiles-fiche">
+        <div className="tuile-fiche">
+          <span className="sous-info">💰 Total dû</span>
+          <strong>
+            {formaterMontant(somme(enCours.map((c) => c.solde)))} {devise}
+          </strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">📄 Crédits en cours</span>
+          <strong>{enCours.length}</strong>
+        </div>
+        <div className={`tuile-fiche${enRetard > 0 ? " tuile-fiche--alerte" : ""}`}>
+          <span className="sous-info">🔴 En retard</span>
+          <strong>{enRetard}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">✅ Réglé ce mois (tous clients)</span>
+          <strong>
+            {formaterMontant(regleMois)} {devise}
+          </strong>
+        </div>
+      </div>
+      <div className="barre-actions barre-filtres-historique">
         <select value={statut} onChange={(e) => setStatut(e.target.value as StatutCredit | "")}>
-          <option value="">Tous les statuts</option>
           <option value="en_cours">En cours</option>
-          <option value="solde">Soldé</option>
+          <option value="solde">Soldés</option>
+          <option value="">Tous</option>
         </select>
+        <select value={clientNom} onChange={(e) => setClientNom(e.target.value)}>
+          <option value="">Tous les clients</option>
+          {clientsListe.map((nom) => (
+            <option key={nom} value={nom}>
+              {nom}
+            </option>
+          ))}
+        </select>
+        <input
+          type="search"
+          placeholder="N° de vente…"
+          value={recherche}
+          onChange={(e) => setRecherche(e.target.value)}
+        />
       </div>
       <div className="zone-tableau-scroll">
         <table className="tableau-catalogue carte-mobile">
@@ -1065,61 +1146,76 @@ function OngletCredits({ session }: { session: Session }) {
               <th>Client</th>
               <th>Vente</th>
               <th>Montant</th>
-              <th>Payé</th>
-              <th>Solde</th>
+              <th>Réglé</th>
+              <th>Reste</th>
               <th>Prochaine échéance</th>
               <th>Statut</th>
             </tr>
           </thead>
           <tbody>
             {creditsFiltres.map((c, index) => (
-              <tr key={c.id} onClick={() => setCreditSelectionneId(c.id)}>
-                <td data-label="N°">{index + 1}</td>
-                <td data-label="Date d'achat">{new Date(c.dateCreation).toLocaleString("fr-FR")}</td>
-                <td data-label="Client">{c.clientNom}</td>
-                <td data-label="Vente">{c.venteNumero ?? ""}</td>
-                <td data-label="Montant">{formaterMontant(c.montant)}</td>
-                <td data-label="Payé">{formaterMontant(c.montantPaye)}</td>
-                <td data-label="Solde">{formaterMontant(c.solde)}</td>
-                <td data-label="Prochaine échéance">
-                  {c.prochaineEcheance ? (
-                    <span className={c.prochaineEcheance.enRetard ? "texte-erreur" : undefined}>
+              <tr key={c.id} onClick={() => setCreditSelectionneId(c.id)} title="Voir le crédit">
+                  <td data-label="N°">{index + 1}</td>
+                  <td data-label="Date d'achat">{new Date(c.dateCreation).toLocaleDateString("fr-FR")}</td>
+                  <td data-label="Client">{c.clientNom}</td>
+                  <td data-label="Vente">{c.venteNumero ?? "—"}</td>
+                  <td data-label="Montant"><span className="nowrap">{formaterMontant(c.montant)} {devise}</span></td>
+                  <td data-label="Réglé"><span className="mini-progression">
+                    <span className="barre-progression">
+                      <span style={{ width: `${pourcentage(c)}%` }} />
+                    </span>
+                    <span className="sous-info">{pourcentage(c)} %</span>
+                  </span></td>
+                  <td data-label="Reste"><strong className="nowrap">{formaterMontant(c.solde)} {devise}</strong></td>
+                  <td data-label="Prochaine échéance">{c.prochaineEcheance ? (
+                    <span className={c.prochaineEcheance.enRetard ? "texte-erreur nowrap" : "nowrap"}>
                       {new Date(`${c.prochaineEcheance.date}T00:00:00`).toLocaleDateString("fr-FR")} ·{" "}
                       {formaterMontant(c.prochaineEcheance.reste)}
                       {c.prochaineEcheance.enRetard && " (en retard)"}
                     </span>
                   ) : (
                     "—"
-                  )}
-                </td>
-                <td data-label="Statut">
-                  <span className={c.statut === "solde" ? "badge-payee" : "badge-credit"}>{libelleStatutCredit(c.statut)}</span>
-                </td>
+                  )}</td>
+                  <td data-label="Statut"><span className={`nowrap ${c.statut === "solde" ? "badge-payee" : "badge-credit"}`}>
+                    {libelleStatutCredit(c.statut)}
+                  </span></td>
               </tr>
             ))}
             {creditsFiltres.length === 0 && (
               <tr>
                 <td colSpan={9} className="liste-vide">
-                  Aucun crédit.
+                  Aucun crédit pour ces filtres.
                 </td>
               </tr>
             )}
             {Array.from({ length: Math.max(0, 10 - Math.max(1, creditsFiltres.length)) }).map((_, i) => (
               <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {creditsFiltres.length > 0 && (
+        <div className="totaux">
+          <div>
+            {creditsFiltres.length} crédit{creditsFiltres.length > 1 ? "s" : ""} · Montant :{" "}
+            {formaterMontant(somme(creditsFiltres.map((c) => c.montant)))} {devise} · Réglé :{" "}
+            {formaterMontant(somme(creditsFiltres.map((c) => c.montantPaye)))} {devise}
+          </div>
+          <div className="total-net">
+            Reste : {formaterMontant(somme(creditsFiltres.map((c) => c.solde)))} {devise}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

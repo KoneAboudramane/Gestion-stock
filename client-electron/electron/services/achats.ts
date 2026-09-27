@@ -1593,3 +1593,17 @@ export function suiviCommande(commandeId: string): EtapeCommande[] {
   }
   return etapes.sort((a, b) => a.dateCreation.localeCompare(b.dateCreation));
 }
+
+/** Total des remboursements de dettes fournisseur (non annulés) depuis une date ISO. */
+export function montantRembourseDettesDepuis(boutiqueId: string, depuis: string): number {
+  return Number(
+    unResultat<{ total: number }>(
+      `SELECT COALESCE(SUM(p.montant), 0) as total
+       FROM paiements_dette_fournisseur p
+       JOIN dettes_fournisseur d ON d.id = p.dette_id
+       JOIN fournisseurs f ON f.id = d.fournisseur_id
+       WHERE f.boutique_id = ? AND p.supprime = 0 AND COALESCE(p.annulee, 0) = 0 AND p.date_creation >= ?`,
+      [boutiqueId, depuis],
+    )?.total ?? 0,
+  );
+}

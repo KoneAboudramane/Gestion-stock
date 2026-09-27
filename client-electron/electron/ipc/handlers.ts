@@ -459,6 +459,12 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("commandes:historique", (_evt, boutiqueId: string) => achats.historiqueAchats(boutiqueId));
   ipcMain.handle("commandes:suivi", (_evt, commandeId: string) => achats.suiviCommande(commandeId));
 
+  ipcMain.handle("dettes:rembourseDepuis", (_evt, boutiqueId: string, depuis: string) =>
+    achats.montantRembourseDettesDepuis(boutiqueId, depuis),
+  );
+  ipcMain.handle("credits:regleDepuis", (_evt, boutiqueId: string, depuis: string) =>
+    clients.montantRegleCreditsDepuis(boutiqueId, depuis),
+  );
   ipcMain.handle("dettes:echeancier", (_evt, detteId: string) => achats.echeancierDette(detteId));
   ipcMain.handle("dettes:planifier", (_evt, detteId: string, tranches: { dateEcheance: string; montant: number }[]) =>
     executerEnSecurite(() => achats.planifierEcheancier(detteId, tranches)),

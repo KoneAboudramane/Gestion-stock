@@ -2328,32 +2328,51 @@ function ModaleDette({
 
 function OngletDettes({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
-  const [statut, setStatut] = useState<StatutDette | "">("");
+  const devise = useDevise();
+  const [statut, setStatut] = useState<StatutDette | "">("en_cours");
+  const [fournisseur, setFournisseur] = useState("");
+  const [recherche, setRecherche] = useState("");
   const [dettes, setDettes] = useState<DetteResume[]>([]);
+  const [rembourseMois, setRembourseMois] = useState(0);
   const [detteOuverte, setDetteOuverte] = useState<DetteResume | null>(null);
   const [depots, setDepots] = useState<Depot[]>([]);
 
   async function rafraichir() {
-    setDettes(await api.dettes.lister(session.boutiqueId, undefined, statut || undefined));
+    setDettes(await api.dettes.lister(session.boutiqueId));
+    const debutMois = new Date();
+    debutMois.setDate(1);
+    debutMois.setHours(0, 0, 0, 0);
+    setRembourseMois(await api.dettes.rembourseDepuis(session.boutiqueId, debutMois.toISOString()));
   }
   useEffect(() => {
     rafraichir();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statut]);
-  useEffect(() => {
     if (!session.depotId) api.catalogue.listerDepots(session.boutiqueId).then(setDepots);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const enCours = dettes.filter((d) => d.statut === "en_cours");
+  const enRetard = enCours.filter((d) => d.prochaineEcheance?.enRetard).length;
+  const fournisseurs = [...new Set(dettes.map((d) => d.fournisseurNom))].sort((a, b) => a.localeCompare(b, "fr"));
+  const cle = recherche.trim().toLowerCase();
+  // Les dettes en retard d'abord, puis les plus anciennes.
+  const dettesFiltrees = dettes
+    .filter(
+      (d) =>
+        (!statut || d.statut === statut) &&
+        (!fournisseur || d.fournisseurNom === fournisseur) &&
+        (!cle || (d.commandeNumero ?? "").toLowerCase().includes(cle)),
+    )
+    .sort(
+      (a, b) =>
+        Number(!!b.prochaineEcheance?.enRetard) - Number(!!a.prochaineEcheance?.enRetard) ||
+        a.dateCreation.localeCompare(b.dateCreation),
+    );
+  const pourcentage = (d: DetteResume) =>
+    d.montant > 0 ? Math.min(100, Math.round((d.montantPaye / d.montant) * 100)) : 100;
+  const somme = (valeurs: number[]) => valeurs.reduce((t, v) => t + v, 0);
+
   return (
-    <div>
-      <div className="barre-actions barre-actions-avec-onglets">
-        <select value={statut} onChange={(e) => setStatut(e.target.value as StatutDette | "")}>
-          <option value="">Tous les statuts</option>
-          <option value="en_cours">En cours</option>
-          <option value="solde">Soldée</option>
-        </select>
-      </div>
+    <div className="liste-dettes-credits">
       {detteOuverte && (
         <ModaleDette
           dette={detteOuverte}
@@ -2363,92 +2382,149 @@ function OngletDettes({ session }: { session: Session }) {
           onPaye={rafraichir}
         />
       )}
-      <div className="zone-tableau-scroll">
-      <table className="tableau-catalogue">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Fournisseur</th>
-            <th>Commande</th>
-            <th>Montant</th>
-            <th>Payé</th>
-            <th>Solde</th>
-            <th>Prochaine échéance</th>
-            <th>Statut</th>
-            {peutGerer && <th></th>}
-          </tr>
-        </thead>
-        <tbody>
-          {dettes.map((d) => (
-            <tr
-              key={d.id}
-              className="ligne-reception-cliquable"
-              onClick={() => setDetteOuverte(d)}
-              title="Voir les remboursements de cette dette"
-            >
-              <td>{new Date(d.dateCreation).toLocaleString("fr-FR")}</td>
-              <td>{d.fournisseurNom}</td>
-              <td>{d.commandeNumero ?? ""}</td>
-              <td>{formaterMontant(d.montant)}</td>
-              <td>{formaterMontant(d.montantPaye)}</td>
-              <td>{formaterMontant(d.solde)}</td>
-              <td>
-                {d.prochaineEcheance ? (
-                  <span className={d.prochaineEcheance.enRetard ? "texte-erreur" : undefined}>
-                    {new Date(`${d.prochaineEcheance.date}T00:00:00`).toLocaleDateString("fr-FR")} ·{" "}
-                    {formaterMontant(d.prochaineEcheance.reste)}
-                    {d.prochaineEcheance.enRetard && " (en retard)"}
-                  </span>
-                ) : (
-                  "—"
-                )}
-              </td>
-              <td>
-                <span className={d.statut === "solde" ? "badge-payee" : "badge-commandee"}>
-                  {d.statut === "solde" ? "Soldée" : "En cours"}
-                </span>
-              </td>
-              {peutGerer && (
-                <td>
-                  {d.statut === "en_cours" && (
-                    <button
-                      type="button"
-                      className="bouton-primaire"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDetteOuverte(d);
-                      }}
-                    >
-                      Rembourser
-                    </button>
-                  )}
-                </td>
-              )}
-            </tr>
-          ))}
-          {dettes.length === 0 && (
-            <tr>
-              <td colSpan={peutGerer ? 9 : 8} className="liste-vide">
-                Aucune dette fournisseur.
-              </td>
-            </tr>
-          )}
-          {Array.from({ length: Math.max(0, 10 - Math.max(1, dettes.length)) }).map((_, i) => (
-            <tr key={`vide-${i}`} className="ligne-groupe-vide">
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              {peutGerer && <td>&nbsp;</td>}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="tuiles-fiche">
+        <div className="tuile-fiche">
+          <span className="sous-info">💰 Total dû</span>
+          <strong>
+            {formaterMontant(somme(enCours.map((d) => d.solde)))} {devise}
+          </strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">📄 Dettes en cours</span>
+          <strong>{enCours.length}</strong>
+        </div>
+        <div className={`tuile-fiche${enRetard > 0 ? " tuile-fiche--alerte" : ""}`}>
+          <span className="sous-info">🔴 En retard</span>
+          <strong>{enRetard}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">✅ Remboursé ce mois</span>
+          <strong>
+            {formaterMontant(rembourseMois)} {devise}
+          </strong>
+        </div>
       </div>
+      <div className="barre-actions barre-filtres-historique">
+        <select value={statut} onChange={(e) => setStatut(e.target.value as StatutDette | "")}>
+          <option value="en_cours">En cours</option>
+          <option value="solde">Soldées</option>
+          <option value="">Toutes</option>
+        </select>
+        <select value={fournisseur} onChange={(e) => setFournisseur(e.target.value)}>
+          <option value="">Tous les fournisseurs</option>
+          {fournisseurs.map((nom) => (
+            <option key={nom} value={nom}>
+              {nom}
+            </option>
+          ))}
+        </select>
+        <input
+          type="search"
+          placeholder="N° de commande…"
+          value={recherche}
+          onChange={(e) => setRecherche(e.target.value)}
+        />
+      </div>
+      <div className="zone-tableau-scroll">
+        <table className="tableau-catalogue">
+          <thead>
+            <tr>
+              <th>N°</th>
+              <th>Date</th>
+              <th>Fournisseur</th>
+              <th>Commande</th>
+              <th>Montant</th>
+              <th>Remboursé</th>
+              <th>Reste</th>
+              <th>Prochaine échéance</th>
+              <th>Statut</th>
+              {peutGerer && <th />}
+            </tr>
+          </thead>
+          <tbody>
+            {dettesFiltrees.map((d, index) => (
+              <tr
+                key={d.id}
+                className="ligne-reception-cliquable"
+                onClick={() => setDetteOuverte(d)}
+                title="Voir la dette"
+              >
+                  <td>{index + 1}</td>
+                  <td>{new Date(d.dateCreation).toLocaleDateString("fr-FR")}</td>
+                  <td>{d.fournisseurNom}</td>
+                  <td>{d.commandeNumero ?? "—"}</td>
+                  <td><span className="nowrap">{formaterMontant(d.montant)} {devise}</span></td>
+                  <td><span className="mini-progression">
+                    <span className="barre-progression">
+                      <span style={{ width: `${pourcentage(d)}%` }} />
+                    </span>
+                    <span className="sous-info">{pourcentage(d)} %</span>
+                  </span></td>
+                  <td><strong className="nowrap">{formaterMontant(d.solde)} {devise}</strong></td>
+                  <td>{d.prochaineEcheance ? (
+                    <span className={d.prochaineEcheance.enRetard ? "texte-erreur nowrap" : "nowrap"}>
+                      {new Date(`${d.prochaineEcheance.date}T00:00:00`).toLocaleDateString("fr-FR")} ·{" "}
+                      {formaterMontant(d.prochaineEcheance.reste)}
+                      {d.prochaineEcheance.enRetard && " (en retard)"}
+                    </span>
+                  ) : (
+                    "—"
+                  )}</td>
+                  <td><span className={`nowrap ${d.statut === "solde" ? "badge-payee" : "badge-commandee"}`}>
+                    {d.statut === "solde" ? "Soldée" : "En cours"}
+                  </span></td>
+                {peutGerer && (
+                  <td>{d.statut === "en_cours" && (
+                      <button
+                        type="button"
+                        className="bouton-primaire nowrap"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDetteOuverte(d);
+                        }}
+                      >
+                        Rembourser
+                      </button>
+                    )}</td>
+                )}
+              </tr>
+            ))}
+            {dettesFiltrees.length === 0 && (
+              <tr>
+                <td colSpan={peutGerer ? 10 : 9} className="liste-vide">
+                  Aucune dette pour ces filtres.
+                </td>
+              </tr>
+            )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, dettesFiltrees.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                {peutGerer && <td>&nbsp;</td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {dettesFiltrees.length > 0 && (
+        <div className="totaux">
+          <div>
+            {dettesFiltrees.length} dette{dettesFiltrees.length > 1 ? "s" : ""} · Montant :{" "}
+            {formaterMontant(somme(dettesFiltrees.map((d) => d.montant)))} {devise} · Remboursé :{" "}
+            {formaterMontant(somme(dettesFiltrees.map((d) => d.montantPaye)))} {devise}
+          </div>
+          <div className="total-net">
+            Reste : {formaterMontant(somme(dettesFiltrees.map((d) => d.solde)))} {devise}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1393,6 +1393,7 @@ export interface WindowApi {
   };
   dettes: {
     echeancier(detteId: string): Promise<EcheanceDetail[]>;
+    rembourseDepuis(boutiqueId: string, depuis: string): Promise<number>;
     planifier(detteId: string, tranches: { dateEcheance: string; montant: number }[]): Promise<ResultatEcriture<void>>;
     annulerPaiement(paiementId: string, utilisateurId: string | null, motif?: string): Promise<ResultatEcriture<void>>;
     lister(boutiqueId: string, fournisseurId?: string, statut?: StatutDette): Promise<DetteResume[]>;
@@ -1422,6 +1423,7 @@ export interface WindowApi {
     lister(boutiqueId: string, clientId?: string, statut?: StatutCredit): Promise<CreditResume[]>;
     obtenir(id: string): Promise<CreditDetail | undefined>;
     echeancier(creditId: string): Promise<EcheanceDetail[]>;
+    regleDepuis(boutiqueId: string, depuis: string): Promise<number>;
     planifier(creditId: string, tranches: { dateEcheance: string; montant: number }[]): Promise<ResultatEcriture<void>>;
     rembourser(
       id: string,

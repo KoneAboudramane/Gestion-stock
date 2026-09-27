@@ -332,3 +332,17 @@ export function echeancesCreditsEnCours(boutiqueId: string): EcheanceCreditEnCou
   }
   return resultat;
 }
+
+/** Total des règlements de crédits clients depuis une date ISO. */
+export function montantRegleCreditsDepuis(boutiqueId: string, depuis: string): number {
+  return Number(
+    unResultat<{ total: number }>(
+      `SELECT COALESCE(SUM(p.montant), 0) as total
+       FROM paiements_credit p
+       JOIN credits cr ON cr.id = p.credit_id
+       JOIN clients cl ON cl.id = cr.client_id
+       WHERE cl.boutique_id = ? AND p.supprime = 0 AND p.date_creation >= ?`,
+      [boutiqueId, depuis],
+    )?.total ?? 0,
+  );
+}

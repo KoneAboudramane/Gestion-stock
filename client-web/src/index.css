@@ -7093,3 +7093,50 @@ button.tuile-dormance.active {
   color: var(--couleur-primaire);
   font-size: 1.2rem;
 }
+
+/* Listes Dettes / Crédits : tuiles de synthèse, progression par ligne. */
+.liste-dettes-credits {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.mini-progression {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 110px;
+}
+
+.mini-progression .barre-progression {
+  flex: 1;
+  height: 6px;
+}
+
+.tuile-fiche--alerte {
+  border-color: var(--danger, #dc2626);
+}
+
+.tuile-fiche--alerte strong {
+  color: var(--danger, #dc2626);
+}
+
+/* Listes Dettes / Crédits : tuiles, filtres et totaux en place, seules les lignes défilent. */
+.liste-dettes-credits {
+  flex: 1;
+  min-height: 0;
+}
+
+.liste-dettes-credits > * {
+  flex-shrink: 0;
+}
+
+.liste-dettes-credits > .zone-tableau-scroll {
+  flex: 1 1 auto;
+  min-height: 170px;
+  max-height: none;
+}

@@ -1585,3 +1585,15 @@ async function completerReception(
     retours: retours.sort((a, b) => a.dateCreation.localeCompare(b.dateCreation)),
   };
 }
+
+/** Total des remboursements de dettes fournisseur (non annulés) depuis une date ISO. */
+export async function montantRembourseDettesDepuis(boutiqueId: string, depuis: string): Promise<number> {
+  const db = await ouvrirBaseDeDonnees();
+  let total = 0;
+  for (const d of await listerDettes(boutiqueId)) {
+    for (const p of await db.getAllFromIndex("paiements_dette_fournisseur", "dette_id", d.id)) {
+      if (!p.supprime && !p.annulee && p.date_creation >= depuis) total += Number(p.montant);
+    }
+  }
+  return total;
+}

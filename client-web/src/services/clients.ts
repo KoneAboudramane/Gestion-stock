@@ -345,3 +345,15 @@ export async function echeancesCreditsEnCours(boutiqueId: string): Promise<Echea
   }
   return resultat;
 }
+
+/** Total des règlements de crédits clients depuis une date ISO. */
+export async function montantRegleCreditsDepuis(boutiqueId: string, depuis: string): Promise<number> {
+  const db = await ouvrirBaseDeDonnees();
+  let total = 0;
+  for (const c of await listerCredits(boutiqueId)) {
+    for (const p of await db.getAllFromIndex("paiements_credit", "credit_id", c.id)) {
+      if (!p.supprime && p.date_creation >= depuis) total += Number(p.montant);
+    }
+  }
+  return total;
+}
