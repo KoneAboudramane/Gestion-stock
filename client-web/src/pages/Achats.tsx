@@ -1941,61 +1941,200 @@ function OngletFournisseurs({ session }: { session: Session }) {
   );
 }
 
-function LignePayer({
-  dette,
+/** Remboursement d'une dette fournisseur, avec la trace de tous ses paiements. */
+function ModaleDette({
+  dette: detteInitiale,
   session,
   depots,
+  onFermer,
   onPaye,
 }: {
   dette: DetteResume;
   session: Session;
   depots: DepotResume[];
+  onFermer: () => void;
   onPaye: () => void;
 }) {
+  const devise = useDevise();
+  const peutGerer = !!session.permissions.gerer_produits_stock_achats;
+  const [dette, setDette] = useState(detteInitiale);
+  const [paiements, setPaiements] = useState<PaiementDetteDetail[]>([]);
   const [montant, setMontant] = useState("");
   const [mode, setMode] = useState(MODES_REGLEMENT[0].valeur);
   const [depotId, setDepotId] = useState(session.depotId ?? "");
   const [erreur, setErreur] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
 
-  async function payer() {
+  function chargerPaiements() {
+    listerPaiementsDette(dette.id).then(setPaiements);
+  }
+  useEffect(() => {
+    chargerPaiements();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dette.id]);
+
+  async function rembourser() {
+    const valeur = Number(montant) || 0;
     setEnCours(true);
     setErreur(null);
+    setMessage(null);
+    let succes = false;
     try {
-      await payerDette(dette.id, Number(montant) || 0, mode, depotId || null, session.utilisateurId);
-      setMontant("");
-      onPaye();
-    } catch (e) {
-      setErreur(e instanceof ErreurAchat ? e.message : "Erreur inattendue.");
+      try {
+        await payerDette(dette.id, valeur, mode, depotId || null, session.utilisateurId);
+        succes = true;
+      } catch (e) {
+        setErreur(e instanceof ErreurAchat ? e.message : "Erreur inattendue.");
+      }
     } finally {
       setEnCours(false);
     }
+    if (!succes) return;
+    const solde = dette.solde - valeur;
+    setDette({ ...dette, montantPaye: dette.montantPaye + valeur, solde, statut: solde <= 0 ? "solde" : "en_cours" });
+    setMontant("");
+    setMessage(solde <= 0 ? "Remboursement enregistré : la dette est soldée." : "Remboursement enregistré.");
+    chargerPaiements();
+    onPaye();
   }
 
+  // Traces : ce qui a été payé à la réception (s'il y en a), puis chaque règlement.
+  const regle = paiements.reduce((t, x) => t + Number(x.montant), 0);
+  const payeALaReception = Math.max(0, dette.montantPaye - regle);
+  const traces = [
+    ...(payeALaReception > 0
+      ? [{ id: "reception", dateCreation: dette.dateCreation, origine: "Payé à la réception", mode: "", montant: payeALaReception }]
+      : []),
+    ...[...paiements]
+      .sort((a, b) => a.dateCreation.localeCompare(b.dateCreation))
+      .map((x) => ({ id: x.id, dateCreation: x.dateCreation, origine: "Remboursement", mode: x.mode, montant: Number(x.montant) })),
+  ];
+  let cumul = 0;
+  const lignesTraces = traces.map((t) => {
+    cumul += t.montant;
+    return { ...t, reste: Math.max(0, dette.montant - cumul) };
+  });
+
   return (
-    <div className="ligne-payer-dette">
-      <ChampMontant placeholder="Montant" value={montant} onChange={setMontant} style={{ width: "100px" }} />
-      <select value={mode} onChange={(e) => setMode(e.target.value)}>
-        {MODES_REGLEMENT.map((m) => (
-          <option key={m.valeur} value={m.valeur}>
-            {m.label}
-          </option>
-        ))}
-      </select>
-      {!session.depotId && (
-        <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
-          <option value="">Dépôt…</option>
-          {depots.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.nom}
-            </option>
-          ))}
-        </select>
-      )}
-      <button type="button" className="bouton-primaire" onClick={payer} disabled={enCours}>
-        {enCours ? "…" : "Payer"}
-      </button>
-      {erreur && <div className="message-erreur">{erreur}</div>}
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre={`Dette — ${dette.fournisseurNom}`} onFermer={onFermer} />
+        <div className="modale-corps">
+          <div className="resume-dette">
+            <div>
+              <span className="sous-info">Commande</span>
+              <strong>{dette.commandeNumero ?? "—"}</strong>
+            </div>
+            <div>
+              <span className="sous-info">Née le</span>
+              <strong>{new Date(dette.dateCreation).toLocaleDateString("fr-FR")}</strong>
+            </div>
+            <div>
+              <span className="sous-info">Montant</span>
+              <strong>
+                {formaterMontant(dette.montant)} {devise}
+              </strong>
+            </div>
+            <div>
+              <span className="sous-info">Déjà payé</span>
+              <strong>
+                {formaterMontant(dette.montantPaye)} {devise}
+              </strong>
+            </div>
+            <div>
+              <span className="sous-info">Reste à payer</span>
+              <strong className={dette.solde > 0 ? "reste-dette" : undefined}>
+                {formaterMontant(dette.solde)} {devise}
+              </strong>
+            </div>
+            <div>
+              <span className={dette.statut === "solde" ? "badge-payee" : "badge-commandee"}>
+                {dette.statut === "solde" ? "Soldée" : "En cours"}
+              </span>
+            </div>
+          </div>
+
+          {peutGerer && dette.statut === "en_cours" && (
+            <div className="barre-actions barre-filtres-historique formulaire-remboursement">
+              <strong>Rembourser :</strong>
+              <ChampMontant placeholder="Montant" value={montant} onChange={setMontant} style={{ width: "140px" }} />
+              <button type="button" onClick={() => setMontant(String(dette.solde))}>
+                Tout le reste
+              </button>
+              <select value={mode} onChange={(e) => setMode(e.target.value)}>
+                {MODES_REGLEMENT.map((m) => (
+                  <option key={m.valeur} value={m.valeur}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+              {!session.depotId && (
+                <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
+                  <option value="">Dépôt…</option>
+                  {depots.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.nom}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <button
+                type="button"
+                className="bouton-primaire"
+                onClick={rembourser}
+                disabled={enCours || !(Number(montant) > 0)}
+              >
+                {enCours ? "…" : "Enregistrer le remboursement"}
+              </button>
+            </div>
+          )}
+          {erreur && <div className="message-erreur">{erreur}</div>}
+          {message && <div className="message-succes">{message}</div>}
+
+          <h4>Traces des paiements</h4>
+          <div className="zone-tableau-scroll">
+            <table className="tableau-catalogue carte-mobile">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Origine</th>
+                  <th>Mode</th>
+                  <th>Montant</th>
+                  <th>Reste après</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lignesTraces.map((t) => (
+                  <tr key={t.id}>
+                    <td data-label="Date">{new Date(t.dateCreation).toLocaleString("fr-FR")}</td>
+                    <td data-label="Origine">{t.origine}</td>
+                    <td data-label="Mode">{t.mode ? libelleModeReglement(t.mode) : "—"}</td>
+                    <td data-label="Montant">{formaterMontant(t.montant)} {devise}</td>
+                    <td data-label="Reste après">{formaterMontant(t.reste)} {devise}</td>
+                  </tr>
+                ))}
+                {lignesTraces.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="liste-vide">
+                      Aucun paiement pour l'instant.
+                    </td>
+                  </tr>
+                )}
+                {Array.from({ length: Math.max(0, 8 - Math.max(1, lignesTraces.length)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2004,6 +2143,7 @@ function OngletDettes({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [statut, setStatut] = useState<StatutDette | "">("");
   const [dettes, setDettes] = useState<DetteResume[]>([]);
+  const [detteOuverte, setDetteOuverte] = useState<DetteResume | null>(null);
   const [depots, setDepots] = useState<DepotResume[]>([]);
 
   async function rafraichir() {
@@ -2027,6 +2167,15 @@ function OngletDettes({ session }: { session: Session }) {
           <option value="solde">Soldée</option>
         </select>
       </div>
+      {detteOuverte && (
+        <ModaleDette
+          dette={detteOuverte}
+          session={session}
+          depots={depots}
+          onFermer={() => setDetteOuverte(null)}
+          onPaye={rafraichir}
+        />
+      )}
       <div className="zone-tableau-scroll">
         <table className="tableau-catalogue carte-mobile">
           <thead>
@@ -2044,7 +2193,12 @@ function OngletDettes({ session }: { session: Session }) {
           </thead>
           <tbody>
             {dettes.map((d, index) => (
-              <tr key={d.id}>
+              <tr
+                key={d.id}
+                className="ligne-reception-cliquable"
+                onClick={() => setDetteOuverte(d)}
+                title="Voir les remboursements de cette dette"
+              >
                 <td data-label="N°">{index + 1}</td>
                 <td data-label="Date">{new Date(d.dateCreation).toLocaleString("fr-FR")}</td>
                 <td data-label="Fournisseur">{d.fournisseurNom}</td>
@@ -2058,7 +2212,16 @@ function OngletDettes({ session }: { session: Session }) {
                 {peutGerer && (
                   <td data-label="Paiement">
                     {d.statut === "en_cours" && (
-                      <LignePayer dette={d} session={session} depots={depots} onPaye={rafraichir} />
+                      <button
+                        type="button"
+                        className="bouton-primaire"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDetteOuverte(d);
+                        }}
+                      >
+                        Rembourser
+                      </button>
                     )}
                   </td>
                 )}

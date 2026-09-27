@@ -6055,3 +6055,28 @@ button.tuile-dormance.active {
   font-size: 0.85rem;
   padding: 0.35rem 0.5rem;
 }
+
+/* Achats → Dettes : fenêtre de remboursement. */
+.resume-dette {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 2rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--bordure-tableau, var(--gris-200));
+  border-radius: var(--rayon-sm);
+}
+
+.resume-dette > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.resume-dette .reste-dette {
+  color: var(--danger, #dc2626);
+}
+
+.formulaire-remboursement {
+  align-items: center;
+}
