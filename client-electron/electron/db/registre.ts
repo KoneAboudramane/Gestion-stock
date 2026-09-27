@@ -111,6 +111,13 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
     clauseBoutique: "commande_id IN (SELECT id FROM commandes_achat WHERE boutique_id = ?)",
   },
   {
+    table: "achats.EvenementCommande",
+    tableLocale: "evenements_commande",
+    champsFK: ["commande", "utilisateur"],
+    ajoutSeul: true,
+    clauseBoutique: "commande_id IN (SELECT id FROM commandes_achat WHERE boutique_id = ?)",
+  },
+  {
     table: "achats.RetourFournisseur",
     tableLocale: "retours_fournisseur",
     champsFK: ["commande", "reception", "depot", "utilisateur"],

@@ -95,6 +95,13 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
     champsFK: ["commande", "depot", "utilisateur"],
   },
   {
+    table: "achats.EvenementCommande",
+    store: "evenements_commande",
+    champsFK: ["commande", "utilisateur"],
+    ajoutSeul: true,
+    champsNumeriques: ["montant"],
+  },
+  {
     table: "achats.RetourFournisseur",
     store: "retours_fournisseur",
     champsFK: ["commande", "reception", "depot", "utilisateur"],

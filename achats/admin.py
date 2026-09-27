@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import CommandeAchat, LigneAchat, Reception
+from .models import CommandeAchat, EvenementCommande, LigneAchat, Reception
 
 
 class LigneAchatInline(admin.TabularInline):
@@ -26,3 +26,10 @@ class LigneAchatAdmin(admin.ModelAdmin):
 class ReceptionAdmin(admin.ModelAdmin):
     list_display = ("commande", "depot", "utilisateur", "date_creation")
     list_filter = ("depot",)
+
+
+@admin.register(EvenementCommande)
+class EvenementCommandeAdmin(admin.ModelAdmin):
+    list_display = ("commande", "type", "utilisateur", "montant", "date_creation")
+    list_filter = ("type", "commande__boutique")
+    search_fields = ("commande__numero",)

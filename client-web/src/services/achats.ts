@@ -1,6 +1,7 @@
 import { ouvrirBaseDeDonnees } from "../db";
 import { ecrireLigne, maintenant, obtenirLigne, suiviSyncNeuf } from "../db/helpers";
 import type {
+  EvenementCommandeLocal,
   CommandeAchatLocale,
   DetteFournisseurLocale,
   FournisseurLocal,
@@ -305,6 +306,66 @@ function calculerLignesEtTotal(lignes: LigneAchatEntree[]): { lignes: (LigneAcha
   return { lignes: lignesCalculees, total };
 }
 
+export type TypeEtapeCommande =
+  | "creee"
+  | "modifiee"
+  | "commandee"
+  | "reception"
+  | "reception_annulee"
+  | "retour"
+  | "paiement"
+  | "annulee";
+
+/** Une étape du suivi d'une commande (achats.EvenementCommande). */
+export interface EtapeCommande {
+  id: string;
+  type: TypeEtapeCommande;
+  dateCreation: string;
+  utilisateurId: string | null;
+  detail: string;
+  montant: number | null;
+  /** Déduite des données existantes (commande antérieure au suivi), jamais enregistrée. */
+  reconstitue: boolean;
+}
+
+const LIBELLES_MODE_PAIEMENT: Record<string, string> = {
+  especes: "Espèces",
+  orange_money: "Orange Money",
+  mtn_money: "MTN Money",
+  moov_money: "Moov Money",
+  wave: "Wave",
+};
+
+function texteArticles(quantite: number): string {
+  return `${quantite} article${quantite > 1 ? "s" : ""}`;
+}
+
+function detailReglement(mode: string): string {
+  return "Règlement de dette" + (mode ? ` · ${LIBELLES_MODE_PAIEMENT[mode] ?? mode}` : "");
+}
+
+/** Ajoute une étape au suivi de la commande. */
+async function noterEtape(
+  commandeId: string,
+  type: TypeEtapeCommande,
+  utilisateurId: string | null,
+  detail = "",
+  montant: number | null = null,
+  referenceId: string | null = null,
+): Promise<void> {
+  const evenement: EvenementCommandeLocal = {
+    id: crypto.randomUUID(),
+    commande_id: commandeId,
+    type,
+    utilisateur_id: utilisateurId,
+    detail: detail.slice(0, 255),
+    montant,
+    reference_id: referenceId,
+    ...suiviSyncNeuf(),
+  };
+  await ecrireLigne("evenements_commande", evenement);
+}
+
 export async function creerCommande(params: ParametresCommande): Promise<{ id: string; numero: string; total: number }> {
   const { boutiqueId, fournisseurId, utilisateurId, statut, lignes } = params;
   if (lignes.length === 0) {
@@ -341,6 +402,7 @@ export async function creerCommande(params: ParametresCommande): Promise<{ id: s
     };
     await db.put("lignes_achat", ligneAchat);
   }
+  await noterEtape(commandeId, "creee", utilisateurId, statut === "commandee" ? "Directement commandée" : "En brouillon", total);
 
   return { id: commandeId, numero, total };
 }
@@ -349,6 +411,8 @@ export interface ParametresModifierCommande {
   fournisseurId?: string;
   statut?: StatutCommande;
   lignes?: LigneAchatEntree[];
+  /** Qui fait la modification (suivi des étapes). */
+  utilisateurId?: string | null;
 }
 
 export async function modifierCommande(id: string, champs: ParametresModifierCommande): Promise<void> {
@@ -401,6 +465,20 @@ export async function modifierCommande(id: string, champs: ParametresModifierCom
     date_modification: heure,
     synchronise: 0,
   });
+
+  const utilisateurId = champs.utilisateurId ?? null;
+  if (champs.fournisseurId && champs.fournisseurId !== commande.fournisseur_id) {
+    const ancien = await db.get("fournisseurs", commande.fournisseur_id);
+    const nouveau = await db.get("fournisseurs", champs.fournisseurId);
+    await noterEtape(id, "modifiee", utilisateurId, `Fournisseur : ${ancien?.nom ?? ""} → ${nouveau?.nom ?? ""}`);
+  }
+  if (champs.lignes) await noterEtape(id, "modifiee", utilisateurId, "Articles modifiés", total);
+  if (champs.statut && champs.statut !== commande.statut && champs.statut === "commandee") {
+    await noterEtape(id, "commandee", utilisateurId, "", total);
+  }
+  if (champs.statut && champs.statut !== commande.statut && champs.statut === "annulee") {
+    await noterEtape(id, "annulee", utilisateurId);
+  }
 }
 
 export interface LigneReceptionEntree {
@@ -554,6 +632,19 @@ export async function receptionnerCommande(params: ParametresReception): Promise
   const totalementRecue = lignesApres.every((l) => (l.quantite_recue ?? 0) >= l.quantite);
   if (totalementRecue) {
     await db.put("commandes_achat", { ...commande, statut: "recue", synchronise: 0, date_modification: maintenantDate });
+  }
+  const depot = await db.get("depots", depotId);
+  await noterEtape(
+    commandeId,
+    "reception",
+    utilisateurId,
+    `${texteArticles(aReceptionner.reduce((t, l) => t + l.quantite, 0))} reçus au dépôt ${depot?.nom ?? ""} · ` +
+      (totalementRecue ? "commande complète" : "reçue en partie"),
+    valeurRecue,
+    receptionId,
+  );
+  if (montantDejaPaye > 0) {
+    await noterEtape(commandeId, "paiement", utilisateurId, "Payé à la réception", montantDejaPaye, receptionId);
   }
 
   return receptionId;
@@ -896,6 +987,108 @@ export async function payerDette(
       referenceId: paiementId,
     });
   }
+  if (dette.commande_id) {
+    await noterEtape(dette.commande_id, "paiement", utilisateurId, detailReglement(mode), montant, paiementId);
+  }
+}
+
+/**
+ * Suivi des étapes d'une commande, de la plus ancienne à la plus récente.
+ * Pour une commande antérieure au suivi, ce qui peut se déduire des données
+ * (création, réceptions, paiements, retours) est ajouté, marqué « reconstitué »
+ * — sans rien écrire en base. Les changements de statut passés restent inconnus.
+ */
+export async function suiviCommande(commandeId: string): Promise<EtapeCommande[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const commande = await db.get("commandes_achat", commandeId);
+  if (!commande) return [];
+  const notees = (await db.getAllFromIndex("evenements_commande", "commande_id", commandeId)).filter((e) => !e.supprime);
+  const etapes: EtapeCommande[] = notees.map((e) => ({
+    id: e.id,
+    type: e.type as TypeEtapeCommande,
+    dateCreation: e.date_creation,
+    utilisateurId: e.utilisateur_id ?? null,
+    detail: e.detail ?? "",
+    montant: e.montant === null || e.montant === undefined ? null : Number(e.montant),
+    reconstitue: false,
+  }));
+  const dejaNotees = new Set(notees.map((e) => `${e.type}:${e.reference_id ?? ""}`));
+  const reconstituer = (cle: string, etape: Omit<EtapeCommande, "reconstitue">) => {
+    if (!dejaNotees.has(cle)) etapes.push({ ...etape, reconstitue: true });
+  };
+
+  if (!notees.some((e) => e.type === "creee")) {
+    etapes.push({
+      id: `creee-${commandeId}`,
+      type: "creee",
+      dateCreation: commande.date_creation,
+      utilisateurId: commande.utilisateur_id ?? null,
+      detail: "",
+      montant: Number(commande.total),
+      reconstitue: true,
+    });
+  }
+  const receptionsBrutes = new Map(
+    (await db.getAllFromIndex("receptions", "commande_id", commandeId)).map((r) => [r.id, r]),
+  );
+  for (const r of await listerReceptionsCommande(commandeId)) {
+    const quantite = r.lignes.reduce((t, l) => t + l.quantite, 0);
+    reconstituer(`reception:${r.id}`, {
+      id: `reception-${r.id}`,
+      type: "reception",
+      dateCreation: r.dateCreation,
+      utilisateurId: r.utilisateurId,
+      detail: `${quantite > 0 ? `${texteArticles(quantite)} reçus` : "Réception"} au dépôt ${r.depotNom}`,
+      montant: r.valeurRecue,
+    });
+    if (r.montantPaye > 0) {
+      reconstituer(`paiement:${r.id}`, {
+        id: `paiement-${r.id}`,
+        type: "paiement",
+        dateCreation: r.dateCreation,
+        utilisateurId: r.utilisateurId,
+        detail: "Payé à la réception",
+        montant: r.montantPaye,
+      });
+    }
+    if (r.annulee) {
+      reconstituer(`reception_annulee:${r.id}`, {
+        id: `annulation-${r.id}`,
+        type: "reception_annulee",
+        dateCreation: receptionsBrutes.get(r.id)?.date_annulation ?? r.dateCreation,
+        utilisateurId: null,
+        detail: `Réception au dépôt ${r.depotNom} annulée`,
+        montant: r.valeurRecue,
+      });
+    }
+    for (const retour of r.retours) {
+      reconstituer(`retour:${retour.id}`, {
+        id: `retour-${retour.id}`,
+        type: "retour",
+        dateCreation: retour.dateCreation,
+        utilisateurId: retour.utilisateurId,
+        detail:
+          `${texteArticles(retour.lignes.reduce((t, l) => t + l.quantite, 0))} renvoyés` +
+          (retour.motif ? ` · ${retour.motif}` : ""),
+        montant: retour.montant,
+      });
+    }
+  }
+  for (const dette of await db.getAll("dettes_fournisseur")) {
+    if (dette.supprime || dette.commande_id !== commandeId) continue;
+    for (const p of await db.getAllFromIndex("paiements_dette_fournisseur", "dette_id", dette.id)) {
+      if (p.supprime) continue;
+      reconstituer(`paiement:${p.id}`, {
+        id: `paiement-${p.id}`,
+        type: "paiement",
+        dateCreation: p.date_creation,
+        utilisateurId: null,
+        detail: detailReglement(p.mode ?? ""),
+        montant: Number(p.montant),
+      });
+    }
+  }
+  return etapes.sort((a, b) => a.dateCreation.localeCompare(b.dateCreation));
 }
 
 // --- Annulation de réception et retour fournisseur (port de achats/services.py) ---
@@ -1022,6 +1215,15 @@ export async function annulerReception(receptionId: string, utilisateurId: strin
     await ecrireLigne("commandes_achat", { ...commande, statut: "commandee", date_modification: instant, synchronise: 0 });
   }
   await ecrireLigne("receptions", { ...reception, annulee: true, date_annulation: instant, date_modification: instant, synchronise: 0 });
+  const depot = await db.get("depots", reception.depot_id);
+  await noterEtape(
+    reception.commande_id,
+    "reception_annulee",
+    utilisateurId,
+    `${texteArticles([...quantites.values()].reduce((t, q) => t + q, 0))} ressortis du dépôt ${depot?.nom ?? ""}`,
+    reception.valeur_recue,
+    receptionId,
+  );
   return { montantARecuperer: reception.montant_paye };
 }
 
@@ -1118,6 +1320,15 @@ export async function retournerAuFournisseur(params: ParametresRetourFournisseur
       synchronise: 0,
     });
   }
+  const motif = (params.motif ?? "").trim();
+  await noterEtape(
+    reception.commande_id,
+    "retour",
+    utilisateurId,
+    `${texteArticles(lignes.reduce((t, l) => t + l.quantite, 0))} renvoyés` + (motif ? ` · ${motif}` : ""),
+    montant,
+    retourId,
+  );
   return { montant, avoir: montant - deduit };
 }
 

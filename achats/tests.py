@@ -458,3 +458,49 @@ class AnnulationEtRetourTests(APITestCase):
             format="json",
         )
         self.assertEqual(trop.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class SuiviEtapesCommandeTests(APITestCase):
+    """Chaque étape d'une commande laisse une trace (achats.EvenementCommande)."""
+
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique S"}, {"username": "patronS", "password": "UnMotDePasseSolide123"}
+        )
+        self.fournisseur = Fournisseur.objects.create(boutique=self.boutique, nom="Grossiste")
+        produit = Produit.objects.create(boutique=self.boutique, nom="Huile")
+        self.variante = Variante.objects.create(produit=produit, prix_achat=4000, prix_vente=5000)
+        self.depot = Depot.objects.create(boutique=self.boutique, nom="Entrepot")
+        self.client.force_authenticate(user=self.patron)
+
+    def test_creation_commande_reception_paiement_notent_chaque_etape(self):
+        reponse = self.client.post(
+            reverse("commandeachat-list"),
+            {
+                "fournisseur": str(self.fournisseur.id),
+                "statut": "brouillon",
+                "lignes_saisie": [{"variante": str(self.variante.id), "quantite": "10", "prix_achat": "4000"}],
+            },
+            format="json",
+        )
+        commande = CommandeAchat.objects.get(id=reponse.data["id"])
+        self.client.patch(reverse("commandeachat-detail", args=[commande.id]), {"statut": "commandee"}, format="json")
+        self.client.post(
+            reverse("reception-list"),
+            {
+                "commande": str(commande.id),
+                "depot": str(self.depot.id),
+                "montant_deja_paye": "15000",
+                "lignes": [{"variante": str(self.variante.id), "quantite": "10"}],
+            },
+            format="json",
+        )
+        dette = DetteFournisseur.objects.get(commande=commande)
+        self.client.post(reverse("dettefournisseur-payer", args=[dette.id]), {"montant": "5000"}, format="json")
+
+        etapes = list(commande.evenements.order_by("date_creation").values_list("type", "utilisateur", "montant"))
+        self.assertEqual(
+            [e[0] for e in etapes], ["creee", "commandee", "reception", "paiement", "paiement"]
+        )
+        self.assertTrue(all(e[1] == self.patron.id for e in etapes))
+        self.assertEqual([e[2] for e in etapes[2:]], [40000, 15000, 5000])

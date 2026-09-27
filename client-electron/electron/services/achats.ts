@@ -265,6 +265,62 @@ function calculerLignesEtTotal(lignes: LigneAchatEntree[]): { lignes: (LigneAcha
   return { lignes: lignesCalculees, total };
 }
 
+export type TypeEtapeCommande =
+  | "creee"
+  | "modifiee"
+  | "commandee"
+  | "reception"
+  | "reception_annulee"
+  | "retour"
+  | "paiement"
+  | "annulee";
+
+/** Une étape du suivi d'une commande (achats.EvenementCommande). */
+export interface EtapeCommande {
+  id: string;
+  type: TypeEtapeCommande;
+  dateCreation: string;
+  utilisateurId: string | null;
+  detail: string;
+  montant: number | null;
+  /** Déduite des données existantes (commande antérieure au suivi), jamais enregistrée. */
+  reconstitue: boolean;
+}
+
+const LIBELLES_MODE_PAIEMENT: Record<string, string> = {
+  especes: "Espèces",
+  orange_money: "Orange Money",
+  mtn_money: "MTN Money",
+  moov_money: "Moov Money",
+  wave: "Wave",
+};
+
+function texteArticles(quantite: number): string {
+  return `${quantite} article${quantite > 1 ? "s" : ""}`;
+}
+
+function detailReglement(mode: string): string {
+  return "Règlement de dette" + (mode ? ` · ${LIBELLES_MODE_PAIEMENT[mode] ?? mode}` : "");
+}
+
+/** Ajoute une étape au suivi de la commande (à appeler dans la transaction de l'action). */
+function noterEtape(
+  commandeId: string,
+  type: TypeEtapeCommande,
+  utilisateurId: string | null,
+  detail = "",
+  montant: number | null = null,
+  referenceId: string | null = null,
+): void {
+  const maintenant = new Date().toISOString();
+  executer(
+    `INSERT INTO evenements_commande
+       (id, commande_id, type, utilisateur_id, detail, montant, reference_id, date_creation, date_modification)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [randomUUID(), commandeId, type, utilisateurId, detail.slice(0, 255), montant, referenceId, maintenant, maintenant],
+  );
+}
+
 export function creerCommande(params: ParametresCommande): { id: string; numero: string; total: number } {
   const { boutiqueId, fournisseurId, utilisateurId, statut, lignes } = params;
   if (lignes.length === 0) {
@@ -292,6 +348,7 @@ export function creerCommande(params: ParametresCommande): { id: string; numero:
         [randomUUID(), commandeId, ligne.varianteId, ligne.quantite, ligne.prixAchat, ligne.sousTotal, maintenant, maintenant],
       );
     }
+    noterEtape(commandeId, "creee", utilisateurId, statut === "commandee" ? "Directement commandée" : "En brouillon", total);
 
     return { id: commandeId, numero, total };
   });
@@ -304,10 +361,15 @@ export interface ParametresModifierCommande {
   fournisseurId?: string;
   statut?: StatutCommande;
   lignes?: LigneAchatEntree[];
+  /** Qui fait la modification (suivi des étapes). */
+  utilisateurId?: string | null;
 }
 
 export function modifierCommande(id: string, champs: ParametresModifierCommande): void {
-  const commande = unResultat<{ statut: string }>("SELECT statut FROM commandes_achat WHERE id = ?", [id]);
+  const commande = unResultat<{ statut: string; fournisseur_id: string; total: number }>(
+    "SELECT statut, fournisseur_id, total FROM commandes_achat WHERE id = ?",
+    [id],
+  );
   if (!commande) throw new ErreurAchat("Commande introuvable.");
   if (commande.statut === "recue" || commande.statut === "annulee") {
     throw new ErreurAchat("Cette commande ne peut plus être modifiée.");
@@ -360,6 +422,20 @@ export function modifierCommande(id: string, champs: ParametresModifierCommande)
     valeurs.push(maintenant);
 
     executer(`UPDATE commandes_achat SET ${colonnes.join(", ")} WHERE id = ?`, [...valeurs, id]);
+
+    const utilisateurId = champs.utilisateurId ?? null;
+    if (champs.fournisseurId && champs.fournisseurId !== commande.fournisseur_id) {
+      const nom = (fournisseurId: string) =>
+        unResultat<{ nom: string }>("SELECT nom FROM fournisseurs WHERE id = ?", [fournisseurId])?.nom ?? "";
+      noterEtape(id, "modifiee", utilisateurId, `Fournisseur : ${nom(commande.fournisseur_id)} → ${nom(champs.fournisseurId)}`);
+    }
+    if (champs.lignes) noterEtape(id, "modifiee", utilisateurId, "Articles modifiés", total ?? null);
+    if (champs.statut && champs.statut !== commande.statut && champs.statut === "commandee") {
+      noterEtape(id, "commandee", utilisateurId, "", total ?? Number(commande.total));
+    }
+    if (champs.statut && champs.statut !== commande.statut && champs.statut === "annulee") {
+      noterEtape(id, "annulee", utilisateurId);
+    }
   });
 
   sauvegarder();
@@ -528,6 +604,19 @@ export function receptionnerCommande(params: ParametresReception): string {
         "UPDATE commandes_achat SET statut = 'recue', synchronise = 0, date_modification = ? WHERE id = ?",
         [maintenant, commandeId],
       );
+    }
+    const depotNom = unResultat<{ nom: string }>("SELECT nom FROM depots WHERE id = ?", [depotId])?.nom ?? "";
+    noterEtape(
+      commandeId,
+      "reception",
+      utilisateurId,
+      `${texteArticles(aReceptionner.reduce((t, l) => t + l.quantite, 0))} reçus au dépôt ${depotNom} · ` +
+        (totalementRecue ? "commande complète" : "reçue en partie"),
+      valeurRecue,
+      receptionId,
+    );
+    if (montantDejaPaye > 0) {
+      noterEtape(commandeId, "paiement", utilisateurId, "Payé à la réception", montantDejaPaye, receptionId);
     }
   });
 
@@ -938,6 +1027,15 @@ export function annulerReception(receptionId: string, utilisateurId: string | nu
       maintenant,
       receptionId,
     ]);
+    const depotNom = unResultat<{ nom: string }>("SELECT nom FROM depots WHERE id = ?", [reception.depot_id])?.nom ?? "";
+    noterEtape(
+      reception.commande_id,
+      "reception_annulee",
+      utilisateurId,
+      `${texteArticles([...quantites.values()].reduce((t, q) => t + q, 0))} ressortis du dépôt ${depotNom}`,
+      Number(reception.valeur_recue),
+      receptionId,
+    );
   });
   sauvegarder();
   return { montantARecuperer: Number(reception.montant_paye) };
@@ -1018,6 +1116,16 @@ export function retournerAuFournisseur(params: ParametresRetourFournisseur): { m
       );
     }
     executer("UPDATE retours_fournisseur SET montant = ?, avoir = ? WHERE id = ?", [montant, montant - deduit, retourId]);
+    const motif = (params.motif ?? "").trim();
+    noterEtape(
+      reception.commande_id,
+      "retour",
+      utilisateurId,
+      `${texteArticles(params.lignes.filter((l) => l.quantite > 0).reduce((t, l) => t + l.quantite, 0))} renvoyés` +
+        (motif ? ` · ${motif}` : ""),
+      montant,
+      retourId,
+    );
     return { montant, avoir: montant - deduit };
   });
   sauvegarder();
@@ -1084,8 +1192,8 @@ export function payerDette(
   depotId: string | null = null,
   utilisateurId: string | null = null,
 ): void {
-  const dette = unResultat<{ montant_paye: number; solde: number; fournisseur_nom: string }>(
-    `SELECT d.montant_paye as montant_paye, d.solde as solde, f.nom as fournisseur_nom
+  const dette = unResultat<{ montant_paye: number; solde: number; fournisseur_nom: string; commande_id: string | null }>(
+    `SELECT d.montant_paye as montant_paye, d.solde as solde, f.nom as fournisseur_nom, d.commande_id as commande_id
      FROM dettes_fournisseur d JOIN fournisseurs f ON f.id = d.fournisseur_id WHERE d.id = ?`,
     [detteId],
   );
@@ -1126,7 +1234,116 @@ export function payerDette(
         referenceId: paiementId,
       });
     }
+    if (dette.commande_id) {
+      noterEtape(dette.commande_id, "paiement", utilisateurId, detailReglement(mode), montant, paiementId);
+    }
   });
 
   sauvegarder();
+}
+
+/**
+ * Suivi des étapes d'une commande, de la plus ancienne à la plus récente.
+ * Pour une commande antérieure au suivi, ce qui peut se déduire des données
+ * (création, réceptions, paiements, retours) est ajouté, marqué « reconstitué »
+ * — sans rien écrire en base. Les changements de statut passés restent inconnus.
+ */
+export function suiviCommande(commandeId: string): EtapeCommande[] {
+  const commande = unResultat<{ date_creation: string; utilisateur_id: string | null; total: number }>(
+    "SELECT date_creation, utilisateur_id, total FROM commandes_achat WHERE id = ?",
+    [commandeId],
+  );
+  if (!commande) return [];
+  const notees = tousLesResultats<Omit<EtapeCommande, "reconstitue"> & { referenceId: string | null }>(
+    `SELECT id, type, date_creation as dateCreation, utilisateur_id as utilisateurId, COALESCE(detail, '') as detail,
+            montant, reference_id as referenceId
+     FROM evenements_commande WHERE commande_id = ? AND supprime = 0`,
+    [commandeId],
+  );
+  const etapes: EtapeCommande[] = notees.map(({ referenceId: _ref, ...e }) => ({
+    ...e,
+    montant: e.montant === null ? null : Number(e.montant),
+    reconstitue: false,
+  }));
+  const dejaNotees = new Set(notees.map((e) => `${e.type}:${e.referenceId ?? ""}`));
+  const reconstituer = (cle: string, etape: Omit<EtapeCommande, "reconstitue">) => {
+    if (!dejaNotees.has(cle)) etapes.push({ ...etape, reconstitue: true });
+  };
+
+  if (!notees.some((e) => e.type === "creee")) {
+    etapes.push({
+      id: `creee-${commandeId}`,
+      type: "creee",
+      dateCreation: commande.date_creation,
+      utilisateurId: commande.utilisateur_id,
+      detail: "",
+      montant: Number(commande.total),
+      reconstitue: true,
+    });
+  }
+  const annulations = new Map(
+    tousLesResultats<{ id: string; date_annulation: string | null }>(
+      "SELECT id, date_annulation FROM receptions WHERE commande_id = ? AND COALESCE(annulee, 0) = 1",
+      [commandeId],
+    ).map((r) => [r.id, r.date_annulation]),
+  );
+  for (const r of listerReceptionsCommande(commandeId)) {
+    const quantite = r.lignes.reduce((t, l) => t + l.quantite, 0);
+    reconstituer(`reception:${r.id}`, {
+      id: `reception-${r.id}`,
+      type: "reception",
+      dateCreation: r.dateCreation,
+      utilisateurId: r.utilisateurId,
+      detail: `${quantite > 0 ? `${texteArticles(quantite)} reçus` : "Réception"} au dépôt ${r.depotNom}`,
+      montant: r.valeurRecue,
+    });
+    if (r.montantPaye > 0) {
+      reconstituer(`paiement:${r.id}`, {
+        id: `paiement-${r.id}`,
+        type: "paiement",
+        dateCreation: r.dateCreation,
+        utilisateurId: r.utilisateurId,
+        detail: "Payé à la réception",
+        montant: r.montantPaye,
+      });
+    }
+    if (r.annulee) {
+      reconstituer(`reception_annulee:${r.id}`, {
+        id: `annulation-${r.id}`,
+        type: "reception_annulee",
+        dateCreation: annulations.get(r.id) ?? r.dateCreation,
+        utilisateurId: null,
+        detail: `Réception au dépôt ${r.depotNom} annulée`,
+        montant: r.valeurRecue,
+      });
+    }
+    for (const retour of r.retours) {
+      reconstituer(`retour:${retour.id}`, {
+        id: `retour-${retour.id}`,
+        type: "retour",
+        dateCreation: retour.dateCreation,
+        utilisateurId: retour.utilisateurId,
+        detail:
+          `${texteArticles(retour.lignes.reduce((t, l) => t + l.quantite, 0))} renvoyés` +
+          (retour.motif ? ` · ${retour.motif}` : ""),
+        montant: retour.montant,
+      });
+    }
+  }
+  for (const p of tousLesResultats<{ id: string; dateCreation: string; montant: number; mode: string }>(
+    `SELECT p.id as id, p.date_creation as dateCreation, p.montant as montant, COALESCE(p.mode, '') as mode
+     FROM paiements_dette_fournisseur p JOIN dettes_fournisseur d ON d.id = p.dette_id
+     WHERE d.commande_id = ? AND p.supprime = 0 AND d.supprime = 0`,
+    [commandeId],
+  )) {
+    reconstituer(`paiement:${p.id}`, {
+      id: `paiement-${p.id}`,
+      type: "paiement",
+      dateCreation: p.dateCreation,
+      utilisateurId: null,
+      detail: detailReglement(p.mode),
+      montant: Number(p.montant),
+    });
+  }
+  return etapes.sort((a, b) => a.dateCreation.localeCompare(b.dateCreation));
 }
