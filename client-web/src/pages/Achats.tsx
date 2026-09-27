@@ -33,6 +33,7 @@ import {
   type PaiementDetteDetail,
   type ReceptionDetail,
   type HistoriqueAchats,
+  type PaiementFournisseurHistorique,
   type ReceptionHistorique,
   type StatutCommande,
   type StatutDette,
@@ -2377,6 +2378,101 @@ function ModaleDetailReception({
 
 /** Historique de toutes les réceptions, toutes commandes confondues. Chaque
  * ligne se déplie pour montrer les articles livrés à cette réception. */
+/** Tous les paiements faits à un fournisseur (sans les filtres de l'historique),
+ * avec ce qui lui reste dû. */
+function ModalePaiementsFournisseur({
+  session,
+  fournisseurNom,
+  paiements,
+  onFermer,
+}: {
+  session: Session;
+  fournisseurNom: string;
+  paiements: PaiementFournisseurHistorique[];
+  onFermer: () => void;
+}) {
+  const devise = useDevise();
+  const [resteAPayer, setResteAPayer] = useState<number | null>(null);
+  useEffect(() => {
+    listerDettes(session.boutiqueId).then((liste) =>
+      setResteAPayer(
+        liste
+          .filter((d) => d.fournisseurNom === fournisseurNom && d.statut === "en_cours")
+          .reduce((t, d) => t + Number(d.solde), 0),
+      ),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fournisseurNom]);
+
+  const valides = paiements.filter((x) => !x.annulee);
+  const somme = (liste: PaiementFournisseurHistorique[]) => liste.reduce((t, x) => t + x.montant, 0);
+
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre={`Paiements à ${fournisseurNom}`} onFermer={onFermer} />
+        <div className="modale-corps">
+          <div className="zone-tableau-scroll">
+            <table className="tableau-catalogue carte-mobile">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Commande</th>
+                  <th>Origine</th>
+                  <th>Mode</th>
+                  <th>Montant</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paiements.map((x) => (
+                  <tr key={x.id} className={x.annulee ? "ligne-annulee" : undefined}>
+                    <td data-label="Date">{new Date(x.dateCreation).toLocaleString("fr-FR")}{" "}{x.annulee && <span className="badge-brouillon">Réception annulée</span>}</td>
+                    <td data-label="Commande">{x.commandeNumero ?? "—"}</td>
+                    <td data-label="Origine">{x.origine === "reception" ? "À la réception" : "Règlement de dette"}</td>
+                    <td data-label="Mode">{x.mode ? libelleModeReglement(x.mode) : "—"}</td>
+                    <td data-label="Montant">{formaterMontant(x.montant)} {devise}</td>
+                  </tr>
+                ))}
+                {paiements.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="liste-vide">
+                      Aucun paiement à ce fournisseur.
+                    </td>
+                  </tr>
+                )}
+                {Array.from({ length: Math.max(0, 10 - Math.max(1, paiements.length)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="totaux">
+            <div>
+              {valides.length} paiement{valides.length > 1 ? "s" : ""} · À la réception :{" "}
+              {formaterMontant(somme(valides.filter((x) => x.origine === "reception")))} {devise} · Règlements de dette :{" "}
+              {formaterMontant(somme(valides.filter((x) => x.origine === "dette")))} {devise}
+            </div>
+            {resteAPayer !== null && (
+              <div>
+                Reste à payer : {formaterMontant(resteAPayer)} {devise}
+              </div>
+            )}
+            <div className="total-net">
+              Total payé : {formaterMontant(somme(valides))} {devise}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type SectionHistoriqueAchats = "commandes" | "receptions" | "paiements" | "retours";
 
 /** Carte « Historique » : tout ce qui s'est passé côté achats, filtrable par
@@ -2400,6 +2496,7 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
   const [statut, setStatut] = useState<StatutCommande | "">("");
   const [commandeOuverteId, setCommandeOuverteId] = useState<string | null>(null);
   const [receptionOuverte, setReceptionOuverte] = useState<ReceptionHistorique | null>(null);
+  const [fournisseurPaiements, setFournisseurPaiements] = useState<string | null>(null);
 
   function recharger() {
     historiqueAchats(session.boutiqueId).then(setHistorique);
@@ -2452,6 +2549,14 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
               />
             </div>
           </div>
+        )}
+        {fournisseurPaiements && (
+          <ModalePaiementsFournisseur
+            session={session}
+            fournisseurNom={fournisseurPaiements}
+            paiements={historique.paiements.filter((x) => x.fournisseurNom === fournisseurPaiements)}
+            onFermer={() => setFournisseurPaiements(null)}
+          />
         )}
         {receptionOuverte && (
           <ModaleDetailReception
@@ -2660,7 +2765,12 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
                     </thead>
                     <tbody>
                       {paiementsFiltres.map((x) => (
-                      <tr key={x.id} className={x.annulee ? "ligne-annulee" : undefined}>
+                      <tr
+                        key={x.id}
+                        className={x.annulee ? "ligne-annulee" : "ligne-reception-cliquable"}
+                        onClick={() => setFournisseurPaiements(x.fournisseurNom)}
+                        title="Voir tous les paiements à ce fournisseur"
+                      >
                         <td data-label="Date">{new Date(x.dateCreation).toLocaleString("fr-FR")} {x.annulee && <span className="badge-brouillon">Réception annulée</span>}</td>
                         <td data-label="Commande">{x.commandeNumero ?? "—"}</td>
                         <td data-label="Fournisseur">{x.fournisseurNom}</td>
