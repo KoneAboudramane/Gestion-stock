@@ -1149,6 +1149,8 @@ export interface DetteResume {
   solde: number;
   statut: StatutDette;
   dateCreation: string;
+  /** Dernière modification : pour une dette soldée, le moment où elle l'a été. */
+  dateModification: string;
 }
 
 export function listerDettes(boutiqueId: string, fournisseurId?: string, statut?: StatutDette): DetteResume[] {
@@ -1166,7 +1168,7 @@ export function listerDettes(boutiqueId: string, fournisseurId?: string, statut?
   return tousLesResultats<DetteResume>(
     `SELECT d.id as id, f.nom as fournisseurNom, d.commande_id as commandeId, c.numero as commandeNumero,
             d.montant as montant, d.montant_paye as montantPaye, d.solde as solde,
-            d.statut as statut, d.date_creation as dateCreation
+            d.statut as statut, d.date_creation as dateCreation, d.date_modification as dateModification
      FROM dettes_fournisseur d
      JOIN fournisseurs f ON f.id = d.fournisseur_id
      LEFT JOIN commandes_achat c ON c.id = d.commande_id

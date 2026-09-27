@@ -661,6 +661,8 @@ export interface DetteResume {
   solde: number;
   statut: StatutDette;
   dateCreation: string;
+  /** Dernière modification : pour une dette soldée, le moment où elle l'a été. */
+  dateModification: string;
 }
 
 export interface PaiementDetteDetail {

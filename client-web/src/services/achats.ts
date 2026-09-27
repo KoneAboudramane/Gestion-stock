@@ -664,6 +664,8 @@ export interface DetteResume {
   solde: number;
   statut: StatutDette;
   dateCreation: string;
+  /** Dernière modification : pour une dette soldée, le moment où elle l'a été. */
+  dateModification: string;
 }
 
 export async function listerDettes(boutiqueId: string, fournisseurId?: string, statut?: StatutDette): Promise<DetteResume[]> {
@@ -691,6 +693,7 @@ export async function listerDettes(boutiqueId: string, fournisseurId?: string, s
       solde: d.solde,
       statut: d.statut,
       dateCreation: d.date_creation,
+      dateModification: d.date_modification ?? d.date_creation,
     });
   }
   return resultat.sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));

@@ -2473,7 +2473,71 @@ function ModalePaiementsFournisseur({
   );
 }
 
-type SectionHistoriqueAchats = "commandes" | "receptions" | "paiements" | "retours";
+/** Dettes soldées d'un fournisseur (historique), avec la date où chacune l'a été. */
+function ModaleDettesFournisseur({
+  fournisseurNom,
+  dettes,
+  onFermer,
+}: {
+  fournisseurNom: string;
+  dettes: DetteResume[];
+  onFermer: () => void;
+}) {
+  const devise = useDevise();
+  const triees = [...dettes].sort((a, b) => b.dateModification.localeCompare(a.dateModification));
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre={`Dettes soldées — ${fournisseurNom}`} onFermer={onFermer} />
+        <div className="modale-corps">
+          <div className="zone-tableau-scroll">
+            <table className="tableau-catalogue carte-mobile">
+              <thead>
+                <tr>
+                  <th>Née le</th>
+                  <th>Commande</th>
+                  <th>Montant</th>
+                  <th>Réglé</th>
+                  <th>Soldée le</th>
+                </tr>
+              </thead>
+              <tbody>
+                {triees.map((d) => (
+                  <tr key={d.id}>
+                    <td data-label="Née le">{new Date(d.dateCreation).toLocaleDateString("fr-FR")}</td>
+                    <td data-label="Commande">{d.commandeNumero ?? "—"}</td>
+                    <td data-label="Montant">{formaterMontant(d.montant)} {devise}</td>
+                    <td data-label="Réglé">{formaterMontant(d.montantPaye)} {devise}</td>
+                    <td data-label="Soldée le">{new Date(d.dateModification).toLocaleDateString("fr-FR")}</td>
+                  </tr>
+                ))}
+                {Array.from({ length: Math.max(0, 10 - triees.length) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="totaux">
+            <div>
+              {triees.length} dette{triees.length > 1 ? "s" : ""} soldée{triees.length > 1 ? "s" : ""}
+            </div>
+            <div className="total-net">
+              Montant réglé : {formaterMontant(triees.reduce((t, d) => t + Number(d.montant), 0))} {devise}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type SectionHistoriqueAchats = "commandes" | "receptions" | "paiements" | "dettes" | "retours";
 
 /** Carte « Historique » : tout ce qui s'est passé côté achats, filtrable par
  * période, fournisseur et numéro de commande (sans limite de nombre). */
@@ -2498,6 +2562,7 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
   const [commandeOuverteId, setCommandeOuverteId] = useState<string | null>(null);
   const [receptionOuverte, setReceptionOuverte] = useState<ReceptionHistorique | null>(null);
   const [fournisseurPaiements, setFournisseurPaiements] = useState<string | null>(null);
+  const [fournisseurDettes, setFournisseurDettes] = useState<string | null>(null);
 
   function recharger() {
     listerDettes(session.boutiqueId).then(setDettes);
@@ -2522,6 +2587,30 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
   const receptionsFiltrees = historique.receptions.filter(garder);
   const paiementsFiltres = historique.paiements.filter(garder);
   const retoursFiltres = historique.retours.filter(garder);
+
+  // Dettes : historique des dettes soldées, une ligne par fournisseur (période = date où elle a été soldée).
+  const dettesSoldees = dettes.filter(
+    (d) =>
+      d.statut === "solde" &&
+      garder({ dateCreation: d.dateModification, fournisseurNom: d.fournisseurNom, commandeNumero: d.commandeNumero }),
+  );
+  const dettesParFournisseur = [
+    ...dettesSoldees
+      .reduce((groupes, d) => groupes.set(d.fournisseurNom, [...(groupes.get(d.fournisseurNom) ?? []), d]), new Map<
+        string,
+        DetteResume[]
+      >())
+      .entries(),
+  ]
+    .map(([fournisseurNom, liste]) => ({
+      fournisseurNom,
+      nombre: liste.length,
+      commandes: new Set(liste.map((d) => d.commandeId).filter(Boolean)).size,
+      montant: liste.reduce((t, d) => t + Number(d.montant), 0),
+      premiere: liste.reduce((p, d) => (!p || d.dateCreation < p ? d.dateCreation : p), ""),
+      derniere: liste.reduce((p, d) => (d.dateModification > p ? d.dateModification : p), ""),
+    }))
+    .sort((a, b) => b.derniere.localeCompare(a.derniere));
 
   // Paiements fournisseur : une ligne par fournisseur (le détail daté s'ouvre au clic).
   const resteParFournisseur = new Map<string, number>();
@@ -2561,6 +2650,7 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
     ["commandes", "📦", "Commandes", commandesFiltrees.length],
     ["receptions", "📥", "Réceptions", receptionsFiltrees.length],
     ["paiements", "💰", "Paiements fournisseur", paiementsParFournisseur.length],
+    ["dettes", "🧾", "Dettes soldées", dettesParFournisseur.length],
     ["retours", "↩️", "Retours fournisseur", retoursFiltres.length],
   ];
 
@@ -2582,6 +2672,13 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
               />
             </div>
           </div>
+        )}
+        {fournisseurDettes && (
+          <ModaleDettesFournisseur
+            fournisseurNom={fournisseurDettes}
+            dettes={dettes.filter((d) => d.statut === "solde" && d.fournisseurNom === fournisseurDettes)}
+            onFermer={() => setFournisseurDettes(null)}
+          />
         )}
         {fournisseurPaiements && (
           <ModalePaiementsFournisseur
@@ -2846,6 +2943,68 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
                     </div>
                     <div className="total-net">
                       Total payé : {formaterMontant(somme(paiementsParFournisseur.map((f) => f.totalPaye)))} {devise}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : section === "dettes" ? (
+              <>
+                <div className="zone-tableau-scroll">
+                  <table className="tableau-catalogue carte-mobile">
+                    <thead>
+                      <tr>
+                        <th>Fournisseur</th>
+                        <th>Dettes soldées</th>
+                        <th>Commandes</th>
+                        <th>Montant réglé</th>
+                        <th>Première dette</th>
+                        <th>Dernière soldée le</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dettesParFournisseur.map((f) => (
+                        <tr
+                          key={f.fournisseurNom}
+                          className="ligne-reception-cliquable"
+                          onClick={() => setFournisseurDettes(f.fournisseurNom)}
+                          title="Voir les dettes soldées de ce fournisseur"
+                        >
+                          <td data-label="Fournisseur">{f.fournisseurNom}</td>
+                          <td data-label="Dettes soldées">{f.nombre}</td>
+                          <td data-label="Commandes">{f.commandes}</td>
+                          <td data-label="Montant réglé">{formaterMontant(f.montant)} {devise}</td>
+                          <td data-label="Première dette">{new Date(f.premiere).toLocaleDateString("fr-FR")}</td>
+                          <td data-label="Dernière soldée le">{new Date(f.derniere).toLocaleDateString("fr-FR")}</td>
+                        </tr>
+                      ))}
+                      {dettesParFournisseur.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="liste-vide">
+                            Aucune dette soldée pour ces filtres.
+                          </td>
+                        </tr>
+                      )}
+                      {Array.from({ length: Math.max(0, 10 - Math.max(1, dettesParFournisseur.length)) }).map((_, i) => (
+                        <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {dettesParFournisseur.length > 0 && (
+                  <div className="totaux">
+                    <div>
+                      {dettesParFournisseur.length} fournisseur{dettesParFournisseur.length > 1 ? "s" : ""} ·{" "}
+                      {somme(dettesParFournisseur.map((f) => f.nombre))} dette(s) soldée(s)
+                    </div>
+                    <div className="total-net">
+                      Montant réglé : {formaterMontant(somme(dettesParFournisseur.map((f) => f.montant)))} {devise}
                     </div>
                   </div>
                 )}
