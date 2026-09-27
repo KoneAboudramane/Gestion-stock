@@ -5941,3 +5941,11 @@ button.tuile-dormance.active {
 .carte-historique-dormants .colonne-graphique-dormants {
   max-width: 120px;
 }
+
+/* « Ce qu'on en a fait » : cadre de hauteur fixe, seules les lignes défilent
+   (l'en-tête reste collé en haut, voir .zone-tableau-scroll th). */
+.carte-historique-dormants--tableau .zone-tableau-scroll {
+  height: 300px;
+  max-height: 300px;
+  overflow-y: auto;
+}
