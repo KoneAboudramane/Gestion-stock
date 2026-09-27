@@ -1,12 +1,13 @@
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 
 from core.permissions import EstMembreBoutique, FiltreBoutiqueMixin, a_la_permission
 
-from .models import DetteFournisseur, Fournisseur
+from .models import DetteFournisseur, Fournisseur, PaiementDetteFournisseur
 from .serializers import DetteFournisseurSerializer, FournisseurSerializer, PaiementDetteSerializer
-from .services import payer_dette
+from .services import annuler_paiement_dette, payer_dette
 
 PeutGererAchats = a_la_permission("gerer_produits_stock_achats")
 
@@ -40,6 +41,17 @@ class DetteFournisseurViewSet(
         )
         # Le cache prefetch_related("paiements") de get_object() est antérieur
         # au paiement : on relit l'objet pour renvoyer l'historique à jour.
+        dette.refresh_from_db()
+        dette._prefetched_objects_cache = {}
+        return Response(self.get_serializer(dette).data)
+
+    @action(detail=True, methods=["post"], url_path="annuler-paiement")
+    def annuler_paiement(self, request, pk=None):
+        dette = self.get_object()
+        paiement = PaiementDetteFournisseur.objects.filter(dette=dette, id=request.data.get("paiement")).first()
+        if paiement is None:
+            raise NotFound("Remboursement introuvable pour cette dette.")
+        annuler_paiement_dette(paiement, utilisateur=request.user, motif=request.data.get("motif", ""))
         dette.refresh_from_db()
         dette._prefetched_objects_cache = {}
         return Response(self.get_serializer(dette).data)

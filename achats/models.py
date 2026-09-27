@@ -121,6 +121,7 @@ class EvenementCommande(ModeleBase):
         RECEPTION_ANNULEE = "reception_annulee", "Réception annulée"
         RETOUR = "retour", "Retour fournisseur"
         PAIEMENT = "paiement", "Paiement"
+        PAIEMENT_ANNULE = "paiement_annule", "Paiement annulé"
         ANNULEE = "annulee", "Annulée"
 
     commande = models.ForeignKey(CommandeAchat, on_delete=models.CASCADE, related_name="evenements")

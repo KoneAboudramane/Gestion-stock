@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { executer, unResultat } from "../../electron/db/helpers";
 import {
   ErreurAchat,
+  annulerPaiementDette,
   annulerReception,
   creerCommande,
   creerFournisseur,
@@ -13,6 +14,7 @@ import {
   historiqueAchats,
   suiviCommande,
   listerCommandes,
+  listerPaiementsDette,
   listerHistoriqueReceptions,
   listerReceptionsCommande,
   modifierCommande,
@@ -777,5 +779,61 @@ describe("fournisseurs : modifier / supprimer", () => {
     expect(listerFournisseurs(boutiqueId)).toHaveLength(0);
     // L'historique garde son nom.
     expect(listerCommandes(boutiqueId)[0].fournisseurNom).toBe("Grossiste Konan");
+  });
+});
+
+describe("achats.annulerPaiementDette (remboursement saisi par erreur)", () => {
+  const boutiqueId = randomUUID();
+  const depotId = randomUUID();
+  let varianteId: string;
+
+  beforeEach(async () => {
+    await creerBaseDeTest();
+    executer("INSERT INTO depots (id, boutique_id, nom) VALUES (?, ?, ?)", [depotId, boutiqueId, "Magasin"]);
+    const produitId = randomUUID();
+    varianteId = randomUUID();
+    executer("INSERT INTO produits (id, boutique_id, nom) VALUES (?, ?, ?)", [produitId, boutiqueId, "Riz 25kg"]);
+    executer("INSERT INTO variantes (id, produit_id, prix_achat, prix_vente) VALUES (?, ?, ?, ?)", [
+      varianteId,
+      produitId,
+      10000,
+      12500,
+    ]);
+  });
+
+  it("remet le montant dans le solde, rend l'argent à la caisse, garde la trace et note l'étape", () => {
+    const fournisseurId = creerFournisseur(boutiqueId, "Grossiste Konan");
+    const commande = creerCommande({
+      boutiqueId,
+      fournisseurId,
+      utilisateurId: "u1",
+      statut: "commandee",
+      lignes: [{ varianteId, quantite: 2, prixAchat: 10000 }],
+    });
+    receptionnerCommande({ commandeId: commande.id, depotId, utilisateurId: "u1", lignes: [{ varianteId, quantite: 2 }] });
+    const detteId = unResultat<{ id: string }>("SELECT id FROM dettes_fournisseur WHERE commande_id = ?", [commande.id])!.id;
+    payerDette(detteId, 20000, "especes", depotId, "u1");
+    const [paiement] = listerPaiementsDette(detteId);
+
+    annulerPaiementDette(paiement.id, "u2", "Erreur de saisie");
+
+    const dette = unResultat<{ solde: number; montant_paye: number; statut: string }>(
+      "SELECT solde, montant_paye, statut FROM dettes_fournisseur WHERE id = ?",
+      [detteId],
+    )!;
+    expect([Number(dette.solde), Number(dette.montant_paye), dette.statut]).toEqual([20000, 0, "en_cours"]);
+    expect(listerPaiementsDette(detteId)[0]).toMatchObject({
+      annulee: true,
+      annuleParId: "u2",
+      motifAnnulation: "Erreur de saisie",
+    });
+    const retourCaisse = unResultat<{ type: string; montant: number }>(
+      "SELECT type, montant FROM mouvements_caisse WHERE reference_type = 'fournisseurs.PaiementDetteFournisseur:annulation'",
+      [],
+    )!;
+    expect([retourCaisse.type, Number(retourCaisse.montant)]).toEqual(["entree", 20000]);
+    expect(suiviCommande(commande.id).map((e) => e.type)).toContain("paiement_annule");
+    expect(historiqueAchats(boutiqueId).paiements.find((p) => p.id === paiement.id)!.annulee).toBe(true);
+    expect(() => annulerPaiementDette(paiement.id, "u2")).toThrow(/déjà annulé/);
   });
 });

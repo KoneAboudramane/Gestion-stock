@@ -459,6 +459,9 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("commandes:historique", (_evt, boutiqueId: string) => achats.historiqueAchats(boutiqueId));
   ipcMain.handle("commandes:suivi", (_evt, commandeId: string) => achats.suiviCommande(commandeId));
 
+  ipcMain.handle("dettes:annulerPaiement", (_evt, paiementId: string, utilisateurId: string | null, motif?: string) =>
+    executerEnSecurite(() => achats.annulerPaiementDette(paiementId, utilisateurId, motif)),
+  );
   ipcMain.handle(
     "dettes:lister",
     (_evt, boutiqueId: string, fournisseurId?: string, statut?: achats.StatutDette) =>

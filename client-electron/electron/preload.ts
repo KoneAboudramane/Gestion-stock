@@ -193,6 +193,8 @@ contextBridge.exposeInMainWorld("api", {
     suivi: (commandeId: string) => ipcRenderer.invoke("commandes:suivi", commandeId),
   },
   dettes: {
+    annulerPaiement: (paiementId: string, utilisateurId: string | null, motif?: string) =>
+      ipcRenderer.invoke("dettes:annulerPaiement", paiementId, utilisateurId, motif),
     lister: (boutiqueId: string, fournisseurId?: string, statut?: string) =>
       ipcRenderer.invoke("dettes:lister", boutiqueId, fournisseurId, statut),
     payer: (id: string, montant: number, mode?: string, depotId?: string | null, utilisateurId?: string | null) =>

@@ -670,6 +670,11 @@ export interface PaiementDetteDetail {
   montant: number;
   mode: string;
   dateCreation: string;
+  /** Remboursement annulé (reste visible ; son montant est revenu dans le solde). */
+  annulee: boolean;
+  dateAnnulation: string | null;
+  annuleParId: string | null;
+  motifAnnulation: string;
 }
 
 export interface LigneReceptionDetail {
@@ -753,6 +758,7 @@ export type TypeEtapeCommande =
   | "reception_annulee"
   | "retour"
   | "paiement"
+  | "paiement_annule"
   | "annulee";
 
 /** Une étape du suivi d'une commande (achats.EvenementCommande). */
@@ -1357,6 +1363,7 @@ export interface WindowApi {
     suivi(commandeId: string): Promise<EtapeCommande[]>;
   };
   dettes: {
+    annulerPaiement(paiementId: string, utilisateurId: string | null, motif?: string): Promise<ResultatEcriture<void>>;
     lister(boutiqueId: string, fournisseurId?: string, statut?: StatutDette): Promise<DetteResume[]>;
     payer(
       id: string,

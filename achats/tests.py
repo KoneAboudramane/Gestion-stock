@@ -504,3 +504,65 @@ class SuiviEtapesCommandeTests(APITestCase):
         )
         self.assertTrue(all(e[1] == self.patron.id for e in etapes))
         self.assertEqual([e[2] for e in etapes[2:]], [40000, 15000, 5000])
+
+
+class AnnulationRemboursementDetteTests(APITestCase):
+    """Un remboursement de dette annulé revient dans le solde, en caisse et en comptabilité."""
+
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique R"}, {"username": "patronR", "password": "UnMotDePasseSolide123"}
+        )
+        self.fournisseur = Fournisseur.objects.create(boutique=self.boutique, nom="Grossiste")
+        self.depot = Depot.objects.create(boutique=self.boutique, nom="Magasin")
+        self.commande = CommandeAchat.objects.create(
+            boutique=self.boutique, fournisseur=self.fournisseur, statut="recue", total=10000,
+        )
+        self.dette = DetteFournisseur.objects.create(
+            fournisseur=self.fournisseur, commande=self.commande, montant=10000, montant_paye=0, solde=10000,
+            statut="en_cours",
+        )
+        self.client.force_authenticate(user=self.patron)
+
+    def test_annuler_un_remboursement_en_especes(self):
+        from comptabilite.models import EcritureComptable
+        from fournisseurs.models import PaiementDetteFournisseur
+        from tresorerie.models import MouvementCaisse
+
+        self.client.post(
+            reverse("dettefournisseur-payer", args=[self.dette.id]),
+            {"montant": "10000", "mode": "especes", "depot": str(self.depot.id)},
+            format="json",
+        )
+        self.dette.refresh_from_db()
+        self.assertEqual(self.dette.statut, "solde")
+        paiement = PaiementDetteFournisseur.objects.get(dette=self.dette)
+
+        reponse = self.client.post(
+            reverse("dettefournisseur-annuler-paiement", args=[self.dette.id]),
+            {"paiement": str(paiement.id), "motif": "Erreur de saisie"},
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK, reponse.data)
+        self.dette.refresh_from_db()
+        paiement.refresh_from_db()
+        self.assertEqual((self.dette.solde, self.dette.montant_paye, self.dette.statut), (10000, 0, "en_cours"))
+        self.assertTrue(paiement.annulee)
+        self.assertEqual(paiement.annule_par, self.patron)
+        self.assertEqual(paiement.motif_annulation, "Erreur de saisie")
+        self.assertTrue(
+            MouvementCaisse.objects.filter(
+                reference_type="fournisseurs.PaiementDetteFournisseur:annulation", type="entree", montant=10000
+            ).exists()
+        )
+        self.assertTrue(
+            EcritureComptable.objects.filter(reference_type="fournisseurs.PaiementDetteFournisseur:annulation").exists()
+        )
+        self.assertTrue(self.commande.evenements.filter(type="paiement_annule").exists())
+
+        reponse = self.client.post(
+            reverse("dettefournisseur-annuler-paiement", args=[self.dette.id]),
+            {"paiement": str(paiement.id)},
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)

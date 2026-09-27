@@ -196,6 +196,17 @@ export async function genererEcrituresLocales(boutiqueId: string): Promise<Ecrit
         referenceId: paiement.id,
         lignes: [ligne("401", paiement.montant, 0), ligne(compteSource, 0, paiement.montant)],
       });
+      if (paiement.annulee) {
+        ecritures.push({
+          id: `paiement-dette-annulation-${paiement.id}`,
+          date: (paiement.date_annulation ?? paiement.date_creation).slice(0, 10),
+          journal: "AC",
+          libelle: `Annulation paiement dette ${fournisseursParId.get(dette.fournisseur_id)?.nom ?? ""}`,
+          referenceType: "fournisseurs.PaiementDetteFournisseur:annulation",
+          referenceId: paiement.id,
+          lignes: [ligne(compteSource, paiement.montant, 0), ligne("401", 0, paiement.montant)],
+        });
+      }
     }
   }
 

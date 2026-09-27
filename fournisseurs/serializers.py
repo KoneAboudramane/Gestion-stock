@@ -15,7 +15,7 @@ class FournisseurSerializer(serializers.ModelSerializer):
 class PaiementDetteFournisseurSerializer(serializers.ModelSerializer):
     class Meta:
         model = PaiementDetteFournisseur
-        fields = ["id", "montant", "mode", "date_creation"]
+        fields = ["id", "montant", "mode", "date_creation", "annulee", "date_annulation", "annule_par", "motif_annulation"]
         read_only_fields = fields
 
 

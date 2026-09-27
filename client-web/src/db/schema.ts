@@ -340,6 +340,10 @@ export interface PaiementDetteFournisseurLocale extends SuiviSync {
   dette_id: string;
   montant: number;
   mode: string;
+  annulee?: boolean | number;
+  date_annulation?: string | null;
+  annule_par_id?: string | null;
+  motif_annulation?: string;
 }
 
 // --- Trésorerie (suivi de caisse, séparé de l'écran de vente "Caisse") ---

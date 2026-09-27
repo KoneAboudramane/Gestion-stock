@@ -174,7 +174,7 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
   {
     table: "fournisseurs.PaiementDetteFournisseur",
     store: "paiements_dette_fournisseur",
-    champsFK: ["dette"],
+    champsFK: ["dette", "annule_par"],
     champsNumeriques: ["montant"],
   },
   {

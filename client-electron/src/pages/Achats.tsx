@@ -537,6 +537,7 @@ const LIBELLES_ETAPE: Record<string, string> = {
   reception_annulee: "⛔ Réception annulée",
   retour: "↩️ Retour fournisseur",
   paiement: "💰 Paiement",
+  paiement_annule: "🚫 Paiement annulé",
   annulee: "❌ Commande annulée",
 };
 
@@ -1945,6 +1946,9 @@ function ModaleDette({
   const [erreur, setErreur] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  const [aAnnuler, setAAnnuler] = useState<PaiementDetteDetail | null>(null);
+  const [motifAnnulation, setMotifAnnulation] = useState("");
+  const nomUtilisateur = useNomsUtilisateurs(session);
 
   function chargerPaiements() {
     api.dettes.listerPaiements(dette.id).then(setPaiements);
@@ -1976,8 +1980,35 @@ function ModaleDette({
     onPaye();
   }
 
+  async function annulerRemboursement() {
+    if (!aAnnuler) return;
+    setEnCours(true);
+    setErreur(null);
+    setMessage(null);
+    let succes = false;
+    try {
+      const resultat = await api.dettes.annulerPaiement(aAnnuler.id, session.utilisateurId, motifAnnulation);
+      if (resultat.succes) succes = true;
+      else setErreur(resultat.message);
+    } finally {
+      setEnCours(false);
+    }
+    const montantAnnule = Number(aAnnuler.montant);
+    setAAnnuler(null);
+    if (!succes) return;
+    setDette({
+      ...dette,
+      montantPaye: dette.montantPaye - montantAnnule,
+      solde: dette.solde + montantAnnule,
+      statut: "en_cours",
+    });
+    setMessage("Remboursement annulé : son montant est revenu dans le reste à payer.");
+    chargerPaiements();
+    onPaye();
+  }
+
   // Traces : ce qui a été payé à la réception (s'il y en a), puis chaque règlement.
-  const regle = paiements.reduce((t, x) => t + Number(x.montant), 0);
+  const regle = paiements.filter((x) => !x.annulee).reduce((t, x) => t + Number(x.montant), 0);
   const payeALaReception = Math.max(0, dette.montantPaye - regle);
   const traces = [
     ...(payeALaReception > 0
@@ -1985,12 +2016,20 @@ function ModaleDette({
       : []),
     ...[...paiements]
       .sort((a, b) => a.dateCreation.localeCompare(b.dateCreation))
-      .map((x) => ({ id: x.id, dateCreation: x.dateCreation, origine: "Remboursement", mode: x.mode, montant: Number(x.montant) })),
+      .map((x) => ({
+        id: x.id,
+        dateCreation: x.dateCreation,
+        origine: x.annulee ? "Remboursement annulé" : "Remboursement",
+        mode: x.mode,
+        montant: Number(x.montant),
+        paiement: x as PaiementDetteDetail | null,
+      })),
   ];
   let cumul = 0;
   const lignesTraces = traces.map((t) => {
-    cumul += t.montant;
-    return { ...t, reste: Math.max(0, dette.montant - cumul) };
+    const annule = !!("paiement" in t && t.paiement?.annulee);
+    if (!annule) cumul += t.montant;
+    return { ...t, paiement: "paiement" in t ? t.paiement : null, annule, reste: Math.max(0, dette.montant - cumul) };
   });
 
   return (
@@ -2069,6 +2108,23 @@ function ModaleDette({
           {erreur && <div className="message-erreur">{erreur}</div>}
           {message && <div className="message-succes">{message}</div>}
 
+          {aAnnuler && (
+            <ModaleConfirmation
+              titre={`Annuler le remboursement de ${formaterMontant(aAnnuler.montant)} ${devise} ?`}
+              description="Il restera visible dans les traces, marqué annulé. Son montant revient dans le reste à payer ; s'il a été payé en espèces, l'argent revient dans la caisse."
+              labelConfirmer="Annuler le remboursement"
+              dangereux
+              enCours={enCours}
+              onAnnuler={() => setAAnnuler(null)}
+              onConfirmer={annulerRemboursement}
+            >
+              <label className="champ-formulaire">
+                Motif (facultatif)
+                <input value={motifAnnulation} onChange={(e) => setMotifAnnulation(e.target.value)} autoFocus />
+              </label>
+            </ModaleConfirmation>
+          )}
+
           <h4>Traces des paiements</h4>
           <div className="zone-tableau-scroll">
             <table className="tableau-catalogue">
@@ -2079,21 +2135,49 @@ function ModaleDette({
                   <th>Mode</th>
                   <th>Montant</th>
                   <th>Reste après</th>
+                  {peutGerer && <th className="colonne-actions-categorie" />}
                 </tr>
               </thead>
               <tbody>
                 {lignesTraces.map((t) => (
-                  <tr key={t.id}>
+                  <tr key={t.id} className={t.annule ? "ligne-annulee" : undefined}>
                     <td>{new Date(t.dateCreation).toLocaleString("fr-FR")}</td>
-                    <td>{t.origine}</td>
+                    <td>
+                      {t.origine}
+                      {t.annule && t.paiement && (
+                        <span className="sous-info">
+                          {" "}
+                          · le {new Date(t.paiement.dateAnnulation ?? t.dateCreation).toLocaleDateString("fr-FR")}
+                          {t.paiement.annuleParId ? ` par ${nomUtilisateur(t.paiement.annuleParId)}` : ""}
+                          {t.paiement.motifAnnulation ? ` · ${t.paiement.motifAnnulation}` : ""}
+                        </span>
+                      )}
+                    </td>
                     <td>{t.mode ? libelleModeReglement(t.mode) : "—"}</td>
                     <td>{formaterMontant(t.montant)} {devise}</td>
-                    <td>{formaterMontant(t.reste)} {devise}</td>
+                    <td>{t.annule ? "—" : `${formaterMontant(t.reste)} ${devise}`}</td>
+                    {peutGerer && (
+                      <td className="colonne-actions-categorie">
+                        {t.paiement && !t.annule && (
+                          <button
+                            type="button"
+                            className="lien-icone lien-icone-danger"
+                            title="Annuler ce remboursement"
+                            onClick={() => {
+                              setMotifAnnulation("");
+                              setAAnnuler(t.paiement);
+                            }}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
                 {lignesTraces.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="liste-vide">
+                    <td colSpan={peutGerer ? 6 : 5} className="liste-vide">
                       Aucun paiement pour l'instant.
                     </td>
                   </tr>
@@ -2105,6 +2189,7 @@ function ModaleDette({
                     <td>&nbsp;</td>
                     <td>&nbsp;</td>
                     <td>&nbsp;</td>
+                    {peutGerer && <td>&nbsp;</td>}
                   </tr>
                 ))}
               </tbody>
@@ -2704,7 +2789,9 @@ function ModalePaiementsFournisseur({
               <tbody>
                 {paiements.map((x) => (
                   <tr key={x.id} className={x.annulee ? "ligne-annulee" : undefined}>
-                    <td>{new Date(x.dateCreation).toLocaleString("fr-FR")}{" "}{x.annulee && <span className="badge-brouillon">Réception annulée</span>}</td>
+                    <td>{new Date(x.dateCreation).toLocaleString("fr-FR")}{" "}{x.annulee && (
+                      <span className="badge-brouillon">{x.origine === "reception" ? "Réception annulée" : "Annulé"}</span>
+                    )}</td>
                     <td>{x.commandeNumero ?? "—"}</td>
                     <td>{x.origine === "reception" ? "À la réception" : "Règlement de dette"}</td>
                     <td>{x.mode ? libelleModeReglement(x.mode) : "—"}</td>

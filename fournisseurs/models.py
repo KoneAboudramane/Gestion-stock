@@ -55,3 +55,11 @@ class PaiementDetteFournisseur(ModeleBase):
     )
     montant = models.DecimalField(max_digits=12, decimal_places=2)
     mode = models.CharField(max_length=30, blank=True)
+    # Remboursement saisi par erreur (voir services.annuler_paiement_dette) :
+    # reste visible, marqué annulé ; son montant revient dans le solde.
+    annulee = models.BooleanField(default=False)
+    date_annulation = models.DateTimeField(null=True, blank=True)
+    annule_par = models.ForeignKey(
+        "comptes.Utilisateur", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    motif_annulation = models.CharField(max_length=255, blank=True)

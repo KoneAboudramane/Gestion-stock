@@ -382,6 +382,10 @@ CREATE TABLE IF NOT EXISTS paiements_dette_fournisseur (
   dette_id TEXT NOT NULL,
   montant REAL NOT NULL,
   mode TEXT DEFAULT '',
+  annulee INTEGER DEFAULT 0,
+  date_annulation TEXT,
+  annule_par_id TEXT,
+  motif_annulation TEXT DEFAULT '',
   ${SUIVI_SYNC}
 );
 

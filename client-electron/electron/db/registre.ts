@@ -199,7 +199,7 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
   {
     table: "fournisseurs.PaiementDetteFournisseur",
     tableLocale: "paiements_dette_fournisseur",
-    champsFK: ["dette"],
+    champsFK: ["dette", "annule_par"],
     clauseBoutique:
       "dette_id IN (SELECT id FROM dettes_fournisseur WHERE fournisseur_id IN (SELECT id FROM fournisseurs WHERE boutique_id = ?))",
   },

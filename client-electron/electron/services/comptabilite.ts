@@ -222,8 +222,17 @@ export function genererEcrituresLocales(boutiqueId: string): EcritureLocale[] {
   }
 
   // --- Paiements de dettes fournisseur ---
-  const paiementsDette = tousLesResultats<{ id: string; montant: number; mode: string; dateCreation: string; fournisseurNom: string }>(
-    `SELECT pd.id as id, pd.montant as montant, pd.mode as mode, pd.date_creation as dateCreation, f.nom as fournisseurNom
+  const paiementsDette = tousLesResultats<{
+    id: string;
+    montant: number;
+    mode: string;
+    dateCreation: string;
+    fournisseurNom: string;
+    annulee: number;
+    dateAnnulation: string | null;
+  }>(
+    `SELECT pd.id as id, pd.montant as montant, pd.mode as mode, pd.date_creation as dateCreation, f.nom as fournisseurNom,
+            COALESCE(pd.annulee, 0) as annulee, pd.date_annulation as dateAnnulation
      FROM paiements_dette_fournisseur pd
      JOIN dettes_fournisseur d ON d.id = pd.dette_id
      JOIN fournisseurs f ON f.id = d.fournisseur_id
@@ -241,6 +250,17 @@ export function genererEcrituresLocales(boutiqueId: string): EcritureLocale[] {
       referenceId: p.id,
       lignes: [ligne("401", p.montant, 0), ligne(compteSource, 0, p.montant)],
     });
+    if (Number(p.annulee)) {
+      ecritures.push({
+        id: `paiement-dette-annulation-${p.id}`,
+        date: (p.dateAnnulation ?? p.dateCreation).slice(0, 10),
+        journal: "AC",
+        libelle: `Annulation paiement dette ${p.fournisseurNom}`,
+        referenceType: "fournisseurs.PaiementDetteFournisseur:annulation",
+        referenceId: p.id,
+        lignes: [ligne(compteSource, p.montant, 0), ligne("401", 0, p.montant)],
+      });
+    }
   }
 
   // --- Règlements de crédit client ---

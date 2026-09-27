@@ -225,6 +225,33 @@ def sur_paiement_dette_fournisseur(sender, instance, created, **kwargs):
         )
 
 
+@receiver(post_save, sender="fournisseurs.PaiementDetteFournisseur")
+def sur_annulation_paiement_dette_fournisseur(sender, instance, created, **kwargs):
+    """Contre-écriture du remboursement annulé (mêmes comptes, sens inverse)."""
+    if created or not instance.annulee:
+        return
+    try:
+        if _reference_deja_comptabilisee("fournisseurs.PaiementDetteFournisseur:annulation", instance.id):
+            return
+        if not _reference_deja_comptabilisee("fournisseurs.PaiementDetteFournisseur", instance.id):
+            return
+        boutique = instance.dette.fournisseur.boutique
+        date = instance.date_annulation.date() if instance.date_annulation else instance.date_modification.date()
+        compte_source = "571" if instance.mode == "especes" else "55"
+        creer_ecriture(
+            preparer_contexte(boutique, date), "AC", date,
+            f"Annulation paiement dette {instance.dette.fournisseur.nom}",
+            [
+                {"compte": compte_source, "debit": instance.montant},
+                {"compte": "401", "credit": instance.montant},
+            ],
+            reference_type="fournisseurs.PaiementDetteFournisseur:annulation", reference_id=instance.id,
+            utilisateur=instance.annule_par,
+        )
+    except Exception:
+        logger.exception("comptabilite: échec contre-écriture pour fournisseurs.PaiementDetteFournisseur %s", instance.id)
+
+
 # --- Clients ---
 
 @receiver(post_save, sender="clients.PaiementCredit")

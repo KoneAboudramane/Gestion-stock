@@ -335,6 +335,7 @@ export type TypeEtapeCommande =
   | "reception_annulee"
   | "retour"
   | "paiement"
+  | "paiement_annule"
   | "annulee";
 
 /** Une étape du suivi d'une commande (achats.EvenementCommande). */
@@ -883,10 +884,10 @@ export interface HistoriqueAchats {
 export function historiqueAchats(boutiqueId: string): HistoriqueAchats {
   const commandes = listerCommandes(boutiqueId, undefined, undefined, "", 1_000_000);
   const receptions = listerHistoriqueReceptions(boutiqueId, undefined, "", 1_000_000);
-  const reglements = tousLesResultats<Omit<PaiementFournisseurHistorique, "origine" | "annulee">>(
+  const reglements = tousLesResultats<Omit<PaiementFournisseurHistorique, "origine" | "annulee"> & { annulee: number }>(
     `SELECT p.id as id, p.date_creation as dateCreation, f.nom as fournisseurNom,
             d.commande_id as commandeId, c.numero as commandeNumero, p.montant as montant,
-            COALESCE(p.mode, '') as mode
+            COALESCE(p.mode, '') as mode, COALESCE(p.annulee, 0) as annulee
      FROM paiements_dette_fournisseur p
      JOIN dettes_fournisseur d ON d.id = p.dette_id
      JOIN fournisseurs f ON f.id = d.fournisseur_id
@@ -908,7 +909,12 @@ export function historiqueAchats(boutiqueId: string): HistoriqueAchats {
         origine: "reception" as const,
         annulee: r.annulee,
       })),
-    ...reglements.map((p) => ({ ...p, montant: Number(p.montant), origine: "dette" as const, annulee: false })),
+    ...reglements.map((p) => ({
+      ...p,
+      montant: Number(p.montant),
+      origine: "dette" as const,
+      annulee: Boolean(Number(p.annulee)),
+    })),
   ].sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));
   const retours = tousLesResultats<RetourFournisseurHistorique>(
     `SELECT rf.id as id, rf.date_creation as dateCreation, c.id as commandeId, c.numero as commandeNumero,
@@ -1240,13 +1246,84 @@ export interface PaiementDetteDetail {
   montant: number;
   mode: string;
   dateCreation: string;
+  /** Remboursement annulé (reste visible ; son montant est revenu dans le solde). */
+  annulee: boolean;
+  dateAnnulation: string | null;
+  annuleParId: string | null;
+  motifAnnulation: string;
 }
 
 export function listerPaiementsDette(detteId: string): PaiementDetteDetail[] {
-  return tousLesResultats<PaiementDetteDetail>(
-    "SELECT id, montant, mode, date_creation as dateCreation FROM paiements_dette_fournisseur WHERE dette_id = ? AND supprime = 0 ORDER BY date_creation DESC",
+  return tousLesResultats<Omit<PaiementDetteDetail, "annulee"> & { annulee: number }>(
+    `SELECT id, montant, mode, date_creation as dateCreation, COALESCE(annulee, 0) as annulee,
+            date_annulation as dateAnnulation, annule_par_id as annuleParId,
+            COALESCE(motif_annulation, '') as motifAnnulation
+     FROM paiements_dette_fournisseur WHERE dette_id = ? AND supprime = 0 ORDER BY date_creation DESC`,
     [detteId],
+  ).map((p) => ({ ...p, montant: Number(p.montant), annulee: Boolean(Number(p.annulee)) }));
+}
+
+/**
+ * Remboursement saisi par erreur : il reste visible, marqué annulé ; son
+ * montant revient dans le solde de la dette (qui redevient en cours). S'il
+ * était en espèces, l'argent revient dans la caisse du même dépôt.
+ */
+export function annulerPaiementDette(paiementId: string, utilisateurId: string | null, motif = ""): void {
+  const paiement = unResultat<{ dette_id: string; montant: number; annulee: number }>(
+    "SELECT dette_id, montant, COALESCE(annulee, 0) as annulee FROM paiements_dette_fournisseur WHERE id = ?",
+    [paiementId],
   );
+  if (!paiement) throw new ErreurAchat("Remboursement introuvable.");
+  if (Number(paiement.annulee)) throw new ErreurAchat("Ce remboursement est déjà annulé.");
+  const dette = unResultat<{ commande_id: string | null; fournisseur_nom: string }>(
+    `SELECT d.commande_id as commande_id, f.nom as fournisseur_nom
+     FROM dettes_fournisseur d JOIN fournisseurs f ON f.id = d.fournisseur_id WHERE d.id = ?`,
+    [paiement.dette_id],
+  )!;
+  const montant = Number(paiement.montant);
+  const motifPropre = motif.trim().slice(0, 255);
+
+  dansUneTransaction(() => {
+    const maintenant = new Date().toISOString();
+    executer(
+      `UPDATE dettes_fournisseur SET montant_paye = montant_paye - ?, solde = solde + ?, statut = 'en_cours',
+         synchronise = 0, date_modification = ? WHERE id = ?`,
+      [montant, montant, maintenant, paiement.dette_id],
+    );
+    executer(
+      `UPDATE paiements_dette_fournisseur SET annulee = 1, date_annulation = ?, annule_par_id = ?, motif_annulation = ?,
+         synchronise = 0, date_modification = ? WHERE id = ?`,
+      [maintenant, utilisateurId, motifPropre, maintenant, paiementId],
+    );
+    const sortie = unResultat<{ depot_id: string }>(
+      `SELECT depot_id FROM mouvements_caisse
+       WHERE reference_type = 'fournisseurs.PaiementDetteFournisseur' AND reference_id = ? AND type = 'sortie' AND supprime = 0`,
+      [paiementId],
+    );
+    if (sortie) {
+      enregistrerMouvement({
+        depotId: sortie.depot_id,
+        type: "entree",
+        categorie: "paiement_dette_fournisseur",
+        montant,
+        motif: `Annulation paiement dette ${dette.fournisseur_nom}`,
+        utilisateurId,
+        referenceType: "fournisseurs.PaiementDetteFournisseur:annulation",
+        referenceId: paiementId,
+      });
+    }
+    if (dette.commande_id) {
+      noterEtape(
+        dette.commande_id,
+        "paiement_annule",
+        utilisateurId,
+        "Remboursement annulé" + (motifPropre ? ` · ${motifPropre}` : ""),
+        montant,
+        paiementId,
+      );
+    }
+  });
+  sauvegarder();
 }
 
 export function payerDette(
@@ -1394,8 +1471,17 @@ export function suiviCommande(commandeId: string): EtapeCommande[] {
       });
     }
   }
-  for (const p of tousLesResultats<{ id: string; dateCreation: string; montant: number; mode: string }>(
-    `SELECT p.id as id, p.date_creation as dateCreation, p.montant as montant, COALESCE(p.mode, '') as mode
+  for (const p of tousLesResultats<{
+    id: string;
+    dateCreation: string;
+    montant: number;
+    mode: string;
+    annulee: number;
+    dateAnnulation: string | null;
+    annuleParId: string | null;
+  }>(
+    `SELECT p.id as id, p.date_creation as dateCreation, p.montant as montant, COALESCE(p.mode, '') as mode,
+            COALESCE(p.annulee, 0) as annulee, p.date_annulation as dateAnnulation, p.annule_par_id as annuleParId
      FROM paiements_dette_fournisseur p JOIN dettes_fournisseur d ON d.id = p.dette_id
      WHERE d.commande_id = ? AND p.supprime = 0 AND d.supprime = 0`,
     [commandeId],
@@ -1408,6 +1494,16 @@ export function suiviCommande(commandeId: string): EtapeCommande[] {
       detail: detailReglement(p.mode),
       montant: Number(p.montant),
     });
+    if (Number(p.annulee)) {
+      reconstituer(`paiement_annule:${p.id}`, {
+        id: `paiement-annule-${p.id}`,
+        type: "paiement_annule",
+        dateCreation: p.dateAnnulation ?? p.dateCreation,
+        utilisateurId: p.annuleParId,
+        detail: "Remboursement annulé",
+        montant: Number(p.montant),
+      });
+    }
   }
   return etapes.sort((a, b) => a.dateCreation.localeCompare(b.dateCreation));
 }

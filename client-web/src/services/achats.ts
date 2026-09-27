@@ -360,6 +360,7 @@ export type TypeEtapeCommande =
   | "reception_annulee"
   | "retour"
   | "paiement"
+  | "paiement_annule"
   | "annulee";
 
 /** Une étape du suivi d'une commande (achats.EvenementCommande). */
@@ -923,7 +924,7 @@ export async function historiqueAchats(boutiqueId: string): Promise<HistoriqueAc
         montant: Number(p.montant),
         mode: p.mode ?? "",
         origine: "dette",
-        annulee: false,
+        annulee: Boolean(p.annulee),
       });
     }
   }
@@ -973,6 +974,11 @@ export interface PaiementDetteDetail {
   montant: number;
   mode: string;
   dateCreation: string;
+  /** Remboursement annulé (reste visible ; son montant est revenu dans le solde). */
+  annulee: boolean;
+  dateAnnulation: string | null;
+  annuleParId: string | null;
+  motifAnnulation: string;
 }
 
 export async function listerPaiementsDette(detteId: string): Promise<PaiementDetteDetail[]> {
@@ -981,8 +987,81 @@ export async function listerPaiementsDette(detteId: string): Promise<PaiementDet
     (p) => !p.supprime,
   );
   return paiements
-    .map((p) => ({ id: p.id, montant: p.montant, mode: p.mode, dateCreation: p.date_creation }))
+    .map((p) => ({
+      id: p.id,
+      montant: p.montant,
+      mode: p.mode,
+      dateCreation: p.date_creation,
+      annulee: Boolean(p.annulee),
+      dateAnnulation: p.date_annulation ?? null,
+      annuleParId: p.annule_par_id ?? null,
+      motifAnnulation: p.motif_annulation ?? "",
+    }))
     .sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));
+}
+
+/**
+ * Remboursement saisi par erreur : il reste visible, marqué annulé ; son
+ * montant revient dans le solde de la dette (qui redevient en cours). S'il
+ * était en espèces, l'argent revient dans la caisse du même dépôt.
+ */
+export async function annulerPaiementDette(paiementId: string, utilisateurId: string | null, motif = ""): Promise<void> {
+  const db = await ouvrirBaseDeDonnees();
+  const paiement = await db.get("paiements_dette_fournisseur", paiementId);
+  if (!paiement) throw new ErreurAchat("Remboursement introuvable.");
+  if (paiement.annulee) throw new ErreurAchat("Ce remboursement est déjà annulé.");
+  const dette = await db.get("dettes_fournisseur", paiement.dette_id);
+  if (!dette) throw new ErreurAchat("Dette introuvable.");
+  const fournisseur = await db.get("fournisseurs", dette.fournisseur_id);
+  const instant = maintenant();
+  const motifPropre = motif.trim().slice(0, 255);
+
+  await ecrireLigne("dettes_fournisseur", {
+    ...dette,
+    montant_paye: dette.montant_paye - paiement.montant,
+    solde: dette.solde + paiement.montant,
+    statut: "en_cours",
+    synchronise: 0,
+    date_modification: instant,
+  });
+  await ecrireLigne("paiements_dette_fournisseur", {
+    ...paiement,
+    annulee: 1,
+    date_annulation: instant,
+    annule_par_id: utilisateurId,
+    motif_annulation: motifPropre,
+    synchronise: 0,
+    date_modification: instant,
+  });
+  const sortie = (await db.getAll("mouvements_caisse")).find(
+    (m) =>
+      !m.supprime &&
+      m.type === "sortie" &&
+      m.reference_type === "fournisseurs.PaiementDetteFournisseur" &&
+      m.reference_id === paiementId,
+  );
+  if (sortie) {
+    await enregistrerMouvement({
+      depotId: sortie.depot_id,
+      type: "entree",
+      categorie: "paiement_dette_fournisseur",
+      montant: paiement.montant,
+      motif: `Annulation paiement dette ${fournisseur?.nom ?? ""}`,
+      utilisateurId,
+      referenceType: "fournisseurs.PaiementDetteFournisseur:annulation",
+      referenceId: paiementId,
+    });
+  }
+  if (dette.commande_id) {
+    await noterEtape(
+      dette.commande_id,
+      "paiement_annule",
+      utilisateurId,
+      "Remboursement annulé" + (motifPropre ? ` · ${motifPropre}` : ""),
+      paiement.montant,
+      paiementId,
+    );
+  }
 }
 
 export async function payerDette(
@@ -1135,6 +1214,16 @@ export async function suiviCommande(commandeId: string): Promise<EtapeCommande[]
         detail: detailReglement(p.mode ?? ""),
         montant: Number(p.montant),
       });
+      if (p.annulee) {
+        reconstituer(`paiement_annule:${p.id}`, {
+          id: `paiement-annule-${p.id}`,
+          type: "paiement_annule",
+          dateCreation: p.date_annulation ?? p.date_creation,
+          utilisateurId: p.annule_par_id ?? null,
+          detail: "Remboursement annulé",
+          montant: Number(p.montant),
+        });
+      }
     }
   }
   return etapes.sort((a, b) => a.dateCreation.localeCompare(b.dateCreation));
