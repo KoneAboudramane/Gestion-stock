@@ -6760,10 +6760,30 @@ button.tuile-dormance.active {
   max-width: 120px;
 }
 
-/* « Ce qu'on en a fait » : cadre de hauteur fixe, seules les lignes défilent
-   (l'en-tête reste collé en haut, voir .zone-tableau-scroll th). */
-.carte-historique-dormants--tableau .zone-tableau-scroll {
-  height: 300px;
-  max-height: 300px;
+/* Section Dormants : tuiles et graphique restent en place, le tableau « Ce
+   qu'on en a fait » prend toute la hauteur restante et seules ses lignes
+   défilent (l'en-tête reste collé en haut, voir .zone-tableau-scroll th). */
+.section-dormants {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  flex: 1;
+  min-height: 0;
+}
+
+.section-dormants .carte-historique-dormants--tableau {
+  flex: 1;
+  min-height: 170px;
+}
+
+.section-dormants .carte-historique-dormants--tableau .zone-tableau-scroll {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  max-height: none;
   overflow-y: auto;
+}
+
+.section-dormants .serie-graphique-dormants .graphique-dormants {
+  height: 60px;
 }

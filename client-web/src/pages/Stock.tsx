@@ -3129,7 +3129,7 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
                 )}
               </>
             ) : section === "dormants" ? (
-              <>
+              <div className="section-dormants">
                 <div className="barre-actions barre-filtres-historique">
                   {filtrePeriode}
                   <label className="case-a-cocher">
@@ -3259,7 +3259,7 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
                   </table>
                 </div>
                 </section>
-              </>
+              </div>
             ) : (
               <>
                 <div className="barre-actions barre-filtres-historique">
