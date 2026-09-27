@@ -6,6 +6,7 @@ des charges (§7 "Rôles et permissions").
 import secrets
 from datetime import timedelta
 
+from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.hashers import make_password
 from django.core.mail import send_mail
@@ -297,3 +298,29 @@ def reinitialiser_mot_de_passe(email, code, nouveau_mot_de_passe):
     utilisateur.code_reinitialisation = ""
     utilisateur.code_reinitialisation_expire_le = None
     utilisateur.save(update_fields=["password", "code_reinitialisation", "code_reinitialisation_expire_le"])
+
+
+@transaction.atomic
+def supprimer_boutique_definitivement(boutique):
+    """
+    Supprime une boutique et tout son contenu (voir comptes/admin.py, bouton
+    "Supprimer définitivement").
+
+    Depot/Variante/Fournisseur/ExerciceComptable/JournalComptable/CompteComptable
+    sont volontairement en on_delete=PROTECT (ventes.models, achats.models,
+    comptabilite.models) pour empêcher de supprimer par erreur un objet encore
+    référencé par une vente/un achat/une écriture. Mais Django ne fait pas
+    d'exception pour un objet protégé qui serait lui-même supprimé dans la même
+    cascade : `boutique.delete()` seul lève ProtectedError dès qu'une boutique a
+    au moins une vente, un achat ou une écriture. On supprime donc d'abord,
+    explicitement, les enregistrements qui portent ces FK protégées (leurs
+    lignes suivent en CASCADE) ; le reste part normalement en CASCADE avec la
+    boutique.
+    """
+    apps.get_model("ventes", "Vente").objects.filter(boutique=boutique).delete()
+    apps.get_model("achats", "CommandeAchat").objects.filter(boutique=boutique).delete()
+    apps.get_model("comptabilite", "EcritureComptable").objects.filter(boutique=boutique).delete()
+    # Pertes et déstockages protègent aussi Variante/Depot (PROTECT).
+    apps.get_model("stock", "PerteStock").objects.filter(depot__boutique=boutique).delete()
+    apps.get_model("stock", "Destockage").objects.filter(variante__produit__boutique=boutique).delete()
+    boutique.delete()

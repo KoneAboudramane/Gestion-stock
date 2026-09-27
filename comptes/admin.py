@@ -16,6 +16,7 @@ from .services import (
     point_depart_renouvellement,
     rejeter_inscription,
     renouveler_abonnement,
+    supprimer_boutique_definitivement,
 )
 
 DUREE_ESSAI_A_L_APPROBATION = timedelta(days=30)
@@ -26,12 +27,20 @@ DUREE_RENOUVELLEMENT_PAR_DEFAUT = timedelta(days=30)
 class BoutiqueAdmin(admin.ModelAdmin):
     list_display = (
         "nom", "telephone", "devise", "formule", "actif",
-        "date_expiration_abonnement", "synchro_autorisee", "lien_renouveler", "date_creation",
+        "date_expiration_abonnement", "synchro_autorisee", "lien_renouveler", "lien_supprimer", "date_creation",
     )
     list_editable = ("synchro_autorisee",)
     search_fields = ("nom", "telephone", "email")
     list_filter = ("actif", "formule", "devise", "synchro_autorisee")
     actions = ["renouveler_abonnement_action"]
+
+    def has_delete_permission(self, request, obj=None):
+        # Le "Supprimer" standard de l'admin échoue systématiquement dès qu'une
+        # boutique a une vente/un achat/une écriture comptable : Depot, Variante,
+        # Fournisseur et consorts sont en PROTECT (voir supprimer_boutique_definitivement).
+        # On désactive donc l'action native et on passe par lien_supprimer /
+        # vue_suppression_definitive, qui gère cette cascade correctement.
+        return False
 
     def get_urls(self):
         return [
@@ -44,6 +53,11 @@ class BoutiqueAdmin(admin.ModelAdmin):
                 "<uuid:boutique_id>/renouveler/",
                 self.admin_site.admin_view(self.vue_renouvellement),
                 name="comptes_boutique_renouveler",
+            ),
+            path(
+                "<uuid:boutique_id>/supprimer/",
+                self.admin_site.admin_view(self.vue_suppression_definitive),
+                name="comptes_boutique_supprimer",
             ),
         ] + super().get_urls()
 
@@ -97,6 +111,12 @@ class BoutiqueAdmin(admin.ModelAdmin):
 
     lien_renouveler.short_description = "Abonnement"
 
+    def lien_supprimer(self, obj):
+        url = reverse("admin:comptes_boutique_supprimer", args=[obj.pk])
+        return format_html('<a href="{}" style="color: #ba2121;">Supprimer</a>', url)
+
+    lien_supprimer.short_description = "Suppression"
+
     @admin.action(description="Renouveler l'abonnement (choisir la durée et la formule)")
     def renouveler_abonnement_action(self, request, queryset):
         if queryset.count() != 1:
@@ -143,6 +163,53 @@ class BoutiqueAdmin(admin.ModelAdmin):
                 ),
                 "form": form,
                 "submit_label": "Confirmer le renouvellement",
+                "back_url": reverse("admin:comptes_boutique_changelist"),
+                "opts": self.model._meta,
+            },
+        )
+
+    def vue_suppression_definitive(self, request, boutique_id):
+        """Suppression réelle d'une boutique et de tout son contenu (le
+        "Supprimer" natif de l'admin est désactivé, voir has_delete_permission) :
+        simple page de confirmation avant d'appeler supprimer_boutique_definitivement,
+        qui gère l'ordre de suppression imposé par les FK PROTECT (Depot, Variante,
+        Fournisseur, comptabilité)."""
+        if not request.user.has_perm("comptes.delete_boutique"):
+            self.message_user(request, "Vous n'avez pas la permission de supprimer une boutique.", level=messages.ERROR)
+            return HttpResponseRedirect(reverse("admin:comptes_boutique_changelist"))
+
+        boutique = self.get_object(request, boutique_id)
+        if boutique is None:
+            self.message_user(request, "Boutique introuvable.", level=messages.ERROR)
+            return HttpResponseRedirect(reverse("admin:comptes_boutique_changelist"))
+
+        if request.method == "POST":
+            nom = boutique.nom
+            supprimer_boutique_definitivement(boutique)
+            self.message_user(request, f"Boutique « {nom} » et tout son contenu ont été supprimés définitivement.")
+            return HttpResponseRedirect(reverse("admin:comptes_boutique_changelist"))
+
+        compteurs = {
+            "Ventes": boutique.ventes.count(),
+            "Commandes d'achat": boutique.commandes_achat.count(),
+            "Clients": boutique.clients.count(),
+            "Fournisseurs": boutique.fournisseurs.count(),
+            "Dépôts": boutique.depots.count(),
+            "Utilisateurs": boutique.utilisateurs.count(),
+        }
+        detail_contenu = " · ".join(f"{libelle} : {nombre}" for libelle, nombre in compteurs.items())
+
+        return render(
+            request,
+            "admin/comptes/confirmation.html",
+            {
+                **self.admin_site.each_context(request),
+                "title": f"Supprimer définitivement — {boutique.nom}",
+                "description": (
+                    f"Action irréversible : supprime la boutique « {boutique.nom} » et absolument tout son "
+                    f"contenu (ventes, achats, stock, clients, comptabilité...). {detail_contenu}."
+                ),
+                "submit_label": "Supprimer définitivement",
                 "back_url": reverse("admin:comptes_boutique_changelist"),
                 "opts": self.model._meta,
             },
