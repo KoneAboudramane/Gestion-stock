@@ -32,6 +32,7 @@ import {
   type DestockageResume,
   type PerteResume,
 } from "../services/stock";
+import BoutonsExport from "../components/BoutonsExport";
 import { useDevise } from "../contexts/DeviseContext";
 import { FormulaireDestockage } from "./Stock";
 import { formaterMontant } from "../lib/formatage";
@@ -149,6 +150,20 @@ function ModaleSynthese({
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Synthèse" onFermer={onFermer} />
         <div className="modale-corps">
+          <div className="ligne-export-rapport">
+            <BoutonsExport
+              titre="Synthese des ventes"
+              colonnes={[
+  { cle: "totalBrut", libelle: "Total brut" },
+  { cle: "totalRemises", libelle: "Remises" },
+  { cle: "totalNet", libelle: "Total net" },
+  { cle: "nombreVentes", libelle: "Nombre de ventes" },
+  { cle: "panierMoyen", libelle: "Panier moyen" },
+  { cle: "beneficeTotal", libelle: "Bénéfice" },
+]}
+              lignes={synthese ? [synthese as unknown as Record<string, unknown>] : []}
+            />
+          </div>
           <SelecteurPeriode
             periode={f.periode} setPeriode={f.setPeriode}
             dateDebutPerso={f.dateDebutPerso} setDateDebutPerso={f.setDateDebutPerso}
@@ -208,6 +223,18 @@ function ModaleTopProduits({
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Top articles" onFermer={onFermer} />
         <div className="modale-corps">
+          <div className="ligne-export-rapport">
+            <BoutonsExport
+              titre="Top articles"
+              colonnes={[
+  { cle: "produit", libelle: "Désignation" },
+  { cle: "reference", libelle: "Référence" },
+  { cle: "quantiteVendue", libelle: "Quantité vendue" },
+  { cle: "caGenere", libelle: "CA généré" },
+]}
+              lignes={lignes as unknown as Record<string, unknown>[]}
+            />
+          </div>
           <SelecteurPeriode
             periode={f.periode} setPeriode={f.setPeriode}
             dateDebutPerso={f.dateDebutPerso} setDateDebutPerso={f.setDateDebutPerso}
@@ -281,6 +308,17 @@ function ModaleTopClients({
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Top clients" onFermer={onFermer} />
         <div className="modale-corps">
+          <div className="ligne-export-rapport">
+            <BoutonsExport
+              titre="Top clients"
+              colonnes={[
+  { cle: "clientNom", libelle: "Client" },
+  { cle: "nombreVentes", libelle: "Nombre de ventes" },
+  { cle: "totalNet", libelle: "CA généré" },
+]}
+              lignes={lignes as unknown as Record<string, unknown>[]}
+            />
+          </div>
           <SelecteurPeriode
             periode={f.periode} setPeriode={f.setPeriode}
             dateDebutPerso={f.dateDebutPerso} setDateDebutPerso={f.setDateDebutPerso}
@@ -350,6 +388,18 @@ function ModaleValeurStock({ session, onFermer }: { session: Session; onFermer: 
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Valeur du stock" onFermer={onFermer} />
         <div className="modale-corps">
+          <div className="ligne-export-rapport">
+            <BoutonsExport
+              titre="Valeur du stock"
+              colonnes={[
+  { cle: "valeurAchat", libelle: "Valeur au coût" },
+  { cle: "valeurVentePotentielle", libelle: "Valeur au prix de vente" },
+  { cle: "nombreVariantes", libelle: "Nombre de lignes de stock" },
+  { cle: "nombreRuptures", libelle: "Variantes en rupture" },
+]}
+              lignes={valeur ? [valeur as unknown as Record<string, unknown>] : []}
+            />
+          </div>
           <div className="barre-actions">
             <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
               <option value="">Tous les dépôts</option>
@@ -413,6 +463,17 @@ function ModaleVentesParVendeur({
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Ventes par vendeur" onFermer={onFermer} />
         <div className="modale-corps">
+          <div className="ligne-export-rapport">
+            <BoutonsExport
+              titre="Ventes par vendeur"
+              colonnes={[
+  { cle: "vendeur", libelle: "Vendeur" },
+  { cle: "nombreVentes", libelle: "Nombre de ventes" },
+  { cle: "totalNet", libelle: "Total net" },
+]}
+              lignes={lignes.map((l) => ({ vendeur: libelleVendeur(l.utilisateurId, session), nombreVentes: l.nombreVentes, totalNet: l.totalNet }))}
+            />
+          </div>
           <SelecteurPeriode
             periode={f.periode} setPeriode={f.setPeriode}
             dateDebutPerso={f.dateDebutPerso} setDateDebutPerso={f.setDateDebutPerso}
@@ -478,6 +539,17 @@ function ModaleVentesParCategorie({
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Ventes par catégorie" onFermer={onFermer} />
         <div className="modale-corps">
+          <div className="ligne-export-rapport">
+            <BoutonsExport
+              titre="Ventes par categorie"
+              colonnes={[
+  { cle: "categorie", libelle: "Catégorie" },
+  { cle: "quantiteVendue", libelle: "Quantité vendue" },
+  { cle: "caGenere", libelle: "CA généré" },
+]}
+              lignes={lignes as unknown as Record<string, unknown>[]}
+            />
+          </div>
           <SelecteurPeriode
             periode={f.periode} setPeriode={f.setPeriode}
             dateDebutPerso={f.dateDebutPerso} setDateDebutPerso={f.setDateDebutPerso}
@@ -543,6 +615,16 @@ function ModaleVentesParModePaiement({
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Ventes par mode de paiement" onFermer={onFermer} />
         <div className="modale-corps">
+          <div className="ligne-export-rapport">
+            <BoutonsExport
+              titre="Ventes par mode de paiement"
+              colonnes={[
+  { cle: "mode", libelle: "Mode de paiement" },
+  { cle: "total", libelle: "Total" },
+]}
+              lignes={lignes.map((l) => ({ mode: libelleModePaiement(l.mode), total: l.total }))}
+            />
+          </div>
           <SelecteurPeriode
             periode={f.periode} setPeriode={f.setPeriode}
             dateDebutPerso={f.dateDebutPerso} setDateDebutPerso={f.setDateDebutPerso}
@@ -655,6 +737,13 @@ function ModalePertes({ session, periodeInitiale, onFermer }: { session: Session
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Pertes" onFermer={onFermer} />
         <div className="modale-corps">
+          <div className="ligne-export-rapport">
+            <BoutonsExport
+              titre="Pertes"
+              colonnes={COLONNES_PERTES}
+              lignes={lignes as unknown as Record<string, unknown>[]}
+            />
+          </div>
           <SelecteurPeriode
             periode={f.periode} setPeriode={f.setPeriode}
             dateDebutPerso={f.dateDebutPerso} setDateDebutPerso={f.setDateDebutPerso}
@@ -789,6 +878,13 @@ function ModaleDestockages({ session, onFermer }: { session: Session; onFermer: 
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Déstockages" onFermer={onFermer} />
         <div className="modale-corps">
+          <div className="ligne-export-rapport">
+            <BoutonsExport
+              titre="Destockages"
+              colonnes={COLONNES_DESTOCKAGES}
+              lignes={lignesExport}
+            />
+          </div>
           <div className="barre-actions">
             <select value={filtre} onChange={(e) => setFiltre(e.target.value as typeof filtre)}>
               <option value="tous">Tous les déstockages</option>
@@ -961,6 +1057,13 @@ export function ModaleProduitsDormants({ session, onFermer }: { session: Session
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Produits dormants" onFermer={onFermer} />
         <div className="modale-corps">
+          <div className="ligne-export-rapport">
+            <BoutonsExport
+              titre="Produits dormants"
+              colonnes={COLONNES_DORMANTS}
+              lignes={lignesExport}
+            />
+          </div>
           <div className="barre-actions">
             <label className="case-a-cocher">
               Sans vente depuis

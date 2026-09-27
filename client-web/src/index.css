@@ -6551,3 +6551,9 @@ input.champ-invalide:focus {
 .ligne-annulee td button {
   text-decoration: none;
 }
+
+/* Rapports (web) : ligne des boutons d'export, alignée à droite. */
+.ligne-export-rapport {
+  display: flex;
+  justify-content: flex-end;
+}
