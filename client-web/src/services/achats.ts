@@ -1,5 +1,7 @@
 import { ouvrirBaseDeDonnees } from "../db";
 import { ecrireLigne, maintenant, obtenirLigne, suiviSyncNeuf } from "../db/helpers";
+import { calculerEcheances, erreurTranches, type EcheanceDetail, type StatutEcheance } from "./echeancier";
+export type { EcheanceDetail, StatutEcheance } from "./echeancier";
 import type {
   EcheanceDetteLocale,
   EvenementCommandeLocal,
@@ -984,68 +986,12 @@ export async function historiqueAchats(boutiqueId: string): Promise<HistoriqueAc
   return { commandes, receptions, paiements, retours };
 }
 
-export type StatutEcheance = "payee" | "partielle" | "a_venir" | "en_retard";
-
-/** Tranche d'un échéancier, avec ce que les paiements en couvrent déjà. */
-export interface EcheanceDetail {
-  id: string;
-  dateEcheance: string;
-  montant: number;
-  couvert: number;
-  statut: StatutEcheance;
-}
-
-/** Tranche non payée d'une dette en cours (alertes, prochaine échéance). */
 export interface EcheanceEnCours extends EcheanceDetail {
   detteId: string;
   fournisseurNom: string;
   commandeNumero: string | null;
 }
 
-function jourDuJour(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-/**
- * Statut des tranches : les paiements couvrent les tranches dans l'ordre des
- * dates. Les tranches couvrent la fin de la dette : ce qui a été payé au-delà
- * de (montant − total des tranches) leur revient.
- */
-function calculerEcheances(
-  dette: { montant: number; montantPaye: number },
-  tranches: { id: string; dateEcheance: string; montant: number }[],
-): EcheanceDetail[] {
-  const triees = [...tranches].sort((a, b) => a.dateEcheance.localeCompare(b.dateEcheance));
-  const total = triees.reduce((t, e) => t + e.montant, 0);
-  let disponible = Math.max(0, dette.montantPaye - (dette.montant - total));
-  const aujourdhui = jourDuJour();
-  return triees.map((e) => {
-    const couvert = Math.min(e.montant, disponible);
-    disponible -= couvert;
-    const statut: StatutEcheance =
-      couvert >= e.montant - 0.001
-        ? "payee"
-        : e.dateEcheance < aujourdhui
-          ? "en_retard"
-          : couvert > 0
-            ? "partielle"
-            : "a_venir";
-    return { ...e, couvert, statut };
-  });
-}
-
-function verifierTranches(tranches: { dateEcheance: string; montant: number }[], reste: number): void {
-  if (tranches.length === 0) throw new ErreurAchat("Ajoutez au moins une tranche.");
-  if (tranches.some((t) => !/^\d{4}-\d{2}-\d{2}$/.test(t.dateEcheance))) {
-    throw new ErreurAchat("Chaque tranche doit avoir une date.");
-  }
-  if (tranches.some((t) => !(t.montant > 0))) throw new ErreurAchat("Chaque tranche doit avoir un montant positif.");
-  const total = tranches.reduce((t, e) => t + e.montant, 0);
-  if (Math.abs(total - reste) > 0.5) {
-    throw new ErreurAchat(`Le total des tranches (${total}) doit être égal au reste à payer (${reste}).`);
-  }
-}
 
 async function tranchesDeLaDette(detteId: string): Promise<{ id: string; dateEcheance: string; montant: number }[]> {
   const db = await ouvrirBaseDeDonnees();
@@ -1076,7 +1022,8 @@ export async function planifierEcheancier(
   const dette = await db.get("dettes_fournisseur", detteId);
   if (!dette) throw new ErreurAchat("Dette introuvable.");
   if (dette.statut !== "en_cours") throw new ErreurAchat("Cette dette est déjà soldée.");
-  verifierTranches(tranches, Number(dette.solde));
+  const erreur = erreurTranches(tranches, Number(dette.solde));
+  if (erreur) throw new ErreurAchat(erreur);
   const instant = maintenant();
   for (const e of (await echeancierDette(detteId)).filter((x) => x.statut !== "payee")) {
     const ligne = await db.get("echeances_dette", e.id);
