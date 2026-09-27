@@ -119,6 +119,9 @@ export default function Shell({
       setZone("rapports");
       setOngletRapportsInitial("topClients");
       setPeriodeRapportsInitiale("tout");
+    } else if (cible === "rapports:dormants" || cible === "rapports:destockages") {
+      setZone("rapports");
+      setOngletRapportsInitial(cible === "rapports:dormants" ? "dormants" : "destockages");
     } else if (cible === "rapports:tout") {
       setZone("rapports");
       setPeriodeRapportsInitiale("tout");

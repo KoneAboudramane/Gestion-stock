@@ -5786,3 +5786,21 @@ input.champ-invalide:focus {
   color: var(--succes-fonce);
   font-weight: 600;
 }
+
+/* Tableau de bord : tuile cliquable (ouvre un rapport) et ligne de détail. */
+.carte-stat--cliquable {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border: none;
+}
+
+.carte-stat--cliquable:hover {
+  transform: translateY(-2px);
+}
+
+.carte-stat-detail {
+  font-size: 0.8rem;
+  opacity: 0.8;
+}

@@ -4,6 +4,9 @@ import type { CSSProperties } from "react";
 import { api } from "../api";
 import type { LigneStock, LigneTopClient, LigneVentesParJour, Session, SyntheseVentes } from "../api";
 import { useDevise } from "../contexts/DeviseContext";
+import { produitsDormants, type LigneProduitDormant } from "../services/rapports";
+import { listerDestockages, type DestockageResume } from "../services/stock";
+import { formaterMontant } from "../lib/formatage";
 
 /**
  * Adapté de client-electron/src/pages/TableauDeBord.tsx : mêmes cartes/graphique,
@@ -303,6 +306,11 @@ export default function TableauDeBord({
 }) {
   const peutVoirBenefices = !!session.permissions.voir_benefices_achat;
   const devise = useDevise();
+  // Tuiles de déstockage : elles montrent des coûts d'achat.
+  const peutVoirStockValeur =
+    !!session.permissions.gerer_produits_stock_achats || !!session.permissions.voir_rapports_complets;
+  const [dormants, setDormants] = useState<LigneProduitDormant[]>([]);
+  const [destockagesEnCours, setDestockagesEnCours] = useState<DestockageResume[]>([]);
   const [synthese, setSynthese] = useState<SyntheseVentes | null>(null);
   const [totalNetVeille, setTotalNetVeille] = useState<number | null>(null);
   const [ruptures, setRuptures] = useState<LigneStock[]>([]);
@@ -316,6 +324,10 @@ export default function TableauDeBord({
   const [finClientsPerso, setFinClientsPerso] = useState(() => plageDerniersJours(90).fin.slice(0, 10));
 
   useEffect(() => {
+    if (peutVoirStockValeur) {
+      produitsDormants(session.boutiqueId, 60).then((d) => setDormants(d.filter((l) => !l.enDestockage)));
+      listerDestockages(session.boutiqueId).then((d) => setDestockagesEnCours(d.filter((l) => l.statut === "en_cours")));
+    }
     api.rapports.plageDates("jour").then((plage) => {
       api.rapports.syntheseVentes(plage.debut, plage.fin).then((r) => r.succes && setSynthese(r.resultat));
     });
@@ -425,6 +437,43 @@ export default function TableauDeBord({
             </span>
           </span>
         </div>
+        {peutVoirStockValeur && (
+          <button
+            type="button"
+            className={`carte-stat carte-stat--ambre carte-stat--cliquable ${dormants.length > 0 ? "carte-stat--alerte" : ""}`}
+            onClick={() => onNaviguer("rapports:dormants")}
+            title="Voir les produits dormants"
+          >
+            <span className="carte-stat-icone" aria-hidden="true">😴</span>
+            <span className="carte-stat-corps">
+              <span className="carte-stat-label">Argent qui dort</span>
+              <span className="carte-stat-valeur">
+                {formaterMontant(dormants.reduce((somme, d) => somme + d.valeurImmobilisee, 0))} {devise}
+              </span>
+              <span className="carte-stat-detail">
+                {dormants.length} article{dormants.length > 1 ? "s" : ""} sans vente depuis 60 jours
+              </span>
+            </span>
+          </button>
+        )}
+        {peutVoirStockValeur && (
+          <button
+            type="button"
+            className="carte-stat carte-stat--violet carte-stat--cliquable"
+            onClick={() => onNaviguer("rapports:destockages")}
+            title="Voir le bilan des déstockages"
+          >
+            <span className="carte-stat-icone" aria-hidden="true">🏷️</span>
+            <span className="carte-stat-corps">
+              <span className="carte-stat-label">Déstockages en cours</span>
+              <span className="carte-stat-valeur">{destockagesEnCours.length}</span>
+              <span className="carte-stat-detail">
+                {formaterMontant(destockagesEnCours.reduce((somme, d) => somme + d.chiffreAffaires, 0))} {devise} déjà
+                récupérés
+              </span>
+            </span>
+          </button>
+        )}
       </div>
 
       <div className="detail-produit">
