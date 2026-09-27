@@ -534,6 +534,12 @@ function OngletMouvements({ session }: { session: Session }) {
   const [depotId, setDepotId] = useState(peutGerer ? "" : (session.depotId ?? ""));
   const [mouvements, setMouvements] = useState<MouvementResume[]>([]);
   const [vue, setVue] = useState<"liste" | "groupe">("liste");
+  // Filtre de période (même composant que Stock → Historique) : par défaut les
+  // 30 derniers jours, jusqu'à 5 000 lignes chargées au lieu des 100 dernières.
+  const [periode, setPeriode] = useState<PeriodeHistorique>("30j");
+  const [debutPerso, setDebutPerso] = useState(jourLocal(new Date()));
+  const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
+  const [typeFiltre, setTypeFiltre] = useState<"" | TypeMouvement>("");
 
   useEffect(() => {
     if (peutGerer) listerDepotsDetail(session.boutiqueId).then(setDepots);
@@ -541,12 +547,17 @@ function OngletMouvements({ session }: { session: Session }) {
   }, [peutGerer]);
 
   async function rafraichir() {
-    setMouvements(await listerMouvements(session.boutiqueId, depotId || undefined));
+    setMouvements(await listerMouvements(session.boutiqueId, depotId || undefined, 5000));
   }
   useEffect(() => {
     rafraichir();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [depotId]);
+
+  const bornes = bornesPeriode(periode, debutPerso, finPerso);
+  const mouvementsFiltres = mouvements.filter(
+    (m) => dansPeriode(m.dateCreation, bornes) && (!typeFiltre || m.type === typeFiltre),
+  );
 
   return (
     <div>
@@ -566,6 +577,22 @@ function OngletMouvements({ session }: { session: Session }) {
         </div>
       )}
       <div className="barre-actions barre-actions-avec-onglets">
+        <span className="groupe-filtres">
+          <FiltrePeriodeHistorique
+            periode={periode}
+            setPeriode={setPeriode}
+            debutPerso={debutPerso}
+            setDebutPerso={setDebutPerso}
+            finPerso={finPerso}
+            setFinPerso={setFinPerso}
+          />
+          <select value={typeFiltre} onChange={(e) => setTypeFiltre(e.target.value as typeof typeFiltre)}>
+            <option value="">Tous les types</option>
+            <option value="entree">Entrées</option>
+            <option value="sortie">Sorties</option>
+            <option value="ajustement">Ajustements</option>
+          </select>
+        </span>
         {peutGerer ? (
           <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
             <option value="">Tous les dépôts</option>
@@ -600,7 +627,7 @@ function OngletMouvements({ session }: { session: Session }) {
             </tr>
           </thead>
           <tbody>
-            {mouvements.map((m) => (
+            {mouvementsFiltres.map((m) => (
               <tr key={m.id}>
                 <td data-label="Date">{new Date(m.dateCreation).toLocaleString("fr-FR")}</td>
                 <td data-label="Désignation">
@@ -613,7 +640,7 @@ function OngletMouvements({ session }: { session: Session }) {
                 <td data-label="Fait par">{nomUtilisateur(m.utilisateurId)}</td>
               </tr>
             ))}
-            {mouvements.length === 0 && (
+            {mouvementsFiltres.length === 0 && (
               <tr>
                 <td colSpan={7} className="liste-vide">
                   Aucun mouvement.
@@ -858,9 +885,14 @@ function OngletTransferts({ session }: { session: Session }) {
   const [depots, setDepots] = useState<DepotResume[]>([]);
   const [transferts, setTransferts] = useState<TransfertResume[]>([]);
   const [afficherForm, setAfficherForm] = useState(false);
+  // Filtre de période (même composant que Stock → Historique) : par défaut les
+  // 30 derniers jours, jusqu'à 5 000 lignes chargées au lieu des 100 dernières.
+  const [periode, setPeriode] = useState<PeriodeHistorique>("30j");
+  const [debutPerso, setDebutPerso] = useState(jourLocal(new Date()));
+  const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
 
   async function rafraichir() {
-    const tous = await listerTransferts(session.boutiqueId);
+    const tous = await listerTransferts(session.boutiqueId, 5000);
     // Un caissier ne voit que les transferts qui concernent son dépôt (source
     // ou destination) — le Patron/Gérant garde la vue globale.
     setTransferts(
@@ -875,9 +907,19 @@ function OngletTransferts({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const transfertsFiltres = transferts.filter((t) => dansPeriode(t.dateCreation, bornesPeriode(periode, debutPerso, finPerso)));
+
   return (
     <div>
       <div className="barre-actions barre-actions-avec-onglets">
+        <FiltrePeriodeHistorique
+          periode={periode}
+          setPeriode={setPeriode}
+          debutPerso={debutPerso}
+          setDebutPerso={setDebutPerso}
+          finPerso={finPerso}
+          setFinPerso={setFinPerso}
+        />
         {peutGerer && !afficherForm && (
           <span className="actions-ligne">
             <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherForm(true)}>
@@ -914,7 +956,7 @@ function OngletTransferts({ session }: { session: Session }) {
             </tr>
           </thead>
           <tbody>
-            {transferts.map((t) => (
+            {transfertsFiltres.map((t) => (
               <tr key={t.id}>
                 <td data-label="Date">{new Date(t.dateCreation).toLocaleString("fr-FR")}</td>
                 <td data-label="Désignation">
@@ -926,7 +968,7 @@ function OngletTransferts({ session }: { session: Session }) {
                 <td data-label="Fait par">{nomUtilisateur(t.utilisateurId)}</td>
               </tr>
             ))}
-            {transferts.length === 0 && (
+            {transfertsFiltres.length === 0 && (
               <tr>
                 <td colSpan={6} className="liste-vide">
                   Aucun transfert.

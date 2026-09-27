@@ -6557,3 +6557,17 @@ input.champ-invalide:focus {
   display: flex;
   justify-content: flex-end;
 }
+
+/* Filtres groupés à gauche dans une barre d'actions (Mouvements, Transferts). */
+.groupe-filtres {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-right: auto;
+}
+
+.groupe-filtres select,
+.groupe-filtres input[type="date"] {
+  width: auto;
+}
