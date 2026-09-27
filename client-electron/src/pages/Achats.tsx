@@ -2396,7 +2396,10 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
     dansPeriode(x.dateCreation, bornes) &&
     (!fournisseur || x.fournisseurNom === fournisseur) &&
     (!cle || (x.numero ?? x.commandeNumero ?? "").toLowerCase().includes(cle));
-  const commandesFiltrees = historique.commandes.filter((c) => garder(c) && (!statut || c.statut === statut));
+  // Historique = commandes terminées ; brouillons et commandes en cours restent dans la carte « Commandes ».
+  const commandesFiltrees = historique.commandes.filter(
+    (c) => (c.statut === "recue" || c.statut === "annulee") && garder(c) && (!statut || c.statut === statut),
+  );
   const receptionsFiltrees = historique.receptions.filter(garder);
   const paiementsFiltres = historique.paiements.filter(garder);
   const retoursFiltres = historique.retours.filter(garder);
@@ -2478,11 +2481,9 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
               </select>
               {section === "commandes" && (
                 <select value={statut} onChange={(e) => setStatut(e.target.value as StatutCommande | "")}>
-                  <option value="">Tous les statuts</option>
-                  <option value="brouillon">Brouillon</option>
-                  <option value="commandee">Commandée</option>
-                  <option value="recue">Reçue</option>
-                  <option value="annulee">Annulée</option>
+                  <option value="">Reçues et annulées</option>
+                  <option value="recue">Reçues</option>
+                  <option value="annulee">Annulées</option>
                 </select>
               )}
               <input
