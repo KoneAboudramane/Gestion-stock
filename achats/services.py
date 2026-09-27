@@ -4,11 +4,12 @@ CLAUDE.md : une réception crée une entrée de stock par ligne de la commande
 (Reception n'a pas de lignes propres) et une DetteFournisseur si non payé.
 """
 from django.db import transaction
+from django.db.models import Sum
 from rest_framework.exceptions import ValidationError
 
 from core.services import generer_numero_sequentiel
 from fournisseurs.models import DetteFournisseur
-from stock.models import MouvementStock
+from stock.models import MouvementStock, Stock
 from stock.services import appliquer_mouvement
 
 from .models import CommandeAchat, LigneAchat, Reception
@@ -111,14 +112,27 @@ def receptionner_commande(commande, depot, utilisateur, montant_deja_paye=0, lig
         motif = f"Réception {commande.numero}"
         nouveau_prix_vente = donnee.get("prix_vente")
         if nouveau_prix_vente is not None:
-            if nouveau_prix_vente < ligne.prix_achat:
-                raise ValidationError("Le prix de vente ne peut pas être inférieur au prix d'achat.")
+            # CUMP (coût unitaire moyen pondéré), comme les clients (voir
+            # client-electron/electron/services/achats.ts::receptionnerCommande) :
+            # le prix d'achat existant est pondéré par le stock encore présent,
+            # pas écrasé par le dernier prix reçu — sinon la valeur du stock et le
+            # bénéfice des ventes seraient faussés dès que le prix d'achat varie.
+            stock_actuel = (
+                Stock.objects.filter(variante=variante).aggregate(total=Sum("quantite"))["total"] or 0
+            )
             ancien_prix_achat, ancien_prix_vente = variante.prix_achat, variante.prix_vente
-            variante.prix_achat = ligne.prix_achat
+            nouveau_prix_achat = (
+                round((stock_actuel * ancien_prix_achat + quantite * ligne.prix_achat) / (stock_actuel + quantite))
+                if stock_actuel > 0
+                else ligne.prix_achat
+            )
+            if nouveau_prix_vente < nouveau_prix_achat:
+                raise ValidationError("Le prix de vente ne peut pas être inférieur au prix d'achat (CUMP).")
+            variante.prix_achat = nouveau_prix_achat
             variante.prix_vente = nouveau_prix_vente
             variante.save(update_fields=["prix_achat", "prix_vente", "date_modification"])
             motif += (
-                f" (Prix achat : {ancien_prix_achat} → {ligne.prix_achat} FCFA, "
+                f" (Prix achat : {ancien_prix_achat} → {nouveau_prix_achat} FCFA [CUMP], "
                 f"Prix vente : {ancien_prix_vente} → {nouveau_prix_vente} FCFA)"
             )
 

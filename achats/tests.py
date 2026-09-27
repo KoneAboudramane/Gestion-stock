@@ -213,6 +213,25 @@ class ReceptionTests(APITestCase):
         self.assertEqual(self.variante.prix_achat, 4000)
         self.assertEqual(self.variante.prix_vente, 5500)
 
+    def test_reception_pondere_le_prix_achat_cump_avec_le_stock_existant(self):
+        # 10 unités déjà en stock à 3000, on en reçoit 10 à 4000 : CUMP = 3500.
+        from stock.services import appliquer_mouvement
+        self.variante.prix_achat = 3000
+        self.variante.save(update_fields=["prix_achat"])
+        appliquer_mouvement(self.variante, self.depot, MouvementStock.Type.ENTREE, 10)
+        reponse = self.client.post(
+            reverse("reception-list"),
+            {
+                "commande": str(self.commande.id),
+                "depot": str(self.depot.id),
+                "lignes": [{"variante": str(self.variante.id), "quantite": "10", "prix_vente": "5500"}],
+            },
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+        self.variante.refresh_from_db()
+        self.assertEqual(self.variante.prix_achat, 3500)
+
     def test_reception_refuse_prix_vente_sous_le_prix_achat(self):
         reponse = self.client.post(
             reverse("reception-list"),
