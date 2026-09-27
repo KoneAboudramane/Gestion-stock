@@ -18,7 +18,7 @@ import RecuCredit from "../components/RecuCredit";
 import { useDevise } from "../contexts/DeviseContext";
 import ModaleEcheancier from "../components/ModaleEcheancier";
 import { formaterMontant, normaliserTelephone, telephoneValide } from "../lib/formatage";
-import { MODES_REGLEMENT, libelleStatutVente } from "../lib/libelles";
+import { MODES_REGLEMENT, libelleModeReglement, libelleStatutVente } from "../lib/libelles";
 import { DetailVente } from "./Ventes";
 
 function libelleStatutCredit(statut: StatutCredit): string {
@@ -54,6 +54,7 @@ function DetailCredit({
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
   const [recuPaiementId, setRecuPaiementId] = useState<string | null>(null);
+  const [reglementsOuverts, setReglementsOuverts] = useState(false);
   const [echeances, setEcheances] = useState<EcheanceDetail[]>([]);
   const [planification, setPlanification] = useState(false);
 
@@ -291,48 +292,76 @@ function DetailCredit({
         />
       )}
 
-      <div className="barre-actions">
+      <div className="entete-section-echeancier">
         <h4>Règlements</h4>
-        {peutGerer && solde > 0 && !afficherModalRembourser && (
-          <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherModalRembourser(true)}>
-            + Nouveau règlement
+        <span className="actions-ligne">
+          <button type="button" onClick={() => setReglementsOuverts(true)}>
+            Voir les règlements
           </button>
-        )}
-      </div>
-      <div className="zone-tableau-scroll">
-      <table className="tableau-catalogue">
-        <thead>
-          <tr>
-            <th>Date de règlement</th>
-            <th>Montant</th>
-            <th>Mode</th>
-          </tr>
-        </thead>
-        <tbody>
-          {credit.paiements.map((p) => (
-            <tr key={p.id} onClick={() => setRecuPaiementId(p.id)}>
-              <td>{new Date(p.dateCreation).toLocaleString("fr-FR")}</td>
-              <td>{formaterMontant(p.montant)} {devise}</td>
-              <td>{p.mode || ""}</td>
-            </tr>
-          ))}
-          {credit.paiements.length === 0 && (
-            <tr>
-              <td colSpan={3} className="liste-vide">
-                Aucun règlement.
-              </td>
-            </tr>
+          {peutGerer && solde > 0 && !afficherModalRembourser && (
+            <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherModalRembourser(true)}>
+              + Nouveau règlement
+            </button>
           )}
-          {Array.from({ length: Math.max(0, 10 - Math.max(1, credit.paiements.length)) }).map((_, i) => (
-            <tr key={`vide-${i}`} className="ligne-groupe-vide">
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+        </span>
       </div>
+      <p className="note-aide">
+        {credit.paiements.length === 0
+          ? "Aucun règlement pour l'instant."
+          : `${credit.paiements.length} règlement(s) · dernier le ${new Date(credit.paiements[0].dateCreation).toLocaleDateString("fr-FR")}`}
+      </p>
+      {reglementsOuverts && (
+        <div className="fond-modale" onClick={() => setReglementsOuverts(false)}>
+          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+            <EnteteModale titre={`Règlements — crédit de ${credit.clientNom}`} onFermer={() => setReglementsOuverts(false)} />
+            <div className="modale-corps">
+              <div className="zone-tableau-scroll zone-traces-dette">
+              <table className="tableau-catalogue">
+                <thead>
+                  <tr>
+                    <th>Date de règlement</th>
+                    <th>Montant</th>
+                    <th>Mode</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {credit.paiements.map((p) => (
+                    <tr key={p.id} onClick={() => setRecuPaiementId(p.id)}>
+                      <td>{new Date(p.dateCreation).toLocaleString("fr-FR")}</td>
+                      <td>{formaterMontant(p.montant)} {devise}</td>
+                      <td>{p.mode ? libelleModeReglement(p.mode) : "—"}</td>
+                    </tr>
+                  ))}
+                  {credit.paiements.length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="liste-vide">
+                        Aucun règlement.
+                      </td>
+                    </tr>
+                  )}
+                  {Array.from({ length: Math.max(0, 10 - Math.max(1, credit.paiements.length)) }).map((_, i) => (
+                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </div>
+              <p className="note-aide">Cliquez sur un règlement pour voir ou imprimer son reçu.</p>
+              <div className="totaux">
+                <div>
+                  Montant : {formaterMontant(credit.montant)} {devise} · Payé : {formaterMontant(credit.montantPaye)} {devise}
+                </div>
+                <div className="total-net">
+                  Solde : {formaterMontant(solde)} {devise}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {afficherModalRembourser && (
         <div className="fond-modale" onClick={() => setAfficherModalRembourser(false)}>
