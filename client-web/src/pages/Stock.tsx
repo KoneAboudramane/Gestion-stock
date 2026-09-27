@@ -2789,21 +2789,27 @@ function GraphiqueArgentQuiDort({ releves, devise }: { releves: ReleveDormants[]
     parMois
       ? new Date(`${r.date}T00:00:00`).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })
       : new Date(`${r.date}T00:00:00`).toLocaleDateString("fr-FR");
+
+  if (points.length < 2) {
+    return (
+      <p className="etat-vide-graphique-dormants">
+        {points.length === 0
+          ? "Aucun relevé pour l'instant : le premier est pris à l'ouverture de l'appli."
+          : `Le suivi a commencé le ${libelle(points[0])}. La courbe apparaîtra au fil des jours (un relevé par jour).`}
+      </p>
+    );
+  }
   const maximum = Math.max(1, ...points.map((r) => r.valeurImmobilisee));
   const actif = points[survol ?? points.length - 1];
-
-  if (points.length === 0) {
-    return <p className="note-aide">Aucun relevé pour l'instant : le premier est pris à l'ouverture de l'appli.</p>;
-  }
   return (
     <div className="bloc-graphique-dormants">
-      <div className="entete-graphique-dormants">
+      <div className="entete-graphique-dormants sous-info">
+        <span>{libelle(actif)}</span>
         <strong>
           {formaterMontant(actif.valeurImmobilisee)} {devise}
         </strong>
-        <span className="sous-info">
-          {libelle(actif)} · {actif.nombreArticles} article{actif.nombreArticles > 1 ? "s" : ""} dormant
-          {actif.nombreArticles > 1 ? "s" : ""}
+        <span>
+          · {actif.nombreArticles} article{actif.nombreArticles > 1 ? "s" : ""}
         </span>
       </div>
       <div className="graphique-dormants" onMouseLeave={() => setSurvol(null)}>
@@ -2822,9 +2828,6 @@ function GraphiqueArgentQuiDort({ releves, devise }: { releves: ReleveDormants[]
         <span>{libelle(points[0])}</span>
         <span>{libelle(points[points.length - 1])}</span>
       </div>
-      {points.length < 2 && (
-        <p className="note-aide">Le suivi commence : l'évolution apparaîtra au fil des jours.</p>
-      )}
       <details className="details-releves-dormants">
         <summary>Voir les relevés en chiffres</summary>
         <table className="tableau-catalogue">
@@ -2907,6 +2910,9 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
   }, [session.boutiqueId, seuilDormance]);
 
   const bornes = bornesPeriode(periode, debutPerso, finPerso);
+  const releveActuel = releves.length > 0 ? releves[releves.length - 1] : null;
+  const evolutionDormance =
+    releves.length > 1 ? releves[releves.length - 1].valeurImmobilisee - releves[0].valeurImmobilisee : null;
   const sortiesFiltrees = sorties.filter(
     (s) => dansPeriode(s.date, bornes) && (!actionDormance || s.action === actionDormance),
   );
@@ -3073,9 +3079,60 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
                     <option value="destockage">Déstockages</option>
                   </select>
                 </div>
-                <h4>Argent qui dort (produits sans vente depuis 60 jours)</h4>
-                <GraphiqueArgentQuiDort releves={releves} devise={devise} />
-                <h4>Ce qu'on en a fait</h4>
+                <div className="tuiles-dormance">
+                  <div className="tuile-dormance tuile-dormance--dort">
+                    <span className="tuile-dormance-libelle">😴 Argent qui dort</span>
+                    <strong>
+                      {releveActuel ? `${formaterMontant(releveActuel.valeurImmobilisee)} ${devise}` : "—"}
+                    </strong>
+                    <span className="sous-info">
+                      {releveActuel
+                        ? `${releveActuel.nombreArticles} article${releveActuel.nombreArticles > 1 ? "s" : ""} sans vente depuis 60 jours`
+                        : "Pas encore de relevé"}
+                    </span>
+                    {evolutionDormance !== null && evolutionDormance !== 0 && (
+                      <span className={evolutionDormance < 0 ? "evolution-dormance baisse" : "evolution-dormance hausse"}>
+                        {evolutionDormance < 0 ? "▼" : "▲"} {formaterMontant(Math.abs(evolutionDormance))} {devise} depuis le{" "}
+                        {new Date(`${releves[0].date}T00:00:00`).toLocaleDateString("fr-FR")}
+                      </span>
+                    )}
+                  </div>
+                  {(
+                    [
+                      ["revendu", "💵 Revendus", "encaissés"],
+                      ["destockage", "🏷️ Mis en déstockage", "récupérés"],
+                      ["perte", "🗑️ Déclarés en perte", "perdus"],
+                    ] as const
+                  ).map(([action, libelle, suffixe]) => {
+                    const lignes = sortiesFiltrees.filter((s) => s.action === action);
+                    return (
+                      <button
+                        key={action}
+                        type="button"
+                        className={`tuile-dormance${actionDormance === action ? " active" : ""}`}
+                        onClick={() => setActionDormance(actionDormance === action ? "" : action)}
+                        title="Filtrer le tableau sur cette action"
+                      >
+                        <span className="tuile-dormance-libelle">{libelle}</span>
+                        <strong>{lignes.length}</strong>
+                        <span className="sous-info">
+                          {formaterMontant(lignes.reduce((somme, s) => somme + s.montant, 0))} {devise} {suffixe}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <section className="carte-historique-dormants">
+                  <h4>Évolution de l'argent qui dort</h4>
+                  <GraphiqueArgentQuiDort releves={releves} devise={devise} />
+                </section>
+
+                <section className="carte-historique-dormants carte-historique-dormants--tableau">
+                  <h4>
+                    Ce qu'on en a fait{" "}
+                    <span className="sous-info">(articles restés {seuilDormance} jours ou plus sans vente)</span>
+                  </h4>
                 <div className="zone-tableau-scroll">
                   <table className="tableau-catalogue carte-mobile">
                     <thead>
@@ -3125,6 +3182,7 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
                     </tbody>
                   </table>
                 </div>
+                </section>
               </>
             ) : (
               <>
