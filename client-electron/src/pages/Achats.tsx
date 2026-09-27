@@ -6,6 +6,7 @@ import type {
   CommandeDetail,
   CommandeResume,
   Depot,
+  EtapeCommande,
   DetteResume,
   FournisseurResume,
   LigneAchatInitiale,
@@ -144,7 +145,7 @@ function FormulaireCommande({
     try {
       const lignesPayload = lignes.map((l) => ({ varianteId: l.varianteId, quantite: l.quantite, prixAchat: l.prixAchat }));
       const resultat = commandeAModifier
-        ? await api.commandes.modifier(commandeAModifier.id, { fournisseurId, statut, lignes: lignesPayload })
+        ? await api.commandes.modifier(commandeAModifier.id, { fournisseurId, statut, lignes: lignesPayload , utilisateurId: session.utilisateurId })
         : await api.commandes.creer({
             boutiqueId: session.boutiqueId,
             fournisseurId,
@@ -527,6 +528,17 @@ function ConfirmationReception({
   );
 }
 
+const LIBELLES_ETAPE: Record<string, string> = {
+  creee: "📝 Créée",
+  modifiee: "✏️ Modifiée",
+  commandee: "📨 Passée en commandée",
+  reception: "📥 Réception",
+  reception_annulee: "⛔ Réception annulée",
+  retour: "↩️ Retour fournisseur",
+  paiement: "💰 Paiement",
+  annulee: "❌ Commande annulée",
+};
+
 function DetailCommande({
   commandeId,
   session,
@@ -541,6 +553,7 @@ function DetailCommande({
   onRetour: () => void;
 }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
+  const nomUtilisateur = useNomsUtilisateurs(session);
   const devise = useDevise();
   const [commande, setCommande] = useState<CommandeDetail | null>(null);
   const [depots, setDepots] = useState<Depot[]>([]);
@@ -556,7 +569,8 @@ function DetailCommande({
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
   const [afficherHistorique, setAfficherHistorique] = useState(false);
-  const [sectionHistorique, setSectionHistorique] = useState<"receptions" | "paiements">("receptions");
+  const [sectionHistorique, setSectionHistorique] = useState<"suivi" | "receptions" | "paiements">("suivi");
+  const [suivi, setSuivi] = useState<EtapeCommande[]>([]);
   const [receptions, setReceptions] = useState<ReceptionDetail[]>([]);
   const [receptionSelectionnee, setReceptionSelectionnee] = useState<ReceptionDetail | null>(null);
   const [dettesCommande, setDettesCommande] = useState<(DetteResume & { paiements: PaiementDetteDetail[] })[]>([]);
@@ -576,13 +590,13 @@ function DetailCommande({
   }, [commandeId]);
 
   async function changerFournisseur(nouveauFournisseurId: string) {
-    const resultat = await api.commandes.modifier(commandeId, { fournisseurId: nouveauFournisseurId });
+    const resultat = await api.commandes.modifier(commandeId, { fournisseurId: nouveauFournisseurId , utilisateurId: session.utilisateurId });
     if (resultat.succes) rafraichir();
     else setErreur(resultat.message);
   }
 
   async function passerEnCommandee() {
-    const resultat = await api.commandes.modifier(commandeId, { statut: "commandee" });
+    const resultat = await api.commandes.modifier(commandeId, { statut: "commandee" , utilisateurId: session.utilisateurId });
     if (resultat.succes) rafraichir();
     else setErreur(resultat.message);
   }
@@ -590,7 +604,7 @@ function DetailCommande({
   async function annulerCommande() {
     setEnCours(true);
     try {
-      const resultat = await api.commandes.modifier(commandeId, { statut: "annulee" });
+      const resultat = await api.commandes.modifier(commandeId, { statut: "annulee" , utilisateurId: session.utilisateurId });
       if (resultat.succes) {
         setAfficherConfirmationAnnulation(false);
         rafraichir();
@@ -630,7 +644,8 @@ function DetailCommande({
     setReceptions(receptionsResultat);
     setReceptionSelectionnee(null);
     setDettesCommande(dettesAvecPaiements);
-    setSectionHistorique("receptions");
+    setSuivi(await api.commandes.suivi(commandeId));
+    setSectionHistorique("suivi");
     setAfficherHistorique(true);
   }
 
@@ -904,6 +919,15 @@ function DetailCommande({
               <nav className="menu-modale">
                 <button
                   type="button"
+                  className={sectionHistorique === "suivi" ? "actif" : ""}
+                  onClick={() => setSectionHistorique("suivi")}
+                >
+                  <span className="icone-menu-modale">🧭</span>
+                  Suivi
+                  <span className="compteur-menu-modale">{suivi.length}</span>
+                </button>
+                <button
+                  type="button"
                   className={sectionHistorique === "receptions" ? "actif" : ""}
                   onClick={() => setSectionHistorique("receptions")}
                 >
@@ -922,6 +946,50 @@ function DetailCommande({
                 </button>
               </nav>
               <div className="modale-corps">
+                {sectionHistorique === "suivi" && (
+                  <>
+                    <div className="zone-tableau-scroll">
+                      <table className="tableau-catalogue">
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Étape</th>
+                            <th>Détail</th>
+                            <th>Montant</th>
+                            <th>Par</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {suivi.map((e) => (
+                            <tr key={e.id} className={`etape-${e.type}`}>
+                              <td>{new Date(e.dateCreation).toLocaleString("fr-FR")}</td>
+                              <td><span className="libelle-etape">{LIBELLES_ETAPE[e.type] ?? e.type}</span>{e.reconstitue && <span className="sous-info"> (reconstitué)</span>}</td>
+                              <td>{e.detail || "—"}</td>
+                              <td>{e.montant === null ? "—" : `${formaterMontant(e.montant)} ${devise}`}</td>
+                              <td>{e.utilisateurId ? nomUtilisateur(e.utilisateurId) : "—"}</td>
+                            </tr>
+                          ))}
+                          {Array.from({ length: Math.max(0, 10 - suivi.length) }).map((_, i) => (
+                            <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                            <td>&nbsp;</td>
+                            <td>&nbsp;</td>
+                            <td>&nbsp;</td>
+                            <td>&nbsp;</td>
+                            <td>&nbsp;</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {suivi.some((e) => e.reconstitue) && (
+                      <p className="note-aide">
+                        « Reconstitué » : étape retrouvée dans les réceptions, paiements et retours de cette commande,
+                        passée avant la mise en place du suivi. Les changements de statut de cette période ne sont pas
+                        connus.
+                      </p>
+                    )}
+                  </>
+                )}
                 {sectionHistorique === "receptions" && (
                   <>
                     <h4>Réceptions</h4>
