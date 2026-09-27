@@ -197,6 +197,8 @@ export async function listerCommandes(
     const valeurRecue = (await db.getAllFromIndex("receptions", "commande_id", c.id))
       .filter((r) => !r.supprime && !r.annulee)
       .reduce((total, r) => total + Number(r.valeur_recue ?? 0), 0);
+    // Anciennes réceptions (avant valeur_recue) : valeur déduite des quantités reçues × prix d'achat.
+    const valeurLignesRecues = lignes.reduce((total, l) => total + (l.quantite_recue ?? 0) * l.prix_achat, 0);
     resultat.push({
       id: c.id,
       numero: c.numero,
@@ -209,7 +211,7 @@ export async function listerCommandes(
       quantiteCommandee,
       quantiteRecue,
       utilisateurId: c.utilisateur_id ?? null,
-      valeurRecue,
+      valeurRecue: valeurRecue || valeurLignesRecues,
     });
   }
 

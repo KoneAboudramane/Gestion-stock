@@ -163,7 +163,9 @@ export function listerCommandes(
   }
   parametres.push(limite);
 
-  return tousLesResultats<Omit<CommandeResume, "partiellementRecue"> & { partiellementRecue: number }>(
+  return tousLesResultats<
+    Omit<CommandeResume, "partiellementRecue"> & { partiellementRecue: number; valeurLignesRecues: number }
+  >(
     `SELECT c.id as id, c.numero as numero, c.date_creation as dateCreation,
             f.nom as fournisseurNom, c.statut as statut, c.total as total,
             (c.statut = 'commandee' AND EXISTS (
@@ -177,18 +179,21 @@ export function listerCommandes(
             c.utilisateur_id as utilisateurId,
             (SELECT COALESCE(SUM(r.valeur_recue), 0) FROM receptions r
              WHERE r.commande_id = c.id AND r.supprime = 0 AND COALESCE(r.annulee, 0) = 0) as valeurRecue
+            ,(SELECT COALESCE(SUM(la.quantite_recue * la.prix_achat), 0) FROM lignes_achat la
+             WHERE la.commande_id = c.id AND la.supprime = 0) as valeurLignesRecues
      FROM commandes_achat c
      JOIN fournisseurs f ON f.id = c.fournisseur_id
      WHERE ${conditions.join(" AND ")}
      ORDER BY c.date_creation DESC
      LIMIT ?`,
     parametres,
-  ).map((c) => ({
+  ).map(({ valeurLignesRecues, ...c }) => ({
     ...c,
     partiellementRecue: Boolean(c.partiellementRecue),
     quantiteCommandee: Number(c.quantiteCommandee),
     quantiteRecue: Number(c.quantiteRecue),
-    valeurRecue: Number(c.valeurRecue),
+    // Anciennes réceptions (avant valeur_recue) : valeur déduite des quantités reçues × prix d'achat.
+    valeurRecue: Number(c.valeurRecue) || Number(valeurLignesRecues),
   }));
 }
 
