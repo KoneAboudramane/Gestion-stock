@@ -104,6 +104,10 @@ class PerteStock(ModeleBase):
     utilisateur = models.ForeignKey(
         "comptes.Utilisateur", on_delete=models.SET_NULL, null=True, blank=True
     )
+    # Perte saisie par erreur : le stock est remis (mouvement d'entrée), la perte
+    # reste visible pour la traçabilité mais ne compte plus dans les totaux.
+    annulee = models.BooleanField(default=False)
+    date_annulation = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"Perte {self.quantite} {self.variante} ({self.get_motif_display()})"

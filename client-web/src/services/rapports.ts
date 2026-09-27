@@ -498,7 +498,7 @@ export async function sortiesDormance(boutiqueId: string, seuil: number): Promis
   }
   for (const depot of await db.getAllFromIndex("depots", "boutique_id", boutiqueId)) {
     for (const p of await db.getAllFromIndex("pertes_stock", "depot_id", depot.id)) {
-      if (p.supprime) continue;
+      if (p.supprime || p.annulee) continue;
       ajouter(p.variante_id, {
         date: p.date_creation,
         type: "perte",

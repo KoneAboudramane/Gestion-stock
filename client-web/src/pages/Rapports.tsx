@@ -640,6 +640,7 @@ function ModalePertes({ session, periodeInitiale, onFermer }: { session: Session
   // Regroupement par motif, du plus coûteux au moins coûteux.
   const parMotif = new Map<string, { motif: string; nombre: number; quantite: number; valeur: number }>();
   for (const perte of pertes) {
+    if (perte.annulee) continue;
     const ligne = parMotif.get(perte.motif) ?? { motif: libelleMotifPerte(perte.motif), nombre: 0, quantite: 0, valeur: 0 };
     ligne.nombre += 1;
     ligne.quantite += perte.quantite;

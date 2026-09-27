@@ -18,7 +18,13 @@ from .serializers import (
     StockSerializer,
     TransfertStockSerializer,
 )
-from .services import arreter_destockage, arreter_operation_destockage, valider_inventaire
+from .services import (
+    annuler_perte,
+    arreter_destockage,
+    arreter_operation_destockage,
+    modifier_destockage,
+    valider_inventaire,
+)
 
 PeutConsulterStock = a_la_permission("consulter_stock")
 PeutGererStock = a_la_permission("gerer_produits_stock_achats")
@@ -115,6 +121,11 @@ class PerteStockViewSet(
     queryset = PerteStock.objects.select_related("variante", "depot", "utilisateur")
     chemin_boutique = "depot__boutique"
 
+    @action(detail=True, methods=["post"])
+    def annuler(self, request, pk=None):
+        perte = annuler_perte(self.get_object(), utilisateur=request.user)
+        return Response(PerteStockSerializer(perte).data)
+
 
 class DestockageViewSet(
     _LectureStockMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
@@ -127,6 +138,19 @@ class DestockageViewSet(
     @action(detail=True, methods=["post"])
     def arreter(self, request, pk=None):
         destockage = arreter_destockage(self.get_object())
+        return Response(DestockageSerializer(destockage).data)
+
+    @action(detail=True, methods=["post"])
+    def modifier(self, request, pk=None):
+        donnees = {}
+        if "prix_destockage" in request.data:
+            donnees["prix_destockage"] = serializers.DecimalField(max_digits=12, decimal_places=2).to_internal_value(
+                request.data["prix_destockage"]
+            )
+        if "date_fin" in request.data:
+            valeur = request.data["date_fin"]
+            donnees["date_fin"] = serializers.DateField().to_internal_value(valeur) if valeur else None
+        destockage = modifier_destockage(self.get_object(), **donnees)
         return Response(DestockageSerializer(destockage).data)
 
 

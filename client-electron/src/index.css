@@ -5727,3 +5727,15 @@ input.champ-invalide:focus {
 .details-releves-dormants table {
   margin-top: 0.5rem;
 }
+
+/* Perte annulée : reste visible pour la traçabilité, mais estompée. */
+.ligne-annulee td {
+  opacity: 0.55;
+  text-decoration: line-through;
+  text-decoration-color: var(--gris-500);
+}
+
+.ligne-annulee td .badge-brouillon,
+.ligne-annulee td button {
+  text-decoration: none;
+}

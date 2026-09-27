@@ -112,7 +112,6 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
     table: "stock.PerteStock",
     store: "pertes_stock",
     champsFK: ["variante", "depot", "utilisateur"],
-    ajoutSeul: true,
     champsNumeriques: ["quantite", "valeur"],
   },
   {

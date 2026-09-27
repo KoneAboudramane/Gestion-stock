@@ -49,6 +49,23 @@ def appliquer_mouvement(
     )
 
 
+@transaction.atomic
+def annuler_perte(perte, utilisateur=None):
+    """Perte saisie par erreur : remet la quantité en stock et marque la perte
+    comme annulée (elle reste visible, hors des totaux)."""
+    if perte.annulee:
+        raise ValidationError("Cette perte est déjà annulée.")
+    appliquer_mouvement(
+        perte.variante, perte.depot, MouvementStock.Type.ENTREE, perte.quantite,
+        motif=f"Annulation perte : {perte.get_motif_display()}", utilisateur=utilisateur,
+        reference_type="stock.PerteStock", reference_id=perte.id,
+    )
+    perte.annulee = True
+    perte.date_annulation = timezone.now()
+    perte.save(update_fields=["annulee", "date_annulation", "date_modification"])
+    return perte
+
+
 # --- Déstockage (même logique que client-electron/electron/services/stock.ts) ---
 
 def destockage_actif(variante):
@@ -124,6 +141,30 @@ def arreter_operation_destockage(operation):
     for destockage in en_cours:
         _terminer(destockage, Destockage.MotifFin.MANUEL)
     return operation
+
+
+_NON_MODIFIE = object()
+
+
+def modifier_destockage(destockage, prix_destockage=None, date_fin=_NON_MODIFIE):
+    """Change le prix et/ou la date de fin d'un déstockage en cours, sans
+    l'arrêter (les ventes déjà faites gardent leur prix et restent dans son bilan)."""
+    if destockage.statut != Destockage.Statut.EN_COURS or destockage_actif(destockage.variante) != destockage:
+        raise ValidationError("Seul un déstockage en cours peut être modifié.")
+    champs = []
+    if prix_destockage is not None:
+        if prix_destockage <= 0 or prix_destockage >= destockage.prix_normal:
+            raise ValidationError("Le prix de déstockage doit être positif et inférieur au prix normal.")
+        destockage.prix_destockage = prix_destockage
+        champs.append("prix_destockage")
+    if date_fin is not _NON_MODIFIE:
+        if date_fin and date_fin < timezone.localdate():
+            raise ValidationError("La date de fin est déjà passée.")
+        destockage.date_fin = date_fin
+        champs.append("date_fin")
+    if champs:
+        destockage.save(update_fields=[*champs, "date_modification"])
+    return destockage
 
 
 def arreter_destockage(destockage):

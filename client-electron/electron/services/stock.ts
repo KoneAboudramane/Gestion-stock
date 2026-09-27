@@ -588,6 +588,34 @@ export function declarerPerte(params: ParametresPerte): string {
   return perteId;
 }
 
+/** Perte saisie par erreur : remet la quantité en stock, la perte reste visible (annulée). */
+export function annulerPerte(id: string, utilisateurId: string | null): void {
+  const perte = unResultat<{ variante_id: string; depot_id: string; quantite: number; motif: MotifPerte; annulee: number }>(
+    "SELECT variante_id, depot_id, quantite, motif, annulee FROM pertes_stock WHERE id = ?",
+    [id],
+  );
+  if (!perte) throw new ErreurStock("Perte introuvable.");
+  if (Number(perte.annulee)) throw new ErreurStock("Cette perte est déjà annulée.");
+  dansUneTransaction(() => {
+    const maintenant = new Date().toISOString();
+    appliquerMouvement({
+      varianteId: perte.variante_id,
+      depotId: perte.depot_id,
+      type: "entree",
+      quantite: Number(perte.quantite),
+      motif: `Annulation perte : ${LIBELLES_MOTIF_PERTE[perte.motif] ?? perte.motif}`,
+      utilisateurId,
+      referenceType: "stock.PerteStock",
+      referenceId: id,
+    });
+    executer(
+      "UPDATE pertes_stock SET annulee = 1, date_annulation = ?, synchronise = 0, date_modification = ? WHERE id = ?",
+      [maintenant, maintenant, id],
+    );
+  });
+  sauvegarder();
+}
+
 export interface PerteResume {
   id: string;
   dateCreation: string;
@@ -600,6 +628,8 @@ export interface PerteResume {
   valeur: number;
   /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
   utilisateurId: string | null;
+  /** Perte annulée (saisie par erreur) : visible mais hors des totaux. */
+  annulee: boolean;
 }
 
 /** Pertes de la boutique, les plus récentes d'abord ; debut/fin (ISO) optionnels. */
@@ -617,7 +647,7 @@ export function listerPertes(boutiqueId: string, debut?: string, fin?: string): 
   return tousLesResultats<PerteResume>(
     `SELECT pe.id as id, pe.date_creation as dateCreation, p.nom as produitNom, COALESCE(v.reference, '') as reference,
             d.nom as depotNom, pe.quantite as quantite, pe.motif as motif, COALESCE(pe.detail, '') as detail,
-            pe.valeur as valeur, pe.utilisateur_id as utilisateurId
+            pe.valeur as valeur, pe.utilisateur_id as utilisateurId, COALESCE(pe.annulee, 0) as annulee
      FROM pertes_stock pe
      JOIN variantes v ON v.id = pe.variante_id
      JOIN produits p ON p.id = v.produit_id
@@ -625,7 +655,7 @@ export function listerPertes(boutiqueId: string, debut?: string, fin?: string): 
      WHERE ${conditions.join(" AND ")}
      ORDER BY pe.date_creation DESC`,
     parametres,
-  );
+  ).map((p) => ({ ...p, annulee: Boolean(p.annulee) }));
 }
 
 // --- Déstockage (miroir de stock/services.py) ---
@@ -789,6 +819,35 @@ export function arreterOperationDestockage(id: string): void {
   dansUneTransaction(() => {
     for (const d of enCours) terminerDestockage(d.id, "manuel");
   });
+  sauvegarder();
+}
+
+/** Change le prix et/ou la date de fin d'un déstockage en cours, sans l'arrêter. */
+export function modifierDestockage(id: string, champs: { prixDestockage?: number; dateFin?: string | null }): void {
+  const d = unResultat<{ variante_id: string; prix_normal: number }>(
+    "SELECT variante_id, prix_normal FROM destockages WHERE id = ?",
+    [id],
+  );
+  if (!d || destockageActif(d.variante_id)?.id !== id) throw new ErreurStock("Seul un déstockage en cours peut être modifié.");
+  const colonnes: string[] = [];
+  const valeurs: (string | number | null)[] = [];
+  if (champs.prixDestockage !== undefined) {
+    if (!(champs.prixDestockage > 0) || champs.prixDestockage >= Number(d.prix_normal)) {
+      throw new ErreurStock("Le prix de déstockage doit être positif et inférieur au prix normal.");
+    }
+    colonnes.push("prix_destockage = ?");
+    valeurs.push(champs.prixDestockage);
+  }
+  if (champs.dateFin !== undefined) {
+    if (champs.dateFin && champs.dateFin < aujourdhui()) throw new ErreurStock("La date de fin est déjà passée.");
+    colonnes.push("date_fin = ?");
+    valeurs.push(champs.dateFin || null);
+  }
+  if (colonnes.length === 0) return;
+  executer(
+    `UPDATE destockages SET ${colonnes.join(", ")}, synchronise = 0, date_modification = ? WHERE id = ?`,
+    [...valeurs, new Date().toISOString(), id],
+  );
   sauvegarder();
 }
 

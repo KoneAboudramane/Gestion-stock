@@ -248,6 +248,8 @@ export interface PerteStockLocal extends SuiviSync {
   detail: string;
   valeur: number;
   utilisateur_id: string | null;
+  annulee?: boolean | number;
+  date_annulation?: string | null;
 }
 
 export interface InventaireLocal extends SuiviSync {

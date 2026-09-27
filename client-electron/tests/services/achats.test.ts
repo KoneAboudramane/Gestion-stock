@@ -325,6 +325,9 @@ describe("achats.receptionnerCommande (miroir de achats/services.py::receptionne
     });
     receptionnerCommande({ commandeId: premiere.id, depotId, utilisateurId: "1", lignes: [{ varianteId, quantite: 6 }] });
     receptionnerCommande({ commandeId: seconde.id, depotId, utilisateurId: "1", lignes: [{ varianteId, quantite: 3 }] });
+    // Les deux réceptions peuvent tomber dans la même milliseconde : on fixe
+    // l'ordre chronologique pour que le tri « plus récentes d'abord » soit testable.
+    executer("UPDATE receptions SET date_creation = '2026-01-01T00:00:00.000Z' WHERE commande_id = ?", [premiere.id]);
 
     const historique = listerHistoriqueReceptions(boutiqueId);
     expect(historique).toHaveLength(2);

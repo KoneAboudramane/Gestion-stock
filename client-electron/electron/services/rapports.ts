@@ -445,7 +445,7 @@ export function sortiesDormance(boutiqueId: string, seuil: number): SortieDorman
     `SELECT pe.id as id, pe.variante_id as varianteId, pe.date_creation as date, pe.motif as motif,
             COALESCE(pe.detail, '') as detail, pe.quantite as quantite, pe.valeur as valeur
      FROM pertes_stock pe JOIN depots d ON d.id = pe.depot_id
-     WHERE d.boutique_id = ? AND pe.supprime = 0`,
+     WHERE d.boutique_id = ? AND pe.supprime = 0 AND COALESCE(pe.annulee, 0) = 0`,
     [boutiqueId],
   )) {
     ajouter(p.varianteId, {

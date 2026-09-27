@@ -544,6 +544,53 @@ export async function declarerPerte(params: ParametresPerte): Promise<string> {
   return id;
 }
 
+/** Perte saisie par erreur : remet la quantité en stock, la perte reste visible (annulée). */
+export async function annulerPerte(id: string, utilisateurId: string | null): Promise<void> {
+  const perte = await obtenirLigne("pertes_stock", id);
+  if (!perte) throw new ErreurStock("Perte introuvable.");
+  if (perte.annulee) throw new ErreurStock("Cette perte est déjà annulée.");
+  await appliquerMouvement({
+    varianteId: perte.variante_id,
+    depotId: perte.depot_id,
+    type: "entree",
+    quantite: perte.quantite,
+    motif: `Annulation perte : ${LIBELLES_MOTIF_PERTE[perte.motif as MotifPerte] ?? perte.motif}`,
+    utilisateurId,
+    referenceType: "stock.PerteStock",
+    referenceId: id,
+  });
+  await ecrireLigne("pertes_stock", {
+    ...perte,
+    annulee: true,
+    date_annulation: maintenant(),
+    date_modification: maintenant(),
+    synchronise: 0,
+  });
+}
+
+/** Change le prix et/ou la date de fin d'un déstockage en cours, sans l'arrêter. */
+export async function modifierDestockage(
+  id: string,
+  champs: { prixDestockage?: number; dateFin?: string | null },
+): Promise<void> {
+  const d = await obtenirLigne("destockages", id);
+  if (!d || (await destockageActif(d.variante_id))?.id !== id) {
+    throw new ErreurStock("Seul un déstockage en cours peut être modifié.");
+  }
+  const misAJour = { ...d };
+  if (champs.prixDestockage !== undefined) {
+    if (!(champs.prixDestockage > 0) || champs.prixDestockage >= d.prix_normal) {
+      throw new ErreurStock("Le prix de déstockage doit être positif et inférieur au prix normal.");
+    }
+    misAJour.prix_destockage = champs.prixDestockage;
+  }
+  if (champs.dateFin !== undefined) {
+    if (champs.dateFin && champs.dateFin < aujourdhui()) throw new ErreurStock("La date de fin est déjà passée.");
+    misAJour.date_fin = champs.dateFin || null;
+  }
+  await ecrireLigne("destockages", { ...misAJour, date_modification: maintenant(), synchronise: 0 });
+}
+
 export interface PerteResume {
   id: string;
   dateCreation: string;
@@ -556,6 +603,8 @@ export interface PerteResume {
   valeur: number;
   /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
   utilisateurId: string | null;
+  /** Perte annulée (saisie par erreur) : visible mais hors des totaux. */
+  annulee: boolean;
 }
 
 /** Pertes de la boutique, les plus récentes d'abord ; debut/fin (ISO) optionnels. */
@@ -581,6 +630,7 @@ export async function listerPertes(boutiqueId: string, debut?: string, fin?: str
         detail: p.detail ?? "",
         valeur: p.valeur,
         utilisateurId: p.utilisateur_id ?? null,
+        annulee: !!p.annulee,
       });
     }
   }

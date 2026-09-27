@@ -240,6 +240,8 @@ CREATE TABLE IF NOT EXISTS pertes_stock (
   detail TEXT DEFAULT '',
   valeur REAL DEFAULT 0,
   utilisateur_id TEXT,
+  annulee INTEGER DEFAULT 0,
+  date_annulation TEXT,
   ${SUIVI_SYNC}
 );
 

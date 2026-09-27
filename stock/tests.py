@@ -342,3 +342,45 @@ class SuppressionBoutiqueAvecPertesEtDestockagesTests(APITestCase):
         self.assertFalse(Boutique.objects.filter(id=boutique.id).exists())
         self.assertEqual(PerteStock.objects.count(), 0)
         self.assertEqual(Destockage.objects.count(), 0)
+
+
+class AnnulationPerteEtModificationDestockageTests(APITestCase):
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique AM"}, {"username": "patronAM", "password": "UnMotDePasseSolide123"}
+        )
+        self.depot = Depot.objects.create(boutique=self.boutique, nom="Magasin")
+        self.variante = Variante.objects.create(
+            produit=Produit.objects.create(boutique=self.boutique, nom="Lait"), prix_achat=300, prix_vente=500,
+        )
+        appliquer_mouvement(self.variante, self.depot, MouvementStock.Type.ENTREE, 10)
+        self.client.force_authenticate(user=self.patron)
+
+    def test_annuler_une_perte_remet_le_stock(self):
+        from .services import declarer_perte
+        perte = declarer_perte(self.variante, self.depot, 3, PerteStock.Motif.PERIME)
+        reponse = self.client.post(reverse("perte-annuler", args=[perte.id]))
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK, reponse.data)
+        perte.refresh_from_db()
+        self.assertTrue(perte.annulee)
+        self.assertEqual(Stock.objects.get(variante=self.variante, depot=self.depot).quantite, 10)
+        self.assertEqual(
+            self.client.post(reverse("perte-annuler", args=[perte.id])).status_code, status.HTTP_400_BAD_REQUEST
+        )
+
+    def test_modifier_prix_et_date_d_un_destockage_en_cours(self):
+        from .services import demarrer_destockage
+        destockage = demarrer_destockage(self.variante, 400)
+        reponse = self.client.post(
+            reverse("destockage-modifier", args=[destockage.id]),
+            {"prix_destockage": "350", "date_fin": "2999-01-01"},
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK, reponse.data)
+        destockage.refresh_from_db()
+        self.assertEqual(destockage.prix_destockage, 350)
+        self.assertEqual(str(destockage.date_fin), "2999-01-01")
+        refus = self.client.post(
+            reverse("destockage-modifier", args=[destockage.id]), {"prix_destockage": "600"}, format="json",
+        )
+        self.assertEqual(refus.status_code, status.HTTP_400_BAD_REQUEST)

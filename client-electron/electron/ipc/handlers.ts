@@ -363,6 +363,15 @@ export function enregistrerLesHandlers(): void {
     if (resultat.succes) signalerRuptureEnSecurite(params.depotId);
     return resultat;
   });
+  ipcMain.handle("pertes:annuler", (_evt, id: string, utilisateurId: string | null) => {
+    const resultat = executerEnSecurite(() => stock.annulerPerte(id, utilisateurId));
+    return resultat;
+  });
+  ipcMain.handle(
+    "destockages:modifier",
+    (_evt, id: string, champs: { prixDestockage?: number; dateFin?: string | null }) =>
+      executerEnSecurite(() => stock.modifierDestockage(id, champs)),
+  );
   ipcMain.handle("pertes:lister", (_evt, boutiqueId: string, debut?: string, fin?: string) =>
     stock.listerPertes(boutiqueId, debut, fin),
   );

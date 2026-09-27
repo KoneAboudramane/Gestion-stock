@@ -492,6 +492,7 @@ export interface PerteResume {
   valeur: number;
   /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
   utilisateurId: string | null;
+  annulee: boolean;
 }
 
 export interface InventaireResume {
@@ -1180,11 +1181,13 @@ export interface WindowApi {
     lister(boutiqueId: string): Promise<DestockageResume[]>;
     demarrer(params: ParametresDestockage): Promise<ResultatEcriture<string>>;
     arreter(id: string): Promise<ResultatEcriture<void>>;
+    modifier(id: string, champs: { prixDestockage?: number; dateFin?: string | null }): Promise<ResultatEcriture<void>>;
     demarrerOperation(params: ParametresOperationDestockage): Promise<ResultatEcriture<string>>;
     arreterOperation(id: string): Promise<ResultatEcriture<void>>;
   };
   pertes: {
     declarer(params: ParametresPerte): Promise<ResultatEcriture<string>>;
+    annuler(id: string, utilisateurId: string | null): Promise<ResultatEcriture<void>>;
     lister(boutiqueId: string, debut?: string, fin?: string): Promise<PerteResume[]>;
   };
   transferts: {

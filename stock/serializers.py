@@ -142,9 +142,9 @@ class PerteStockSerializer(_RestreintABoutiqueMixin, serializers.ModelSerializer
         model = PerteStock
         fields = [
             "id", "variante", "depot", "quantite", "motif", "detail", "valeur",
-            "utilisateur", "date_creation",
+            "utilisateur", "date_creation", "annulee", "date_annulation",
         ]
-        read_only_fields = ["id", "valeur", "utilisateur", "date_creation"]
+        read_only_fields = ["id", "valeur", "utilisateur", "date_creation", "annulee", "date_annulation"]
 
     def create(self, validated_data):
         request = self.context["request"]

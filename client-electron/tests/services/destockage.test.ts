@@ -6,12 +6,15 @@ import { listerVariantesCatalogue } from "../../electron/services/catalogue";
 import {
   ErreurStock,
   appliquerMouvement,
+  annulerPerte,
   arreterDestockage,
   arreterOperationDestockage,
   declarerPerte,
   demarrerDestockage,
   demarrerOperationDestockage,
   listerDestockages,
+  listerPertes,
+  modifierDestockage,
 } from "../../electron/services/stock";
 import { annulerVente, creerVente } from "../../electron/services/ventes";
 import { creerBaseDeTest } from "../setup";
@@ -178,5 +181,29 @@ describe("déstockage (miroir de stock/services.py)", () => {
       expect(listerDestockages(boutiqueId).every((d) => d.statut === "termine" && d.motifFin === "manuel")).toBe(true);
       expect(() => arreterOperationDestockage(operationId)).toThrow(ErreurStock);
     });
+  });
+
+  it("modifier un déstockage en cours : nouveau prix en caisse, ventes passées inchangées", () => {
+    const id = demarrerDestockage({ varianteId, prixDestockage: 2500, utilisateurId: null });
+    vendre(1, 2500);
+    modifierDestockage(id, { prixDestockage: 2000, dateFin: "2999-12-31" });
+    expect(listerVariantesCatalogue(boutiqueId, depotId).find((v) => v.id === varianteId)!.prixVente).toBe(2000);
+    const [bilan] = listerDestockages(boutiqueId);
+    expect(bilan).toMatchObject({ prixDestockage: 2000, dateFin: "2999-12-31", quantiteVendue: 1, chiffreAffaires: 2500 });
+    expect(() => modifierDestockage(id, { prixDestockage: 6000 })).toThrow(ErreurStock);
+    arreterDestockage(id);
+    expect(() => modifierDestockage(id, { prixDestockage: 1500 })).toThrow(ErreurStock);
+  });
+
+  it("annuler une perte remet le stock et la garde visible, marquée annulée", () => {
+    const perteId = declarerPerte({ varianteId, depotId, quantite: 2, motif: "abime", utilisateurId: null });
+    annulerPerte(perteId, null);
+    const stock = unResultat<{ quantite: number }>("SELECT quantite FROM stocks WHERE variante_id = ? AND depot_id = ?", [
+      varianteId,
+      depotId,
+    ]);
+    expect(Number(stock!.quantite)).toBe(5);
+    expect(listerPertes(boutiqueId)[0].annulee).toBe(true);
+    expect(() => annulerPerte(perteId, null)).toThrow(ErreurStock);
   });
 });

@@ -53,6 +53,8 @@ function migrerColonnesManquantes(base: Database): void {
     { table: "lignes_vente", colonne: "prix_normal", definition: "REAL" },
     { table: "lignes_vente", colonne: "destockage_id", definition: "TEXT" },
     { table: "destockages", colonne: "operation_id", definition: "TEXT" },
+    { table: "pertes_stock", colonne: "annulee", definition: "INTEGER DEFAULT 0" },
+    { table: "pertes_stock", colonne: "date_annulation", definition: "TEXT" },
   ];
 
   for (const { table, colonne, definition } of colonnesAAjouter) {

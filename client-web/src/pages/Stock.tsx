@@ -9,6 +9,7 @@ import { formaterMontant } from "../lib/formatage";
 import { rechercherVariantesAchat, type VarianteAchat } from "../services/achats";
 import {
   creerMouvementManuel,
+  annulerPerte,
   arreterDestockage,
   arreterOperationDestockage,
   creerEntreeProduction,
@@ -24,6 +25,7 @@ import {
   listerPertes,
   listerStock,
   listerTransferts,
+  modifierDestockage,
   modifierLigneInventaire,
   obtenirInventaire,
   transfererStock,
@@ -1668,6 +1670,9 @@ function OngletPertes({ session }: { session: Session }) {
   const [depots, setDepots] = useState<DepotResume[]>([]);
   const [pertes, setPertes] = useState<PerteResume[]>([]);
   const [afficherForm, setAfficherForm] = useState(false);
+  const [perteAAnnuler, setPerteAAnnuler] = useState<PerteResume | null>(null);
+  const [erreurPerte, setErreurPerte] = useState<string | null>(null);
+  const [enCoursPerte, setEnCoursPerte] = useState(false);
 
   async function rafraichir() {
     const toutes = await listerPertes(session.boutiqueId);
@@ -1680,7 +1685,24 @@ function OngletPertes({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.boutiqueId]);
 
-  const valeurTotale = pertes.reduce((somme, p) => somme + p.valeur, 0);
+  // Une perte annulée reste affichée (traçabilité) mais ne compte plus.
+  const valeurTotale = pertes.filter((p) => !p.annulee).reduce((somme, p) => somme + p.valeur, 0);
+
+  async function confirmerAnnulation() {
+    if (!perteAAnnuler) return;
+    setEnCoursPerte(true);
+    setErreurPerte(null);
+    try {
+      await annulerPerte(perteAAnnuler.id, session.utilisateurId);
+    } catch (e) {
+      setErreurPerte(e instanceof ErreurStock ? e.message : "Erreur inattendue.");
+      return;
+    } finally {
+      setEnCoursPerte(false);
+    }
+    setPerteAAnnuler(null);
+    rafraichir();
+  }
 
   return (
     <div>
@@ -1693,6 +1715,18 @@ function OngletPertes({ session }: { session: Session }) {
           </span>
         )}
       </div>
+      {erreurPerte && <div className="message-erreur">{erreurPerte}</div>}
+      {perteAAnnuler && (
+        <ModaleConfirmation
+          titre="Annuler cette perte ?"
+          description={`${perteAAnnuler.quantite} × ${perteAAnnuler.produitNom} reviendront dans le stock du dépôt ${perteAAnnuler.depotNom}. La perte restera visible, marquée « Annulée ».`}
+          labelConfirmer="Annuler la perte"
+          dangereux
+          enCours={enCoursPerte}
+          onAnnuler={() => setPerteAAnnuler(null)}
+          onConfirmer={confirmerAnnulation}
+        />
+      )}
       {afficherForm && (
         <div className="fond-modale" onClick={() => setAfficherForm(false)}>
           <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
@@ -1719,18 +1753,20 @@ function OngletPertes({ session }: { session: Session }) {
               <th>Quantité</th>
               <th>Valeur perdue</th>
               <th>Déclaré par</th>
+              {peutGerer && <th />}
             </tr>
           </thead>
           <tbody>
             {pertes.map((p) => (
-              <tr key={p.id}>
+              <tr key={p.id} className={p.annulee ? "ligne-annulee" : undefined}>
                 <td data-label="Date">{new Date(p.dateCreation).toLocaleString("fr-FR")}</td>
                 <td data-label="Désignation">
                   {p.produitNom} {p.reference && `(${p.reference})`}
                 </td>
                 <td data-label="Dépôt">{p.depotNom}</td>
                 <td data-label="Motif">
-                  {libelleMotifPerte(p.motif)}
+                  {libelleMotifPerte(p.motif)}{" "}
+                  {p.annulee && <span className="badge-brouillon">Annulée</span>}
                   {p.detail && <span className="sous-info"> — {p.detail}</span>}
                 </td>
                 <td data-label="Quantité">{p.quantite}</td>
@@ -1738,11 +1774,20 @@ function OngletPertes({ session }: { session: Session }) {
                   {formaterMontant(p.valeur)} {devise}
                 </td>
                 <td data-label="Déclaré par">{nomUtilisateur(p.utilisateurId)}</td>
+                {peutGerer && (
+                  <td data-label="">
+                    {!p.annulee && (
+                      <button type="button" className="lien" onClick={() => setPerteAAnnuler(p)}>
+                        Annuler
+                      </button>
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
             {pertes.length === 0 && (
               <tr>
-                <td colSpan={7} className="liste-vide">
+                <td colSpan={8} className="liste-vide">
                   Aucune perte déclarée.
                 </td>
               </tr>
@@ -2149,6 +2194,144 @@ export function FormulaireDestockage({
   );
 }
 
+function ModaleModifierDestockage({
+  destockage,
+  onAnnuler,
+  onModifie,
+}: {
+  destockage: DestockageResume;
+  onAnnuler: () => void;
+  onModifie: () => void;
+}) {
+  const devise = useDevise();
+  const [prixSaisi, setPrixSaisi] = useState(String(destockage.prixDestockage));
+  const [dateFin, setDateFin] = useState(destockage.dateFin ?? "");
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState(false);
+  const prix = Number(prixSaisi) || 0;
+  const valide = prix > 0 && prix < destockage.prixNormal;
+  const reduction = valide ? Math.round((1 - prix / destockage.prixNormal) * 100) : null;
+  const marge = prix - destockage.prixAchat;
+
+  async function enregistrer(evenement: React.FormEvent) {
+    evenement.preventDefault();
+    setErreur(null);
+    if (!valide) {
+      setErreur("Le prix de déstockage doit être positif et inférieur au prix normal.");
+      return;
+    }
+    setEnCours(true);
+    try {
+      await modifierDestockage(destockage.id, { prixDestockage: prix, dateFin: dateFin || null });
+    } catch (e) {
+      setErreur(e instanceof ErreurStock ? e.message : "Erreur inattendue.");
+      return;
+    } finally {
+      setEnCours(false);
+    }
+    onModifie();
+  }
+
+  return (
+    <div className="fond-modale" onClick={onAnnuler}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <form onSubmit={enregistrer} className="formulaire-destockage">
+          <div className="modale-entete entete-fixe">
+            <h3>Modifier le déstockage</h3>
+            <div className="actions-formulaire">
+              <button type="submit" className="bouton-primaire" disabled={enCours || !valide}>
+                {enCours ? "Enregistrement…" : "Enregistrer"}
+              </button>
+              <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
+                ← Retour
+              </button>
+            </div>
+          </div>
+          {erreur && <div className="message-erreur">{erreur}</div>}
+          <div className="colonne-reglage-destockage">
+            <div className="carte-article-destockage">
+              <h4>
+                {destockage.produitNom} {destockage.reference && <span className="sous-info">({destockage.reference})</span>}
+              </h4>
+              <div className="chiffres-article-destockage">
+                <div>
+                  <span className="note-aide">Stock restant</span>
+                  <strong>{destockage.stockRestant}</strong>
+                </div>
+                <div>
+                  <span className="note-aide">Prix normal</span>
+                  <strong>
+                    {formaterMontant(destockage.prixNormal)} {devise}
+                  </strong>
+                </div>
+                <div>
+                  <span className="note-aide">Déjà vendus</span>
+                  <strong>{destockage.quantiteVendue}</strong>
+                </div>
+              </div>
+            </div>
+            <h4>Nouveau prix</h4>
+            <div className="ligne-prix-destockage">
+              <ChampMontant value={prixSaisi} onChange={setPrixSaisi} />
+              <span>{devise}</span>
+            </div>
+            <div className="raccourcis-destockage">
+              {REDUCTIONS_RAPIDES.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  className={reduction === r ? "actif" : undefined}
+                  onClick={() => setPrixSaisi(String(Math.round(destockage.prixNormal * (1 - r / 100))))}
+                >
+                  −{r} %
+                </button>
+              ))}
+            </div>
+            <h4>Jusqu'à quand ?</h4>
+            <div className="raccourcis-destockage">
+              {DUREES_RAPIDES.map((d) => {
+                const valeur = d.jours === 0 ? "" : dansNJours(d.jours);
+                return (
+                  <button
+                    key={d.label}
+                    type="button"
+                    className={dateFin === valeur ? "actif" : undefined}
+                    onClick={() => setDateFin(valeur)}
+                  >
+                    {d.label}
+                  </button>
+                );
+              })}
+              <input type="date" value={dateFin} min={dansNJours(0)} onChange={(e) => setDateFin(e.target.value)} />
+            </div>
+            {valide && (
+              <div className="resume-destockage">
+                <div>
+                  <span>Prix en caisse</span>
+                  <strong>
+                    <s className="prix-barre">{formaterMontant(destockage.prixNormal)}</s>
+                    {formaterMontant(prix)} {devise} <span className="badge-destockage">−{reduction} %</span>
+                  </strong>
+                </div>
+                <div>
+                  <span>{marge < 0 ? "Perte par article" : "Marge par article"}</span>
+                  <strong className={marge < 0 ? "montant-negatif" : "montant-positif"}>
+                    {marge < 0 ? "−" : "+"}
+                    {formaterMontant(Math.abs(marge))} {devise}
+                  </strong>
+                </div>
+                <p className="note-aide">
+                  Les {destockage.quantiteVendue} article(s) déjà vendu(s) gardent leur prix et restent dans le bilan.
+                </p>
+              </div>
+            )}
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function OngletDestockage({ session }: { session: Session }) {
   const nomUtilisateur = useNomsUtilisateurs(session);
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
@@ -2156,6 +2339,7 @@ function OngletDestockage({ session }: { session: Session }) {
   const [destockages, setDestockages] = useState<DestockageResume[]>([]);
   const [afficherForm, setAfficherForm] = useState(false);
   const [destockageAArreter, setDestockageAArreter] = useState<DestockageResume | null>(null);
+  const [destockageAModifier, setDestockageAModifier] = useState<DestockageResume | null>(null);
   const [operationAArreter, setOperationAArreter] = useState<{ id: string; nom: string } | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
@@ -2268,6 +2452,16 @@ function OngletDestockage({ session }: { session: Session }) {
           ))}
         </div>
       )}
+      {destockageAModifier && (
+        <ModaleModifierDestockage
+          destockage={destockageAModifier}
+          onAnnuler={() => setDestockageAModifier(null)}
+          onModifie={() => {
+            setDestockageAModifier(null);
+            rafraichir();
+          }}
+        />
+      )}
       {destockageAArreter && (
         <ModaleConfirmation
           titre="Arrêter ce déstockage ?"
@@ -2324,9 +2518,14 @@ function OngletDestockage({ session }: { session: Session }) {
                 {peutGerer && (
                   <td data-label="">
                     {d.statut === "en_cours" && (
-                      <button type="button" className="bouton-danger" onClick={() => setDestockageAArreter(d)}>
-                        Arrêter
-                      </button>
+                      <span className="actions-ligne">
+                        <button type="button" onClick={() => setDestockageAModifier(d)}>
+                          Modifier
+                        </button>
+                        <button type="button" className="bouton-danger" onClick={() => setDestockageAArreter(d)}>
+                          Arrêter
+                        </button>
+                      </span>
                     )}
                   </td>
                 )}
@@ -2653,14 +2852,15 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
                     </thead>
                     <tbody>
                       {pertesFiltrees.map((p) => (
-                        <tr key={p.id}>
+                        <tr key={p.id} className={p.annulee ? "ligne-annulee" : undefined}>
                           <td data-label="Date">{new Date(p.dateCreation).toLocaleString("fr-FR")}</td>
                           <td data-label="Désignation">
                             {p.produitNom} {p.reference && <span className="sous-info">({p.reference})</span>}
                           </td>
                           <td data-label="Dépôt">{p.depotNom}</td>
                           <td data-label="Motif">
-                            {libelleMotifPerte(p.motif)}
+                            {libelleMotifPerte(p.motif)}{" "}
+                            {p.annulee && <span className="badge-brouillon">Annulée</span>}
                             {p.detail && <span className="sous-info"> — {p.detail}</span>}
                           </td>
                           <td data-label="Quantité">{p.quantite}</td>
@@ -2684,10 +2884,12 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
                   <div className="totaux">
                     <div>
                       {pertesFiltrees.length} perte{pertesFiltrees.length > 1 ? "s" : ""} ·{" "}
-                      {pertesFiltrees.reduce((somme, p) => somme + p.quantite, 0)} article(s)
+                      {pertesFiltrees.filter((p) => !p.annulee).reduce((somme, p) => somme + p.quantite, 0)} article(s)
                     </div>
                     <div className="total-net">
-                      Valeur perdue : {formaterMontant(pertesFiltrees.reduce((somme, p) => somme + p.valeur, 0))} {devise}
+                      Valeur perdue :{" "}
+                      {formaterMontant(pertesFiltrees.filter((p) => !p.annulee).reduce((somme, p) => somme + p.valeur, 0))}{" "}
+                      {devise}
                     </div>
                   </div>
                 )}

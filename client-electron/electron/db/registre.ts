@@ -134,7 +134,6 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
     table: "stock.PerteStock",
     tableLocale: "pertes_stock",
     champsFK: ["variante", "depot", "utilisateur"],
-    ajoutSeul: true,
     clauseBoutique: "depot_id IN (SELECT id FROM depots WHERE boutique_id = ?)",
   },
   {

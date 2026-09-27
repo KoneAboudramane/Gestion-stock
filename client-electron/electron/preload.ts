@@ -139,11 +139,13 @@ contextBridge.exposeInMainWorld("api", {
     lister: (boutiqueId: string) => ipcRenderer.invoke("destockages:lister", boutiqueId),
     demarrer: (params: unknown) => ipcRenderer.invoke("destockages:demarrer", params),
     arreter: (id: string) => ipcRenderer.invoke("destockages:arreter", id),
+    modifier: (id: string, champs: unknown) => ipcRenderer.invoke("destockages:modifier", id, champs),
     demarrerOperation: (params: unknown) => ipcRenderer.invoke("destockages:demarrerOperation", params),
     arreterOperation: (id: string) => ipcRenderer.invoke("destockages:arreterOperation", id),
   },
   pertes: {
     declarer: (params: unknown) => ipcRenderer.invoke("pertes:declarer", params),
+    annuler: (id: string, utilisateurId: string | null) => ipcRenderer.invoke("pertes:annuler", id, utilisateurId),
     lister: (boutiqueId: string, debut?: string, fin?: string) =>
       ipcRenderer.invoke("pertes:lister", boutiqueId, debut, fin),
   },
