@@ -5993,7 +5993,7 @@ input.champ-invalide:focus {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  width: 220px;
+  width: 240px;
   flex-shrink: 0;
   padding: 1rem 0.6rem;
   border-right: 1px solid var(--bordure-tableau, var(--gris-200));
@@ -6003,15 +6003,17 @@ input.champ-invalide:focus {
 .menu-modale button {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.45rem;
   width: 100%;
-  padding: 0.6rem 0.75rem;
+  white-space: nowrap;
+  padding: 0.6rem 0.6rem;
   border: none;
   border-left: 3px solid transparent;
   border-radius: var(--rayon-sm);
   background: transparent;
   color: inherit;
   font: inherit;
+  font-size: 0.92rem;
   text-align: left;
   cursor: pointer;
 }
@@ -6825,7 +6827,7 @@ button.tuile-dormance.active {
 
 /* Stock → Historique → Transferts : recherche d'article dans la barre de filtres. */
 .barre-filtres-historique input[type="search"] {
-  width: 220px;
+  width: 180px;
   margin-left: auto;
 }
 
