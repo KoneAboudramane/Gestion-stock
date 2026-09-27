@@ -1972,6 +1972,7 @@ function ModaleDette({
   const [message, setMessage] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
   const [aAnnuler, setAAnnuler] = useState<PaiementDetteDetail | null>(null);
+  const [tracesOuvertes, setTracesOuvertes] = useState(false);
   const [echeances, setEcheances] = useState<EcheanceDetail[]>([]);
   const [planification, setPlanification] = useState(false);
   const [motifAnnulation, setMotifAnnulation] = useState("");
@@ -2154,23 +2155,6 @@ function ModaleDette({
           {erreur && <div className="message-erreur">{erreur}</div>}
           {message && <div className="message-succes">{message}</div>}
 
-          {aAnnuler && (
-            <ModaleConfirmation
-              titre={`Annuler le remboursement de ${formaterMontant(aAnnuler.montant)} ${devise} ?`}
-              description="Il restera visible dans les traces, marqué annulé. Son montant revient dans le reste à payer ; s'il a été payé en espèces, l'argent revient dans la caisse."
-              labelConfirmer="Annuler le remboursement"
-              dangereux
-              enCours={enCours}
-              onAnnuler={() => setAAnnuler(null)}
-              onConfirmer={annulerRemboursement}
-            >
-              <label className="champ-formulaire">
-                Motif (facultatif)
-                <input value={motifAnnulation} onChange={(e) => setMotifAnnulation(e.target.value)} autoFocus />
-              </label>
-            </ModaleConfirmation>
-          )}
-
           <div className="entete-section-echeancier">
             <h4>Échéancier</h4>
             {(echeances.length > 0 || (peutGerer && dette.statut === "en_cours")) && (
@@ -2207,76 +2191,123 @@ function ModaleDette({
             />
           )}
 
-          <h4>Traces des paiements</h4>
-          <div className="zone-tableau-scroll zone-traces-dette">
-            <table className="tableau-catalogue carte-mobile">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Origine</th>
-                  <th>Mode</th>
-                  <th>Montant</th>
-                  <th>Reste après</th>
-                  {peutGerer && <th className="colonne-actions-categorie" />}
-                </tr>
-              </thead>
-              <tbody>
-                {lignesTraces.map((t) => (
-                  <tr key={t.id} className={t.annule ? "ligne-annulee" : undefined}>
-                    <td data-label="Date">{new Date(t.dateCreation).toLocaleString("fr-FR")}</td>
-                    <td data-label="Origine">
-                      {t.origine}
-                      {t.annule && t.paiement && (
-                        <span className="sous-info">
-                          {" "}
-                          · le {new Date(t.paiement.dateAnnulation ?? t.dateCreation).toLocaleDateString("fr-FR")}
-                          {t.paiement.annuleParId ? ` par ${nomUtilisateur(t.paiement.annuleParId)}` : ""}
-                          {t.paiement.motifAnnulation ? ` · ${t.paiement.motifAnnulation}` : ""}
-                        </span>
-                      )}
-                    </td>
-                    <td data-label="Mode">{t.mode ? libelleModeReglement(t.mode) : "—"}</td>
-                    <td data-label="Montant">{formaterMontant(t.montant)} {devise}</td>
-                    <td data-label="Reste après">{t.annule ? "—" : `${formaterMontant(t.reste)} ${devise}`}</td>
-                    {peutGerer && (
-                      <td className="colonne-actions-categorie">
-                        {t.paiement && !t.annule && (
-                          <button
-                            type="button"
-                            className="lien-icone lien-icone-danger"
-                            title="Annuler ce remboursement"
-                            onClick={() => {
-                              setMotifAnnulation("");
-                              setAAnnuler(t.paiement);
-                            }}
-                          >
-                            ×
-                          </button>
-                        )}
-                      </td>
-                    )}
-                  </tr>
-                ))}
-                {lignesTraces.length === 0 && (
-                  <tr>
-                    <td colSpan={peutGerer ? 6 : 5} className="liste-vide">
-                      Aucun paiement pour l'instant.
-                    </td>
-                  </tr>
-                )}
-                {Array.from({ length: Math.max(0, 8 - Math.max(1, lignesTraces.length)) }).map((_, i) => (
-                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    {peutGerer && <td>&nbsp;</td>}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="entete-section-echeancier">
+            <h4>Traces des paiements</h4>
+            <button type="button" onClick={() => setTracesOuvertes(true)}>
+              Voir les traces
+            </button>
           </div>
+          <p className="note-aide">
+            {lignesTraces.length === 0
+              ? "Aucun paiement pour l'instant."
+              : `${lignesTraces.filter((x) => !x.annule).length} paiement(s)` +
+                (lignesTraces.some((x) => x.annule) ? ` · ${lignesTraces.filter((x) => x.annule).length} annulé(s)` : "") +
+                ` · dernier le ${new Date(lignesTraces[lignesTraces.length - 1].dateCreation).toLocaleDateString("fr-FR")}`}
+          </p>
+          {tracesOuvertes && (
+            <div className="fond-modale" onClick={() => setTracesOuvertes(false)}>
+              <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+                <EnteteModale titre={`Traces des paiements — ${dette.fournisseurNom}`} onFermer={() => setTracesOuvertes(false)} />
+                <div className="modale-corps">
+                  {erreur && <div className="message-erreur">{erreur}</div>}
+                  {message && <div className="message-succes">{message}</div>}
+                <div className="zone-tableau-scroll zone-traces-dette">
+                  <table className="tableau-catalogue carte-mobile">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Origine</th>
+                        <th>Mode</th>
+                        <th>Montant</th>
+                        <th>Reste après</th>
+                        {peutGerer && <th className="colonne-actions-categorie" />}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lignesTraces.map((t) => (
+                        <tr key={t.id} className={t.annule ? "ligne-annulee" : undefined}>
+                          <td data-label="Date">{new Date(t.dateCreation).toLocaleString("fr-FR")}</td>
+                          <td data-label="Origine">
+                            {t.origine}
+                            {t.annule && t.paiement && (
+                              <span className="sous-info">
+                                {" "}
+                                · le {new Date(t.paiement.dateAnnulation ?? t.dateCreation).toLocaleDateString("fr-FR")}
+                                {t.paiement.annuleParId ? ` par ${nomUtilisateur(t.paiement.annuleParId)}` : ""}
+                                {t.paiement.motifAnnulation ? ` · ${t.paiement.motifAnnulation}` : ""}
+                              </span>
+                            )}
+                          </td>
+                          <td data-label="Mode">{t.mode ? libelleModeReglement(t.mode) : "—"}</td>
+                          <td data-label="Montant">{formaterMontant(t.montant)} {devise}</td>
+                          <td data-label="Reste après">{t.annule ? "—" : `${formaterMontant(t.reste)} ${devise}`}</td>
+                          {peutGerer && (
+                            <td className="colonne-actions-categorie">
+                              {t.paiement && !t.annule && (
+                                <button
+                                  type="button"
+                                  className="lien-icone lien-icone-danger"
+                                  title="Annuler ce remboursement"
+                                  onClick={() => {
+                                    setMotifAnnulation("");
+                                    setAAnnuler(t.paiement);
+                                  }}
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                      {lignesTraces.length === 0 && (
+                        <tr>
+                          <td colSpan={peutGerer ? 6 : 5} className="liste-vide">
+                            Aucun paiement pour l'instant.
+                          </td>
+                        </tr>
+                      )}
+                      {Array.from({ length: Math.max(0, 10 - Math.max(1, lignesTraces.length)) }).map((_, i) => (
+                        <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          {peutGerer && <td>&nbsp;</td>}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                  <div className="totaux">
+                    <div>
+                      Montant : {formaterMontant(dette.montant)} {devise} · Déjà payé : {formaterMontant(dette.montantPaye)} {devise}
+                    </div>
+                    <div className="total-net">
+                      Reste à payer : {formaterMontant(dette.solde)} {devise}
+                    </div>
+                  </div>
+                {aAnnuler && (
+                  <ModaleConfirmation
+                    titre={`Annuler le remboursement de ${formaterMontant(aAnnuler.montant)} ${devise} ?`}
+                    description="Il restera visible dans les traces, marqué annulé. Son montant revient dans le reste à payer ; s'il a été payé en espèces, l'argent revient dans la caisse."
+                    labelConfirmer="Annuler le remboursement"
+                    dangereux
+                    enCours={enCours}
+                    onAnnuler={() => setAAnnuler(null)}
+                    onConfirmer={annulerRemboursement}
+                  >
+                    <label className="champ-formulaire">
+                      Motif (facultatif)
+                      <input value={motifAnnulation} onChange={(e) => setMotifAnnulation(e.target.value)} autoFocus />
+                    </label>
+                  </ModaleConfirmation>
+                )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
