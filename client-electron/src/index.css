@@ -5969,3 +5969,10 @@ button.tuile-dormance.active {
 .section-dormants .serie-graphique-dormants .graphique-dormants {
   height: 60px;
 }
+
+/* Modales à menu latéral (historiques) : le message « aucune ligne » garde une
+   hauteur de ligne normale ; les lignes vides de remplissage dessinent la grille. */
+.modale-avec-menu .liste-vide {
+  height: auto;
+  padding: 0.8rem !important;
+}
