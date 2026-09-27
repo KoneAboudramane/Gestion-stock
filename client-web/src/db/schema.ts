@@ -335,6 +335,14 @@ export interface DetteFournisseurLocale extends SuiviSync {
   statut: "en_cours" | "solde";
 }
 
+/** Tranche prévue d'un échéancier de remboursement (fournisseurs.EcheanceDette). */
+export interface EcheanceDetteLocale extends SuiviSync {
+  id: string;
+  dette_id: string;
+  date_echeance: string;
+  montant: number;
+}
+
 export interface PaiementDetteFournisseurLocale extends SuiviSync {
   id: string;
   dette_id: string;
@@ -529,6 +537,11 @@ export interface GestionStockDB extends DBSchema {
     value: LigneRetourFournisseurLocale;
     indexes: { retour_id: string; synchronise: number };
   };
+  echeances_dette: {
+    key: string;
+    value: EcheanceDetteLocale;
+    indexes: { dette_id: string; synchronise: number };
+  };
   dettes_fournisseur: {
     key: string;
     value: DetteFournisseurLocale;
@@ -619,4 +632,4 @@ export interface GestionStockDB extends DBSchema {
 }
 
 export const NOM_BASE = "gestion-stock";
-export const VERSION_BASE = 9;
+export const VERSION_BASE = 10;

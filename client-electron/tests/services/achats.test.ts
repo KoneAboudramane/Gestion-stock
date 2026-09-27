@@ -1,13 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { executer, unResultat } from "../../electron/db/helpers";
+import { executer, tousLesResultats, unResultat } from "../../electron/db/helpers";
 import {
   ErreurAchat,
   annulerPaiementDette,
   annulerReception,
   creerCommande,
   creerFournisseur,
+  echeancierDette,
+  listerDettes,
+  planifierEcheancier,
   listerFournisseurs,
   modifierFournisseur,
   supprimerFournisseur,
@@ -23,6 +26,7 @@ import {
   receptionnerCommande,
   retournerAuFournisseur,
 } from "../../electron/services/achats";
+import { genererAlertesDestockage } from "../../electron/services/notifications";
 import { creerBaseDeTest } from "../setup";
 
 describe("achats.creerCommande (miroir de achats/services.py::creer_commande)", () => {
@@ -835,5 +839,77 @@ describe("achats.annulerPaiementDette (remboursement saisi par erreur)", () => {
     expect(suiviCommande(commande.id).map((e) => e.type)).toContain("paiement_annule");
     expect(historiqueAchats(boutiqueId).paiements.find((p) => p.id === paiement.id)!.annulee).toBe(true);
     expect(() => annulerPaiementDette(paiement.id, "u2")).toThrow(/déjà annulé/);
+  });
+});
+
+describe("achats : échéancier de remboursement d'une dette", () => {
+  const boutiqueId = randomUUID();
+  const depotId = randomUUID();
+  let detteId: string;
+
+  function jour(decalage: number): string {
+    const d = new Date();
+    d.setDate(d.getDate() + decalage);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+
+  beforeEach(async () => {
+    await creerBaseDeTest();
+    executer("INSERT INTO boutiques (id, nom) VALUES (?, ?)", [boutiqueId, "Boutique"]);
+    executer("INSERT INTO depots (id, boutique_id, nom) VALUES (?, ?, ?)", [depotId, boutiqueId, "Magasin"]);
+    const produitId = randomUUID();
+    const varianteId = randomUUID();
+    executer("INSERT INTO produits (id, boutique_id, nom) VALUES (?, ?, ?)", [produitId, boutiqueId, "Riz 25kg"]);
+    executer("INSERT INTO variantes (id, produit_id, prix_achat, prix_vente) VALUES (?, ?, ?, ?)", [varianteId, produitId, 10000, 12500]);
+    const fournisseurId = creerFournisseur(boutiqueId, "Grossiste Konan");
+    const commande = creerCommande({
+      boutiqueId,
+      fournisseurId,
+      utilisateurId: "u1",
+      statut: "commandee",
+      lignes: [{ varianteId, quantite: 3, prixAchat: 10000 }],
+    });
+    receptionnerCommande({ commandeId: commande.id, depotId, utilisateurId: "u1", montantDejaPaye: 3000, lignes: [{ varianteId, quantite: 3 }] });
+    detteId = unResultat<{ id: string }>("SELECT id FROM dettes_fournisseur WHERE commande_id = ?", [commande.id])!.id;
+  });
+
+  it("refuse un total différent du reste à payer, puis répartit les paiements sur les tranches dans l'ordre", () => {
+    expect(() => planifierEcheancier(detteId, [{ dateEcheance: jour(10), montant: 10000 }])).toThrow(/doit être égal/);
+    planifierEcheancier(detteId, [
+      { dateEcheance: jour(10), montant: 9000 },
+      { dateEcheance: jour(40), montant: 9000 },
+      { dateEcheance: jour(70), montant: 9000 },
+    ]);
+    expect(echeancierDette(detteId).map((e) => e.statut)).toEqual(["a_venir", "a_venir", "a_venir"]);
+
+    payerDette(detteId, 12000);
+    expect(echeancierDette(detteId).map((e) => [e.statut, e.couvert])).toEqual([
+      ["payee", 9000],
+      ["partielle", 3000],
+      ["a_venir", 0],
+    ]);
+    expect(listerDettes(boutiqueId)[0].prochaineEcheance).toMatchObject({ date: jour(40), reste: 6000, enRetard: false });
+
+    // Replanifier : la tranche payée reste, les autres sont remplacées pour le reste dû (15 000).
+    planifierEcheancier(detteId, [{ dateEcheance: jour(20), montant: 15000 }]);
+    expect(echeancierDette(detteId).map((e) => [e.montant, e.statut])).toEqual([
+      [9000, "payee"],
+      [15000, "a_venir"],
+    ]);
+  });
+
+  it("marque une tranche dépassée en retard et crée les alertes (proche et en retard) une seule fois", () => {
+    planifierEcheancier(detteId, [
+      { dateEcheance: jour(-1), montant: 13500 },
+      { dateEcheance: jour(2), montant: 13500 },
+    ]);
+    expect(echeancierDette(detteId).map((e) => e.statut)).toEqual(["en_retard", "a_venir"]);
+    genererAlertesDestockage(boutiqueId);
+    genererAlertesDestockage(boutiqueId);
+    const types = tousLesResultats<{ type: string }>(
+      "SELECT type FROM notifications WHERE type IN ('echeance_proche', 'echeance_retard') ORDER BY type",
+      [],
+    ).map((n) => n.type);
+    expect(types).toEqual(["echeance_proche", "echeance_retard"]);
   });
 });

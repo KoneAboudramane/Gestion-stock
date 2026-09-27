@@ -201,6 +201,13 @@ export function ouvrirBaseDeDonnees(): Promise<IDBPDatabase<GestionStockDB>> {
           evenements.createIndex("commande_id", "commande_id");
           evenements.createIndex("synchronise", "synchronise");
         }
+
+        // v10 : échéanciers de remboursement des dettes fournisseur.
+        if (oldVersion < 10) {
+          const echeances = db.createObjectStore("echeances_dette", { keyPath: "id" });
+          echeances.createIndex("dette_id", "dette_id");
+          echeances.createIndex("synchronise", "synchronise");
+        }
       },
     });
   }

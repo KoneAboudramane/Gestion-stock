@@ -63,3 +63,21 @@ class PaiementDetteFournisseur(ModeleBase):
         "comptes.Utilisateur", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     motif_annulation = models.CharField(max_length=255, blank=True)
+
+
+class EcheanceDette(ModeleBase):
+    """Tranche prévue d'un échéancier de remboursement (date + montant). Les
+    paiements restent libres : ils couvrent les tranches dans l'ordre des
+    dates, le statut (payée, partielle, à venir, en retard) est calculé à
+    l'affichage, jamais stocké. Replanifier retire (supprime) les tranches pas
+    encore entièrement couvertes et en ajoute de nouvelles pour le reste dû."""
+
+    dette = models.ForeignKey(DetteFournisseur, on_delete=models.CASCADE, related_name="echeances")
+    date_echeance = models.DateField()
+    montant = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        ordering = ["date_echeance"]
+
+    def __str__(self):
+        return f"{self.dette} : {self.montant} le {self.date_echeance}"

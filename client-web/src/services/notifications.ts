@@ -1,5 +1,6 @@
 import { ouvrirBaseDeDonnees } from "../db";
 import { maintenant, suiviSyncNeuf } from "../db/helpers";
+import { echeancesEnCours } from "./achats";
 import type { NotificationLocale } from "../db/schema";
 import { produitsDormants } from "./rapports";
 import { listerDestockages } from "./stock";
@@ -11,7 +12,12 @@ import { listerDestockages } from "./stock";
  * crédit, ticket WhatsApp).
  */
 
-export type TypeNotification = "alerte_rupture" | "alerte_dormants" | "fin_destockage";
+export type TypeNotification =
+  | "alerte_rupture"
+  | "alerte_dormants"
+  | "fin_destockage"
+  | "echeance_proche"
+  | "echeance_retard";
 
 const FENETRE_ANTI_DOUBLON_HEURES = 24;
 
@@ -75,6 +81,7 @@ export function genererAlertesRupture(boutiqueId: string): Promise<string[]> {
 const SEUIL_ALERTE_DORMANTS_JOURS = 60;
 const FREQUENCE_ALERTE_DORMANTS_JOURS = 7;
 const PREAVIS_FIN_DESTOCKAGE_JOURS = 2;
+const PREAVIS_ECHEANCE_JOURS = 3;
 
 function jourLocal(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -136,6 +143,39 @@ async function genererAlertesDestockageImpl(boutiqueId: string): Promise<string[
       "stock.Destockage",
       d.id,
     );
+  }
+
+  // Échéances des dettes fournisseur : 3 jours avant, puis dès le lendemain si pas payée.
+  const limiteEcheance = new Date(aujourdhui);
+  limiteEcheance.setDate(limiteEcheance.getDate() + PREAVIS_ECHEANCE_JOURS);
+  const dejaAlertees = new Set(
+    notifications
+      .filter((n) => n.type === "echeance_proche" || n.type === "echeance_retard")
+      .map((n) => `${n.type}:${n.reference_id}`),
+  );
+  for (const e of await echeancesEnCours(boutiqueId)) {
+    const date = new Date(`${e.dateEcheance}T00:00:00`).toLocaleDateString("fr-FR");
+    const reste = `${formaterNombre(e.montant - e.couvert)} ${devise}`;
+    const commande = e.commandeNumero ? ` (commande ${e.commandeNumero})` : "";
+    if (e.statut === "en_retard" && !dejaAlertees.has(`echeance_retard:${e.id}`)) {
+      await inserer(
+        "echeance_retard",
+        `Échéance en retard : ${reste} à payer à ${e.fournisseurNom}${commande} depuis le ${date}. Achats → Dettes.`,
+        "fournisseurs.EcheanceDette",
+        e.id,
+      );
+    } else if (
+      e.statut !== "en_retard" &&
+      e.dateEcheance <= jourLocal(limiteEcheance) &&
+      !dejaAlertees.has(`echeance_proche:${e.id}`)
+    ) {
+      await inserer(
+        "echeance_proche",
+        `Échéance le ${date} : ${reste} à payer à ${e.fournisseurNom}${commande}. Achats → Dettes.`,
+        "fournisseurs.EcheanceDette",
+        e.id,
+      );
+    }
   }
   return idsCrees;
 }

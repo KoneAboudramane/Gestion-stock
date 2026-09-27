@@ -71,6 +71,7 @@ REGISTRE = [
     EntreeRegistre("clients", "Credit", "client__boutique"),
     EntreeRegistre("clients", "PaiementCredit", "credit__client__boutique"),
     EntreeRegistre("fournisseurs", "DetteFournisseur", "fournisseur__boutique"),
+    EntreeRegistre("fournisseurs", "EcheanceDette", "dette__fournisseur__boutique"),
     EntreeRegistre("fournisseurs", "PaiementDetteFournisseur", "dette__fournisseur__boutique"),
     EntreeRegistre("tresorerie", "Depense", "depot__boutique", ajout_seul=True),
     EntreeRegistre("tresorerie", "Transfert", "depot__boutique", ajout_seul=True),

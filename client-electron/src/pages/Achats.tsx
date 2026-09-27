@@ -8,6 +8,7 @@ import type {
   Depot,
   EtapeCommande,
   DetteResume,
+  EcheanceDetail,
   FournisseurResume,
   LigneAchatInitiale,
   PaiementDetteDetail,
@@ -1922,6 +1923,190 @@ function OngletFournisseurs({ session }: { session: Session }) {
 
 // --- Onglet Dettes ---
 
+const RYTHMES_ECHEANCIER = [
+  { valeur: "semaine", label: "Chaque semaine" },
+  { valeur: "2semaines", label: "Toutes les 2 semaines" },
+  { valeur: "mois", label: "Chaque mois" },
+] as const;
+
+function jourIso(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+/** Dates des tranches à partir de la première, selon le rythme (fin de mois gérée). */
+function datesTranches(premiere: string, nombre: number, rythme: string): string[] {
+  const depart = new Date(`${premiere}T00:00:00`);
+  return Array.from({ length: nombre }, (_, i) => {
+    if (rythme === "mois") {
+      const cible = new Date(depart.getFullYear(), depart.getMonth() + i, 1);
+      const dernierJour = new Date(cible.getFullYear(), cible.getMonth() + 1, 0).getDate();
+      cible.setDate(Math.min(depart.getDate(), dernierJour));
+      return jourIso(cible);
+    }
+    const d = new Date(depart);
+    d.setDate(d.getDate() + i * (rythme === "semaine" ? 7 : 14));
+    return jourIso(d);
+  });
+}
+
+/** Tranches égales ; la dernière absorbe l'arrondi. */
+function montantsTranches(reste: number, nombre: number): number[] {
+  let part = Math.ceil(reste / nombre);
+  if (reste - part * (nombre - 1) <= 0) part = Math.floor(reste / nombre);
+  return Array.from({ length: nombre }, (_, i) => (i < nombre - 1 ? part : reste - part * (nombre - 1)));
+}
+
+/** Préparation d'un échéancier : proposition automatique, puis chaque tranche corrigeable. */
+function PlanificateurEcheancier({
+  reste,
+  dejaPlanifie,
+  onAnnuler,
+  onEnregistrer,
+}: {
+  reste: number;
+  dejaPlanifie: boolean;
+  onAnnuler: () => void;
+  onEnregistrer: (tranches: { dateEcheance: string; montant: number }[]) => void;
+}) {
+  const devise = useDevise();
+  const dansUnMois = new Date();
+  dansUnMois.setMonth(dansUnMois.getMonth() + 1);
+  const [nombre, setNombre] = useState("3");
+  const [premiere, setPremiere] = useState(jourIso(dansUnMois));
+  const [rythme, setRythme] = useState<string>("mois");
+  const [tranches, setTranches] = useState<{ dateEcheance: string; montant: string }[]>([]);
+
+  function proposer() {
+    const n = Math.max(1, Math.min(60, Math.floor(Number(nombre) || 1)));
+    const dates = datesTranches(premiere, n, rythme);
+    const montants = montantsTranches(reste, n);
+    setTranches(dates.map((d, i) => ({ dateEcheance: d, montant: String(montants[i]) })));
+  }
+
+  const total = tranches.reduce((t, x) => t + (Number(x.montant) || 0), 0);
+  const ecart = Math.round((reste - total) * 100) / 100;
+  const valide = tranches.length > 0 && ecart === 0 && tranches.every((t) => t.dateEcheance && Number(t.montant) > 0);
+
+  return (
+    <div className="planificateur-echeancier">
+      <div className="barre-actions barre-filtres-historique">
+        <label className="case-a-cocher">
+          Nombre de tranches
+          <input type="number" min={1} max={60} value={nombre} onChange={(e) => setNombre(e.target.value)} style={{ width: "70px" }} />
+        </label>
+        <label className="case-a-cocher">
+          Première le
+          <input type="date" value={premiere} onChange={(e) => setPremiere(e.target.value)} />
+        </label>
+        <select value={rythme} onChange={(e) => setRythme(e.target.value)}>
+          {RYTHMES_ECHEANCIER.map((r) => (
+            <option key={r.valeur} value={r.valeur}>
+              {r.label}
+            </option>
+          ))}
+        </select>
+        <button type="button" onClick={proposer} disabled={!premiere}>
+          Proposer les tranches
+        </button>
+      </div>
+      <p className="note-aide">
+        À répartir : {formaterMontant(reste)} {devise} (le reste à payer).
+        {dejaPlanifie && " Les tranches déjà payées sont gardées ; celles-ci remplacent les autres."}
+      </p>
+      {tranches.length > 0 && (
+        <>
+          <div className="zone-tableau-scroll">
+            <table className="tableau-catalogue">
+              <thead>
+                <tr>
+                  <th>N°</th>
+                  <th>Date</th>
+                  <th>Montant</th>
+                  <th className="colonne-actions-categorie" />
+                </tr>
+              </thead>
+              <tbody>
+                {tranches.map((t, i) => (
+                  <tr key={i}>
+                    <td>{i + 1}</td>
+                    <td>
+                      <input
+                        type="date"
+                        value={t.dateEcheance}
+                        onChange={(e) => setTranches(tranches.map((x, j) => (j === i ? { ...x, dateEcheance: e.target.value } : x)))}
+                      />
+                    </td>
+                    <td>
+                      <ChampMontant
+                        value={t.montant}
+                        onChange={(v) => setTranches(tranches.map((x, j) => (j === i ? { ...x, montant: v } : x)))}
+                        style={{ width: "140px" }}
+                      />
+                    </td>
+                    <td className="colonne-actions-categorie">
+                      {tranches.length > 1 && (
+                        <button
+                          type="button"
+                          className="lien-icone lien-icone-danger"
+                          title="Retirer cette tranche"
+                          onClick={() => setTranches(tranches.filter((_, j) => j !== i))}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="totaux">
+            <div className={ecart === 0 ? undefined : "texte-erreur"}>
+              Total : {formaterMontant(total)} {devise}
+              {ecart !== 0 && ` · ${ecart > 0 ? "il manque" : "trop de"} ${formaterMontant(Math.abs(ecart))} ${devise}`}
+            </div>
+            <div className="actions-ligne">
+              <button
+                type="button"
+                onClick={() =>
+                  setTranches([...tranches, { dateEcheance: tranches[tranches.length - 1]?.dateEcheance ?? premiere, montant: String(Math.max(0, ecart)) }])
+                }
+              >
+                + Tranche
+              </button>
+              <button type="button" onClick={onAnnuler}>
+                Annuler
+              </button>
+              <button
+                type="button"
+                className="bouton-primaire"
+                disabled={!valide}
+                onClick={() => onEnregistrer(tranches.map((t) => ({ dateEcheance: t.dateEcheance, montant: Number(t.montant) })))}
+              >
+                Enregistrer l'échéancier
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+      {tranches.length === 0 && (
+        <div className="actions-ligne">
+          <button type="button" onClick={onAnnuler}>
+            Annuler
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const LIBELLES_STATUT_ECHEANCE: Record<string, { label: string; classe: string }> = {
+  payee: { label: "✅ Payée", classe: "badge-payee" },
+  partielle: { label: "🟡 Partielle", classe: "badge-commandee" },
+  a_venir: { label: "⏳ À venir", classe: "badge-brouillon" },
+  en_retard: { label: "🔴 En retard", classe: "badge-retard" },
+};
+
 /** Remboursement d'une dette fournisseur, avec la trace de tous ses paiements. */
 function ModaleDette({
   dette: detteInitiale,
@@ -1947,11 +2132,14 @@ function ModaleDette({
   const [message, setMessage] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
   const [aAnnuler, setAAnnuler] = useState<PaiementDetteDetail | null>(null);
+  const [echeances, setEcheances] = useState<EcheanceDetail[]>([]);
+  const [planification, setPlanification] = useState(false);
   const [motifAnnulation, setMotifAnnulation] = useState("");
   const nomUtilisateur = useNomsUtilisateurs(session);
 
   function chargerPaiements() {
     api.dettes.listerPaiements(dette.id).then(setPaiements);
+    api.dettes.echeancier(dette.id).then(setEcheances);
   }
   useEffect(() => {
     chargerPaiements();
@@ -1976,6 +2164,20 @@ function ModaleDette({
     setDette({ ...dette, montantPaye: dette.montantPaye + valeur, solde, statut: solde <= 0 ? "solde" : "en_cours" });
     setMontant("");
     setMessage(solde <= 0 ? "Remboursement enregistré : la dette est soldée." : "Remboursement enregistré.");
+    chargerPaiements();
+    onPaye();
+  }
+
+  async function planifier(tranches: { dateEcheance: string; montant: number }[]) {
+    setErreur(null);
+    setMessage(null);
+    let succes = false;
+    const resultat = await api.dettes.planifier(dette.id, tranches);
+    if (resultat.succes) succes = true;
+    else setErreur(resultat.message);
+    if (!succes) return;
+    setPlanification(false);
+    setMessage("Échéancier enregistré.");
     chargerPaiements();
     onPaye();
   }
@@ -2006,6 +2208,8 @@ function ModaleDette({
     chargerPaiements();
     onPaye();
   }
+
+  const prochaineId = echeances.find((e) => e.statut !== "payee")?.id;
 
   // Traces : ce qui a été payé à la réception (s'il y en a), puis chaque règlement.
   const regle = paiements.filter((x) => !x.annulee).reduce((t, x) => t + Number(x.montant), 0);
@@ -2124,6 +2328,54 @@ function ModaleDette({
               </label>
             </ModaleConfirmation>
           )}
+
+          <div className="entete-section-echeancier">
+            <h4>Échéancier</h4>
+            {peutGerer && dette.statut === "en_cours" && !planification && (
+              <button type="button" onClick={() => setPlanification(true)}>
+                {echeances.length > 0 ? "Modifier l'échéancier" : "Planifier un échéancier"}
+              </button>
+            )}
+          </div>
+          {planification && (
+            <PlanificateurEcheancier
+              reste={dette.solde}
+              dejaPlanifie={echeances.length > 0}
+              onAnnuler={() => setPlanification(false)}
+              onEnregistrer={planifier}
+            />
+          )}
+          {!planification &&
+            (echeances.length > 0 ? (
+              <div className="zone-tableau-scroll">
+                <table className="tableau-catalogue">
+                  <thead>
+                    <tr>
+                      <th>Échéance</th>
+                      <th>Montant</th>
+                      <th>Déjà couvert</th>
+                      <th>Reste</th>
+                      <th>Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {echeances.map((e) => (
+                      <tr key={e.id} className={e.id === prochaineId ? "ligne-prochaine-echeance" : undefined}>
+                        <td>{new Date(`${e.dateEcheance}T00:00:00`).toLocaleDateString("fr-FR")}</td>
+                        <td>{formaterMontant(e.montant)} {devise}</td>
+                        <td>{formaterMontant(e.couvert)} {devise}</td>
+                        <td>{formaterMontant(e.montant - e.couvert)} {devise}</td>
+                        <td><span className={LIBELLES_STATUT_ECHEANCE[e.statut].classe}>{LIBELLES_STATUT_ECHEANCE[e.statut].label}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="note-aide">
+                Pas d'échéancier : la dette se rembourse librement, un peu à la fois ou d'un coup.
+              </p>
+            ))}
 
           <h4>Traces des paiements</h4>
           <div className="zone-tableau-scroll">
@@ -2248,6 +2500,7 @@ function OngletDettes({ session }: { session: Session }) {
             <th>Montant</th>
             <th>Payé</th>
             <th>Solde</th>
+            <th>Prochaine échéance</th>
             <th>Statut</th>
             {peutGerer && <th></th>}
           </tr>
@@ -2266,6 +2519,17 @@ function OngletDettes({ session }: { session: Session }) {
               <td>{formaterMontant(d.montant)}</td>
               <td>{formaterMontant(d.montantPaye)}</td>
               <td>{formaterMontant(d.solde)}</td>
+              <td>
+                {d.prochaineEcheance ? (
+                  <span className={d.prochaineEcheance.enRetard ? "texte-erreur" : undefined}>
+                    {new Date(`${d.prochaineEcheance.date}T00:00:00`).toLocaleDateString("fr-FR")} ·{" "}
+                    {formaterMontant(d.prochaineEcheance.reste)}
+                    {d.prochaineEcheance.enRetard && " (en retard)"}
+                  </span>
+                ) : (
+                  "—"
+                )}
+              </td>
               <td>
                 <span className={d.statut === "solde" ? "badge-payee" : "badge-commandee"}>
                   {d.statut === "solde" ? "Soldée" : "En cours"}
@@ -2291,13 +2555,14 @@ function OngletDettes({ session }: { session: Session }) {
           ))}
           {dettes.length === 0 && (
             <tr>
-              <td colSpan={peutGerer ? 8 : 7} className="liste-vide">
+              <td colSpan={peutGerer ? 9 : 8} className="liste-vide">
                 Aucune dette fournisseur.
               </td>
             </tr>
           )}
           {Array.from({ length: Math.max(0, 10 - Math.max(1, dettes.length)) }).map((_, i) => (
             <tr key={`vide-${i}`} className="ligne-groupe-vide">
+              <td>&nbsp;</td>
               <td>&nbsp;</td>
               <td>&nbsp;</td>
               <td>&nbsp;</td>

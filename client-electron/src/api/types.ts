@@ -663,6 +663,26 @@ export interface DetteResume {
   dateCreation: string;
   /** Dernière modification : pour une dette soldée, le moment où elle l'a été. */
   dateModification: string;
+  /** Première tranche pas encore payée de son échéancier (null s'il n'y en a pas). */
+  prochaineEcheance: { date: string; reste: number; enRetard: boolean } | null;
+}
+
+export type StatutEcheance = "payee" | "partielle" | "a_venir" | "en_retard";
+
+/** Tranche d'un échéancier, avec ce que les paiements en couvrent déjà. */
+export interface EcheanceDetail {
+  id: string;
+  dateEcheance: string;
+  montant: number;
+  couvert: number;
+  statut: StatutEcheance;
+}
+
+/** Tranche non payée d'une dette en cours (alertes, prochaine échéance). */
+export interface EcheanceEnCours extends EcheanceDetail {
+  detteId: string;
+  fournisseurNom: string;
+  commandeNumero: string | null;
 }
 
 export interface PaiementDetteDetail {
@@ -1057,7 +1077,12 @@ export interface TransactionResume {
   montant: number;
 }
 
-export type TypeNotification = "alerte_rupture" | "alerte_dormants" | "fin_destockage";
+export type TypeNotification =
+  | "alerte_rupture"
+  | "alerte_dormants"
+  | "fin_destockage"
+  | "echeance_proche"
+  | "echeance_retard";
 
 export interface NotificationResume {
   id: string;
@@ -1363,6 +1388,8 @@ export interface WindowApi {
     suivi(commandeId: string): Promise<EtapeCommande[]>;
   };
   dettes: {
+    echeancier(detteId: string): Promise<EcheanceDetail[]>;
+    planifier(detteId: string, tranches: { dateEcheance: string; montant: number }[]): Promise<ResultatEcriture<void>>;
     annulerPaiement(paiementId: string, utilisateurId: string | null, motif?: string): Promise<ResultatEcriture<void>>;
     lister(boutiqueId: string, fournisseurId?: string, statut?: StatutDette): Promise<DetteResume[]>;
     payer(

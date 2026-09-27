@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import DetteFournisseur, Fournisseur, PaiementDetteFournisseur
+from .models import DetteFournisseur, EcheanceDette, Fournisseur, PaiementDetteFournisseur
 
 
 class DetteFournisseurInline(admin.TabularInline):
@@ -10,6 +10,11 @@ class DetteFournisseurInline(admin.TabularInline):
 
 class PaiementDetteFournisseurInline(admin.TabularInline):
     model = PaiementDetteFournisseur
+    extra = 0
+
+
+class EcheanceDetteInline(admin.TabularInline):
+    model = EcheanceDette
     extra = 0
 
 
@@ -26,4 +31,4 @@ class DetteFournisseurAdmin(admin.ModelAdmin):
     list_display = ("fournisseur", "commande", "montant", "montant_paye", "solde", "statut")
     search_fields = ("fournisseur__nom",)
     list_filter = ("statut",)
-    inlines = [PaiementDetteFournisseurInline]
+    inlines = [PaiementDetteFournisseurInline, EcheanceDetteInline]

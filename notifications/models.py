@@ -19,6 +19,8 @@ class Notification(ModeleBase):
         ALERTE_RUPTURE = "alerte_rupture", "Alerte de rupture"
         ALERTE_DORMANTS = "alerte_dormants", "Produits dormants"
         FIN_DESTOCKAGE = "fin_destockage", "Fin prochaine d'un déstockage"
+        ECHEANCE_PROCHE = "echeance_proche", "Échéance de dette fournisseur proche"
+        ECHEANCE_RETARD = "echeance_retard", "Échéance de dette fournisseur en retard"
 
     boutique = models.ForeignKey(
         "comptes.Boutique", on_delete=models.CASCADE, related_name="notifications"

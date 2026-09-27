@@ -6898,3 +6898,46 @@ button.tuile-dormance.active {
 .formulaire-remboursement {
   align-items: center;
 }
+
+/* Achats → Dettes : échéancier de remboursement. */
+.entete-section-echeancier {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.entete-section-echeancier h4 {
+  margin: 0;
+}
+
+.planificateur-echeancier {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.8rem 1rem;
+  border: 1px dashed var(--bordure-tableau, var(--gris-200));
+  border-radius: var(--rayon-sm);
+}
+
+.planificateur-echeancier .zone-tableau-scroll {
+  max-height: 260px;
+}
+
+.ligne-prochaine-echeance td {
+  font-weight: 600;
+}
+
+.badge-retard {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border-radius: var(--rayon-pilule);
+  background: rgba(220, 38, 38, 0.15);
+  color: var(--danger, #dc2626);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.texte-erreur {
+  color: var(--danger, #dc2626);
+}

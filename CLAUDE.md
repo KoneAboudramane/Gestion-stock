@@ -16,7 +16,7 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 6. **Montants et quantités** : `DecimalField(max_digits=12, decimal_places=2)`. Jamais de FloatField pour l'argent.
 7. Les labels d'app sont le nom du dossier : `core, comptes, catalogue, stock, ventes, achats, clients, fournisseurs, configuration, synchronisation`.
 
-## Les 10 apps et leurs 37 modèles
+## Les 10 apps et leurs 38 modèles
 
 ### core
 - `ModeleBase` (abstrait) — hérité par tous. Champs : id (UUID), date_creation, date_modification, synchronise, date_synchronisation.
@@ -69,6 +69,7 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 - `Fournisseur` — boutique (FK), nom, telephone, adresse, contact.
 - `DetteFournisseur` — fournisseur (FK → dettes), commande (FK achats.CommandeAchat, null), reception (FK achats.Reception, null), montant, montant_paye, solde, statut {en_cours|solde}.
 - `PaiementDetteFournisseur` — dette (FK → paiements), montant, mode, annulee, date_annulation, annule_par (FK), motif_annulation. Un remboursement annulé reste visible ; son montant revient dans le solde (contre-écriture, retour en caisse si espèces).
+- `EcheanceDette` — dette (FK → echeances), date_echeance, montant. **Échéancier** de remboursement : les paiements (libres) couvrent les tranches dans l'ordre des dates ; statut (payée / partielle / à venir / en retard) calculé, jamais stocké. Replanifier = retirer les tranches non couvertes, en ajouter pour le reste dû. Alertes `echeance_proche` (J-3) et `echeance_retard`.
 
 ### configuration
 - `Parametre` — boutique (FK), cle, valeur. unique_together(boutique, cle). Réglages dynamiques (devise, TVA, format ticket). **PAS l'interface** (elle reste dans le code React).

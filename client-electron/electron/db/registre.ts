@@ -197,6 +197,13 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
     clauseBoutique: "fournisseur_id IN (SELECT id FROM fournisseurs WHERE boutique_id = ?)",
   },
   {
+    table: "fournisseurs.EcheanceDette",
+    tableLocale: "echeances_dette",
+    champsFK: ["dette"],
+    clauseBoutique:
+      "dette_id IN (SELECT id FROM dettes_fournisseur WHERE fournisseur_id IN (SELECT id FROM fournisseurs WHERE boutique_id = ?))",
+  },
+  {
     table: "fournisseurs.PaiementDetteFournisseur",
     tableLocale: "paiements_dette_fournisseur",
     champsFK: ["dette", "annule_par"],

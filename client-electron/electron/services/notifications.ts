@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { executer, tousLesResultats, unResultat } from "../db/helpers";
 import { sauvegarder } from "../db/index";
+import { echeancesEnCours } from "./achats";
 import { produitsDormants } from "./rapports";
 
 /**
@@ -11,7 +12,12 @@ import { produitsDormants } from "./rapports";
  * (rappel de crédit, ticket WhatsApp).
  */
 
-export type TypeNotification = "alerte_rupture" | "alerte_dormants" | "fin_destockage";
+export type TypeNotification =
+  | "alerte_rupture"
+  | "alerte_dormants"
+  | "fin_destockage"
+  | "echeance_proche"
+  | "echeance_retard";
 
 const FENETRE_ANTI_DOUBLON_HEURES = 24;
 
@@ -69,6 +75,7 @@ export function genererAlertesRupture(boutiqueId: string): string[] {
 const SEUIL_ALERTE_DORMANTS_JOURS = 60;
 const FREQUENCE_ALERTE_DORMANTS_JOURS = 7;
 const PREAVIS_FIN_DESTOCKAGE_JOURS = 2;
+const PREAVIS_ECHEANCE_JOURS = 3;
 
 function jourLocal(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -143,6 +150,47 @@ export function genererAlertesDestockage(boutiqueId: string): string[] {
         d.id,
       ),
     );
+  }
+
+  // 3. Échéances des dettes fournisseur : 3 jours avant, puis dès le lendemain si pas payée.
+  const limiteEcheance = new Date(aujourdhui);
+  limiteEcheance.setDate(limiteEcheance.getDate() + PREAVIS_ECHEANCE_JOURS);
+  const dejaAlertees = new Set(
+    tousLesResultats<{ cle: string }>(
+      `SELECT type || ':' || reference_id as cle FROM notifications
+       WHERE boutique_id = ? AND type IN ('echeance_proche', 'echeance_retard') AND supprime = 0`,
+      [boutiqueId],
+    ).map((n) => n.cle),
+  );
+  for (const e of echeancesEnCours(boutiqueId)) {
+    const date = new Date(`${e.dateEcheance}T00:00:00`).toLocaleDateString("fr-FR");
+    const reste = `${formaterNombre(e.montant - e.couvert)} ${devise}`;
+    const commande = e.commandeNumero ? ` (commande ${e.commandeNumero})` : "";
+    if (e.statut === "en_retard" && !dejaAlertees.has(`echeance_retard:${e.id}`)) {
+      idsCrees.push(
+        insererAlerte(
+          boutiqueId,
+          "echeance_retard",
+          `Échéance en retard : ${reste} à payer à ${e.fournisseurNom}${commande} depuis le ${date}. Achats → Dettes.`,
+          "fournisseurs.EcheanceDette",
+          e.id,
+        ),
+      );
+    } else if (
+      e.statut !== "en_retard" &&
+      e.dateEcheance <= jourLocal(limiteEcheance) &&
+      !dejaAlertees.has(`echeance_proche:${e.id}`)
+    ) {
+      idsCrees.push(
+        insererAlerte(
+          boutiqueId,
+          "echeance_proche",
+          `Échéance le ${date} : ${reste} à payer à ${e.fournisseurNom}${commande}. Achats → Dettes.`,
+          "fournisseurs.EcheanceDette",
+          e.id,
+        ),
+      );
+    }
   }
   if (idsCrees.length > 0) sauvegarder();
   return idsCrees;

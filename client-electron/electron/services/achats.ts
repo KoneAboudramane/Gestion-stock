@@ -1214,6 +1214,8 @@ export interface DetteResume {
   dateCreation: string;
   /** Dernière modification : pour une dette soldée, le moment où elle l'a été. */
   dateModification: string;
+  /** Première tranche pas encore payée de son échéancier (null s'il n'y en a pas). */
+  prochaineEcheance: { date: string; reste: number; enRetard: boolean } | null;
 }
 
 export function listerDettes(boutiqueId: string, fournisseurId?: string, statut?: StatutDette): DetteResume[] {
@@ -1228,7 +1230,7 @@ export function listerDettes(boutiqueId: string, fournisseurId?: string, statut?
     parametres.push(statut);
   }
 
-  return tousLesResultats<DetteResume>(
+  return tousLesResultats<Omit<DetteResume, "prochaineEcheance">>(
     `SELECT d.id as id, f.nom as fournisseurNom, d.commande_id as commandeId, c.numero as commandeNumero,
             d.montant as montant, d.montant_paye as montantPaye, d.solde as solde,
             d.statut as statut, d.date_creation as dateCreation, d.date_modification as dateModification
@@ -1238,7 +1240,144 @@ export function listerDettes(boutiqueId: string, fournisseurId?: string, statut?
      WHERE ${conditions.join(" AND ")}
      ORDER BY d.date_creation DESC`,
     parametres,
+  ).map((d) => {
+    const prochaine = d.statut === "en_cours" ? echeancierDette(d.id).find((e) => e.statut !== "payee") : undefined;
+    return {
+      ...d,
+      prochaineEcheance: prochaine
+        ? { date: prochaine.dateEcheance, reste: prochaine.montant - prochaine.couvert, enRetard: prochaine.statut === "en_retard" }
+        : null,
+    };
+  });
+}
+
+export type StatutEcheance = "payee" | "partielle" | "a_venir" | "en_retard";
+
+/** Tranche d'un échéancier, avec ce que les paiements en couvrent déjà. */
+export interface EcheanceDetail {
+  id: string;
+  dateEcheance: string;
+  montant: number;
+  couvert: number;
+  statut: StatutEcheance;
+}
+
+/** Tranche non payée d'une dette en cours (alertes, prochaine échéance). */
+export interface EcheanceEnCours extends EcheanceDetail {
+  detteId: string;
+  fournisseurNom: string;
+  commandeNumero: string | null;
+}
+
+function jourDuJour(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Statut des tranches : les paiements couvrent les tranches dans l'ordre des
+ * dates. Les tranches couvrent la fin de la dette : ce qui a été payé au-delà
+ * de (montant − total des tranches) leur revient.
+ */
+function calculerEcheances(
+  dette: { montant: number; montantPaye: number },
+  tranches: { id: string; dateEcheance: string; montant: number }[],
+): EcheanceDetail[] {
+  const triees = [...tranches].sort((a, b) => a.dateEcheance.localeCompare(b.dateEcheance));
+  const total = triees.reduce((t, e) => t + e.montant, 0);
+  let disponible = Math.max(0, dette.montantPaye - (dette.montant - total));
+  const aujourdhui = jourDuJour();
+  return triees.map((e) => {
+    const couvert = Math.min(e.montant, disponible);
+    disponible -= couvert;
+    const statut: StatutEcheance =
+      couvert >= e.montant - 0.001
+        ? "payee"
+        : e.dateEcheance < aujourdhui
+          ? "en_retard"
+          : couvert > 0
+            ? "partielle"
+            : "a_venir";
+    return { ...e, couvert, statut };
+  });
+}
+
+function verifierTranches(tranches: { dateEcheance: string; montant: number }[], reste: number): void {
+  if (tranches.length === 0) throw new ErreurAchat("Ajoutez au moins une tranche.");
+  if (tranches.some((t) => !/^\d{4}-\d{2}-\d{2}$/.test(t.dateEcheance))) {
+    throw new ErreurAchat("Chaque tranche doit avoir une date.");
+  }
+  if (tranches.some((t) => !(t.montant > 0))) throw new ErreurAchat("Chaque tranche doit avoir un montant positif.");
+  const total = tranches.reduce((t, e) => t + e.montant, 0);
+  if (Math.abs(total - reste) > 0.5) {
+    throw new ErreurAchat(`Le total des tranches (${total}) doit être égal au reste à payer (${reste}).`);
+  }
+}
+
+function tranchesDeLaDette(detteId: string): { id: string; dateEcheance: string; montant: number }[] {
+  return tousLesResultats<{ id: string; dateEcheance: string; montant: number }>(
+    "SELECT id, date_echeance as dateEcheance, montant FROM echeances_dette WHERE dette_id = ? AND supprime = 0",
+    [detteId],
+  ).map((e) => ({ ...e, montant: Number(e.montant) }));
+}
+
+export function echeancierDette(detteId: string): EcheanceDetail[] {
+  const dette = unResultat<{ montant: number; montant_paye: number }>(
+    "SELECT montant, montant_paye FROM dettes_fournisseur WHERE id = ?",
+    [detteId],
   );
+  if (!dette) return [];
+  return calculerEcheances({ montant: Number(dette.montant), montantPaye: Number(dette.montant_paye) }, tranchesDeLaDette(detteId));
+}
+
+/**
+ * (Re)planifie l'échéancier d'une dette : les tranches déjà payées sont
+ * gardées, les autres retirées ; les nouvelles tranches couvrent le reste à payer.
+ */
+export function planifierEcheancier(detteId: string, tranches: { dateEcheance: string; montant: number }[]): void {
+  const dette = unResultat<{ solde: number; statut: string }>("SELECT solde, statut FROM dettes_fournisseur WHERE id = ?", [
+    detteId,
+  ]);
+  if (!dette) throw new ErreurAchat("Dette introuvable.");
+  if (dette.statut !== "en_cours") throw new ErreurAchat("Cette dette est déjà soldée.");
+  verifierTranches(tranches, Number(dette.solde));
+  const aRetirer = echeancierDette(detteId).filter((e) => e.statut !== "payee");
+  dansUneTransaction(() => {
+    const maintenant = new Date().toISOString();
+    for (const e of aRetirer) {
+      executer("UPDATE echeances_dette SET supprime = 1, synchronise = 0, date_modification = ? WHERE id = ?", [
+        maintenant,
+        e.id,
+      ]);
+    }
+    for (const t of tranches) {
+      executer(
+        `INSERT INTO echeances_dette (id, dette_id, date_echeance, montant, date_creation, date_modification)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [randomUUID(), detteId, t.dateEcheance, Math.round(t.montant * 100) / 100, maintenant, maintenant],
+      );
+    }
+  });
+  sauvegarder();
+}
+
+/** Tranches non payées des dettes en cours de la boutique (alertes). */
+export function echeancesEnCours(boutiqueId: string): EcheanceEnCours[] {
+  const resultat: EcheanceEnCours[] = [];
+  for (const d of tousLesResultats<{ id: string; fournisseurNom: string; commandeNumero: string | null }>(
+    `SELECT d.id as id, f.nom as fournisseurNom, c.numero as commandeNumero
+     FROM dettes_fournisseur d
+     JOIN fournisseurs f ON f.id = d.fournisseur_id
+     LEFT JOIN commandes_achat c ON c.id = d.commande_id
+     WHERE f.boutique_id = ? AND d.supprime = 0 AND d.statut = 'en_cours'
+       AND EXISTS (SELECT 1 FROM echeances_dette e WHERE e.dette_id = d.id AND e.supprime = 0)`,
+    [boutiqueId],
+  )) {
+    for (const e of echeancierDette(d.id)) {
+      if (e.statut !== "payee") resultat.push({ ...e, detteId: d.id, fournisseurNom: d.fournisseurNom, commandeNumero: d.commandeNumero });
+    }
+  }
+  return resultat;
 }
 
 export interface PaiementDetteDetail {
