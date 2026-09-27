@@ -12,6 +12,8 @@ import {
   creerMouvementManuel,
   declarerPerte,
   listerPertes,
+  listerInventaires,
+  listerMouvements,
   demarrerInventaire,
   listerDepotsDetail,
   modifierLigneInventaire,
@@ -240,6 +242,57 @@ describe("stock.demarrerInventaire / modifierLigneInventaire / validerInventaire
       depotId,
     ]);
     expect(Number(stock!.quantite)).toBe(4);
+  });
+});
+
+describe("Historique du stock : résumé des inventaires validés et origine des mouvements", () => {
+  const boutiqueId = "b1";
+  const depotId = randomUUID();
+  const produitId = randomUUID();
+  const varianteA = randomUUID();
+  const varianteB = randomUUID();
+
+  beforeEach(async () => {
+    await creerBaseDeTest();
+    executer("INSERT INTO depots (id, boutique_id, nom) VALUES (?, ?, ?)", [depotId, boutiqueId, "Magasin"]);
+    executer("INSERT INTO produits (id, boutique_id, nom) VALUES (?, ?, ?)", [produitId, boutiqueId, "Riz"]);
+    for (const [id, prix] of [
+      [varianteA, 500],
+      [varianteB, 1000],
+    ] as const) {
+      executer("INSERT INTO variantes (id, produit_id, prix_achat, prix_vente) VALUES (?, ?, ?, ?)", [id, produitId, prix, prix]);
+      appliquerMouvement({ varianteId: id, depotId, type: "entree", quantite: 10 });
+    }
+  });
+
+  it("listerInventaires compte les articles, les écarts et leur valeur au coût figé", () => {
+    const inventaireId = demarrerInventaire(boutiqueId, depotId, null);
+    const lignes = tousLesResultats<{ id: string; variante_id: string }>(
+      "SELECT id, variante_id FROM lignes_inventaire WHERE inventaire_id = ?",
+      [inventaireId],
+    );
+    modifierLigneInventaire(lignes.find((l) => l.variante_id === varianteA)!.id, 12); // +2 × 500
+    modifierLigneInventaire(lignes.find((l) => l.variante_id === varianteB)!.id, 7); // −3 × 1000
+    validerInventaire(inventaireId, null);
+
+    const [resume] = listerInventaires(boutiqueId);
+    expect(resume.statut).toBe("valide");
+    expect(resume.dateValidation).not.toBeNull();
+    expect([resume.nombreArticles, resume.ecartsPlus, resume.ecartsMoins]).toEqual([2, 1, 1]);
+    expect(resume.ecartValeur).toBe(1000 - 3000);
+  });
+
+  it("listerMouvements renvoie le document d'origine (vide pour une saisie manuelle)", () => {
+    const inventaireId = demarrerInventaire(boutiqueId, depotId, null);
+    const ligne = tousLesResultats<{ id: string }>("SELECT id FROM lignes_inventaire WHERE inventaire_id = ?", [
+      inventaireId,
+    ])[0];
+    modifierLigneInventaire(ligne.id, 4);
+    validerInventaire(inventaireId, null);
+
+    const origines = listerMouvements(boutiqueId).map((m) => m.referenceType);
+    expect(origines).toContain("stock.Inventaire");
+    expect(origines).toContain("");
   });
 });
 

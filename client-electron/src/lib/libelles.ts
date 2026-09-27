@@ -170,3 +170,31 @@ export function libelleStatutDestockage(statut: string, motifFin: string): strin
   if (motifFin === "manuel") return "Arrêté";
   return "Terminé";
 }
+
+/** Origine d'un mouvement de stock, déduite du document qui l'a créé. */
+export type OrigineMouvement = "vente" | "reception" | "retour" | "perte" | "transfert" | "inventaire" | "manuel";
+
+export const ORIGINES_MOUVEMENT: { valeur: OrigineMouvement; label: string }[] = [
+  { valeur: "vente", label: "Vente" },
+  { valeur: "reception", label: "Réception d'achat" },
+  { valeur: "retour", label: "Retour fournisseur" },
+  { valeur: "perte", label: "Perte" },
+  { valeur: "transfert", label: "Transfert" },
+  { valeur: "inventaire", label: "Inventaire" },
+  { valeur: "manuel", label: "Saisie manuelle" },
+];
+
+export function origineMouvement(referenceType: string): OrigineMouvement {
+  if (referenceType.startsWith("ventes.")) return "vente";
+  if (referenceType.startsWith("achats.Reception")) return "reception";
+  if (referenceType.startsWith("achats.RetourFournisseur")) return "retour";
+  if (referenceType.startsWith("stock.PerteStock")) return "perte";
+  if (referenceType.startsWith("stock.TransfertStock")) return "transfert";
+  if (referenceType.startsWith("stock.Inventaire")) return "inventaire";
+  return "manuel";
+}
+
+export function libelleOrigineMouvement(referenceType: string): string {
+  const origine = origineMouvement(referenceType);
+  return ORIGINES_MOUVEMENT.find((o) => o.valeur === origine)?.label ?? "";
+}

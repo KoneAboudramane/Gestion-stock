@@ -381,6 +381,8 @@ export interface MouvementResume {
   dateCreation: string;
   /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
   utilisateurId: string | null;
+  /** Document à l'origine du mouvement (ex. « ventes.Vente ») ; vide pour une saisie manuelle. */
+  referenceType: string;
 }
 
 export function listerMouvements(boutiqueId: string, depotId?: string, limite = 100): MouvementResume[] {
@@ -394,7 +396,7 @@ export function listerMouvements(boutiqueId: string, depotId?: string, limite = 
   return tousLesResultats<MouvementResume>(
     `SELECT m.id as id, p.nom as produitNom, v.reference as reference, d.nom as depotNom,
             m.type as type, m.quantite as quantite, m.motif as motif, m.date_creation as dateCreation,
-            m.utilisateur_id as utilisateurId
+            m.utilisateur_id as utilisateurId, COALESCE(m.reference_type, '') as referenceType
      FROM mouvements_stock m
      JOIN variantes v ON v.id = m.variante_id
      JOIN produits p ON p.id = v.produit_id
@@ -412,7 +414,7 @@ export function listerMouvementsParProduit(produitId: string, limite = 100): Mou
   return tousLesResultats<MouvementResume>(
     `SELECT m.id as id, p.nom as produitNom, v.reference as reference, d.nom as depotNom,
             m.type as type, m.quantite as quantite, m.motif as motif, m.date_creation as dateCreation,
-            m.utilisateur_id as utilisateurId
+            m.utilisateur_id as utilisateurId, COALESCE(m.reference_type, '') as referenceType
      FROM mouvements_stock m
      JOIN variantes v ON v.id = m.variante_id
      JOIN produits p ON p.id = v.produit_id
@@ -957,16 +959,40 @@ export interface InventaireResume {
   depotNom: string;
   statut: string;
   dateCreation: string;
+  dateValidation: string | null;
+  utilisateurId: string | null;
+  /** Articles comptés (lignes de l'inventaire). */
+  nombreArticles: number;
+  /** Articles trouvés en plus / en moins que le stock théorique. */
+  ecartsPlus: number;
+  ecartsMoins: number;
+  /** Valeur de l'écart au coût d'achat (figé à la validation). */
+  ecartValeur: number;
 }
 
 export function listerInventaires(boutiqueId: string): InventaireResume[] {
   return tousLesResultats<InventaireResume>(
-    `SELECT i.id as id, d.nom as depotNom, i.statut as statut, i.date_creation as dateCreation
+    `SELECT i.id as id, d.nom as depotNom, i.statut as statut, i.date_creation as dateCreation,
+            i.date_validation as dateValidation, i.utilisateur_id as utilisateurId,
+            (SELECT COUNT(*) FROM lignes_inventaire li WHERE li.inventaire_id = i.id AND li.supprime = 0) as nombreArticles,
+            (SELECT COUNT(*) FROM lignes_inventaire li
+              WHERE li.inventaire_id = i.id AND li.supprime = 0 AND li.ecart > 0) as ecartsPlus,
+            (SELECT COUNT(*) FROM lignes_inventaire li
+              WHERE li.inventaire_id = i.id AND li.supprime = 0 AND li.ecart < 0) as ecartsMoins,
+            COALESCE((SELECT SUM(ROUND(li.ecart * CASE WHEN i.statut = 'valide' THEN li.prix_achat_fige ELSE v.prix_achat END))
+              FROM lignes_inventaire li JOIN variantes v ON v.id = li.variante_id
+              WHERE li.inventaire_id = i.id AND li.supprime = 0), 0) as ecartValeur
      FROM inventaires i JOIN depots d ON d.id = i.depot_id
      WHERE i.boutique_id = ? AND i.supprime = 0
      ORDER BY i.date_creation DESC`,
     [boutiqueId],
-  );
+  ).map((i) => ({
+    ...i,
+    nombreArticles: Number(i.nombreArticles),
+    ecartsPlus: Number(i.ecartsPlus),
+    ecartsMoins: Number(i.ecartsMoins),
+    ecartValeur: Number(i.ecartValeur),
+  }));
 }
 
 /** aZero : « comptage à zéro » — chaque article part de 0, seul ce qui est compté compte. */

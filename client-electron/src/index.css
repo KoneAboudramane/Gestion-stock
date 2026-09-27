@@ -6010,3 +6010,15 @@ button.tuile-dormance.active {
   width: 220px;
   margin-left: auto;
 }
+
+/* Stock → Historique (et autres modales à menu latéral) : filtres, note et totaux
+   restent en place, seules les lignes du tableau défilent. */
+.modale-avec-menu .modale-corps > .zone-tableau-scroll {
+  flex: 1;
+  min-height: 170px;
+  max-height: none;
+}
+
+.modale-avec-menu .modale-corps > :not(.zone-tableau-scroll) {
+  flex-shrink: 0;
+}

@@ -356,6 +356,8 @@ export interface MouvementResume {
   dateCreation: string;
   /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
   utilisateurId: string | null;
+  /** Document à l'origine du mouvement (ex. « ventes.Vente ») ; vide pour une saisie manuelle. */
+  referenceType: string;
 }
 
 export interface ParametresMouvement {
@@ -500,6 +502,15 @@ export interface InventaireResume {
   depotNom: string;
   statut: string;
   dateCreation: string;
+  dateValidation: string | null;
+  utilisateurId: string | null;
+  /** Articles comptés (lignes de l'inventaire). */
+  nombreArticles: number;
+  /** Articles trouvés en plus / en moins que le stock théorique. */
+  ecartsPlus: number;
+  ecartsMoins: number;
+  /** Valeur de l'écart au coût d'achat (figé à la validation). */
+  ecartValeur: number;
 }
 
 export interface LigneInventaireDetail {

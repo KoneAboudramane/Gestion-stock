@@ -48,7 +48,15 @@ import {
   type VarianteDestockage,
 } from "../services/stock";
 import { useFabricationPropre } from "../hooks/useFabricationPropre";
-import { libelleMotifPerte, libelleStatutDestockage, MOTIFS_PERTE } from "../lib/libelles";
+import {
+  libelleMotifPerte,
+  libelleOrigineMouvement,
+  libelleStatutDestockage,
+  MOTIFS_PERTE,
+  ORIGINES_MOUVEMENT,
+  origineMouvement,
+  type OrigineMouvement,
+} from "../lib/libelles";
 import { ModaleProduitsDormants } from "./Rapports";
 import {
   listerRelevesDormants,
@@ -540,144 +548,6 @@ function FormulaireMouvementGroupe({
         </div>
       </div>
     </form>
-  );
-}
-
-function OngletMouvements({ session }: { session: Session }) {
-  const nomUtilisateur = useNomsUtilisateurs(session);
-  const peutGerer = !!session.permissions.gerer_produits_stock_achats;
-  const [depots, setDepots] = useState<DepotResume[]>([]);
-  const [depotId, setDepotId] = useState(peutGerer ? "" : (session.depotId ?? ""));
-  const [mouvements, setMouvements] = useState<MouvementResume[]>([]);
-  const [vue, setVue] = useState<"liste" | "groupe">("liste");
-  // Filtre de période (même composant que Stock → Historique) : par défaut les
-  // 30 derniers jours, jusqu'à 5 000 lignes chargées au lieu des 100 dernières.
-  const [periode, setPeriode] = useState<PeriodeHistorique>("30j");
-  const [debutPerso, setDebutPerso] = useState(jourLocal(new Date()));
-  const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
-  const [typeFiltre, setTypeFiltre] = useState<"" | TypeMouvement>("");
-
-  useEffect(() => {
-    if (peutGerer) listerDepotsDetail(session.boutiqueId).then(setDepots);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [peutGerer]);
-
-  async function rafraichir() {
-    setMouvements(await listerMouvements(session.boutiqueId, depotId || undefined, 5000));
-  }
-  useEffect(() => {
-    rafraichir();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [depotId]);
-
-  const bornes = bornesPeriode(periode, debutPerso, finPerso);
-  const mouvementsFiltres = mouvements.filter(
-    (m) => dansPeriode(m.dateCreation, bornes) && (!typeFiltre || m.type === typeFiltre),
-  );
-
-  return (
-    <div>
-      {vue === "groupe" && (
-        <div className="fond-modale" onClick={() => setVue("liste")}>
-          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
-            <FormulaireMouvementGroupe
-              session={session}
-              depots={depots}
-              onAnnuler={() => setVue("liste")}
-              onCree={() => {
-                setVue("liste");
-                rafraichir();
-              }}
-            />
-          </div>
-        </div>
-      )}
-      <div className="barre-actions barre-actions-avec-onglets">
-        <span className="groupe-filtres">
-          <FiltrePeriodeHistorique
-            periode={periode}
-            setPeriode={setPeriode}
-            debutPerso={debutPerso}
-            setDebutPerso={setDebutPerso}
-            finPerso={finPerso}
-            setFinPerso={setFinPerso}
-          />
-          <select value={typeFiltre} onChange={(e) => setTypeFiltre(e.target.value as typeof typeFiltre)}>
-            <option value="">Tous les types</option>
-            <option value="entree">Entrées</option>
-            <option value="sortie">Sorties</option>
-            <option value="ajustement">Ajustements</option>
-          </select>
-        </span>
-        {peutGerer ? (
-          <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
-            <option value="">Tous les dépôts</option>
-            {depots.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.nom}
-              </option>
-            ))}
-          </select>
-        ) : (
-          session.depotNom && <span className="depot-fixe">{session.depotNom}</span>
-        )}
-        {peutGerer && (
-          <span className="actions-ligne">
-            <button type="button" className="bouton-ajouter-variante" onClick={() => setVue("groupe")}>
-              + Nouveau mouvement
-            </button>
-          </span>
-        )}
-      </div>
-      <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue carte-mobile">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Désignation</th>
-              <th>Dépôt</th>
-              <th>Type</th>
-              <th>Quantité</th>
-              <th>Motif</th>
-              <th>Fait par</th>
-            </tr>
-          </thead>
-          <tbody>
-            {mouvementsFiltres.map((m) => (
-              <tr key={m.id}>
-                <td data-label="Date">{new Date(m.dateCreation).toLocaleString("fr-FR")}</td>
-                <td data-label="Désignation">
-                  {m.produitNom} {m.reference && `(${m.reference})`}
-                </td>
-                <td data-label="Dépôt">{m.depotNom}</td>
-                <td data-label="Type">{libelleTypeMouvement(m.type)}</td>
-                <td data-label="Quantité">{m.quantite}</td>
-                <td data-label="Motif">{m.motif || ""}</td>
-                <td data-label="Fait par">{nomUtilisateur(m.utilisateurId)}</td>
-              </tr>
-            ))}
-            {mouvementsFiltres.length === 0 && (
-              <tr>
-                <td colSpan={7} className="liste-vide">
-                  Aucun mouvement.
-                </td>
-              </tr>
-            )}
-            {Array.from({ length: Math.max(0, 10 - Math.max(1, mouvementsFiltres.length)) }).map((_, i) => (
-              <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
   );
 }
 
@@ -1638,19 +1508,6 @@ function ModaleStockNiveau({
         <EnteteModale titre="Stock" onFermer={onFermer} />
         <div className="modale-corps">
           <OngletStockNiveau session={session} filtreRuptureInitial={filtreRuptureInitial} onCommander={onCommander} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ModaleMouvements({ session, onFermer }: { session: Session; onFermer: () => void }) {
-  return (
-    <div className="fond-modale" onClick={onFermer}>
-      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
-        <EnteteModale titre="Mouvements" onFermer={onFermer} />
-        <div className="modale-corps">
-          <OngletMouvements session={session} />
         </div>
       </div>
     </div>
@@ -2805,7 +2662,7 @@ function ModaleDestockage({ session, onFermer }: { session: Session; onFermer: (
   );
 }
 
-// --- Historique : pertes, déstockages, transferts et dormants, filtrables (carte « Historique » de la page Stock) ---
+// --- Historique : mouvements, pertes, déstockages, transferts, inventaires et dormants, filtrables (carte « Historique » de la page Stock) ---
 
 type PeriodeHistorique = "tout" | "7j" | "30j" | "mois" | "personnalisee";
 
@@ -3020,13 +2877,23 @@ const LIBELLES_SORTIE_DORMANCE: Record<string, { label: string; classe: string }
   destockage: { label: "Déstockage", classe: "badge-destockage" },
 };
 
-function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFermer: () => void }) {
+type SectionHistorique = "mouvements" | "pertes" | "destockages" | "transferts" | "inventaires" | "dormants";
+
+function ModaleHistoriqueStock({
+  session,
+  sectionInitiale = "mouvements",
+  onFermer,
+}: {
+  session: Session;
+  sectionInitiale?: SectionHistorique;
+  onFermer: () => void;
+}) {
   const nomUtilisateur = useNomsUtilisateurs(session);
   const devise = useDevise();
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   // Comme la carte Produits dormants : montre des coûts, réservé à la gestion / aux rapports.
   const peutVoirDormants = peutGerer || !!session.permissions.voir_rapports_complets;
-  const [section, setSection] = useState<"pertes" | "destockages" | "transferts" | "dormants">("pertes");
+  const [section, setSection] = useState<SectionHistorique>(sectionInitiale);
   const [releves, setReleves] = useState<ReleveDormants[]>([]);
   const [sorties, setSorties] = useState<SortieDormance[]>([]);
   const [seuilDormance, setSeuilDormance] = useState(60);
@@ -3045,6 +2912,31 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
   const [operation, setOperation] = useState("");
   const [depotDepart, setDepotDepart] = useState("");
   const [depotArrivee, setDepotArrivee] = useState("");
+  const [mouvements, setMouvements] = useState<MouvementResume[]>([]);
+  const [typeMouvement, setTypeMouvement] = useState<"" | TypeMouvement>("");
+  const [origine, setOrigine] = useState<"" | OrigineMouvement>("");
+  const [depotMouvement, setDepotMouvement] = useState("");
+  const [rechercheMouvement, setRechercheMouvement] = useState("");
+  const [formMouvement, setFormMouvement] = useState(false);
+  const [inventaires, setInventaires] = useState<InventaireResume[]>([]);
+  const [depotInventaire, setDepotInventaire] = useState("");
+  const [inventaireOuvertId, setInventaireOuvertId] = useState<string | null>(null);
+
+  // Sans droit de gestion, on ne voit que les mouvements de son dépôt (comme l'ancienne carte Mouvements).
+  const depotMouvements = peutGerer ? undefined : (session.depotId ?? undefined);
+  async function rafraichirMouvements() {
+    setMouvements(await listerMouvements(session.boutiqueId, depotMouvements, 5000));
+  }
+  useEffect(() => {
+    rafraichirMouvements();
+    listerInventaires(session.boutiqueId).then((tous) =>
+      // Inventaires terminés seulement : ceux en cours restent dans la carte Inventaire.
+      setInventaires(
+        tous.filter((i) => i.statut === "valide" && (peutGerer || !session.depotNom || i.depotNom === session.depotNom)),
+      ),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId]);
   const [rechercheTransfert, setRechercheTransfert] = useState("");
 
   useEffect(() => {
@@ -3109,6 +3001,26 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
         t.produitNom.toLowerCase().includes(rechercheT) ||
         (t.reference ?? "").toLowerCase().includes(rechercheT)),
   );
+  const rechercheM = rechercheMouvement.trim().toLowerCase();
+  const mouvementsFiltres = mouvements.filter(
+    (m) =>
+      dansPeriode(m.dateCreation, bornes) &&
+      (!typeMouvement || m.type === typeMouvement) &&
+      (!origine || origineMouvement(m.referenceType) === origine) &&
+      (!depotMouvement || m.depotNom === depotMouvement) &&
+      (!rechercheM ||
+        m.produitNom.toLowerCase().includes(rechercheM) ||
+        (m.reference ?? "").toLowerCase().includes(rechercheM)),
+  );
+  const totalEntrees = mouvementsFiltres.filter((m) => m.type === "entree").reduce((t, m) => t + m.quantite, 0);
+  const totalSorties = mouvementsFiltres.filter((m) => m.type === "sortie").reduce((t, m) => t + m.quantite, 0);
+  const totalAjustements = mouvementsFiltres
+    .filter((m) => m.type === "ajustement")
+    .reduce((t, m) => t + m.quantite, 0);
+  const inventairesFiltres = inventaires.filter(
+    (i) =>
+      dansPeriode(i.dateValidation ?? i.dateCreation, bornes) && (!depotInventaire || i.depotNom === depotInventaire),
+  );
   const operations = [
     ...new Map(destockages.filter((d) => d.operationId).map((d) => [d.operationId!, d.operationNom ?? ""])),
   ];
@@ -3128,8 +3040,43 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Historique" onFermer={onFermer} />
+        {formMouvement && (
+          <div className="fond-modale" onClick={() => setFormMouvement(false)}>
+            <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+              <FormulaireMouvementGroupe
+                session={session}
+                depots={depots}
+                onAnnuler={() => setFormMouvement(false)}
+                onCree={() => {
+                  setFormMouvement(false);
+                  rafraichirMouvements();
+                }}
+              />
+            </div>
+          </div>
+        )}
+        {inventaireOuvertId && (
+          <div className="fond-modale" onClick={() => setInventaireOuvertId(null)}>
+            <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+              <DetailInventaire
+                inventaireId={inventaireOuvertId}
+                session={session}
+                onRetour={() => setInventaireOuvertId(null)}
+              />
+            </div>
+          </div>
+        )}
         <div className="modale-avec-menu">
           <nav className="menu-modale">
+            <button
+              type="button"
+              className={section === "mouvements" ? "actif" : ""}
+              onClick={() => setSection("mouvements")}
+            >
+              <span className="icone-menu-modale">🔄</span>
+              Tous les mouvements
+              <span className="compteur-menu-modale">{mouvementsFiltres.length}</span>
+            </button>
             <button
               type="button"
               className={section === "pertes" ? "actif" : ""}
@@ -3157,6 +3104,15 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
               Transferts
               <span className="compteur-menu-modale">{transfertsFiltres.length}</span>
             </button>
+            <button
+              type="button"
+              className={section === "inventaires" ? "actif" : ""}
+              onClick={() => setSection("inventaires")}
+            >
+              <span className="icone-menu-modale">📋</span>
+              Inventaires
+              <span className="compteur-menu-modale">{inventairesFiltres.length}</span>
+            </button>
             {peutVoirDormants && (
               <button
                 type="button"
@@ -3170,7 +3126,191 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
             )}
           </nav>
           <div className="modale-corps">
-            {section === "pertes" ? (
+            {section === "mouvements" ? (
+              <>
+                <div className="barre-actions barre-filtres-historique">
+                  {filtrePeriode}
+                  <select value={typeMouvement} onChange={(e) => setTypeMouvement(e.target.value as typeof typeMouvement)}>
+                    <option value="">Tous les types</option>
+                    <option value="entree">Entrées</option>
+                    <option value="sortie">Sorties</option>
+                    <option value="ajustement">Ajustements</option>
+                  </select>
+                  <select value={origine} onChange={(e) => setOrigine(e.target.value as typeof origine)}>
+                    <option value="">Toutes les origines</option>
+                    {ORIGINES_MOUVEMENT.map((o) => (
+                      <option key={o.valeur} value={o.valeur}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                  {peutGerer
+                    ? depots.length > 1 && (
+                    <select value={depotMouvement} onChange={(e) => setDepotMouvement(e.target.value)}>
+                      <option value="">Tous les dépôts</option>
+                      {depots.map((d) => (
+                        <option key={d.id} value={d.nom}>
+                          {d.nom}
+                        </option>
+                      ))}
+                    </select>
+                  )
+                    : session.depotNom && <span className="depot-fixe">{session.depotNom}</span>}
+                  <input
+                    type="search"
+                    placeholder="Rechercher un article…"
+                    value={rechercheMouvement}
+                    onChange={(e) => setRechercheMouvement(e.target.value)}
+                  />
+                  {peutGerer && (
+                    <button type="button" className="bouton-ajouter-variante" onClick={() => setFormMouvement(true)}>
+                      + Nouveau mouvement
+                    </button>
+                  )}
+                </div>
+                <div className="zone-tableau-scroll">
+                  <table className="tableau-catalogue carte-mobile">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Désignation</th>
+                        <th>Dépôt</th>
+                        <th>Type</th>
+                        <th>Origine</th>
+                        <th>Quantité</th>
+                        <th>Motif</th>
+                        <th>Fait par</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {mouvementsFiltres.map((m) => (
+                        <tr key={m.id}>
+                          <td data-label="Date">{new Date(m.dateCreation).toLocaleString("fr-FR")}</td>
+                          <td data-label="Désignation">{m.produitNom} {m.reference && <span className="sous-info">({m.reference})</span>}</td>
+                          <td data-label="Dépôt">{m.depotNom}</td>
+                          <td data-label="Type">{libelleTypeMouvement(m.type)}</td>
+                          <td data-label="Origine">{libelleOrigineMouvement(m.referenceType)}</td>
+                          <td data-label="Quantité">{m.quantite}</td>
+                          <td data-label="Motif">{m.motif || ""}</td>
+                          <td data-label="Fait par">{nomUtilisateur(m.utilisateurId)}</td>
+                        </tr>
+                      ))}
+                      {mouvementsFiltres.length === 0 && (
+                        <tr>
+                          <td colSpan={8} className="liste-vide">
+                            Aucun mouvement pour ces filtres.
+                          </td>
+                        </tr>
+                      )}
+                      {Array.from({ length: Math.max(0, 10 - Math.max(1, mouvementsFiltres.length)) }).map((_, i) => (
+                        <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {mouvementsFiltres.length > 0 && (
+                  <div className="totaux">
+                    <div>
+                      {mouvementsFiltres.length} mouvement{mouvementsFiltres.length > 1 ? "s" : ""} · Entrées : {totalEntrees} ·
+                      Sorties : {totalSorties}
+                      {totalAjustements !== 0 && ` · Ajustements : ${totalAjustements > 0 ? "+" : ""}${totalAjustements}`}
+                    </div>
+                    <div className="total-net">
+                      Solde : {totalEntrees - totalSorties + totalAjustements > 0 ? "+" : ""}
+                      {totalEntrees - totalSorties + totalAjustements}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : section === "inventaires" ? (
+              <>
+                <div className="barre-actions barre-filtres-historique">
+                  {filtrePeriode}
+                  {depots.length > 1 && (
+                    <select value={depotInventaire} onChange={(e) => setDepotInventaire(e.target.value)}>
+                      <option value="">Tous les dépôts</option>
+                      {depots.map((d) => (
+                        <option key={d.id} value={d.nom}>
+                          {d.nom}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+                <p className="note-aide">
+                  Inventaires validés. Cliquez sur une ligne pour voir le détail article par article. Les inventaires en
+                  cours restent dans la carte Inventaire.
+                </p>
+                <div className="zone-tableau-scroll">
+                  <table className="tableau-catalogue carte-mobile">
+                    <thead>
+                      <tr>
+                        <th>Validé le</th>
+                        <th>Dépôt</th>
+                        <th>Articles comptés</th>
+                        <th>En plus</th>
+                        <th>En moins</th>
+                        <th>Valeur de l'écart</th>
+                        <th>Fait par</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inventairesFiltres.map((i) => (
+                        <tr key={i.id} onClick={() => setInventaireOuvertId(i.id)} title="Voir le détail">
+                          <td data-label="Validé le">{new Date(i.dateValidation ?? i.dateCreation).toLocaleString("fr-FR")}</td>
+                          <td data-label="Dépôt">{i.depotNom}</td>
+                          <td data-label="Articles comptés">{i.nombreArticles}</td>
+                          <td data-label="En plus">{i.ecartsPlus}</td>
+                          <td data-label="En moins">{i.ecartsMoins}</td>
+                          <td data-label="Valeur de l'écart">{i.ecartValeur > 0 ? "+" : ""}{formaterMontant(i.ecartValeur)} {devise}</td>
+                          <td data-label="Fait par">{nomUtilisateur(i.utilisateurId)}</td>
+                        </tr>
+                      ))}
+                      {inventairesFiltres.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="liste-vide">
+                            Aucun inventaire validé pour ces filtres.
+                          </td>
+                        </tr>
+                      )}
+                      {Array.from({ length: Math.max(0, 10 - Math.max(1, inventairesFiltres.length)) }).map((_, i) => (
+                        <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {inventairesFiltres.length > 0 && (
+                  <div className="totaux">
+                    <div>
+                      {inventairesFiltres.length} inventaire{inventairesFiltres.length > 1 ? "s" : ""} ·{" "}
+                      {inventairesFiltres.reduce((t, i) => t + i.ecartsMoins, 0)} article(s) en moins
+                    </div>
+                    <div className="total-net">
+                      Valeur totale des écarts :{" "}
+                      {inventairesFiltres.reduce((t, i) => t + i.ecartValeur, 0) > 0 ? "+" : ""}
+                      {formaterMontant(inventairesFiltres.reduce((t, i) => t + i.ecartValeur, 0))} {devise}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : section === "pertes" ? (
               <>
                 <div className="barre-actions barre-filtres-historique">
                   {filtrePeriode}
@@ -3712,7 +3852,11 @@ export default function Stock({
         />
       )}
       {sectionOuverte === "mouvements" && (
-        <ModaleMouvements session={session} onFermer={() => setSectionOuverte(null)} />
+        <ModaleHistoriqueStock
+          session={session}
+          sectionInitiale="mouvements"
+          onFermer={() => setSectionOuverte(null)}
+        />
       )}
       {sectionOuverte === "transferts" && (
         <ModaleTransferts session={session} onFermer={() => setSectionOuverte(null)} />

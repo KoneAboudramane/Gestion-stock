@@ -331,6 +331,8 @@ export interface MouvementResume {
   dateCreation: string;
   /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
   utilisateurId: string | null;
+  /** Document à l'origine du mouvement (ex. « ventes.Vente ») ; vide pour une saisie manuelle. */
+  referenceType: string;
 }
 
 export async function listerMouvements(boutiqueId: string, depotId?: string, limite = 100): Promise<MouvementResume[]> {
@@ -359,6 +361,7 @@ export async function listerMouvements(boutiqueId: string, depotId?: string, lim
       motif: m.motif,
       dateCreation: m.date_creation,
       utilisateurId: m.utilisateur_id ?? null,
+      referenceType: m.reference_type ?? "",
     });
   }
   resultat.sort((a, b) => (a.dateCreation < b.dateCreation ? 1 : -1));
@@ -474,6 +477,15 @@ export interface InventaireResume {
   depotNom: string;
   statut: string;
   dateCreation: string;
+  dateValidation: string | null;
+  utilisateurId: string | null;
+  /** Articles comptés (lignes de l'inventaire). */
+  nombreArticles: number;
+  /** Articles trouvés en plus / en moins que le stock théorique. */
+  ecartsPlus: number;
+  ecartsMoins: number;
+  /** Valeur de l'écart au coût d'achat (figé à la validation). */
+  ecartValeur: number;
 }
 // --- Pertes (port de client-electron/electron/services/stock.ts::declarerPerte) ---
 
@@ -963,7 +975,25 @@ export async function listerInventaires(boutiqueId: string): Promise<InventaireR
   const resultat: InventaireResume[] = [];
   for (const inv of inventaires) {
     const depot = await obtenirLigne("depots", inv.depot_id);
-    resultat.push({ id: inv.id, depotNom: depot?.nom ?? "", statut: inv.statut, dateCreation: inv.date_creation });
+    const lignes = (await listerParIndex("lignes_inventaire", "inventaire_id", inv.id)).filter((l) => !l.supprime);
+    let ecartValeur = 0;
+    for (const l of lignes) {
+      const prixAchat =
+        inv.statut === "valide" ? l.prix_achat_fige : ((await obtenirLigne("variantes", l.variante_id))?.prix_achat ?? 0);
+      ecartValeur += Math.round(l.ecart * prixAchat);
+    }
+    resultat.push({
+      id: inv.id,
+      depotNom: depot?.nom ?? "",
+      statut: inv.statut,
+      dateCreation: inv.date_creation,
+      dateValidation: inv.date_validation ?? null,
+      utilisateurId: inv.utilisateur_id ?? null,
+      nombreArticles: lignes.length,
+      ecartsPlus: lignes.filter((l) => l.ecart > 0).length,
+      ecartsMoins: lignes.filter((l) => l.ecart < 0).length,
+      ecartValeur,
+    });
   }
   resultat.sort((a, b) => (a.dateCreation < b.dateCreation ? 1 : -1));
   return resultat;
