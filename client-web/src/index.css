@@ -7140,3 +7140,16 @@ button.tuile-dormance.active {
   min-height: 170px;
   max-height: none;
 }
+
+/* Fiche fournisseur : chiffres à côté des coordonnées, tableaux courts. */
+.tuiles-fiche--carte {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+}
+
+
+.modale-corps > .zone-commandes-fiche {
+  flex: 1 1 auto;
+  min-height: 150px;
+  max-height: none;
+}

@@ -92,17 +92,22 @@ function FormulaireCommande({
   session,
   fournisseurs,
   commandeAModifier,
+  fournisseurInitialId,
   onAnnuler,
   onCree,
 }: {
   session: Session;
   fournisseurs: FournisseurResume[];
   commandeAModifier?: { id: string; fournisseurId: string; lignes: LigneSaisie[] };
+  /** Fournisseur déjà choisi (nouvelle commande depuis la fiche d'un fournisseur). */
+  fournisseurInitialId?: string;
   onAnnuler: () => void;
   onCree: () => void;
 }) {
   const devise = useDevise();
-  const [fournisseurId, setFournisseurId] = useState(commandeAModifier?.fournisseurId ?? fournisseurs[0]?.id ?? "");
+  const [fournisseurId, setFournisseurId] = useState(
+    commandeAModifier?.fournisseurId ?? fournisseurInitialId ?? fournisseurs[0]?.id ?? "",
+  );
   const [terme, setTerme] = useState("");
   const [resultats, setResultats] = useState<VarianteAchat[]>([]);
   const [dropdownOuvert, setDropdownOuvert] = useState(false);
@@ -1735,20 +1740,45 @@ function FormulaireFournisseursGroupe({
   );
 }
 
+interface StatsFournisseur {
+  commandes: number;
+  derniere: string;
+  achete: number;
+  du: number;
+  retard: boolean;
+}
+
 function OngletFournisseurs({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
+  const devise = useDevise();
   const [fournisseurs, setFournisseurs] = useState<FournisseurResume[]>([]);
+  const [commandes, setCommandes] = useState<CommandeResume[]>([]);
+  const [receptions, setReceptions] = useState<ReceptionHistorique[]>([]);
+  const [dettes, setDettes] = useState<DetteResume[]>([]);
+  const [depots, setDepots] = useState<DepotResume[]>([]);
+  const [recherche, setRecherche] = useState("");
+  const [tri, setTri] = useState<"nom" | "du" | "derniere">("nom");
   const [afficherModal, setAfficherModal] = useState(false);
   const [enEdition, setEnEdition] = useState<FournisseurResume | null>(null);
   const [brouillon, setBrouillon] = useState({ nom: "", telephone: "", adresse: "", contact: "" });
   const [aSupprimer, setASupprimer] = useState<FournisseurResume | null>(null);
+  const [ficheOuverte, setFicheOuverte] = useState<FournisseurResume | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
 
   async function rafraichir() {
-    setFournisseurs(await listerFournisseurs(session.boutiqueId));
+    const [liste, historique, toutesDettes] = await Promise.all([
+      listerFournisseurs(session.boutiqueId),
+      historiqueAchats(session.boutiqueId),
+      listerDettes(session.boutiqueId),
+    ]);
+    setFournisseurs(liste);
+    setCommandes(historique.commandes);
+    setReceptions(historique.receptions);
+    setDettes(toutesDettes);
   }
   useEffect(() => {
     rafraichir();
+    if (!session.depotId) listerDepotsDetail(session.boutiqueId).then(setDepots);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1782,9 +1812,94 @@ function OngletFournisseurs({ session }: { session: Session }) {
     setASupprimer(null);
   }
 
+  function ecrire(f: FournisseurResume) {
+    const numero = (f.telephone ?? "").replace(/\D/g, "");
+    if (!numero) return;
+    const texte = `Bonjour ${f.contact || f.nom}, `;
+    window.open(`https://wa.me/${numero}?text=${encodeURIComponent(texte)}`, "_blank", "noopener");
+  }
+
+  // Chiffres par fournisseur (commandes non annulées, dettes en cours).
+  const stats = new Map<string, StatsFournisseur>();
+  const statsDe = (nom: string) => {
+    if (!stats.has(nom)) stats.set(nom, { commandes: 0, derniere: "", achete: 0, du: 0, retard: false });
+    return stats.get(nom)!;
+  };
+  for (const c of commandes) {
+    if (c.statut === "annulee") continue;
+    const s = statsDe(c.fournisseurNom);
+    s.commandes += 1;
+    s.achete += c.valeurRecue;
+    if (c.dateCreation > s.derniere) s.derniere = c.dateCreation;
+  }
+  for (const d of dettes) {
+    if (d.statut !== "en_cours") continue;
+    const s = statsDe(d.fournisseurNom);
+    s.du += d.solde;
+    if (d.prochaineEcheance?.enRetard) s.retard = true;
+  }
+  const debutMois = new Date();
+  debutMois.setDate(1);
+  debutMois.setHours(0, 0, 0, 0);
+  const acheteMois = receptions
+    .filter((r) => !r.annulee && r.dateCreation >= debutMois.toISOString())
+    .reduce((t, r) => t + r.valeurRecue, 0);
+  const somme = (valeurs: number[]) => valeurs.reduce((t, v) => t + v, 0);
+
+  const cle = recherche.trim().toLowerCase();
+  const fournisseursFiltres = fournisseurs
+    .filter(
+      (f) =>
+        !cle ||
+        f.nom.toLowerCase().includes(cle) ||
+        (f.telephone ?? "").toLowerCase().includes(cle) ||
+        (f.contact ?? "").toLowerCase().includes(cle),
+    )
+    .sort((a, b) =>
+      tri === "du"
+        ? statsDe(b.nom).du - statsDe(a.nom).du
+        : tri === "derniere"
+          ? statsDe(b.nom).derniere.localeCompare(statsDe(a.nom).derniere)
+          : a.nom.localeCompare(b.nom, "fr"),
+    );
+  const avecRetard = fournisseurs.filter((f) => statsDe(f.nom).retard).length;
+
   return (
-    <div>
-      <div className="barre-actions barre-actions-fixe barre-actions-avec-onglets">
+    <div className="liste-dettes-credits">
+      <div className="tuiles-fiche">
+        <div className="tuile-fiche">
+          <span className="sous-info">🚚 Fournisseurs</span>
+          <strong>{fournisseurs.length}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">💰 Total dû</span>
+          <strong>
+            {formaterMontant(somme(fournisseurs.map((f) => statsDe(f.nom).du)))} {devise}
+          </strong>
+        </div>
+        <div className={`tuile-fiche${avecRetard > 0 ? " tuile-fiche--alerte" : ""}`}>
+          <span className="sous-info">🔴 Avec un retard</span>
+          <strong>{avecRetard}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">📦 Acheté ce mois</span>
+          <strong>
+            {formaterMontant(acheteMois)} {devise}
+          </strong>
+        </div>
+      </div>
+      <div className="barre-actions barre-filtres-historique">
+        <input
+          type="search"
+          placeholder="Nom, téléphone ou contact…"
+          value={recherche}
+          onChange={(e) => setRecherche(e.target.value)}
+        />
+        <select value={tri} onChange={(e) => setTri(e.target.value as typeof tri)}>
+          <option value="nom">Trier par nom</option>
+          <option value="du">Plus gros dû d'abord</option>
+          <option value="derniere">Dernière commande d'abord</option>
+        </select>
         {peutGerer && (
           <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherModal(true)}>
             + Nouveau fournisseur
@@ -1816,67 +1931,83 @@ function OngletFournisseurs({ session }: { session: Session }) {
           onConfirmer={supprimer}
         />
       )}
+      {ficheOuverte && (
+        <ModaleFicheFournisseur
+          session={session}
+          fournisseur={ficheOuverte}
+          fournisseurs={fournisseurs}
+          commandes={commandes.filter((c) => c.fournisseurNom === ficheOuverte.nom)}
+          dettes={dettes.filter((d) => d.fournisseurNom === ficheOuverte.nom)}
+          depots={depots}
+          onEcrire={() => ecrire(ficheOuverte)}
+          onModifie={rafraichir}
+          onFermer={() => setFicheOuverte(null)}
+        />
+      )}
       <div className="zone-tableau-scroll">
         <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>N°</th>
-              <th>Nom</th>
+              <th>Fournisseur</th>
               <th>Téléphone</th>
-              <th>Adresse</th>
-              <th>Contact</th>
-              {peutGerer && <th className="colonne-actions-categorie">Actions</th>}
+              <th>Commandes</th>
+              <th>Dernière commande</th>
+              <th>Total acheté</th>
+              <th>Reste dû</th>
+              <th className="colonne-actions-categorie" />
             </tr>
           </thead>
           <tbody>
-            {fournisseurs.map((f, index) =>
-              enEdition?.id === f.id ? (
+            {fournisseursFiltres.map((f, index) => {
+              const s = statsDe(f.nom);
+              return enEdition?.id === f.id ? (
                 <tr key={f.id} className="ligne-edition-fournisseur">
                   <td data-label="N°">{index + 1}</td>
                   <td data-label="Nom">
-                  <input
-                    autoFocus
-                    value={brouillon.nom}
-                    onChange={(e) => setBrouillon({ ...brouillon, nom: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") enregistrerEdition();
-                      if (e.key === "Escape") setEnEdition(null);
-                    }}
-                    placeholder="Nom"
-                  />
+                    <input
+                      autoFocus
+                      value={brouillon.nom}
+                      onChange={(e) => setBrouillon({ ...brouillon, nom: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") enregistrerEdition();
+                        if (e.key === "Escape") setEnEdition(null);
+                      }}
+                      placeholder="Nom"
+                    />
                   </td>
                   <td data-label="Téléphone">
-                  <input
-                    value={brouillon.telephone}
-                    onChange={(e) => setBrouillon({ ...brouillon, telephone: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") enregistrerEdition();
-                      if (e.key === "Escape") setEnEdition(null);
-                    }}
-                    placeholder="Téléphone"
-                  />
+                    <input
+                      value={brouillon.telephone}
+                      onChange={(e) => setBrouillon({ ...brouillon, telephone: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") enregistrerEdition();
+                        if (e.key === "Escape") setEnEdition(null);
+                      }}
+                      placeholder="Téléphone"
+                    />
                   </td>
-                  <td data-label="Adresse">
-                  <input
-                    value={brouillon.adresse}
-                    onChange={(e) => setBrouillon({ ...brouillon, adresse: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") enregistrerEdition();
-                      if (e.key === "Escape") setEnEdition(null);
-                    }}
-                    placeholder="Adresse"
-                  />
+                  <td data-label="Contact" colSpan={2}>
+                    <input
+                      value={brouillon.contact}
+                      onChange={(e) => setBrouillon({ ...brouillon, contact: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") enregistrerEdition();
+                        if (e.key === "Escape") setEnEdition(null);
+                      }}
+                      placeholder="Contact"
+                    />
                   </td>
-                  <td data-label="Contact">
-                  <input
-                    value={brouillon.contact}
-                    onChange={(e) => setBrouillon({ ...brouillon, contact: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") enregistrerEdition();
-                      if (e.key === "Escape") setEnEdition(null);
-                    }}
-                    placeholder="Contact"
-                  />
+                  <td data-label="Adresse" colSpan={2}>
+                    <input
+                      value={brouillon.adresse}
+                      onChange={(e) => setBrouillon({ ...brouillon, adresse: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") enregistrerEdition();
+                        if (e.key === "Escape") setEnEdition(null);
+                      }}
+                      placeholder="Adresse"
+                    />
                   </td>
                   <td data-label="Actions" className="colonne-actions-categorie">
                     <span className="actions-ligne">
@@ -1895,60 +2026,329 @@ function OngletFournisseurs({ session }: { session: Session }) {
                   </td>
                 </tr>
               ) : (
-              <tr key={f.id}>
-                <td data-label="N°">{index + 1}</td>
-                <td data-label="Nom">{f.nom}</td>
-                <td data-label="Téléphone">{f.telephone || ""}</td>
-                <td data-label="Adresse">{f.adresse || ""}</td>
-                <td data-label="Contact">{f.contact || ""}</td>
-                {peutGerer && (
+                <tr key={f.id} onClick={() => setFicheOuverte(f)} title="Voir la fiche du fournisseur">
+                  <td data-label="N°">{index + 1}</td>
+                  <td data-label="Fournisseur">
+                    <strong>{f.nom}</strong>
+                    {f.contact && <span className="sous-info"> · {f.contact}</span>}
+                  </td>
+                  <td data-label="Téléphone"><span className="nowrap">{f.telephone || "—"}</span></td>
+                  <td data-label="Commandes">{s.commandes}</td>
+                  <td data-label="Dernière commande">{s.derniere ? new Date(s.derniere).toLocaleDateString("fr-FR") : "—"}</td>
+                  <td data-label="Total acheté"><span className="nowrap">{formaterMontant(s.achete)} {devise}</span></td>
+                  <td data-label="Reste dû">{s.du > 0 ? (
+                      <strong className={`nowrap${s.retard ? " texte-erreur" : ""}`}>
+                        {formaterMontant(s.du)} {devise}
+                        {s.retard && " (retard)"}
+                      </strong>
+                    ) : (
+                      "—"
+                    )}</td>
                   <td data-label="Actions" className="colonne-actions-categorie">
-                    <span className="actions-ligne">
-                      <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(f)}>
-                        ✎
-                      </button>
-                      <button
-                        type="button"
-                        className="lien-icone lien-icone-danger"
-                        title="Supprimer"
-                        onClick={() => {
-                          setErreur(null);
-                          setASupprimer(f);
-                        }}
-                      >
-                        ×
-                      </button>
+                    <span className="actions-ligne" onClick={(e) => e.stopPropagation()}>
+                      {f.telephone && (
+                        <button type="button" className="lien-icone" title="Écrire sur WhatsApp" onClick={() => ecrire(f)}>
+                          📲
+                        </button>
+                      )}
+                      {peutGerer && (
+                        <>
+                          <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(f)}>
+                            ✎
+                          </button>
+                          <button
+                            type="button"
+                            className="lien-icone lien-icone-danger"
+                            title="Supprimer"
+                            onClick={() => {
+                              setErreur(null);
+                              setASupprimer(f);
+                            }}
+                          >
+                            ×
+                          </button>
+                        </>
+                      )}
                     </span>
                   </td>
-                )}
-              </tr>
-              ),
-            )}
-            {fournisseurs.length === 0 && (
+                </tr>
+              );
+            })}
+            {fournisseursFiltres.length === 0 && (
               <tr>
-                <td colSpan={peutGerer ? 6 : 5} className="liste-vide">
-                  Aucun fournisseur.
+                <td colSpan={8} className="liste-vide">
+                  {fournisseurs.length === 0 ? "Aucun fournisseur." : "Aucun fournisseur ne correspond à la recherche."}
                 </td>
               </tr>
             )}
-            {Array.from({ length: Math.max(0, 10 - Math.max(1, fournisseurs.length)) }).map((_, i) => (
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, fournisseursFiltres.length)) }).map((_, i) => (
               <tr key={`vide-${i}`} className="ligne-groupe-vide">
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-                {peutGerer && <td>&nbsp;</td>}
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {fournisseursFiltres.length > 0 && (
+        <div className="totaux">
+          <div>
+            {fournisseursFiltres.length} fournisseur{fournisseursFiltres.length > 1 ? "s" : ""} · Total acheté :{" "}
+            {formaterMontant(somme(fournisseursFiltres.map((f) => statsDe(f.nom).achete)))} {devise}
+          </div>
+          <div className="total-net">
+            Total dû : {formaterMontant(somme(fournisseursFiltres.map((f) => statsDe(f.nom).du)))} {devise}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-/** Remboursement d'une dette fournisseur, avec la trace de tous ses paiements. */
+/** Fiche d'un fournisseur : coordonnées, chiffres, commandes et dettes, nouvelle commande. */
+function ModaleFicheFournisseur({
+  session,
+  fournisseur,
+  fournisseurs,
+  commandes,
+  dettes,
+  depots,
+  onEcrire,
+  onModifie,
+  onFermer,
+}: {
+  session: Session;
+  fournisseur: FournisseurResume;
+  fournisseurs: FournisseurResume[];
+  commandes: CommandeResume[];
+  dettes: DetteResume[];
+  depots: DepotResume[];
+  onEcrire: () => void;
+  onModifie: () => void;
+  onFermer: () => void;
+}) {
+  const peutGerer = !!session.permissions.gerer_produits_stock_achats;
+  const devise = useDevise();
+  const [commandeOuverteId, setCommandeOuverteId] = useState<string | null>(null);
+  const [detteOuverte, setDetteOuverte] = useState<DetteResume | null>(null);
+  const [nouvelleCommande, setNouvelleCommande] = useState(false);
+  const [ongletFiche, setOngletFiche] = useState<"commandes" | "dettes">("commandes");
+
+  const valides = commandes.filter((c) => c.statut !== "annulee");
+  const achete = valides.reduce((t, c) => t + c.valeurRecue, 0);
+  const dettesEnCours = dettes.filter((d) => d.statut === "en_cours");
+  const du = dettesEnCours.reduce((t, d) => t + d.solde, 0);
+  const triees = [...commandes].sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));
+
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre={`Fournisseur — ${fournisseur.nom}`} onFermer={onFermer} />
+        {commandeOuverteId && (
+          <div className="fond-modale" onClick={() => setCommandeOuverteId(null)}>
+            <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+              <DetailCommande
+                commandeId={commandeOuverteId}
+                session={session}
+                fournisseurs={fournisseurs}
+                onRetour={() => {
+                  setCommandeOuverteId(null);
+                  onModifie();
+                }}
+              />
+            </div>
+          </div>
+        )}
+        {detteOuverte && (
+          <ModaleDette
+            dette={detteOuverte}
+            session={session}
+            depots={depots}
+            onFermer={() => setDetteOuverte(null)}
+            onPaye={onModifie}
+          />
+        )}
+        {nouvelleCommande && (
+          <div className="fond-modale" onClick={() => setNouvelleCommande(false)}>
+            <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+              <FormulaireCommande
+                session={session}
+                fournisseurs={fournisseurs}
+                fournisseurInitialId={fournisseur.id}
+                onAnnuler={() => setNouvelleCommande(false)}
+                onCree={() => {
+                  setNouvelleCommande(false);
+                  onModifie();
+                }}
+              />
+            </div>
+          </div>
+        )}
+        <div className="modale-corps">
+          <div className="cartes-fiche">
+            <section className="carte-fiche">
+              <h4>🚚 Coordonnées</h4>
+              <strong>{fournisseur.nom}</strong>
+              <span>📞 {fournisseur.telephone || "Téléphone non renseigné"}</span>
+              <span>👤 {fournisseur.contact || "Contact non renseigné"}</span>
+              <span>📍 {fournisseur.adresse || "Adresse non renseignée"}</span>
+              <span className="actions-ligne">
+                {fournisseur.telephone && (
+                  <button type="button" onClick={onEcrire}>
+                    📲 WhatsApp
+                  </button>
+                )}
+                {peutGerer && (
+                  <button type="button" className="bouton-primaire" onClick={() => setNouvelleCommande(true)}>
+                    + Nouvelle commande
+                  </button>
+                )}
+              </span>
+            </section>
+            <div className="tuiles-fiche tuiles-fiche--carte">
+              <div className="tuile-fiche">
+                <span className="sous-info">📦 Total acheté</span>
+                <strong>
+                  {formaterMontant(achete)} {devise}
+                </strong>
+              </div>
+              <div className="tuile-fiche">
+                <span className="sous-info">🧾 Commandes</span>
+                <strong>{valides.length}</strong>
+              </div>
+              <div className="tuile-fiche">
+                <span className="sous-info">✅ Payé</span>
+                <strong>
+                  {formaterMontant(Math.max(0, achete - du))} {devise}
+                </strong>
+              </div>
+              <div className={`tuile-fiche${dettesEnCours.some((d) => d.prochaineEcheance?.enRetard) ? " tuile-fiche--alerte" : ""}`}>
+                <span className="sous-info">💰 Reste dû</span>
+                <strong>
+                  {formaterMontant(du)} {devise}
+                </strong>
+              </div>
+            </div>
+          </div>
+
+          <div className="barre-onglets">
+            <button
+              type="button"
+              className={`onglet ${ongletFiche === "commandes" ? "actif" : ""}`}
+              onClick={() => setOngletFiche("commandes")}
+            >
+              🧾 Commandes ({triees.length})
+            </button>
+            <button
+              type="button"
+              className={`onglet ${ongletFiche === "dettes" ? "actif" : ""}`}
+              onClick={() => setOngletFiche("dettes")}
+            >
+              💰 Dettes en cours ({dettesEnCours.length})
+            </button>
+          </div>
+          {ongletFiche === "dettes" ? (
+            <div className="zone-tableau-scroll zone-commandes-fiche">
+              <table className="tableau-catalogue carte-mobile">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Commande</th>
+                    <th>Montant</th>
+                    <th>Reste</th>
+                    <th>Prochaine échéance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dettesEnCours.map((d) => (
+                    <tr key={d.id} onClick={() => setDetteOuverte(d)} title="Voir la dette">
+                      <td data-label="Date">{new Date(d.dateCreation).toLocaleDateString("fr-FR")}</td>
+                      <td data-label="Commande">{d.commandeNumero ?? "—"}</td>
+                      <td data-label="Montant"><span className="nowrap">{formaterMontant(d.montant)} {devise}</span></td>
+                      <td data-label="Reste"><strong className="nowrap">{formaterMontant(d.solde)} {devise}</strong></td>
+                      <td data-label="Prochaine échéance">{d.prochaineEcheance ? (
+                          <span className={d.prochaineEcheance.enRetard ? "texte-erreur nowrap" : "nowrap"}>
+                            {new Date(`${d.prochaineEcheance.date}T00:00:00`).toLocaleDateString("fr-FR")}
+                            {d.prochaineEcheance.enRetard && " (en retard)"}
+                          </span>
+                        ) : (
+                          "—"
+                        )}</td>
+                    </tr>
+                  ))}
+                  {dettesEnCours.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="liste-vide">
+                        Aucune dette en cours chez ce fournisseur.
+                      </td>
+                    </tr>
+                  )}
+                  {Array.from({ length: Math.max(0, 10 - Math.max(1, dettesEnCours.length)) }).map((_, i) => (
+                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="zone-tableau-scroll zone-commandes-fiche">
+              <table className="tableau-catalogue carte-mobile">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Numéro</th>
+                    <th>Statut</th>
+                    <th>Total</th>
+                    <th>Reçu</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {triees.map((c) => (
+                    <tr key={c.id} onClick={() => setCommandeOuverteId(c.id)} title="Voir la commande">
+                      <td data-label="Date">{new Date(c.dateCreation).toLocaleDateString("fr-FR")}</td>
+                      <td data-label="Numéro">{c.numero}</td>
+                      <td data-label="Statut"><BadgeStatutCommande statut={c.statut} partiellementRecue={c.partiellementRecue} /></td>
+                      <td data-label="Total"><span className="nowrap">{formaterMontant(c.total)} {devise}</span></td>
+                      <td data-label="Reçu"><span className="nowrap">{formaterMontant(c.valeurRecue)} {devise}</span></td>
+                    </tr>
+                  ))}
+                  {triees.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="liste-vide">
+                        Aucune commande chez ce fournisseur.
+                      </td>
+                    </tr>
+                  )}
+                  {Array.from({ length: Math.max(0, 10 - Math.max(1, triees.length)) }).map((_, i) => (
+                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ModaleDette({
   dette: detteInitiale,
   session,
