@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { executer } from "../../electron/db/helpers";
+import { executer, tousLesResultats } from "../../electron/db/helpers";
 import {
   enregistrerReleveDormants,
   listerRelevesDormants,
@@ -9,6 +9,7 @@ import {
   sortiesDormance,
 } from "../../electron/services/rapports";
 import { appliquerMouvement, declarerPerte, demarrerDestockage } from "../../electron/services/stock";
+import { genererAlertesDestockage } from "../../electron/services/notifications";
 import { creerVente } from "../../electron/services/ventes";
 import { creerBaseDeTest } from "../setup";
 
@@ -109,5 +110,25 @@ describe("rapports.produitsDormants", () => {
     const releves = listerRelevesDormants(boutiqueId);
     expect(releves).toHaveLength(1);
     expect(releves[0]).toMatchObject({ nombreArticles: 1, valeurImmobilisee: 5000 });
+  });
+
+  it("alertes : produits dormants au plus une fois par semaine, fin prochaine d'un déstockage", () => {
+    creerArticle("Jamais vendu", 10, 100, 500);
+    const enDestockage = creerArticle("Pull", 4, 100, 3000);
+    const demain = new Date(Date.now() + 86_400_000);
+    const dateFin = `${demain.getFullYear()}-${String(demain.getMonth() + 1).padStart(2, "0")}-${String(demain.getDate()).padStart(2, "0")}`;
+    demarrerDestockage({ varianteId: enDestockage, prixDestockage: 4000, dateFin, utilisateurId: null });
+
+    expect(genererAlertesDestockage(boutiqueId)).toHaveLength(2);
+    const messages = tousLesResultats<{ type: string; message: string; depot_id: string | null }>(
+      "SELECT type, message, depot_id FROM notifications ORDER BY type",
+    );
+    expect(messages.map((m) => m.type)).toEqual(["alerte_dormants", "fin_destockage"]);
+    // L'article déjà en déstockage n'est pas compté parmi les dormants à traiter.
+    expect(messages[0].message).toContain("1 produit sans vente depuis 60 jours");
+    expect(messages.every((m) => m.depot_id === null)).toBe(true);
+
+    // Rappel : pas de doublon dans la semaine, ni pour le même déstockage.
+    expect(genererAlertesDestockage(boutiqueId)).toHaveLength(0);
   });
 });

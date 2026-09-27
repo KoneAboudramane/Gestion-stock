@@ -957,7 +957,7 @@ export interface TransactionResume {
   montant: number;
 }
 
-export type TypeNotification = "alerte_rupture";
+export type TypeNotification = "alerte_rupture" | "alerte_dormants" | "fin_destockage";
 
 export interface NotificationResume {
   id: string;
@@ -1368,6 +1368,7 @@ export interface WindowApi {
     obtenirTransaction(paiementId: string): Promise<TransactionResume | undefined>;
   };
   notifications: {
+    genererAlertesDestockage(boutiqueId: string): Promise<ResultatEcriture<string[]>>;
     lister(boutiqueId: string, filtres?: FiltresNotifications): Promise<NotificationResume[]>;
     genererAlertesRupture(boutiqueId: string): Promise<ResultatEcriture<string[]>>;
     compterNonLues(boutiqueId: string, depotId?: string): Promise<number>;

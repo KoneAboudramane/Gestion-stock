@@ -1,6 +1,8 @@
 import { ouvrirBaseDeDonnees } from "../db";
 import { maintenant, suiviSyncNeuf } from "../db/helpers";
 import type { NotificationLocale } from "../db/schema";
+import { produitsDormants } from "./rapports";
+import { listerDestockages } from "./stock";
 
 /**
  * Port navigateur de client-electron/electron/services/notifications.ts :
@@ -9,7 +11,7 @@ import type { NotificationLocale } from "../db/schema";
  * crédit, ticket WhatsApp).
  */
 
-export type TypeNotification = "alerte_rupture";
+export type TypeNotification = "alerte_rupture" | "alerte_dormants" | "fin_destockage";
 
 const FENETRE_ANTI_DOUBLON_HEURES = 24;
 
@@ -66,6 +68,87 @@ export function genererAlertesRupture(boutiqueId: string): Promise<string[]> {
     generationEnCours = null;
   });
   return generationEnCours;
+}
+
+// --- Alertes de déstockage (port de client-electron/electron/services/notifications.ts) ---
+
+const SEUIL_ALERTE_DORMANTS_JOURS = 60;
+const FREQUENCE_ALERTE_DORMANTS_JOURS = 7;
+const PREAVIS_FIN_DESTOCKAGE_JOURS = 2;
+
+function jourLocal(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function formaterNombre(valeur: number): string {
+  return Math.round(valeur).toLocaleString("fr-FR").replace(/\u202f|\u00a0/g, " ");
+}
+
+async function genererAlertesDestockageImpl(boutiqueId: string): Promise<string[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const idsCrees: string[] = [];
+  const devise = (await db.get("boutiques", boutiqueId))?.devise || "FCFA";
+  const notifications = (await db.getAllFromIndex("notifications", "boutique_id", boutiqueId)).filter((n) => !n.supprime);
+
+  async function inserer(type: TypeNotification, message: string, referenceType: string, referenceId: string | null) {
+    const notification: NotificationLocale = {
+      id: crypto.randomUUID(),
+      boutique_id: boutiqueId,
+      depot_id: null,
+      type,
+      message,
+      reference_type: referenceType,
+      reference_id: referenceId,
+      lu: 0,
+      ...suiviSyncNeuf(),
+    };
+    await db.put("notifications", notification);
+    idsCrees.push(notification.id);
+  }
+
+  const seuilSemaine = new Date(Date.now() - FREQUENCE_ALERTE_DORMANTS_JOURS * 86_400_000).toISOString();
+  if (!notifications.some((n) => n.type === "alerte_dormants" && n.date_creation >= seuilSemaine)) {
+    const dormants = (await produitsDormants(boutiqueId, SEUIL_ALERTE_DORMANTS_JOURS)).filter((d) => !d.enDestockage);
+    if (dormants.length > 0) {
+      const valeur = dormants.reduce((somme, d) => somme + d.valeurImmobilisee, 0);
+      await inserer(
+        "alerte_dormants",
+        `${dormants.length} produit${dormants.length > 1 ? "s" : ""} sans vente depuis ${SEUIL_ALERTE_DORMANTS_JOURS} jours : ` +
+          `${formaterNombre(valeur)} ${devise} qui dorment. Pensez au déstockage (Stock → Produits dormants).`,
+        "rapports.ProduitsDormants",
+        null,
+      );
+    }
+  }
+
+  const aujourdhui = new Date();
+  const limite = new Date(aujourdhui);
+  limite.setDate(limite.getDate() + PREAVIS_FIN_DESTOCKAGE_JOURS);
+  for (const d of await listerDestockages(boutiqueId)) {
+    if (d.statut !== "en_cours" || !d.dateFin) continue;
+    if (d.dateFin < jourLocal(aujourdhui) || d.dateFin > jourLocal(limite)) continue;
+    if (notifications.some((n) => n.type === "fin_destockage" && n.reference_id === d.id)) continue;
+    const fin = new Date(`${d.dateFin}T00:00:00`).toLocaleDateString("fr-FR");
+    await inserer(
+      "fin_destockage",
+      `Le déstockage de ${d.produitNom} (${formaterNombre(d.prixDestockage)} ${devise}) se termine le ${fin}. ` +
+        `Prolongez-le si besoin (Stock → Déstockage → Modifier).`,
+      "stock.Destockage",
+      d.id,
+    );
+  }
+  return idsCrees;
+}
+
+let alertesDestockageEnCours: Promise<string[]> | null = null;
+
+/** Appelé à l'ouverture de l'appli (Shell.tsx). Verrou : StrictMode double-invoque les effets. */
+export function genererAlertesDestockage(boutiqueId: string): Promise<string[]> {
+  if (alertesDestockageEnCours) return alertesDestockageEnCours;
+  alertesDestockageEnCours = genererAlertesDestockageImpl(boutiqueId).finally(() => {
+    alertesDestockageEnCours = null;
+  });
+  return alertesDestockageEnCours;
 }
 
 // --- Lecture ---

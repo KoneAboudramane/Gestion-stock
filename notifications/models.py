@@ -17,6 +17,8 @@ class Notification(ModeleBase):
 
     class Type(models.TextChoices):
         ALERTE_RUPTURE = "alerte_rupture", "Alerte de rupture"
+        ALERTE_DORMANTS = "alerte_dormants", "Produits dormants"
+        FIN_DESTOCKAGE = "fin_destockage", "Fin prochaine d'un déstockage"
 
     boutique = models.ForeignKey(
         "comptes.Boutique", on_delete=models.CASCADE, related_name="notifications"

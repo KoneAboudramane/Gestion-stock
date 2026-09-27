@@ -294,6 +294,7 @@ contextBridge.exposeInMainWorld("api", {
   },
   notifications: {
     lister: (boutiqueId: string, filtres?: unknown) => ipcRenderer.invoke("notifications:lister", boutiqueId, filtres),
+    genererAlertesDestockage: (boutiqueId: string) => ipcRenderer.invoke("notifications:genererAlertesDestockage", boutiqueId),
     genererAlertesRupture: (boutiqueId: string) =>
       ipcRenderer.invoke("notifications:genererAlertesRupture", boutiqueId),
     compterNonLues: (boutiqueId: string, depotId?: string) =>

@@ -84,7 +84,11 @@ export default function Shell({
   // Photo du jour des produits dormants (historique de l'argent qui dort,
   // Stock → Historique) : une fois par jour, sans rien bloquer si ça échoue.
   useEffect(() => {
-    api.rapports.enregistrerReleveDormants(session.boutiqueId).catch(() => {});
+    // Le relevé d'abord : l'alerte hebdomadaire des produits dormants s'appuie sur le même calcul.
+    api.rapports
+      .enregistrerReleveDormants(session.boutiqueId)
+      .then(() => api.notifications.genererAlertesDestockage(session.boutiqueId))
+      .catch(() => {});
   }, [session.boutiqueId]);
   const [notificationsNonLues, setNotificationsNonLues] = useState(0);
   const [ouvrirNouvelleCommande, setOuvrirNouvelleCommande] = useState(false);

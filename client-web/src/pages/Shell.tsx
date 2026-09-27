@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import type { Session } from "../api";
 import { listerFournisseurs } from "../services/achats";
 import { enregistrerReleveDormants, type Periode } from "../services/rapports";
-import { compterNotificationsNonLues } from "../services/notifications";
+import { compterNotificationsNonLues, genererAlertesDestockage } from "../services/notifications";
 import type { LigneAchatInitiale } from "../services/stock";
 import Accueil from "./Accueil";
 import Achats from "./Achats";
@@ -105,7 +105,10 @@ export default function Shell({
   // Photo du jour des produits dormants (historique de l'argent qui dort,
   // Stock → Historique) : une fois par jour, sans rien bloquer si ça échoue.
   useEffect(() => {
-    enregistrerReleveDormants(session.boutiqueId).catch(() => {});
+    // Le relevé d'abord : l'alerte hebdomadaire des produits dormants s'appuie sur le même calcul.
+    enregistrerReleveDormants(session.boutiqueId)
+      .then(() => genererAlertesDestockage(session.boutiqueId))
+      .catch(() => {});
   }, [session.boutiqueId]);
 
   function naviguer(cible: string) {

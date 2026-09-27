@@ -677,6 +677,9 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("notifications:lister", (_evt, boutiqueId: string, filtres?: notifications.FiltresNotifications) =>
     notifications.listerNotifications(boutiqueId, filtres),
   );
+  ipcMain.handle("notifications:genererAlertesDestockage", (_evt, boutiqueId: string) =>
+    executerEnSecurite(() => notifications.genererAlertesDestockage(boutiqueId)),
+  );
   ipcMain.handle("notifications:genererAlertesRupture", (_evt, boutiqueId: string) =>
     executerEnSecurite(() => notifications.genererAlertesRupture(boutiqueId)),
   );
