@@ -2763,55 +2763,125 @@ function FiltrePeriodeHistorique({
   );
 }
 
-/** Barres de l'argent qui dort, un relevé par jour (ou le dernier de chaque mois
- * au-delà de 60 relevés). Une seule série : couleur du thème, pas de légende. */
+const DUREES_GRAPHIQUE_DORMANTS = [
+  { valeur: "30", label: "30 jours" },
+  { valeur: "90", label: "3 mois" },
+  { valeur: "365", label: "1 an" },
+  { valeur: "tout", label: "Depuis le début" },
+] as const;
+
+/**
+ * Évolution des produits dormants, en deux petits graphiques alignés sur les
+ * mêmes dates (argent qui dort, nombre d'articles) — deux échelles différentes,
+ * donc deux graphiques plutôt qu'un seul à double axe. Un point par jour jusqu'à
+ * 3 mois affichés, puis un point par mois (dernier relevé du mois). Les relevés
+ * reçus sont déjà filtrés par la période choisie en haut de l'Historique.
+ */
 function GraphiqueArgentQuiDort({ releves, devise }: { releves: ReleveDormants[]; devise: string }) {
+  const [duree, setDuree] = useState<(typeof DUREES_GRAPHIQUE_DORMANTS)[number]["valeur"]>("tout");
   const [survol, setSurvol] = useState<number | null>(null);
-  const parMois = releves.length > 60;
+
+  const limite = duree === "tout" ? null : jourLocal(new Date(Date.now() - (Number(duree) - 1) * 86_400_000));
+  const retenus = limite ? releves.filter((r) => r.date >= limite) : releves;
+  const etendueJours =
+    retenus.length > 1
+      ? (new Date(`${retenus[retenus.length - 1].date}T00:00:00`).getTime() - new Date(`${retenus[0].date}T00:00:00`).getTime()) /
+        86_400_000
+      : 0;
+  const parMois = etendueJours > 92;
   const points = parMois
-    ? [...releves.reduce((m, r) => m.set(r.date.slice(0, 7), r), new Map<string, ReleveDormants>()).values()]
-    : releves.slice(-60);
+    ? [...retenus.reduce((m, r) => m.set(r.date.slice(0, 7), r), new Map<string, ReleveDormants>()).values()]
+    : retenus;
   const libelle = (r: ReleveDormants) =>
     parMois
       ? new Date(`${r.date}T00:00:00`).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })
       : new Date(`${r.date}T00:00:00`).toLocaleDateString("fr-FR");
 
+  const selecteur = (
+    <div className="raccourcis-destockage">
+      {DUREES_GRAPHIQUE_DORMANTS.map((d) => (
+        <button
+          key={d.valeur}
+          type="button"
+          className={duree === d.valeur ? "actif" : undefined}
+          onClick={() => {
+            setDuree(d.valeur);
+            setSurvol(null);
+          }}
+        >
+          {d.label}
+        </button>
+      ))}
+    </div>
+  );
+
   if (points.length < 2) {
     return (
-      <p className="etat-vide-graphique-dormants">
-        {points.length === 0
-          ? "Aucun relevé pour l'instant : le premier est pris à l'ouverture de l'appli."
-          : `Le suivi a commencé le ${libelle(points[0])}. La courbe apparaîtra au fil des jours (un relevé par jour).`}
-      </p>
+      <>
+        {selecteur}
+        <p className="etat-vide-graphique-dormants">
+          {releves.length === 0
+            ? "Aucun relevé sur cette période : un relevé est pris chaque jour à l'ouverture de l'appli."
+            : points.length === 1
+              ? `Un seul relevé sur cette durée (${libelle(points[0])}) : ${formaterMontant(points[0].valeurImmobilisee)} ${devise}, ${points[0].nombreArticles} article(s). La courbe apparaîtra au fil des jours.`
+              : "Aucun relevé sur cette durée."}
+        </p>
+      </>
     );
   }
-  const maximum = Math.max(1, ...points.map((r) => r.valeurImmobilisee));
-  const actif = points[survol ?? points.length - 1];
+
+  const indexActif = survol ?? points.length - 1;
+  const actif = points[indexActif];
+  const series = [
+    {
+      titre: "Argent qui dort",
+      valeur: (r: ReleveDormants) => r.valeurImmobilisee,
+      format: (v: number) => `${formaterMontant(v)} ${devise}`,
+    },
+    {
+      titre: "Articles dormants",
+      valeur: (r: ReleveDormants) => r.nombreArticles,
+      format: (v: number) => `${v} article${v > 1 ? "s" : ""}`,
+    },
+  ];
+
   return (
     <div className="bloc-graphique-dormants">
+      {selecteur}
       <div className="entete-graphique-dormants sous-info">
         <span>{libelle(actif)}</span>
         <strong>
           {formaterMontant(actif.valeurImmobilisee)} {devise}
         </strong>
         <span>
-          · {actif.nombreArticles} article{actif.nombreArticles > 1 ? "s" : ""}
+          · {actif.nombreArticles} article{actif.nombreArticles > 1 ? "s" : ""} dormant{actif.nombreArticles > 1 ? "s" : ""}
         </span>
       </div>
-      <div className="graphique-dormants" onMouseLeave={() => setSurvol(null)}>
-        {points.map((r, i) => (
-          <div
-            key={r.date}
-            className={`colonne-graphique-dormants${i === (survol ?? points.length - 1) ? " active" : ""}`}
-            onMouseEnter={() => setSurvol(i)}
-            title={`${libelle(r)} : ${formaterMontant(r.valeurImmobilisee)} ${devise}`}
-          >
-            <span style={{ height: `${Math.max(2, (r.valeurImmobilisee / maximum) * 100)}%` }} />
+      {series.map((serie) => {
+        const maximum = Math.max(1, ...points.map(serie.valeur));
+        return (
+          <div key={serie.titre} className="serie-graphique-dormants">
+            <span className="titre-serie-graphique-dormants sous-info">
+              {serie.titre} <span>(max. {serie.format(maximum)})</span>
+            </span>
+            <div className="graphique-dormants" onMouseLeave={() => setSurvol(null)}>
+              {points.map((r, i) => (
+                <div
+                  key={r.date}
+                  className={`colonne-graphique-dormants${i === indexActif ? " active" : ""}`}
+                  onMouseEnter={() => setSurvol(i)}
+                  title={`${libelle(r)} : ${serie.format(serie.valeur(r))}`}
+                >
+                  <span style={{ height: `${Math.max(2, (serie.valeur(r) / maximum) * 100)}%` }} />
+                </div>
+              ))}
+            </div>
           </div>
-        ))}
-      </div>
+        );
+      })}
       <div className="axe-graphique-dormants sous-info">
         <span>{libelle(points[0])}</span>
+        <span>{parMois ? "un point par mois" : "un point par jour"}</span>
         <span>{libelle(points[points.length - 1])}</span>
       </div>
       <details className="details-releves-dormants">
@@ -3110,8 +3180,14 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
                 </div>
 
                 <section className="carte-historique-dormants">
-                  <h4>Évolution de l'argent qui dort</h4>
-                  <GraphiqueArgentQuiDort releves={releves} devise={devise} />
+                  <h4>
+                    Évolution des produits dormants{" "}
+                    <span className="sous-info">(sans vente depuis 60 jours, relevé chaque jour)</span>
+                  </h4>
+                  <GraphiqueArgentQuiDort
+                    releves={releves.filter((r) => dansPeriode(`${r.date}T12:00:00`, bornes))}
+                    devise={devise}
+                  />
                 </section>
 
                 <section className="carte-historique-dormants carte-historique-dormants--tableau">

@@ -6734,3 +6734,28 @@ button.tuile-dormance.active {
   height: auto;
   padding: 1rem !important;
 }
+
+/* Évolution des dormants : deux petits graphiques alignés (argent, articles). */
+.serie-graphique-dormants {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.titre-serie-graphique-dormants {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.titre-serie-graphique-dormants span {
+  font-weight: 400;
+}
+
+.carte-historique-dormants .serie-graphique-dormants .graphique-dormants {
+  height: 80px;
+}
+
+/* Peu de points (vue mensuelle) : des barres plus larges plutôt que tassées à gauche. */
+.carte-historique-dormants .colonne-graphique-dormants {
+  max-width: 120px;
+}
