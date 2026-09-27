@@ -58,7 +58,6 @@ REGISTRE = [
     EntreeRegistre("ventes", "LigneVente", "vente__boutique"),
     EntreeRegistre("ventes", "Paiement", "vente__boutique"),
     EntreeRegistre("achats", "LigneAchat", "commande__boutique"),
-    EntreeRegistre("achats", "EvenementCommande", "commande__boutique", ajout_seul=True),
     EntreeRegistre("achats", "Reception", "commande__boutique"),
     EntreeRegistre("achats", "RetourFournisseur", "commande__boutique", ajout_seul=True),
     EntreeRegistre("achats", "LigneRetourFournisseur", "retour__commande__boutique", ajout_seul=True),

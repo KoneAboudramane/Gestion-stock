@@ -194,13 +194,6 @@ export function ouvrirBaseDeDonnees(): Promise<IDBPDatabase<GestionStockDB>> {
           lignesRetour.createIndex("retour_id", "retour_id");
           lignesRetour.createIndex("synchronise", "synchronise");
         }
-
-        // v9 : suivi des étapes des commandes d'achat.
-        if (oldVersion < 9) {
-          const evenements = db.createObjectStore("evenements_commande", { keyPath: "id" });
-          evenements.createIndex("commande_id", "commande_id");
-          evenements.createIndex("synchronise", "synchronise");
-        }
       },
     });
   }

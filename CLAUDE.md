@@ -16,7 +16,7 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 6. **Montants et quantités** : `DecimalField(max_digits=12, decimal_places=2)`. Jamais de FloatField pour l'argent.
 7. Les labels d'app sont le nom du dossier : `core, comptes, catalogue, stock, ventes, achats, clients, fournisseurs, configuration, synchronisation`.
 
-## Les 10 apps et leurs 37 modèles
+## Les 10 apps et leurs 36 modèles
 
 ### core
 - `ModeleBase` (abstrait) — hérité par tous. Champs : id (UUID), date_creation, date_modification, synchronise, date_synchronisation.
@@ -58,7 +58,6 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 - `Reception` — commande (FK → receptions), depot (FK stock.Depot, PROTECT), utilisateur (FK), valeur_recue, montant_paye, annulee, date_annulation. Réception partielle possible (LigneAchat.quantite_recue) ; annulable si la marchandise est encore en stock (contre-écriture).
 - `RetourFournisseur` — commande (FK → retours), reception (FK → retours), depot (FK, PROTECT), motif, montant, avoir, utilisateur (FK). Réduit la dette de la réception ; l'excédent est un avoir à récupérer. Écriture 401/601.
 - `LigneRetourFournisseur` — retour (FK → lignes), variante (FK, PROTECT), quantite, prix_achat, sous_total.
-- `EvenementCommande` — commande (FK → evenements), type {creee|modifiee|commandee|reception|reception_annulee|retour|paiement|annulee}, utilisateur (FK), detail, montant (null), reference_id (UUID, null). **Suivi des étapes** d'une commande, ajout seul ; les étapes des commandes antérieures sont reconstituées à l'affichage, jamais écrites.
 
 ### clients
 - `Client` — boutique (FK), nom, telephone, adresse.

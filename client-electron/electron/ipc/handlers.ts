@@ -454,7 +454,6 @@ export function enregistrerLesHandlers(): void {
       achats.listerHistoriqueReceptions(boutiqueId, fournisseurId, terme),
   );
   ipcMain.handle("commandes:historique", (_evt, boutiqueId: string) => achats.historiqueAchats(boutiqueId));
-  ipcMain.handle("commandes:suivi", (_evt, commandeId: string) => achats.suiviCommande(commandeId));
 
   ipcMain.handle(
     "dettes:lister",

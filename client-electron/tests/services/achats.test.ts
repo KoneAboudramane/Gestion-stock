@@ -7,7 +7,6 @@ import {
   annulerReception,
   creerCommande,
   historiqueAchats,
-  suiviCommande,
   listerCommandes,
   listerHistoriqueReceptions,
   listerReceptionsCommande,
@@ -659,68 +658,5 @@ describe("achats.historiqueAchats (carte « Historique » d'Achats & fournisseur
     ]);
     expect(historique.retours).toHaveLength(1);
     expect(historique.retours[0]).toMatchObject({ quantite: 1, motif: "Sac percé", commandeNumero: commande.numero });
-  });
-});
-
-describe("achats.suiviCommande (suivi des étapes d'une commande)", () => {
-  const boutiqueId = randomUUID();
-  const fournisseurId = randomUUID();
-  const depotId = randomUUID();
-  let varianteId: string;
-
-  beforeEach(async () => {
-    await creerBaseDeTest();
-    executer("INSERT INTO fournisseurs (id, boutique_id, nom) VALUES (?, ?, ?)", [fournisseurId, boutiqueId, "Grossiste Konan"]);
-    executer("INSERT INTO depots (id, boutique_id, nom) VALUES (?, ?, ?)", [depotId, boutiqueId, "Magasin"]);
-    const produitId = randomUUID();
-    varianteId = randomUUID();
-    executer("INSERT INTO produits (id, boutique_id, nom) VALUES (?, ?, ?)", [produitId, boutiqueId, "Riz 25kg"]);
-    executer("INSERT INTO variantes (id, produit_id, prix_achat, prix_vente) VALUES (?, ?, ?, ?)", [
-      varianteId,
-      produitId,
-      10000,
-      12500,
-    ]);
-  });
-
-  function parcoursComplet() {
-    const commande = creerCommande({
-      boutiqueId,
-      fournisseurId,
-      utilisateurId: "u1",
-      statut: "brouillon",
-      lignes: [{ varianteId, quantite: 5, prixAchat: 10000 }],
-    });
-    modifierCommande(commande.id, { statut: "commandee", utilisateurId: "u2" });
-    const receptionId = receptionnerCommande({
-      commandeId: commande.id,
-      depotId,
-      utilisateurId: "u2",
-      montantDejaPaye: 20000,
-      lignes: [{ varianteId, quantite: 3 }],
-    });
-    const detteId = unResultat<{ id: string }>("SELECT id FROM dettes_fournisseur WHERE commande_id = ?", [commande.id])!.id;
-    payerDette(detteId, 5000, "especes", null, "u1");
-    retournerAuFournisseur({ receptionId, lignes: [{ varianteId, quantite: 1 }], motif: "Sac percé", utilisateurId: "u1" });
-    return commande.id;
-  }
-
-  it("note chaque étape avec la personne, le détail et le montant", () => {
-    const suivi = suiviCommande(parcoursComplet());
-    expect(suivi.map((e) => e.type)).toEqual(["creee", "commandee", "reception", "paiement", "paiement", "retour"]);
-    expect(suivi.every((e) => !e.reconstitue)).toBe(true);
-    expect(suivi.map((e) => e.utilisateurId)).toEqual(["u1", "u2", "u2", "u2", "u1", "u1"]);
-    expect(suivi[2].detail).toBe("3 articles reçus au dépôt Magasin · reçue en partie");
-    expect(suivi[4].detail).toBe("Règlement de dette · Espèces");
-    expect(suivi.map((e) => e.montant)).toEqual([50000, 50000, 30000, 20000, 5000, 10000]);
-  });
-
-  it("reconstitue à l'affichage les étapes d'une commande antérieure au suivi, sans rien écrire", () => {
-    const commandeId = parcoursComplet();
-    executer("DELETE FROM evenements_commande WHERE commande_id = ?", [commandeId]);
-    const suivi = suiviCommande(commandeId);
-    expect(suivi.map((e) => e.type).sort()).toEqual(["creee", "paiement", "paiement", "reception", "retour"].sort());
-    expect(suivi.every((e) => e.reconstitue)).toBe(true);
-    expect(unResultat<{ n: number }>("SELECT COUNT(*) as n FROM evenements_commande", [])!.n).toBe(0);
   });
 });

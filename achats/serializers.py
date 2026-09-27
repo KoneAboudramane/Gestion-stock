@@ -63,7 +63,6 @@ class CommandeAchatSerializer(serializers.ModelSerializer):
             fournisseur=validated_data.get("fournisseur", instance.fournisseur),
             statut=validated_data.get("statut", instance.statut),
             lignes_donnees=validated_data.get("lignes_saisie"),
-            utilisateur=self.context["request"].user if "request" in self.context else None,
         )
 
 

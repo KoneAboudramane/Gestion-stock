@@ -284,18 +284,6 @@ CREATE TABLE IF NOT EXISTS releves_dormants (
   ${SUIVI_SYNC}
 );
 
--- evenements_commande : suivi des étapes d'une commande (ajout seul).
-CREATE TABLE IF NOT EXISTS evenements_commande (
-  id TEXT PRIMARY KEY,
-  commande_id TEXT NOT NULL,
-  type TEXT NOT NULL,
-  utilisateur_id TEXT,
-  detail TEXT DEFAULT '',
-  montant REAL,
-  reference_id TEXT,
-  ${SUIVI_SYNC}
-);
-
 -- retours_fournisseur : marchandise d'une réception renvoyée au fournisseur.
 CREATE TABLE IF NOT EXISTS retours_fournisseur (
   id TEXT PRIMARY KEY,

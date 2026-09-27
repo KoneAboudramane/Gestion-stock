@@ -13,27 +13,7 @@ from fournisseurs.models import DetteFournisseur
 from stock.models import MouvementStock, Stock
 from stock.services import appliquer_mouvement
 
-from .models import (
-    CommandeAchat,
-    EvenementCommande,
-    LigneAchat,
-    LigneRetourFournisseur,
-    Reception,
-    RetourFournisseur,
-)
-
-
-def noter_etape(commande, type_etape, utilisateur=None, detail="", montant=None, reference_id=None):
-    """Ajoute une étape au suivi de la commande (voir EvenementCommande)."""
-    return EvenementCommande.objects.create(
-        commande=commande, type=type_etape, utilisateur=utilisateur,
-        detail=detail[:255], montant=montant, reference_id=reference_id,
-    )
-
-
-def _articles(quantite):
-    quantite = int(quantite) if quantite == int(quantite) else quantite
-    return f"{quantite} article{'s' if quantite > 1 else ''}"
+from .models import CommandeAchat, LigneAchat, LigneRetourFournisseur, Reception, RetourFournisseur
 
 
 def _calculer_lignes_et_total(lignes_donnees):
@@ -57,15 +37,11 @@ def creer_commande(boutique, fournisseur, utilisateur, statut, lignes_donnees):
     )
     for donnee in lignes_calculees:
         LigneAchat.objects.create(commande=commande, **donnee)
-    noter_etape(
-        commande, EvenementCommande.Type.CREEE, utilisateur,
-        "Directement commandée" if statut == CommandeAchat.Statut.COMMANDEE else "En brouillon", total,
-    )
     return commande
 
 
 @transaction.atomic
-def modifier_commande(commande, fournisseur, statut, lignes_donnees=None, utilisateur=None):
+def modifier_commande(commande, fournisseur, statut, lignes_donnees=None):
     if commande.statut in (CommandeAchat.Statut.RECUE, CommandeAchat.Statut.ANNULEE):
         raise ValidationError("Cette commande ne peut plus être modifiée.")
     deja_receptionnee = commande.lignes.filter(quantite_recue__gt=0).exists()
@@ -81,19 +57,6 @@ def modifier_commande(commande, fournisseur, statut, lignes_donnees=None, utilis
     if lignes_donnees is not None:
         lignes_calculees, total = _calculer_lignes_et_total(lignes_donnees)
         commande.total = total
-
-    ancien_fournisseur, ancien_statut = commande.fournisseur, commande.statut
-    if ancien_fournisseur != fournisseur:
-        noter_etape(
-            commande, EvenementCommande.Type.MODIFIEE, utilisateur,
-            f"Fournisseur : {ancien_fournisseur} → {fournisseur}",
-        )
-    if lignes_donnees is not None:
-        noter_etape(commande, EvenementCommande.Type.MODIFIEE, utilisateur, "Articles modifiés", commande.total)
-    if statut != ancien_statut and statut == CommandeAchat.Statut.COMMANDEE:
-        noter_etape(commande, EvenementCommande.Type.COMMANDEE, utilisateur, "", commande.total)
-    if statut != ancien_statut and statut == CommandeAchat.Statut.ANNULEE:
-        noter_etape(commande, EvenementCommande.Type.ANNULEE, utilisateur)
 
     commande.fournisseur = fournisseur
     commande.statut = statut
@@ -190,18 +153,7 @@ def receptionner_commande(commande, depot, utilisateur, montant_deja_paye=0, lig
             statut=DetteFournisseur.Statut.EN_COURS,
         )
 
-    complete = all(l.quantite_recue >= l.quantite for l in commande.lignes.all())
-    noter_etape(
-        commande, EvenementCommande.Type.RECEPTION, utilisateur,
-        f"{_articles(sum(d['quantite'] for d in lignes))} reçus au dépôt {depot.nom}"
-        + (" · commande complète" if complete else " · reçue en partie"),
-        valeur_recue, reception.id,
-    )
-    if montant_deja_paye > 0:
-        noter_etape(
-            commande, EvenementCommande.Type.PAIEMENT, utilisateur, "Payé à la réception", montant_deja_paye, reception.id,
-        )
-    if complete:
+    if all(l.quantite_recue >= l.quantite for l in commande.lignes.all()):
         commande.statut = CommandeAchat.Statut.RECUE
         commande.save(update_fields=["statut", "date_modification"])
 
@@ -299,11 +251,6 @@ def annuler_reception(reception, utilisateur=None):
     reception.annulee = True
     reception.date_annulation = timezone.now()
     reception.save(update_fields=["annulee", "date_annulation", "date_modification"])
-    noter_etape(
-        commande, EvenementCommande.Type.RECEPTION_ANNULEE, utilisateur,
-        f"{_articles(sum(quantites.values()))} ressortis du dépôt {reception.depot.nom}",
-        reception.valeur_recue, reception.id,
-    )
     return reception
 
 
@@ -356,9 +303,4 @@ def retourner_au_fournisseur(reception, lignes, motif="", utilisateur=None):
     retour.montant = montant
     retour.avoir = montant - deduit
     retour.save(update_fields=["montant", "avoir", "date_modification"])
-    noter_etape(
-        commande, EvenementCommande.Type.RETOUR, utilisateur,
-        f"{_articles(sum(l['quantite'] for l in lignes))} renvoyés" + (f" · {retour.motif}" if retour.motif else ""),
-        montant, retour.id,
-    )
     return retour

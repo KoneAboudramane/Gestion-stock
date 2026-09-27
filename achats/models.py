@@ -105,35 +105,3 @@ class LigneRetourFournisseur(ModeleBase):
     def __str__(self):
         return f"{self.quantite} x {self.variante}"
 
-
-class EvenementCommande(ModeleBase):
-    """Journal des étapes d'une commande (créée, commandée, modifiée, reçue,
-    réception annulée, retour, paiement, annulée) : qui, quand, quoi. Ajout
-    seul — une ligne n'est jamais modifiée. `reference_id` pointe vers la
-    réception, le retour ou le paiement concerné (évite de le reconstituer
-    une seconde fois à l'affichage pour les commandes plus anciennes)."""
-
-    class Type(models.TextChoices):
-        CREEE = "creee", "Créée"
-        MODIFIEE = "modifiee", "Modifiée"
-        COMMANDEE = "commandee", "Passée en commandée"
-        RECEPTION = "reception", "Réception"
-        RECEPTION_ANNULEE = "reception_annulee", "Réception annulée"
-        RETOUR = "retour", "Retour fournisseur"
-        PAIEMENT = "paiement", "Paiement"
-        ANNULEE = "annulee", "Annulée"
-
-    commande = models.ForeignKey(CommandeAchat, on_delete=models.CASCADE, related_name="evenements")
-    type = models.CharField(max_length=20, choices=Type.choices)
-    utilisateur = models.ForeignKey(
-        "comptes.Utilisateur", on_delete=models.SET_NULL, null=True, blank=True
-    )
-    detail = models.CharField(max_length=255, blank=True)
-    montant = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
-    reference_id = models.UUIDField(null=True, blank=True)
-
-    class Meta:
-        ordering = ["date_creation"]
-
-    def __str__(self):
-        return f"{self.commande} : {self.get_type_display()}"

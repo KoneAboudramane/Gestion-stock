@@ -186,17 +186,6 @@ export interface ReceptionLocale extends SuiviSync {
   date_annulation?: string | null;
 }
 
-/** Étape du suivi d'une commande (achats.EvenementCommande), ajout seul. */
-export interface EvenementCommandeLocal extends SuiviSync {
-  id: string;
-  commande_id: string;
-  type: string;
-  utilisateur_id: string | null;
-  detail: string;
-  montant: number | null;
-  reference_id: string | null;
-}
-
 /** Marchandise d'une réception renvoyée au fournisseur (achats.RetourFournisseur). */
 export interface RetourFournisseurLocale extends SuiviSync {
   id: string;
@@ -510,11 +499,6 @@ export interface GestionStockDB extends DBSchema {
     value: PaiementCreditLocal;
     indexes: { credit_id: string; synchronise: number };
   };
-  evenements_commande: {
-    key: string;
-    value: EvenementCommandeLocal;
-    indexes: { commande_id: string; synchronise: number };
-  };
   retours_fournisseur: {
     key: string;
     value: RetourFournisseurLocale;
@@ -615,4 +599,4 @@ export interface GestionStockDB extends DBSchema {
 }
 
 export const NOM_BASE = "gestion-stock";
-export const VERSION_BASE = 9;
+export const VERSION_BASE = 8;

@@ -634,7 +634,6 @@ export interface ParametresModifierCommande {
   fournisseurId?: string;
   statut?: StatutCommande;
   lignes?: LigneAchatEntree[];
-  utilisateurId?: string | null;
 }
 
 export interface LigneReceptionEntree {
@@ -741,28 +740,6 @@ export interface HistoriqueAchats {
   receptions: ReceptionHistorique[];
   paiements: PaiementFournisseurHistorique[];
   retours: RetourFournisseurHistorique[];
-}
-
-export type TypeEtapeCommande =
-  | "creee"
-  | "modifiee"
-  | "commandee"
-  | "reception"
-  | "reception_annulee"
-  | "retour"
-  | "paiement"
-  | "annulee";
-
-/** Une étape du suivi d'une commande (achats.EvenementCommande). */
-export interface EtapeCommande {
-  id: string;
-  type: TypeEtapeCommande;
-  dateCreation: string;
-  utilisateurId: string | null;
-  detail: string;
-  montant: number | null;
-  /** Déduite des données existantes (commande antérieure au suivi), jamais enregistrée. */
-  reconstitue: boolean;
 }
 
 export type StatutCredit = "en_cours" | "solde";
@@ -1351,7 +1328,6 @@ export interface WindowApi {
     }): Promise<ResultatEcriture<{ montant: number; avoir: number }>>;
     historiqueReceptions(boutiqueId: string, fournisseurId?: string, terme?: string): Promise<ReceptionHistorique[]>;
     historique(boutiqueId: string): Promise<HistoriqueAchats>;
-    suivi(commandeId: string): Promise<EtapeCommande[]>;
   };
   dettes: {
     lister(boutiqueId: string, fournisseurId?: string, statut?: StatutDette): Promise<DetteResume[]>;
