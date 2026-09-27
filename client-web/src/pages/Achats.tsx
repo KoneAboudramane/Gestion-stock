@@ -2488,6 +2488,7 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
     retours: [],
   });
   const [fournisseurs, setFournisseurs] = useState<FournisseurResume[]>([]);
+  const [dettes, setDettes] = useState<DetteResume[]>([]);
   const [periode, setPeriode] = useState<PeriodeHistorique>("tout");
   const [debutPerso, setDebutPerso] = useState(jourLocal(new Date()));
   const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
@@ -2499,6 +2500,7 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
   const [fournisseurPaiements, setFournisseurPaiements] = useState<string | null>(null);
 
   function recharger() {
+    listerDettes(session.boutiqueId).then(setDettes);
     historiqueAchats(session.boutiqueId).then(setHistorique);
   }
   useEffect(() => {
@@ -2521,13 +2523,44 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
   const paiementsFiltres = historique.paiements.filter(garder);
   const retoursFiltres = historique.retours.filter(garder);
 
+  // Paiements fournisseur : une ligne par fournisseur (le détail daté s'ouvre au clic).
+  const resteParFournisseur = new Map<string, number>();
+  for (const d of dettes) {
+    if (d.statut === "en_cours") {
+      resteParFournisseur.set(d.fournisseurNom, (resteParFournisseur.get(d.fournisseurNom) ?? 0) + Number(d.solde));
+    }
+  }
+  const paiementsParFournisseur = [
+    ...paiementsFiltres
+      .reduce((groupes, x) => groupes.set(x.fournisseurNom, [...(groupes.get(x.fournisseurNom) ?? []), x]), new Map<
+        string,
+        PaiementFournisseurHistorique[]
+      >())
+      .entries(),
+  ]
+    .map(([fournisseurNom, liste]) => {
+      const valides = liste.filter((x) => !x.annulee);
+      const total = (origine?: string) =>
+        valides.filter((x) => !origine || x.origine === origine).reduce((t, x) => t + x.montant, 0);
+      return {
+        fournisseurNom,
+        nombre: valides.length,
+        aLaReception: total("reception"),
+        reglements: total("dette"),
+        totalPaye: total(),
+        resteAPayer: resteParFournisseur.get(fournisseurNom) ?? 0,
+        dernier: liste.reduce((d, x) => (x.dateCreation > d ? x.dateCreation : d), ""),
+      };
+    })
+    .sort((a, b) => b.dernier.localeCompare(a.dernier));
+
   const commandesValides = commandesFiltrees.filter((c) => c.statut !== "annulee");
   const somme = (valeurs: number[]) => valeurs.reduce((t, v) => t + v, 0);
 
   const menu: [SectionHistoriqueAchats, string, string, number][] = [
     ["commandes", "📦", "Commandes", commandesFiltrees.length],
     ["receptions", "📥", "Réceptions", receptionsFiltrees.length],
-    ["paiements", "💰", "Paiements fournisseur", paiementsFiltres.length],
+    ["paiements", "💰", "Paiements fournisseur", paiementsParFournisseur.length],
     ["retours", "↩️", "Retours fournisseur", retoursFiltres.length],
   ];
 
@@ -2755,39 +2788,42 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
                   <table className="tableau-catalogue carte-mobile">
                     <thead>
                       <tr>
-                      <th>Date</th>
-                      <th>Commande</th>
-                      <th>Fournisseur</th>
-                      <th>Origine</th>
-                      <th>Mode</th>
-                      <th>Montant</th>
+                        <th>Fournisseur</th>
+                        <th>Paiements</th>
+                        <th>Payé à la réception</th>
+                        <th>Règlements de dette</th>
+                        <th>Total payé</th>
+                        <th>Reste à payer</th>
+                        <th>Dernier paiement</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {paiementsFiltres.map((x) => (
-                      <tr
-                        key={x.id}
-                        className={x.annulee ? "ligne-annulee" : "ligne-reception-cliquable"}
-                        onClick={() => setFournisseurPaiements(x.fournisseurNom)}
-                        title="Voir tous les paiements à ce fournisseur"
-                      >
-                        <td data-label="Date">{new Date(x.dateCreation).toLocaleString("fr-FR")} {x.annulee && <span className="badge-brouillon">Réception annulée</span>}</td>
-                        <td data-label="Commande">{x.commandeNumero ?? "—"}</td>
-                        <td data-label="Fournisseur">{x.fournisseurNom}</td>
-                        <td data-label="Origine">{x.origine === "reception" ? "À la réception" : "Règlement de dette"}</td>
-                        <td data-label="Mode">{x.mode ? libelleModeReglement(x.mode) : "—"}</td>
-                        <td data-label="Montant">{formaterMontant(x.montant)} {devise}</td>
-                      </tr>
+                      {paiementsParFournisseur.map((f) => (
+                        <tr
+                          key={f.fournisseurNom}
+                          className="ligne-reception-cliquable"
+                          onClick={() => setFournisseurPaiements(f.fournisseurNom)}
+                          title="Voir tous les paiements à ce fournisseur"
+                        >
+                          <td data-label="Fournisseur">{f.fournisseurNom}</td>
+                          <td data-label="Paiements">{f.nombre}</td>
+                          <td data-label="Payé à la réception">{formaterMontant(f.aLaReception)} {devise}</td>
+                          <td data-label="Règlements de dette">{formaterMontant(f.reglements)} {devise}</td>
+                          <td data-label="Total payé">{formaterMontant(f.totalPaye)} {devise}</td>
+                          <td data-label="Reste à payer">{f.resteAPayer > 0 ? `${formaterMontant(f.resteAPayer)} ${devise}` : "—"}</td>
+                          <td data-label="Dernier paiement">{new Date(f.dernier).toLocaleDateString("fr-FR")}</td>
+                        </tr>
                       ))}
-                      {paiementsFiltres.length === 0 && (
+                      {paiementsParFournisseur.length === 0 && (
                         <tr>
-                          <td colSpan={6} className="liste-vide">
+                          <td colSpan={7} className="liste-vide">
                             Aucun paiement fournisseur pour ces filtres.
                           </td>
                         </tr>
                       )}
-                      {Array.from({ length: Math.max(0, 10 - Math.max(1, paiementsFiltres.length)) }).map((_, i) => (
+                      {Array.from({ length: Math.max(0, 10 - Math.max(1, paiementsParFournisseur.length)) }).map((_, i) => (
                         <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                          <td>&nbsp;</td>
                           <td>&nbsp;</td>
                           <td>&nbsp;</td>
                           <td>&nbsp;</td>
@@ -2799,15 +2835,17 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
                     </tbody>
                   </table>
                 </div>
-                {paiementsFiltres.length > 0 && (
+                {paiementsParFournisseur.length > 0 && (
                   <div className="totaux">
                     <div>
-                      {paiementsFiltres.length} paiement{paiementsFiltres.length > 1 ? "s" : ""}
+                      {paiementsParFournisseur.length} fournisseur{paiementsParFournisseur.length > 1 ? "s" : ""} ·{" "}
+                      {somme(paiementsParFournisseur.map((f) => f.nombre))} paiement(s)
+                    </div>
+                    <div>
+                      Reste à payer : {formaterMontant(somme(paiementsParFournisseur.map((f) => f.resteAPayer)))} {devise}
                     </div>
                     <div className="total-net">
-                      Total payé :{" "}
-                      {formaterMontant(somme(paiementsFiltres.filter((x) => !x.annulee).map((x) => x.montant)))}{" "}
-                      {devise}
+                      Total payé : {formaterMontant(somme(paiementsParFournisseur.map((f) => f.totalPaye)))} {devise}
                     </div>
                   </div>
                 )}
