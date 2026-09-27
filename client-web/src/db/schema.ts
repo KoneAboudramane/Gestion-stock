@@ -182,6 +182,29 @@ export interface ReceptionLocale extends SuiviSync {
   utilisateur_id: string | null;
   valeur_recue: number;
   montant_paye: number;
+  annulee?: boolean | number;
+  date_annulation?: string | null;
+}
+
+/** Marchandise d'une réception renvoyée au fournisseur (achats.RetourFournisseur). */
+export interface RetourFournisseurLocale extends SuiviSync {
+  id: string;
+  commande_id: string;
+  reception_id: string;
+  depot_id: string;
+  motif: string;
+  montant: number;
+  avoir: number;
+  utilisateur_id: string | null;
+}
+
+export interface LigneRetourFournisseurLocale extends SuiviSync {
+  id: string;
+  retour_id: string;
+  variante_id: string;
+  quantite: number;
+  prix_achat: number;
+  sous_total: number;
 }
 
 export interface MouvementStockLocal extends SuiviSync {
@@ -294,6 +317,7 @@ export interface DetteFournisseurLocale extends SuiviSync {
   id: string;
   fournisseur_id: string;
   commande_id: string | null;
+  reception_id?: string | null;
   montant: number;
   montant_paye: number;
   solde: number;
@@ -475,6 +499,16 @@ export interface GestionStockDB extends DBSchema {
     value: PaiementCreditLocal;
     indexes: { credit_id: string; synchronise: number };
   };
+  retours_fournisseur: {
+    key: string;
+    value: RetourFournisseurLocale;
+    indexes: { reception_id: string; commande_id: string; synchronise: number };
+  };
+  lignes_retour_fournisseur: {
+    key: string;
+    value: LigneRetourFournisseurLocale;
+    indexes: { retour_id: string; synchronise: number };
+  };
   dettes_fournisseur: {
     key: string;
     value: DetteFournisseurLocale;
@@ -565,4 +599,4 @@ export interface GestionStockDB extends DBSchema {
 }
 
 export const NOM_BASE = "gestion-stock";
-export const VERSION_BASE = 7;
+export const VERSION_BASE = 8;

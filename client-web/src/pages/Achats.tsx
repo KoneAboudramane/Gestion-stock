@@ -14,6 +14,7 @@ import {
   listerDettes,
   listerFournisseurs,
   listerPaiementsDette,
+  annulerReception,
   listerHistoriqueReceptions,
   listerReceptionsCommande,
   modifierCommande,
@@ -22,6 +23,7 @@ import {
   payerDette,
   receptionnerCommande,
   rechercherVariantesAchat,
+  retournerAuFournisseur,
   type CommandeDetail,
   type CommandeResume,
   type DetteResume,
@@ -36,6 +38,7 @@ import {
 import { libelleModeReglement, MODES_REGLEMENT } from "../lib/libelles";
 import { creerProduit, ErreurProduit, obtenirProduit } from "../services/produits";
 import { listerDepotsDetail, type DepotResume, type LigneAchatInitiale } from "../services/stock";
+import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
 
 /**
  * Port de client-electron/src/pages/Achats.tsx, local d'abord (IndexedDB, voir
@@ -938,7 +941,10 @@ function DetailCommande({
                         <tbody>
                           {receptions.map((r) => (
                             <tr key={r.id} className="ligne-reception-cliquable" onClick={() => setReceptionSelectionnee(r)}>
-                              <td data-label="Date">{new Date(r.dateCreation).toLocaleString("fr-FR")}</td>
+                              <td data-label="Date">
+                          {new Date(r.dateCreation).toLocaleString("fr-FR")}{" "}
+                          {r.annulee && <span className="badge-brouillon">Annulée</span>}
+                        </td>
                               <td data-label="Dépôt">{r.depotNom}</td>
                               <td data-label="Valeur reçue">
                                 {formaterMontant(r.valeurRecue)} {devise}
@@ -1009,10 +1015,16 @@ function DetailCommande({
             </div>
               {receptionSelectionnee && (
                 <ModaleDetailReception
+                  session={session}
                   reception={receptionSelectionnee}
                   commandeNumero={commande.numero}
                   fournisseurNom={commande.fournisseurNom}
                   onFermer={() => setReceptionSelectionnee(null)}
+                  onModifie={() => {
+                    setReceptionSelectionnee(null);
+                    rafraichir();
+                    ouvrirHistorique();
+                  }}
                 />
               )}
           </div>
@@ -1850,29 +1862,202 @@ function ModaleDettes({ session, onFermer }: { session: Session; onFermer: () =>
   );
 }
 
-/** Détail d'une réception (articles livrés, valeur, paiement), ouvert depuis
- * l'historique d'une commande ou l'historique de toutes les réceptions. */
+/** Détail d'une réception (articles, paiement, retours), avec annulation et
+ * retour fournisseur. Ouvert depuis l'historique d'une commande ou de toutes
+ * les réceptions. */
+function ModaleRetourFournisseur({
+  session,
+  reception,
+  onAnnuler,
+  onTermine,
+}: {
+  session: Session;
+  reception: ReceptionDetail;
+  onAnnuler: () => void;
+  onTermine: (resultat: { montant: number; avoir: number }) => void;
+}) {
+  const [quantites, setQuantites] = useState<Record<string, string>>({});
+  const [motif, setMotif] = useState("");
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState(false);
+  const lignes = reception.lignes.map((l) => ({ ...l, disponible: l.quantite - l.quantiteRetournee }));
+  const aRetourner = lignes
+    .map((l) => ({ varianteId: l.varianteId, quantite: Number(quantites[l.varianteId]) || 0 }))
+    .filter((l) => l.quantite > 0);
+  const invalide = lignes.some((l) => (Number(quantites[l.varianteId]) || 0) > l.disponible);
+
+  async function valider(evenement: React.FormEvent) {
+    evenement.preventDefault();
+    setErreur(null);
+    if (aRetourner.length === 0 || invalide) {
+      setErreur("Indiquez des quantités à retourner, sans dépasser ce qui a été reçu.");
+      return;
+    }
+    setEnCours(true);
+    try {
+      const resultat = await retournerAuFournisseur({
+        receptionId: reception.id,
+        lignes: aRetourner,
+        motif,
+        utilisateurId: session.utilisateurId,
+      });
+      onTermine(resultat);
+    } catch (e) {
+      setErreur(e instanceof ErreurAchat ? e.message : "Erreur inattendue.");
+    } finally {
+      setEnCours(false);
+    }
+  }
+
+  return (
+    <div className="fond-modale" onClick={onAnnuler}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <form onSubmit={valider} className="formulaire-destockage">
+          <div className="modale-entete entete-fixe">
+            <h3>Retour fournisseur</h3>
+            <div className="actions-formulaire">
+              <button type="submit" className="bouton-primaire" disabled={enCours || aRetourner.length === 0 || invalide}>
+                {enCours ? "Enregistrement…" : "Valider le retour"}
+              </button>
+              <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
+                ← Retour
+              </button>
+            </div>
+          </div>
+          {erreur && <div className="message-erreur">{erreur}</div>}
+          <p className="note-aide">
+            Les articles retournés sortent du stock du dépôt {reception.depotNom}. La dette de cette réception baisse
+            du montant retourné (au prix d'achat) ; si elle est déjà réglée, l'appli note un avoir à récupérer.
+          </p>
+          <div className="zone-tableau-scroll">
+            <table className="tableau-catalogue carte-mobile">
+              <thead>
+                <tr>
+                  <th>Article</th>
+                  <th>Reçu</th>
+                  <th>Déjà retourné</th>
+                  <th>Quantité à retourner</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lignes.map((l) => (
+                  <tr key={l.varianteId}>
+                    <td data-label="Article">
+                      {l.produitNom} {l.reference && <span className="sous-info">({l.reference})</span>}
+                    </td>
+                    <td data-label="Reçu">{l.quantite}</td>
+                    <td data-label="Déjà retourné">{l.quantiteRetournee}</td>
+                    <td data-label="Quantité à retourner">
+                      <input
+                        type="number"
+                        min={0}
+                        max={l.disponible}
+                        step="any"
+                        disabled={l.disponible <= 0}
+                        className={(Number(quantites[l.varianteId]) || 0) > l.disponible ? "champ-invalide" : undefined}
+                        value={quantites[l.varianteId] ?? ""}
+                        onChange={(e) => setQuantites((q) => ({ ...q, [l.varianteId]: e.target.value }))}
+                      />
+                      <span className="sous-info"> / {l.disponible}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <label className="champ-nom-operation">
+            Motif du retour
+            <input
+              value={motif}
+              onChange={(e) => setMotif(e.target.value)}
+              placeholder="ex. Sacs percés, erreur de livraison…"
+            />
+          </label>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function ModaleDetailReception({
+  session,
   reception,
   commandeNumero,
   fournisseurNom,
   onFermer,
+  onModifie,
 }: {
+  session: Session;
   reception: ReceptionDetail;
   commandeNumero?: string;
   fournisseurNom?: string;
   onFermer: () => void;
+  /** Après une annulation ou un retour : le parent recharge ses données. */
+  onModifie: () => void;
 }) {
   const devise = useDevise();
+  const nomUtilisateur = useNomsUtilisateurs(session);
+  const peutGerer = !!session.permissions.gerer_produits_stock_achats;
+  const [confirmerAnnulation, setConfirmerAnnulation] = useState(false);
+  const [afficherRetour, setAfficherRetour] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState(false);
   const quantiteArticles = reception.lignes.reduce((somme, l) => somme + Number(l.quantite), 0);
+  const aDesRetours = reception.retours.length > 0;
+  const resteARetourner = reception.lignes.some((l) => l.quantite - l.quantiteRetournee > 0);
+
+  async function annuler() {
+    setEnCours(true);
+    setErreur(null);
+    try {
+      const resultat = await annulerReception(reception.id, session.utilisateurId);
+      setMessage(
+        resultat.montantARecuperer > 0
+          ? `Réception annulée. Récupérez ${formaterMontant(resultat.montantARecuperer)} ${devise} payés sur place auprès du fournisseur.`
+          : "Réception annulée : la marchandise est sortie du stock et la commande attend de nouveau ces articles.",
+      );
+    } catch (e) {
+      setErreur(e instanceof ErreurAchat ? e.message : "Erreur inattendue.");
+    } finally {
+      setEnCours(false);
+      setConfirmerAnnulation(false);
+    }
+  }
+
+  const fermer = message ? onModifie : onFermer;
+
   return (
-    <div className="fond-modale" onClick={onFermer}>
+    <div className="fond-modale" onClick={fermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
-        <EnteteModale
-          titre={`Réception du ${new Date(reception.dateCreation).toLocaleString("fr-FR")}`}
-          onFermer={onFermer}
-        />
+        <div className="modale-entete">
+          <h3>
+            Réception du {new Date(reception.dateCreation).toLocaleString("fr-FR")}{" "}
+            {reception.annulee && <span className="badge-brouillon">Annulée</span>}
+          </h3>
+          <div className="actions-formulaire">
+            {peutGerer && !reception.annulee && !message && (
+              <>
+                {resteARetourner && (
+                  <button type="button" onClick={() => setAfficherRetour(true)}>
+                    ↩ Retour fournisseur
+                  </button>
+                )}
+                {!aDesRetours && (
+                  <button type="button" className="bouton-danger" onClick={() => setConfirmerAnnulation(true)}>
+                    Annuler la réception
+                  </button>
+                )}
+              </>
+            )}
+            <button type="button" className="lien bouton-retour" onClick={fermer}>
+              ← Retour
+            </button>
+          </div>
+        </div>
         <div className="modale-corps">
+          {erreur && <div className="message-erreur">{erreur}</div>}
+          {message && <div className="message-succes">{message}</div>}
           <div className="infos-reception">
             {commandeNumero && (
               <div>
@@ -1890,6 +2075,10 @@ function ModaleDetailReception({
               <span className="sous-info">Dépôt</span>
               <strong>{reception.depotNom}</strong>
             </div>
+            <div>
+              <span className="sous-info">Réceptionné par</span>
+              <strong>{nomUtilisateur(reception.utilisateurId)}</strong>
+            </div>
           </div>
           <div className="zone-tableau-scroll">
             <table className="tableau-catalogue carte-mobile">
@@ -1898,6 +2087,7 @@ function ModaleDetailReception({
                   <th>Désignation</th>
                   <th>Référence</th>
                   <th>Quantité reçue</th>
+                  {aDesRetours && <th>Retourné</th>}
                 </tr>
               </thead>
               <tbody>
@@ -1906,6 +2096,7 @@ function ModaleDetailReception({
                     <td data-label="Désignation">{l.produitNom}</td>
                     <td data-label="Référence">{l.reference}</td>
                     <td data-label="Quantité reçue">{l.quantite}</td>
+                    {aDesRetours && <td data-label="Retourné">{l.quantiteRetournee || ""}</td>}
                   </tr>
                 ))}
                 {reception.lignes.length === 0 && (
@@ -1918,6 +2109,39 @@ function ModaleDetailReception({
               </tbody>
             </table>
           </div>
+          {aDesRetours && (
+            <>
+              <h4>Retours fournisseur</h4>
+              <div className="zone-tableau-scroll">
+                <table className="tableau-catalogue carte-mobile">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Articles</th>
+                      <th>Motif</th>
+                      <th>Montant</th>
+                      <th>Avoir à récupérer</th>
+                      <th>Fait par</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reception.retours.map((r) => (
+                      <tr key={r.id}>
+                        <td data-label="Date">{new Date(r.dateCreation).toLocaleDateString("fr-FR")}</td>
+                        <td data-label="Articles">{r.lignes.map((l) => `${l.quantite} × ${l.produitNom}`).join(", ")}</td>
+                        <td data-label="Motif">{r.motif || "—"}</td>
+                        <td data-label="Montant">
+                          {formaterMontant(r.montant)} {devise}
+                        </td>
+                        <td data-label="Avoir à récupérer">{r.avoir > 0 ? `${formaterMontant(r.avoir)} ${devise}` : "—"}</td>
+                        <td data-label="Fait par">{nomUtilisateur(r.utilisateurId)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
           <div className="totaux">
             <div>Articles reçus : {reception.lignes.length > 0 ? quantiteArticles : "—"}</div>
             <div>
@@ -1932,9 +2156,36 @@ function ModaleDetailReception({
           </div>
         </div>
       </div>
+      {confirmerAnnulation && (
+        <ModaleConfirmation
+          titre="Annuler cette réception ?"
+          description="La marchandise ressort du stock, la commande attend de nouveau ces articles et la dette de cette réception est annulée. La réception reste visible, marquée « Annulée »."
+          labelConfirmer="Annuler la réception"
+          dangereux
+          enCours={enCours}
+          onAnnuler={() => setConfirmerAnnulation(false)}
+          onConfirmer={annuler}
+        />
+      )}
+      {afficherRetour && (
+        <ModaleRetourFournisseur
+          session={session}
+          reception={reception}
+          onAnnuler={() => setAfficherRetour(false)}
+          onTermine={(resultat) => {
+            setAfficherRetour(false);
+            setMessage(
+              resultat.avoir > 0
+                ? `Retour enregistré : ${formaterMontant(resultat.montant)} ${devise}, dont ${formaterMontant(resultat.avoir)} ${devise} à récupérer auprès du fournisseur (avoir).`
+                : `Retour enregistré : ${formaterMontant(resultat.montant)} ${devise} déduits de la dette.`,
+            );
+          }}
+        />
+      )}
     </div>
   );
 }
+
 
 /** Historique de toutes les réceptions, toutes commandes confondues. Chaque
  * ligne se déplie pour montrer les articles livrés à cette réception. */
@@ -1951,8 +2202,11 @@ function OngletHistoriqueReceptions({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.boutiqueId]);
 
-  useEffect(() => {
+  function recharger() {
     listerHistoriqueReceptions(session.boutiqueId, fournisseurId || undefined, terme).then(setReceptions);
+  }
+  useEffect(() => {
+    recharger();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.boutiqueId, fournisseurId, terme]);
 
@@ -1993,7 +2247,10 @@ function OngletHistoriqueReceptions({ session }: { session: Session }) {
           <tbody>
             {receptions.map((r) => (
               <tr key={r.id} className="ligne-reception-cliquable" onClick={() => setReceptionSelectionnee(r)}>
-                <td data-label="Date">{new Date(r.dateCreation).toLocaleString("fr-FR")}</td>
+                <td data-label="Date">
+                          {new Date(r.dateCreation).toLocaleString("fr-FR")}{" "}
+                          {r.annulee && <span className="badge-brouillon">Annulée</span>}
+                        </td>
                 <td data-label="Commande">{r.commandeNumero}</td>
                 <td data-label="Fournisseur">{r.fournisseurNom}</td>
                 <td data-label="Dépôt">{r.depotNom}</td>
@@ -2020,10 +2277,15 @@ function OngletHistoriqueReceptions({ session }: { session: Session }) {
       </div>
       {receptionSelectionnee && (
         <ModaleDetailReception
+          session={session}
           reception={receptionSelectionnee}
           commandeNumero={receptionSelectionnee.commandeNumero}
           fournisseurNom={receptionSelectionnee.fournisseurNom}
           onFermer={() => setReceptionSelectionnee(null)}
+          onModifie={() => {
+            setReceptionSelectionnee(null);
+            recharger();
+          }}
         />
       )}
       {receptions.length > 0 && (

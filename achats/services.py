@@ -5,6 +5,7 @@ CLAUDE.md : une réception crée une entrée de stock par ligne de la commande
 """
 from django.db import transaction
 from django.db.models import Sum
+from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from core.services import generer_numero_sequentiel
@@ -12,7 +13,7 @@ from fournisseurs.models import DetteFournisseur
 from stock.models import MouvementStock, Stock
 from stock.services import appliquer_mouvement
 
-from .models import CommandeAchat, LigneAchat, Reception
+from .models import CommandeAchat, LigneAchat, LigneRetourFournisseur, Reception, RetourFournisseur
 
 
 def _calculer_lignes_et_total(lignes_donnees):
@@ -147,7 +148,7 @@ def receptionner_commande(commande, depot, utilisateur, montant_deja_paye=0, lig
     solde = valeur_recue - montant_deja_paye
     if solde > 0:
         DetteFournisseur.objects.create(
-            fournisseur=commande.fournisseur, commande=commande,
+            fournisseur=commande.fournisseur, commande=commande, reception=reception,
             montant=valeur_recue, montant_paye=montant_deja_paye, solde=solde,
             statut=DetteFournisseur.Statut.EN_COURS,
         )
@@ -157,3 +158,149 @@ def receptionner_commande(commande, depot, utilisateur, montant_deja_paye=0, lig
         commande.save(update_fields=["statut", "date_modification"])
 
     return reception
+
+
+# --- Annulation de réception et retour fournisseur ---
+
+def _lignes_recues(reception):
+    """Quantités livrées à cette réception, par variante (lues dans ses
+    mouvements d'entrée ; une réception ancienne sans ce lien n'en a pas)."""
+    quantites = {}
+    for m in MouvementStock.objects.filter(
+        reference_type="achats.Reception", reference_id=reception.id, type=MouvementStock.Type.ENTREE,
+    ):
+        quantites[m.variante_id] = quantites.get(m.variante_id, 0) + m.quantite
+    return quantites
+
+
+def _deja_retourne(reception):
+    quantites = {}
+    for l in LigneRetourFournisseur.objects.filter(retour__reception=reception):
+        quantites[l.variante_id] = quantites.get(l.variante_id, 0) + l.quantite
+    return quantites
+
+
+def _dette_de_la_reception(reception):
+    """Dette créée par cette réception (lien direct, ou pour une réception
+    ancienne : la dette de la commande de même montant, sans lien)."""
+    dette = DetteFournisseur.objects.filter(reception=reception).first()
+    if dette:
+        return dette
+    return DetteFournisseur.objects.filter(
+        commande=reception.commande, reception__isnull=True, montant=reception.valeur_recue,
+    ).order_by("date_creation").first()
+
+
+def _retirer_du_stock_et_du_cump(variante, depot, quantite, prix_achat, motif, utilisateur, reference_type, reference_id):
+    """Sortie de marchandise renvoyée au fournisseur : le coût moyen est recalculé
+    à l'envers (on retire ces unités à leur prix d'achat)."""
+    stock_depot = Stock.objects.filter(variante=variante, depot=depot).first()
+    if not stock_depot or stock_depot.quantite < quantite:
+        raise ValidationError(f"{variante} : plus assez de stock dans ce dépôt (déjà vendu ?).")
+    stock_total = Stock.objects.filter(variante=variante).aggregate(total=Sum("quantite"))["total"] or 0
+    reste = stock_total - quantite
+    if reste > 0:
+        nouveau_cump = round((stock_total * variante.prix_achat - quantite * prix_achat) / reste)
+        if nouveau_cump > 0:
+            variante.prix_achat = nouveau_cump
+            variante.save(update_fields=["prix_achat", "date_modification"])
+    appliquer_mouvement(
+        variante, depot, MouvementStock.Type.SORTIE, quantite, motif=motif, utilisateur=utilisateur,
+        reference_type=reference_type, reference_id=reference_id,
+    )
+
+
+@transaction.atomic
+def annuler_reception(reception, utilisateur=None):
+    """Réception saisie par erreur : la marchandise ressort, la commande attend
+    de nouveau ces quantités, la dette de la réception est soldée à zéro.
+    Refusée si la marchandise n'est plus en stock ou si la dette a déjà reçu
+    un règlement après la réception. Renvoie le montant payé sur place à
+    récupérer auprès du fournisseur."""
+    if reception.annulee:
+        raise ValidationError("Cette réception est déjà annulée.")
+    quantites = _lignes_recues(reception)
+    if not quantites:
+        raise ValidationError("Réception trop ancienne : ses articles ne sont pas tracés, annulation impossible.")
+    if LigneRetourFournisseur.objects.filter(retour__reception=reception).exists():
+        raise ValidationError("Des articles de cette réception ont déjà été retournés au fournisseur.")
+    dette = _dette_de_la_reception(reception)
+    if dette and dette.montant_paye > reception.montant_paye:
+        raise ValidationError("Un règlement a déjà été fait sur la dette de cette réception : annulation impossible.")
+
+    commande = reception.commande
+    lignes = {l.variante_id: l for l in commande.lignes.select_related("variante")}
+    for variante_id, quantite in quantites.items():
+        ligne = lignes[variante_id]
+        _retirer_du_stock_et_du_cump(
+            ligne.variante, reception.depot, quantite, ligne.prix_achat,
+            f"Annulation réception {commande.numero}", utilisateur, "achats.Reception", reception.id,
+        )
+        ligne.quantite_recue = max(0, ligne.quantite_recue - quantite)
+        ligne.save(update_fields=["quantite_recue", "date_modification"])
+
+    if dette:
+        dette.montant = dette.montant_paye
+        dette.solde = 0
+        dette.statut = DetteFournisseur.Statut.SOLDE
+        dette.save(update_fields=["montant", "solde", "statut", "date_modification"])
+    if commande.statut == CommandeAchat.Statut.RECUE:
+        commande.statut = CommandeAchat.Statut.COMMANDEE
+        commande.save(update_fields=["statut", "date_modification"])
+
+    reception.annulee = True
+    reception.date_annulation = timezone.now()
+    reception.save(update_fields=["annulee", "date_annulation", "date_modification"])
+    return reception
+
+
+@transaction.atomic
+def retourner_au_fournisseur(reception, lignes, motif="", utilisateur=None):
+    """Renvoie une partie des articles d'une réception. `lignes` :
+    [{"variante": Variante, "quantite": Decimal}]. La dette de la réception
+    baisse du montant retourné (au prix d'achat de la commande) ; ce qui
+    dépasse son solde devient un avoir à récupérer auprès du fournisseur."""
+    if reception.annulee:
+        raise ValidationError("Cette réception est annulée.")
+    lignes = [l for l in lignes if l["quantite"] > 0]
+    if not lignes:
+        raise ValidationError("Indiquez au moins une quantité à retourner.")
+    recues = _lignes_recues(reception)
+    retournees = _deja_retourne(reception)
+    commande = reception.commande
+    lignes_commande = {l.variante_id: l for l in commande.lignes.select_related("variante")}
+
+    retour = RetourFournisseur.objects.create(
+        commande=commande, reception=reception, depot=reception.depot,
+        motif=(motif or "").strip(), utilisateur=utilisateur,
+    )
+    montant = 0
+    for donnee in lignes:
+        variante = donnee["variante"]
+        quantite = donnee["quantite"]
+        ligne = lignes_commande.get(variante.id)
+        disponible = recues.get(variante.id, 0) - retournees.get(variante.id, 0)
+        if not ligne or quantite > disponible:
+            raise ValidationError(f"{variante} : on ne peut pas retourner plus que ce qui a été reçu.")
+        _retirer_du_stock_et_du_cump(
+            variante, reception.depot, quantite, ligne.prix_achat,
+            f"Retour fournisseur {commande.numero}", utilisateur, "achats.RetourFournisseur", retour.id,
+        )
+        sous_total = round(quantite * ligne.prix_achat)
+        LigneRetourFournisseur.objects.create(
+            retour=retour, variante=variante, quantite=quantite, prix_achat=ligne.prix_achat, sous_total=sous_total,
+        )
+        montant += sous_total
+
+    dette = _dette_de_la_reception(reception)
+    deduit = min(montant, dette.solde) if dette else 0
+    if dette and deduit > 0:
+        dette.montant -= deduit
+        dette.solde -= deduit
+        if dette.solde <= 0:
+            dette.statut = DetteFournisseur.Statut.SOLDE
+        dette.save(update_fields=["montant", "solde", "statut", "date_modification"])
+    retour.montant = montant
+    retour.avoir = montant - deduit
+    retour.save(update_fields=["montant", "avoir", "date_modification"])
+    return retour

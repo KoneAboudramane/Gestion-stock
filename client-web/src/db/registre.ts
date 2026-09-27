@@ -95,6 +95,20 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
     champsFK: ["commande", "depot", "utilisateur"],
   },
   {
+    table: "achats.RetourFournisseur",
+    store: "retours_fournisseur",
+    champsFK: ["commande", "reception", "depot", "utilisateur"],
+    ajoutSeul: true,
+    champsNumeriques: ["montant", "avoir"],
+  },
+  {
+    table: "achats.LigneRetourFournisseur",
+    store: "lignes_retour_fournisseur",
+    champsFK: ["retour", "variante"],
+    ajoutSeul: true,
+    champsNumeriques: ["quantite", "prix_achat", "sous_total"],
+  },
+  {
     table: "stock.MouvementStock",
     store: "mouvements_stock",
     champsFK: ["variante", "depot", "utilisateur"],
@@ -147,7 +161,7 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
   {
     table: "fournisseurs.DetteFournisseur",
     store: "dettes_fournisseur",
-    champsFK: ["fournisseur", "commande"],
+    champsFK: ["fournisseur", "commande", "reception"],
     champsNumeriques: ["montant", "montant_paye", "solde"],
   },
   {

@@ -5,8 +5,10 @@ import type {
   DetteFournisseurLocale,
   FournisseurLocal,
   LigneAchatLocale,
+  LigneRetourFournisseurLocale,
   PaiementDetteFournisseurLocale,
   ReceptionLocale,
+  RetourFournisseurLocale,
 } from "../db/schema";
 import { appliquerMouvement } from "./stock";
 import { enregistrerMouvement } from "./tresorerie";
@@ -529,6 +531,7 @@ export async function receptionnerCommande(params: ParametresReception): Promise
       id: crypto.randomUUID(),
       fournisseur_id: commande.fournisseur_id,
       commande_id: commandeId,
+      reception_id: receptionId,
       montant: valeurRecue,
       montant_paye: montantDejaPaye,
       solde,
@@ -592,9 +595,22 @@ export async function listerDettes(boutiqueId: string, fournisseurId?: string, s
 }
 
 export interface LigneReceptionDetail {
+  varianteId: string;
   produitNom: string;
   reference: string;
   quantite: number;
+  /** Déjà renvoyé au fournisseur (retours). */
+  quantiteRetournee: number;
+}
+
+export interface RetourFournisseurDetail {
+  id: string;
+  dateCreation: string;
+  motif: string;
+  montant: number;
+  avoir: number;
+  utilisateurId: string | null;
+  lignes: { produitNom: string; quantite: number }[];
 }
 
 export interface ReceptionDetail {
@@ -604,6 +620,9 @@ export interface ReceptionDetail {
   valeurRecue: number;
   montantPaye: number;
   lignes: LigneReceptionDetail[];
+  annulee: boolean;
+  utilisateurId: string | null;
+  retours: RetourFournisseurDetail[];
 }
 
 /** Historique des réceptions d'une commande (une par livraison, voir
@@ -622,8 +641,8 @@ export async function listerReceptionsCommande(commandeId: string): Promise<Rece
     depotId: string,
     referenceType: string,
     referenceId: string,
-  ): Promise<LigneReceptionDetail[]> {
-    const lignes: LigneReceptionDetail[] = [];
+  ): Promise<Omit<LigneReceptionDetail, "quantiteRetournee">[]> {
+    const lignes: Omit<LigneReceptionDetail, "quantiteRetournee">[] = [];
     for (const varianteId of variantesCommande) {
       const quantite = (await db.getAllFromIndex("mouvements_stock", "variante_depot", [varianteId, depotId]))
         .filter(
@@ -633,7 +652,7 @@ export async function listerReceptionsCommande(commandeId: string): Promise<Rece
       if (quantite === 0) continue;
       const variante = await db.get("variantes", varianteId);
       const produit = variante ? await db.get("produits", variante.produit_id) : undefined;
-      lignes.push({ produitNom: produit?.nom ?? "", reference: variante?.reference ?? "", quantite });
+      lignes.push({ varianteId, produitNom: produit?.nom ?? "", reference: variante?.reference ?? "", quantite });
     }
     return lignes.sort((a, b) => a.produitNom.localeCompare(b.produitNom));
   }
@@ -653,7 +672,7 @@ export async function listerReceptionsCommande(commandeId: string): Promise<Rece
       depotNom: depot?.nom ?? "",
       valeurRecue: r.valeur_recue,
       montantPaye: r.montant_paye,
-      lignes,
+      ...(await completerReception(r, lignes)),
     });
   }
   return resultat.sort((a, b) => a.dateCreation.localeCompare(b.dateCreation));
@@ -761,4 +780,260 @@ export async function payerDette(
       referenceId: paiementId,
     });
   }
+}
+
+// --- Annulation de réception et retour fournisseur (port de achats/services.py) ---
+
+async function lignesRecues(reception: ReceptionLocale): Promise<Map<string, number>> {
+  const db = await ouvrirBaseDeDonnees();
+  const quantites = new Map<string, number>();
+  for (const ligne of (await db.getAllFromIndex("lignes_achat", "commande_id", reception.commande_id)).filter((l) => !l.supprime)) {
+    for (const m of await db.getAllFromIndex("mouvements_stock", "variante_depot", [ligne.variante_id, reception.depot_id])) {
+      if (!m.supprime && m.type === "entree" && m.reference_type === "achats.Reception" && m.reference_id === reception.id) {
+        quantites.set(m.variante_id, (quantites.get(m.variante_id) ?? 0) + m.quantite);
+      }
+    }
+  }
+  return quantites;
+}
+
+async function dejaRetourne(receptionId: string): Promise<Map<string, number>> {
+  const db = await ouvrirBaseDeDonnees();
+  const quantites = new Map<string, number>();
+  for (const retour of await db.getAllFromIndex("retours_fournisseur", "reception_id", receptionId)) {
+    if (retour.supprime) continue;
+    for (const l of await db.getAllFromIndex("lignes_retour_fournisseur", "retour_id", retour.id)) {
+      if (!l.supprime) quantites.set(l.variante_id, (quantites.get(l.variante_id) ?? 0) + l.quantite);
+    }
+  }
+  return quantites;
+}
+
+/** Dette créée par cette réception (lien direct, ou pour une réception ancienne :
+ * la dette de la commande de même montant, sans lien). */
+async function detteDeLaReception(reception: ReceptionLocale): Promise<DetteFournisseurLocale | undefined> {
+  const db = await ouvrirBaseDeDonnees();
+  const dettes = (await db.getAll("dettes_fournisseur")).filter((d) => !d.supprime);
+  return (
+    dettes.find((d) => d.reception_id === reception.id) ??
+    dettes
+      .filter((d) => d.commande_id === reception.commande_id && !d.reception_id && d.montant === reception.valeur_recue)
+      .sort((a, b) => a.date_creation.localeCompare(b.date_creation))[0]
+  );
+}
+
+/** Vérifie qu'on peut sortir `quantite` du dépôt ; renvoie la sortie à appliquer
+ * (coût moyen recalculé à l'envers) sans rien écrire. */
+async function preparerSortieRetour(varianteId: string, depotId: string, quantite: number, prixAchat: number) {
+  const db = await ouvrirBaseDeDonnees();
+  const stockDepot = (await db.getFromIndex("stocks", "variante_depot", [varianteId, depotId]))?.quantite ?? 0;
+  const variante = (await obtenirLigne("variantes", varianteId))!;
+  if (stockDepot < quantite) {
+    const produit = await obtenirLigne("produits", variante.produit_id);
+    throw new ErreurAchat(`${produit?.nom ?? "Article"} : plus assez de stock dans ce dépôt (déjà vendu ?).`);
+  }
+  const stockTotal = (
+    await db.getAllFromIndex("stocks", "variante_depot", IDBKeyRange.bound([varianteId, ""], [varianteId, "\uffff"]))
+  ).reduce((total, s) => total + s.quantite, 0);
+  const reste = stockTotal - quantite;
+  const nouveauCump = reste > 0 ? Math.round((stockTotal * variante.prix_achat - quantite * prixAchat) / reste) : 0;
+  return { variante, nouveauCump: nouveauCump > 0 ? nouveauCump : null };
+}
+
+/**
+ * Réception saisie par erreur : la marchandise ressort, la commande attend de
+ * nouveau ces quantités, la dette de la réception est soldée à zéro. Tout est
+ * vérifié avant la moindre écriture. Renvoie le montant payé sur place à récupérer.
+ */
+export async function annulerReception(receptionId: string, utilisateurId: string | null): Promise<{ montantARecuperer: number }> {
+  const db = await ouvrirBaseDeDonnees();
+  const reception = await obtenirLigne("receptions", receptionId);
+  if (!reception) throw new ErreurAchat("Réception introuvable.");
+  if (reception.annulee) throw new ErreurAchat("Cette réception est déjà annulée.");
+  const quantites = await lignesRecues(reception);
+  if (quantites.size === 0) {
+    throw new ErreurAchat("Réception trop ancienne : ses articles ne sont pas tracés, annulation impossible.");
+  }
+  if ((await dejaRetourne(receptionId)).size > 0) {
+    throw new ErreurAchat("Des articles de cette réception ont déjà été retournés au fournisseur.");
+  }
+  const dette = await detteDeLaReception(reception);
+  if (dette && dette.montant_paye > reception.montant_paye) {
+    throw new ErreurAchat("Un règlement a déjà été fait sur la dette de cette réception : annulation impossible.");
+  }
+  const commande = (await obtenirLigne("commandes_achat", reception.commande_id))!;
+  const lignesCommande = (await db.getAllFromIndex("lignes_achat", "commande_id", reception.commande_id)).filter((l) => !l.supprime);
+
+  const sorties = [];
+  for (const [varianteId, quantite] of quantites) {
+    const ligne = lignesCommande.find((l) => l.variante_id === varianteId)!;
+    sorties.push({ ligne, quantite, ...(await preparerSortieRetour(varianteId, reception.depot_id, quantite, ligne.prix_achat)) });
+  }
+
+  const instant = maintenant();
+  for (const sortie of sorties) {
+    if (sortie.nouveauCump) {
+      await ecrireLigne("variantes", { ...sortie.variante, prix_achat: sortie.nouveauCump, date_modification: instant, synchronise: 0 });
+    }
+    await appliquerMouvement({
+      varianteId: sortie.ligne.variante_id,
+      depotId: reception.depot_id,
+      type: "sortie",
+      quantite: sortie.quantite,
+      motif: `Annulation réception ${commande.numero}`,
+      utilisateurId,
+      referenceType: "achats.Reception",
+      referenceId: receptionId,
+    });
+    await ecrireLigne("lignes_achat", {
+      ...sortie.ligne,
+      quantite_recue: Math.max(0, (sortie.ligne.quantite_recue ?? 0) - sortie.quantite),
+      date_modification: instant,
+      synchronise: 0,
+    });
+  }
+  if (dette) {
+    await ecrireLigne("dettes_fournisseur", {
+      ...dette,
+      montant: dette.montant_paye,
+      solde: 0,
+      statut: "solde",
+      date_modification: instant,
+      synchronise: 0,
+    });
+  }
+  if (commande.statut === "recue") {
+    await ecrireLigne("commandes_achat", { ...commande, statut: "commandee", date_modification: instant, synchronise: 0 });
+  }
+  await ecrireLigne("receptions", { ...reception, annulee: true, date_annulation: instant, date_modification: instant, synchronise: 0 });
+  return { montantARecuperer: reception.montant_paye };
+}
+
+export interface ParametresRetourFournisseur {
+  receptionId: string;
+  lignes: { varianteId: string; quantite: number }[];
+  motif?: string;
+  utilisateurId: string | null;
+}
+
+/**
+ * Renvoie une partie des articles d'une réception. La dette de la réception
+ * baisse du montant retourné (au prix d'achat de la commande) ; ce qui dépasse
+ * son solde devient un avoir à récupérer auprès du fournisseur.
+ */
+export async function retournerAuFournisseur(params: ParametresRetourFournisseur): Promise<{ montant: number; avoir: number }> {
+  const { receptionId, utilisateurId } = params;
+  const db = await ouvrirBaseDeDonnees();
+  const reception = await obtenirLigne("receptions", receptionId);
+  if (!reception) throw new ErreurAchat("Réception introuvable.");
+  if (reception.annulee) throw new ErreurAchat("Cette réception est annulée.");
+  const lignes = params.lignes.filter((l) => l.quantite > 0);
+  if (lignes.length === 0) throw new ErreurAchat("Indiquez au moins une quantité à retourner.");
+  const recues = await lignesRecues(reception);
+  const retournees = await dejaRetourne(receptionId);
+  const commande = (await obtenirLigne("commandes_achat", reception.commande_id))!;
+  const lignesCommande = (await db.getAllFromIndex("lignes_achat", "commande_id", reception.commande_id)).filter((l) => !l.supprime);
+
+  const sorties = [];
+  let montant = 0;
+  for (const donnee of lignes) {
+    const ligne = lignesCommande.find((l) => l.variante_id === donnee.varianteId);
+    const disponible = (recues.get(donnee.varianteId) ?? 0) - (retournees.get(donnee.varianteId) ?? 0);
+    if (!ligne || donnee.quantite > disponible) throw new ErreurAchat("On ne peut pas retourner plus que ce qui a été reçu.");
+    const sousTotal = Math.round(donnee.quantite * ligne.prix_achat);
+    montant += sousTotal;
+    sorties.push({
+      donnee,
+      ligne,
+      sousTotal,
+      ...(await preparerSortieRetour(donnee.varianteId, reception.depot_id, donnee.quantite, ligne.prix_achat)),
+    });
+  }
+  const dette = await detteDeLaReception(reception);
+  const deduit = dette ? Math.min(montant, dette.solde) : 0;
+
+  const retourId = crypto.randomUUID();
+  const retour: RetourFournisseurLocale = {
+    id: retourId,
+    commande_id: reception.commande_id,
+    reception_id: receptionId,
+    depot_id: reception.depot_id,
+    motif: (params.motif ?? "").trim(),
+    montant,
+    avoir: montant - deduit,
+    utilisateur_id: utilisateurId,
+    ...suiviSyncNeuf(),
+  };
+  await ecrireLigne("retours_fournisseur", retour);
+  const instant = maintenant();
+  for (const sortie of sorties) {
+    if (sortie.nouveauCump) {
+      await ecrireLigne("variantes", { ...sortie.variante, prix_achat: sortie.nouveauCump, date_modification: instant, synchronise: 0 });
+    }
+    await appliquerMouvement({
+      varianteId: sortie.donnee.varianteId,
+      depotId: reception.depot_id,
+      type: "sortie",
+      quantite: sortie.donnee.quantite,
+      motif: `Retour fournisseur ${commande.numero}`,
+      utilisateurId,
+      referenceType: "achats.RetourFournisseur",
+      referenceId: retourId,
+    });
+    const ligneRetour: LigneRetourFournisseurLocale = {
+      id: crypto.randomUUID(),
+      retour_id: retourId,
+      variante_id: sortie.donnee.varianteId,
+      quantite: sortie.donnee.quantite,
+      prix_achat: sortie.ligne.prix_achat,
+      sous_total: sortie.sousTotal,
+      ...suiviSyncNeuf(),
+    };
+    await ecrireLigne("lignes_retour_fournisseur", ligneRetour);
+  }
+  if (dette && deduit > 0) {
+    const nouveauSolde = dette.solde - deduit;
+    await ecrireLigne("dettes_fournisseur", {
+      ...dette,
+      montant: dette.montant - deduit,
+      solde: nouveauSolde,
+      statut: nouveauSolde <= 0 ? "solde" : "en_cours",
+      date_modification: instant,
+      synchronise: 0,
+    });
+  }
+  return { montant, avoir: montant - deduit };
+}
+
+/** Complète une réception : quantités déjà retournées, retours faits sur elle. */
+async function completerReception(
+  r: ReceptionLocale,
+  lignes: Omit<LigneReceptionDetail, "quantiteRetournee">[],
+): Promise<Pick<ReceptionDetail, "lignes" | "annulee" | "utilisateurId" | "retours">> {
+  const db = await ouvrirBaseDeDonnees();
+  const retournees = await dejaRetourne(r.id);
+  const retours: RetourFournisseurDetail[] = [];
+  for (const retour of (await db.getAllFromIndex("retours_fournisseur", "reception_id", r.id)).filter((x) => !x.supprime)) {
+    const lignesRetour = [];
+    for (const l of (await db.getAllFromIndex("lignes_retour_fournisseur", "retour_id", retour.id)).filter((x) => !x.supprime)) {
+      const variante = await db.get("variantes", l.variante_id);
+      const produit = variante ? await db.get("produits", variante.produit_id) : undefined;
+      lignesRetour.push({ produitNom: produit?.nom ?? "", quantite: l.quantite });
+    }
+    retours.push({
+      id: retour.id,
+      dateCreation: retour.date_creation,
+      motif: retour.motif ?? "",
+      montant: retour.montant,
+      avoir: retour.avoir,
+      utilisateurId: retour.utilisateur_id ?? null,
+      lignes: lignesRetour,
+    });
+  }
+  return {
+    lignes: lignes.map((l) => ({ ...l, quantiteRetournee: retournees.get(l.varianteId) ?? 0 })),
+    annulee: !!r.annulee,
+    utilisateurId: r.utilisateur_id ?? null,
+    retours: retours.sort((a, b) => a.dateCreation.localeCompare(b.dateCreation)),
+  };
 }

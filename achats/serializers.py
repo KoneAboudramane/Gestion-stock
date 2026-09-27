@@ -87,9 +87,11 @@ class ReceptionSerializer(serializers.ModelSerializer):
         model = Reception
         fields = [
             "id", "commande", "depot", "utilisateur", "date_creation",
-            "valeur_recue", "montant_paye", "montant_deja_paye", "lignes",
+            "valeur_recue", "montant_paye", "montant_deja_paye", "lignes", "annulee", "date_annulation",
         ]
-        read_only_fields = ["id", "utilisateur", "date_creation", "valeur_recue", "montant_paye"]
+        read_only_fields = [
+            "id", "utilisateur", "date_creation", "valeur_recue", "montant_paye", "annulee", "date_annulation",
+        ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -494,9 +494,20 @@ export function receptionnerCommande(params: ParametresReception): string {
     if (solde > 0) {
       executer(
         `INSERT INTO dettes_fournisseur
-           (id, fournisseur_id, commande_id, montant, montant_paye, solde, statut, date_creation, date_modification)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [randomUUID(), commande.fournisseur_id, commandeId, valeurRecue, montantDejaPaye, solde, "en_cours", maintenant, maintenant],
+           (id, fournisseur_id, commande_id, reception_id, montant, montant_paye, solde, statut, date_creation, date_modification)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          randomUUID(),
+          commande.fournisseur_id,
+          commandeId,
+          receptionId,
+          valeurRecue,
+          montantDejaPaye,
+          solde,
+          "en_cours",
+          maintenant,
+          maintenant,
+        ],
       );
     }
 
@@ -517,9 +528,22 @@ export function receptionnerCommande(params: ParametresReception): string {
 }
 
 export interface LigneReceptionDetail {
+  varianteId: string;
   produitNom: string;
   reference: string;
   quantite: number;
+  /** Déjà renvoyé au fournisseur (retours). */
+  quantiteRetournee: number;
+}
+
+export interface RetourFournisseurDetail {
+  id: string;
+  dateCreation: string;
+  motif: string;
+  montant: number;
+  avoir: number;
+  utilisateurId: string | null;
+  lignes: { produitNom: string; quantite: number }[];
 }
 
 export interface ReceptionDetail {
@@ -529,11 +553,14 @@ export interface ReceptionDetail {
   valeurRecue: number;
   montantPaye: number;
   lignes: LigneReceptionDetail[];
+  annulee: boolean;
+  utilisateurId: string | null;
+  retours: RetourFournisseurDetail[];
 }
 
-function lignesDesMouvements(referenceType: string, referenceId: string): LigneReceptionDetail[] {
-  return tousLesResultats<LigneReceptionDetail>(
-    `SELECT p.nom as produitNom, COALESCE(va.reference, '') as reference, SUM(m.quantite) as quantite
+function lignesDesMouvements(referenceType: string, referenceId: string): Omit<LigneReceptionDetail, "quantiteRetournee">[] {
+  return tousLesResultats<Omit<LigneReceptionDetail, "quantiteRetournee">>(
+    `SELECT m.variante_id as varianteId, p.nom as produitNom, COALESCE(va.reference, '') as reference, SUM(m.quantite) as quantite
      FROM mouvements_stock m
      JOIN variantes va ON va.id = m.variante_id
      JOIN produits p ON p.id = va.produit_id
@@ -547,10 +574,45 @@ function lignesDesMouvements(referenceType: string, referenceId: string): LigneR
 /** Historique des réceptions d'une commande (une par livraison, voir
  * receptionnerCommande) — trié de la plus ancienne à la plus récente, avec
  * les articles livrés à chacune (lus dans les mouvements de stock). */
+/** Complète une réception : quantités déjà retournées par article, retours
+ * fournisseur faits sur cette réception. */
+function completerReception<T extends { id: string; annulee: number | boolean }>(
+  r: T,
+  lignes: Omit<LigneReceptionDetail, "quantiteRetournee">[],
+): Omit<T, "annulee"> & { annulee: boolean; lignes: LigneReceptionDetail[]; retours: RetourFournisseurDetail[] } {
+  const retournees = dejaRetourne(r.id);
+  const retours = tousLesResultats<Omit<RetourFournisseurDetail, "lignes">>(
+    `SELECT id, date_creation as dateCreation, COALESCE(motif, '') as motif, montant, avoir, utilisateur_id as utilisateurId
+     FROM retours_fournisseur WHERE reception_id = ? AND supprime = 0 ORDER BY date_creation ASC`,
+    [r.id],
+  ).map((retour) => ({
+    ...retour,
+    montant: Number(retour.montant),
+    avoir: Number(retour.avoir),
+    lignes: tousLesResultats<{ produitNom: string; quantite: number }>(
+      `SELECT p.nom as produitNom, lr.quantite as quantite
+       FROM lignes_retour_fournisseur lr
+       JOIN variantes v ON v.id = lr.variante_id
+       JOIN produits p ON p.id = v.produit_id
+       WHERE lr.retour_id = ? AND lr.supprime = 0`,
+      [retour.id],
+    ).map((l) => ({ ...l, quantite: Number(l.quantite) })),
+  }));
+  return {
+    ...r,
+    annulee: Boolean(Number(r.annulee)),
+    lignes: lignes.map((l) => ({ ...l, quantite: Number(l.quantite), quantiteRetournee: retournees.get(l.varianteId) ?? 0 })),
+    retours,
+  };
+}
+
 export function listerReceptionsCommande(commandeId: string): ReceptionDetail[] {
-  const receptions = tousLesResultats<Omit<ReceptionDetail, "lignes">>(
+  const receptions = tousLesResultats<
+    Omit<ReceptionDetail, "lignes" | "annulee" | "retours"> & { annulee: number }
+  >(
     `SELECT r.id as id, r.date_creation as dateCreation, d.nom as depotNom,
-            r.valeur_recue as valeurRecue, r.montant_paye as montantPaye
+            r.valeur_recue as valeurRecue, r.montant_paye as montantPaye,
+            COALESCE(r.annulee, 0) as annulee, r.utilisateur_id as utilisateurId
      FROM receptions r
      JOIN depots d ON d.id = r.depot_id
      WHERE r.commande_id = ? AND r.supprime = 0
@@ -564,7 +626,7 @@ export function listerReceptionsCommande(commandeId: string): ReceptionDetail[] 
     if (lignes.length === 0 && receptions.length === 1) {
       lignes = lignesDesMouvements("achats.CommandeAchat", commandeId);
     }
-    return { ...r, lignes };
+    return completerReception(r, lignes);
   });
 }
 
@@ -594,9 +656,12 @@ export function listerHistoriqueReceptions(
   }
   parametres.push(limite);
 
-  const receptions = tousLesResultats<Omit<ReceptionHistorique, "lignes"> & { nbReceptions: number }>(
+  const receptions = tousLesResultats<
+    Omit<ReceptionHistorique, "lignes" | "annulee" | "retours"> & { nbReceptions: number; annulee: number }
+  >(
     `SELECT r.id as id, r.date_creation as dateCreation, d.nom as depotNom,
             r.valeur_recue as valeurRecue, r.montant_paye as montantPaye,
+            COALESCE(r.annulee, 0) as annulee, r.utilisateur_id as utilisateurId,
             c.id as commandeId, c.numero as commandeNumero, f.nom as fournisseurNom,
             (SELECT COUNT(*) FROM receptions r2 WHERE r2.commande_id = c.id AND r2.supprime = 0) as nbReceptions
      FROM receptions r
@@ -614,8 +679,256 @@ export function listerHistoriqueReceptions(
     if (lignes.length === 0 && Number(nbReceptions) === 1) {
       lignes = lignesDesMouvements("achats.CommandeAchat", r.commandeId);
     }
-    return { ...r, lignes };
+    return completerReception(r, lignes);
   });
+}
+
+// --- Annulation de réception et retour fournisseur (miroir de achats/services.py) ---
+
+/** Quantités livrées à cette réception, par variante (lues dans ses mouvements d'entrée). */
+function lignesRecues(receptionId: string): Map<string, number> {
+  const quantites = new Map<string, number>();
+  for (const m of tousLesResultats<{ variante_id: string; quantite: number }>(
+    "SELECT variante_id, quantite FROM mouvements_stock WHERE reference_type = 'achats.Reception' AND reference_id = ? AND type = 'entree' AND supprime = 0",
+    [receptionId],
+  )) {
+    quantites.set(m.variante_id, (quantites.get(m.variante_id) ?? 0) + Number(m.quantite));
+  }
+  return quantites;
+}
+
+function dejaRetourne(receptionId: string): Map<string, number> {
+  const quantites = new Map<string, number>();
+  for (const l of tousLesResultats<{ variante_id: string; quantite: number }>(
+    `SELECT lr.variante_id, lr.quantite FROM lignes_retour_fournisseur lr
+     JOIN retours_fournisseur r ON r.id = lr.retour_id
+     WHERE r.reception_id = ? AND lr.supprime = 0 AND r.supprime = 0`,
+    [receptionId],
+  )) {
+    quantites.set(l.variante_id, (quantites.get(l.variante_id) ?? 0) + Number(l.quantite));
+  }
+  return quantites;
+}
+
+interface DetteReception {
+  id: string;
+  montant: number;
+  montant_paye: number;
+  solde: number;
+}
+
+/** Dette créée par cette réception (lien direct, ou pour une réception ancienne :
+ * la dette de la commande de même montant, sans lien). */
+function detteDeLaReception(reception: { id: string; commande_id: string; valeur_recue: number }): DetteReception | undefined {
+  return (
+    unResultat<DetteReception>(
+      "SELECT id, montant, montant_paye, solde FROM dettes_fournisseur WHERE reception_id = ? AND supprime = 0",
+      [reception.id],
+    ) ??
+    unResultat<DetteReception>(
+      `SELECT id, montant, montant_paye, solde FROM dettes_fournisseur
+       WHERE commande_id = ? AND (reception_id IS NULL OR reception_id = '') AND montant = ? AND supprime = 0
+       ORDER BY date_creation LIMIT 1`,
+      [reception.commande_id, Number(reception.valeur_recue)],
+    )
+  );
+}
+
+/** Sortie de marchandise renvoyée : le coût moyen est recalculé à l'envers. */
+function retirerDuStockEtDuCump(
+  varianteId: string,
+  depotId: string,
+  quantite: number,
+  prixAchat: number,
+  motif: string,
+  utilisateurId: string | null,
+  referenceType: string,
+  referenceId: string,
+): void {
+  const stockDepot = Number(
+    unResultat<{ quantite: number }>("SELECT quantite FROM stocks WHERE variante_id = ? AND depot_id = ?", [
+      varianteId,
+      depotId,
+    ])?.quantite ?? 0,
+  );
+  if (stockDepot < quantite) {
+    const nom = unResultat<{ nom: string }>(
+      "SELECT p.nom as nom FROM variantes v JOIN produits p ON p.id = v.produit_id WHERE v.id = ?",
+      [varianteId],
+    )?.nom;
+    throw new ErreurAchat(`${nom ?? "Article"} : plus assez de stock dans ce dépôt (déjà vendu ?).`);
+  }
+  const stockTotal = Number(
+    unResultat<{ total: number }>("SELECT COALESCE(SUM(quantite), 0) as total FROM stocks WHERE variante_id = ?", [varianteId])
+      ?.total ?? 0,
+  );
+  const reste = stockTotal - quantite;
+  if (reste > 0) {
+    const cump = Number(unResultat<{ prix_achat: number }>("SELECT prix_achat FROM variantes WHERE id = ?", [varianteId])?.prix_achat ?? 0);
+    const nouveauCump = Math.round((stockTotal * cump - quantite * prixAchat) / reste);
+    if (nouveauCump > 0) {
+      executer("UPDATE variantes SET prix_achat = ?, synchronise = 0, date_modification = ? WHERE id = ?", [
+        nouveauCump,
+        new Date().toISOString(),
+        varianteId,
+      ]);
+    }
+  }
+  appliquerMouvement({ varianteId, depotId, type: "sortie", quantite, motif, utilisateurId, referenceType, referenceId });
+}
+
+/**
+ * Réception saisie par erreur : la marchandise ressort, la commande attend de
+ * nouveau ces quantités, la dette de la réception est soldée à zéro. Refusée
+ * si la marchandise n'est plus en stock ou si la dette a déjà reçu un
+ * règlement après la réception. Renvoie le montant payé sur place à récupérer.
+ */
+export function annulerReception(receptionId: string, utilisateurId: string | null): { montantARecuperer: number } {
+  const reception = unResultat<{ id: string; commande_id: string; depot_id: string; valeur_recue: number; montant_paye: number; annulee: number }>(
+    "SELECT id, commande_id, depot_id, valeur_recue, montant_paye, COALESCE(annulee, 0) as annulee FROM receptions WHERE id = ?",
+    [receptionId],
+  );
+  if (!reception) throw new ErreurAchat("Réception introuvable.");
+  if (Number(reception.annulee)) throw new ErreurAchat("Cette réception est déjà annulée.");
+  const quantites = lignesRecues(receptionId);
+  if (quantites.size === 0) {
+    throw new ErreurAchat("Réception trop ancienne : ses articles ne sont pas tracés, annulation impossible.");
+  }
+  if (dejaRetourne(receptionId).size > 0) {
+    throw new ErreurAchat("Des articles de cette réception ont déjà été retournés au fournisseur.");
+  }
+  const dette = detteDeLaReception(reception);
+  if (dette && Number(dette.montant_paye) > Number(reception.montant_paye)) {
+    throw new ErreurAchat("Un règlement a déjà été fait sur la dette de cette réception : annulation impossible.");
+  }
+  const commande = unResultat<{ numero: string; statut: string }>("SELECT numero, statut FROM commandes_achat WHERE id = ?", [
+    reception.commande_id,
+  ])!;
+
+  dansUneTransaction(() => {
+    const maintenant = new Date().toISOString();
+    for (const [varianteId, quantite] of quantites) {
+      const ligne = unResultat<{ id: string; prix_achat: number; quantite_recue: number }>(
+        "SELECT id, prix_achat, quantite_recue FROM lignes_achat WHERE commande_id = ? AND variante_id = ? AND supprime = 0",
+        [reception.commande_id, varianteId],
+      )!;
+      retirerDuStockEtDuCump(
+        varianteId,
+        reception.depot_id,
+        quantite,
+        Number(ligne.prix_achat),
+        `Annulation réception ${commande.numero}`,
+        utilisateurId,
+        "achats.Reception",
+        receptionId,
+      );
+      executer("UPDATE lignes_achat SET quantite_recue = ?, synchronise = 0, date_modification = ? WHERE id = ?", [
+        Math.max(0, Number(ligne.quantite_recue) - quantite),
+        maintenant,
+        ligne.id,
+      ]);
+    }
+    if (dette) {
+      executer(
+        "UPDATE dettes_fournisseur SET montant = montant_paye, solde = 0, statut = 'solde', synchronise = 0, date_modification = ? WHERE id = ?",
+        [maintenant, dette.id],
+      );
+    }
+    if (commande.statut === "recue") {
+      executer("UPDATE commandes_achat SET statut = 'commandee', synchronise = 0, date_modification = ? WHERE id = ?", [
+        maintenant,
+        reception.commande_id,
+      ]);
+    }
+    executer("UPDATE receptions SET annulee = 1, date_annulation = ?, synchronise = 0, date_modification = ? WHERE id = ?", [
+      maintenant,
+      maintenant,
+      receptionId,
+    ]);
+  });
+  sauvegarder();
+  return { montantARecuperer: Number(reception.montant_paye) };
+}
+
+export interface ParametresRetourFournisseur {
+  receptionId: string;
+  lignes: { varianteId: string; quantite: number }[];
+  motif?: string;
+  utilisateurId: string | null;
+}
+
+/**
+ * Renvoie une partie des articles d'une réception. La dette de la réception
+ * baisse du montant retourné (au prix d'achat de la commande) ; ce qui dépasse
+ * son solde devient un avoir à récupérer auprès du fournisseur.
+ */
+export function retournerAuFournisseur(params: ParametresRetourFournisseur): { montant: number; avoir: number } {
+  const { receptionId, utilisateurId } = params;
+  const reception = unResultat<{ id: string; commande_id: string; depot_id: string; valeur_recue: number; annulee: number }>(
+    "SELECT id, commande_id, depot_id, valeur_recue, COALESCE(annulee, 0) as annulee FROM receptions WHERE id = ?",
+    [receptionId],
+  );
+  if (!reception) throw new ErreurAchat("Réception introuvable.");
+  if (Number(reception.annulee)) throw new ErreurAchat("Cette réception est annulée.");
+  const lignes = params.lignes.filter((l) => l.quantite > 0);
+  if (lignes.length === 0) throw new ErreurAchat("Indiquez au moins une quantité à retourner.");
+  const recues = lignesRecues(receptionId);
+  const retournees = dejaRetourne(receptionId);
+  const commande = unResultat<{ numero: string }>("SELECT numero FROM commandes_achat WHERE id = ?", [reception.commande_id])!;
+
+  const resultat = dansUneTransaction(() => {
+    const maintenant = new Date().toISOString();
+    const retourId = randomUUID();
+    executer(
+      `INSERT INTO retours_fournisseur
+         (id, commande_id, reception_id, depot_id, motif, montant, avoir, utilisateur_id, date_creation, date_modification)
+       VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`,
+      [retourId, reception.commande_id, receptionId, reception.depot_id, (params.motif ?? "").trim(), utilisateurId, maintenant, maintenant],
+    );
+    let montant = 0;
+    for (const donnee of lignes) {
+      const ligne = unResultat<{ prix_achat: number }>(
+        "SELECT prix_achat FROM lignes_achat WHERE commande_id = ? AND variante_id = ? AND supprime = 0",
+        [reception.commande_id, donnee.varianteId],
+      );
+      const disponible = (recues.get(donnee.varianteId) ?? 0) - (retournees.get(donnee.varianteId) ?? 0);
+      if (!ligne || donnee.quantite > disponible) {
+        throw new ErreurAchat("On ne peut pas retourner plus que ce qui a été reçu.");
+      }
+      retirerDuStockEtDuCump(
+        donnee.varianteId,
+        reception.depot_id,
+        donnee.quantite,
+        Number(ligne.prix_achat),
+        `Retour fournisseur ${commande.numero}`,
+        utilisateurId,
+        "achats.RetourFournisseur",
+        retourId,
+      );
+      const sousTotal = Math.round(donnee.quantite * Number(ligne.prix_achat));
+      executer(
+        `INSERT INTO lignes_retour_fournisseur
+           (id, retour_id, variante_id, quantite, prix_achat, sous_total, date_creation, date_modification)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [randomUUID(), retourId, donnee.varianteId, donnee.quantite, Number(ligne.prix_achat), sousTotal, maintenant, maintenant],
+      );
+      montant += sousTotal;
+    }
+    const dette = detteDeLaReception(reception);
+    const deduit = dette ? Math.min(montant, Number(dette.solde)) : 0;
+    if (dette && deduit > 0) {
+      const nouveauSolde = Number(dette.solde) - deduit;
+      executer(
+        `UPDATE dettes_fournisseur SET montant = montant - ?, solde = ?, statut = ?, synchronise = 0, date_modification = ?
+         WHERE id = ?`,
+        [deduit, nouveauSolde, nouveauSolde <= 0 ? "solde" : "en_cours", maintenant, dette.id],
+      );
+    }
+    executer("UPDATE retours_fournisseur SET montant = ?, avoir = ? WHERE id = ?", [montant, montant - deduit, retourId]);
+    return { montant, avoir: montant - deduit };
+  });
+  sauvegarder();
+  return resultat;
 }
 
 // --- Dettes fournisseur ---

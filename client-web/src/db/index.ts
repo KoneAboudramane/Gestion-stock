@@ -183,6 +183,17 @@ export function ouvrirBaseDeDonnees(): Promise<IDBPDatabase<GestionStockDB>> {
           releves.createIndex("boutique_id", "boutique_id");
           releves.createIndex("synchronise", "synchronise");
         }
+
+        // v8 : retours fournisseur (marchandise renvoyée après réception).
+        if (oldVersion < 8) {
+          const retours = db.createObjectStore("retours_fournisseur", { keyPath: "id" });
+          retours.createIndex("reception_id", "reception_id");
+          retours.createIndex("commande_id", "commande_id");
+          retours.createIndex("synchronise", "synchronise");
+          const lignesRetour = db.createObjectStore("lignes_retour_fournisseur", { keyPath: "id" });
+          lignesRetour.createIndex("retour_id", "retour_id");
+          lignesRetour.createIndex("synchronise", "synchronise");
+        }
       },
     });
   }

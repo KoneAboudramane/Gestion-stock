@@ -146,6 +146,60 @@ def sur_reception_achat(sender, instance, created, **kwargs):
         logger.exception("comptabilite: échec génération écriture pour achats.Reception %s", instance.id)
 
 
+@receiver(post_save, sender="achats.Reception")
+def sur_annulation_reception(sender, instance, created, **kwargs):
+    """Contre-écriture de la réception annulée (même comptes, sens inverse)."""
+    if created or not instance.annulee:
+        return
+    try:
+        if _reference_deja_comptabilisee("achats.Reception:annulation", instance.id):
+            return
+        if not _reference_deja_comptabilisee("achats.Reception", instance.id) or instance.valeur_recue <= 0:
+            return
+        commande = instance.commande
+        date = instance.date_annulation.date() if instance.date_annulation else instance.date_modification.date()
+        solde = instance.valeur_recue - instance.montant_paye
+        compte_contrepartie = "401" if solde > 0 else "571"
+        creer_ecriture(
+            preparer_contexte(commande.boutique, date), "AC", date,
+            f"Annulation réception {commande.numero or commande.id}",
+            [
+                {"compte": compte_contrepartie, "debit": instance.valeur_recue},
+                {"compte": "601", "credit": instance.valeur_recue},
+            ],
+            reference_type="achats.Reception:annulation", reference_id=instance.id,
+            utilisateur=instance.utilisateur,
+        )
+    except Exception:
+        logger.exception("comptabilite: échec contre-écriture pour achats.Reception %s", instance.id)
+
+
+@receiver(post_save, sender="achats.RetourFournisseur")
+def sur_retour_fournisseur(sender, instance, created, **kwargs):
+    """Retour fournisseur : le fournisseur nous doit (ou nous doit moins) le
+    montant retourné — 401 au débit, 601 au crédit. Enregistré quand le
+    montant est connu (après la création des lignes)."""
+    if instance.montant <= 0:
+        return
+    try:
+        if _reference_deja_comptabilisee("achats.RetourFournisseur", instance.id):
+            return
+        commande = instance.commande
+        date = instance.date_creation.date()
+        creer_ecriture(
+            preparer_contexte(commande.boutique, date), "AC", date,
+            f"Retour fournisseur {commande.numero or commande.id}",
+            [
+                {"compte": "401", "debit": instance.montant},
+                {"compte": "601", "credit": instance.montant},
+            ],
+            reference_type="achats.RetourFournisseur", reference_id=instance.id,
+            utilisateur=instance.utilisateur,
+        )
+    except Exception:
+        logger.exception("comptabilite: échec écriture pour achats.RetourFournisseur %s", instance.id)
+
+
 @receiver(post_save, sender="fournisseurs.PaiementDetteFournisseur")
 def sur_paiement_dette_fournisseur(sender, instance, created, **kwargs):
     if not created:

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { executer, unResultat } from "../../electron/db/helpers";
 import {
   ErreurAchat,
+  annulerReception,
   creerCommande,
   listerCommandes,
   listerHistoriqueReceptions,
@@ -12,6 +13,7 @@ import {
   obtenirDerniersFournisseurs,
   payerDette,
   receptionnerCommande,
+  retournerAuFournisseur,
 } from "../../electron/services/achats";
 import { creerBaseDeTest } from "../setup";
 
@@ -336,6 +338,70 @@ describe("achats.receptionnerCommande (miroir de achats/services.py::receptionne
 
     expect(listerHistoriqueReceptions(boutiqueId, undefined, premiere.numero)).toHaveLength(1);
     expect(listerHistoriqueReceptions(randomUUID())).toHaveLength(0);
+  });
+
+  it("annule une réception : stock, commande et dette reviennent en arrière", () => {
+    const commande = creerCommande({
+      boutiqueId,
+      fournisseurId,
+      utilisateurId: "1",
+      statut: "commandee",
+      lignes: [{ varianteId, quantite: 10, prixAchat: 10000 }],
+    });
+    const receptionId = receptionnerCommande({
+      commandeId: commande.id,
+      depotId,
+      utilisateurId: "1",
+      montantDejaPaye: 20000,
+      lignes: [{ varianteId, quantite: 10 }],
+    });
+    const { montantARecuperer } = annulerReception(receptionId, "1");
+
+    expect(montantARecuperer).toBe(20000);
+    expect(stockActuel()).toBe(0);
+    const apres = unResultat<{ statut: string }>("SELECT statut FROM commandes_achat WHERE id = ?", [commande.id]);
+    expect(apres!.statut).toBe("commandee");
+    const dette = unResultat<{ solde: number; statut: string }>(
+      "SELECT solde, statut FROM dettes_fournisseur WHERE reception_id = ?",
+      [receptionId],
+    );
+    expect({ solde: Number(dette!.solde), statut: dette!.statut }).toEqual({ solde: 0, statut: "solde" });
+    expect(listerReceptionsCommande(commande.id)[0].annulee).toBe(true);
+    expect(() => annulerReception(receptionId, "1")).toThrow(ErreurAchat);
+  });
+
+  it("retour fournisseur partiel : stock, dette puis avoir, limite des quantités", () => {
+    const commande = creerCommande({
+      boutiqueId,
+      fournisseurId,
+      utilisateurId: "1",
+      statut: "commandee",
+      lignes: [{ varianteId, quantite: 10, prixAchat: 10000 }],
+    });
+    const receptionId = receptionnerCommande({
+      commandeId: commande.id,
+      depotId,
+      utilisateurId: "1",
+      montantDejaPaye: 70000, // dette : 30 000
+      lignes: [{ varianteId, quantite: 10 }],
+    });
+    const resultat = retournerAuFournisseur({
+      receptionId,
+      lignes: [{ varianteId, quantite: 4 }],
+      motif: "Sacs percés",
+      utilisateurId: "1",
+    });
+
+    expect(resultat).toEqual({ montant: 40000, avoir: 10000 });
+    expect(stockActuel()).toBe(6);
+    const [reception] = listerReceptionsCommande(commande.id);
+    expect(reception.lignes[0].quantiteRetournee).toBe(4);
+    expect(reception.retours[0]).toMatchObject({ motif: "Sacs percés", montant: 40000, avoir: 10000 });
+    expect(() =>
+      retournerAuFournisseur({ receptionId, lignes: [{ varianteId, quantite: 7 }], utilisateurId: "1" }),
+    ).toThrow(ErreurAchat);
+    // Une réception dont des articles ont été retournés ne s'annule plus.
+    expect(() => annulerReception(receptionId, "1")).toThrow(ErreurAchat);
   });
 
   it("refuse de réceptionner plus que la quantité restante", () => {

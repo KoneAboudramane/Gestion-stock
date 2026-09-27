@@ -203,6 +203,8 @@ CREATE TABLE IF NOT EXISTS receptions (
   utilisateur_id TEXT,
   valeur_recue REAL DEFAULT 0,
   montant_paye REAL DEFAULT 0,
+  annulee INTEGER DEFAULT 0,
+  date_annulation TEXT,
   ${SUIVI_SYNC}
 );
 
@@ -282,6 +284,29 @@ CREATE TABLE IF NOT EXISTS releves_dormants (
   ${SUIVI_SYNC}
 );
 
+-- retours_fournisseur : marchandise d'une réception renvoyée au fournisseur.
+CREATE TABLE IF NOT EXISTS retours_fournisseur (
+  id TEXT PRIMARY KEY,
+  commande_id TEXT NOT NULL,
+  reception_id TEXT NOT NULL,
+  depot_id TEXT NOT NULL,
+  motif TEXT DEFAULT '',
+  montant REAL DEFAULT 0,
+  avoir REAL DEFAULT 0,
+  utilisateur_id TEXT,
+  ${SUIVI_SYNC}
+);
+
+CREATE TABLE IF NOT EXISTS lignes_retour_fournisseur (
+  id TEXT PRIMARY KEY,
+  retour_id TEXT NOT NULL,
+  variante_id TEXT NOT NULL,
+  quantite REAL NOT NULL,
+  prix_achat REAL DEFAULT 0,
+  sous_total REAL DEFAULT 0,
+  ${SUIVI_SYNC}
+);
+
 CREATE TABLE IF NOT EXISTS inventaires (
   id TEXT PRIMARY KEY,
   boutique_id TEXT NOT NULL,
@@ -336,6 +361,7 @@ CREATE TABLE IF NOT EXISTS dettes_fournisseur (
   montant_paye REAL DEFAULT 0,
   solde REAL DEFAULT 0,
   statut TEXT DEFAULT 'en_cours',
+  reception_id TEXT,
   ${SUIVI_SYNC}
 );
 

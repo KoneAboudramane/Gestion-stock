@@ -8,7 +8,7 @@ from comptes.services import inscrire_boutique
 from fournisseurs.models import DetteFournisseur, Fournisseur
 from stock.models import Depot, MouvementStock, Stock
 
-from .models import CommandeAchat
+from .models import CommandeAchat, Reception
 
 
 class CommandeAchatTests(APITestCase):
@@ -377,3 +377,84 @@ class PermissionsAchatsTests(APITestCase):
 
         reponse_dettes = self.client.get(reverse("dettefournisseur-list"))
         self.assertEqual(reponse_dettes.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class AnnulationEtRetourTests(APITestCase):
+    """Réception saisie par erreur (annulation) et retour de marchandise au fournisseur."""
+
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique R"}, {"username": "patronR", "password": "UnMotDePasseSolide123"}
+        )
+        self.fournisseur = Fournisseur.objects.create(boutique=self.boutique, nom="Grossiste")
+        self.depot = Depot.objects.create(boutique=self.boutique, nom="Entrepot")
+        produit = Produit.objects.create(boutique=self.boutique, nom="Huile")
+        self.variante = Variante.objects.create(produit=produit, prix_achat=1000, prix_vente=1500)
+        self.commande = CommandeAchat.objects.create(
+            boutique=self.boutique, fournisseur=self.fournisseur, statut="commandee", total=10000,
+        )
+        from .models import LigneAchat
+        LigneAchat.objects.create(
+            commande=self.commande, variante=self.variante, quantite=10, prix_achat=1000, sous_total=10000,
+        )
+        self.client.force_authenticate(user=self.patron)
+
+    def _recevoir(self, quantite="10", paye="0"):
+        reponse = self.client.post(
+            reverse("reception-list"),
+            {
+                "commande": str(self.commande.id), "depot": str(self.depot.id), "montant_deja_paye": paye,
+                "lignes": [{"variante": str(self.variante.id), "quantite": quantite}],
+            },
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+        return Reception.objects.get(id=reponse.data["id"])
+
+    def _stock(self):
+        return Stock.objects.get(variante=self.variante, depot=self.depot).quantite
+
+    def test_annuler_une_reception(self):
+        from comptabilite.models import EcritureComptable
+        reception = self._recevoir()
+        reponse = self.client.post(reverse("reception-annuler", args=[reception.id]))
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK, reponse.data)
+        self.assertEqual(self._stock(), 0)
+        self.commande.refresh_from_db()
+        self.assertEqual(self.commande.statut, "commandee")
+        self.assertEqual(self.commande.lignes.get().quantite_recue, 0)
+        dette = DetteFournisseur.objects.get(reception=reception)
+        self.assertEqual((dette.solde, dette.statut), (0, "solde"))
+        self.assertTrue(
+            EcritureComptable.objects.filter(
+                reference_type="achats.Reception:annulation", reference_id=reception.id
+            ).exists()
+        )
+
+    def test_annulation_refusee_si_marchandise_deja_vendue(self):
+        from stock.services import appliquer_mouvement
+        reception = self._recevoir()
+        appliquer_mouvement(self.variante, self.depot, MouvementStock.Type.SORTIE, 5)
+        reponse = self.client.post(reverse("reception-annuler", args=[reception.id]))
+        self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self._stock(), 5)
+
+    def test_retour_partiel_reduit_la_dette_puis_cree_un_avoir(self):
+        reception = self._recevoir(paye="7000")  # dette : 3 000
+        reponse = self.client.post(
+            reverse("reception-retourner", args=[reception.id]),
+            {"lignes": [{"variante": str(self.variante.id), "quantite": "4"}], "motif": "Bidons percés"},
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK, reponse.data)
+        self.assertEqual((reponse.data["montant"], reponse.data["avoir"]), (4000, 1000))
+        self.assertEqual(self._stock(), 6)
+        dette = DetteFournisseur.objects.get(reception=reception)
+        self.assertEqual((dette.solde, dette.statut), (0, "solde"))
+        # On ne peut pas retourner plus que ce qui reste de la réception (6).
+        trop = self.client.post(
+            reverse("reception-retourner", args=[reception.id]),
+            {"lignes": [{"variante": str(self.variante.id), "quantite": "7"}]},
+            format="json",
+        )
+        self.assertEqual(trop.status_code, status.HTTP_400_BAD_REQUEST)

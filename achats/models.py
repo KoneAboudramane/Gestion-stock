@@ -68,6 +68,40 @@ class Reception(ModeleBase):
     )
     valeur_recue = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     montant_paye = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Réception saisie par erreur (voir services.annuler_reception) : reste
+    # visible, marquée annulée.
+    annulee = models.BooleanField(default=False)
+    date_annulation = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"Réception {self.commande}"
+
+class RetourFournisseur(ModeleBase):
+    """Marchandise d'une réception renvoyée au fournisseur (abîmée, erreur de
+    livraison...). La dette de la réception baisse du montant retourné ; ce
+    qui dépasse son solde (déjà payé) est un avoir à récupérer."""
+
+    commande = models.ForeignKey(CommandeAchat, on_delete=models.CASCADE, related_name="retours")
+    reception = models.ForeignKey(Reception, on_delete=models.CASCADE, related_name="retours")
+    depot = models.ForeignKey("stock.Depot", on_delete=models.PROTECT)
+    motif = models.CharField(max_length=255, blank=True)
+    montant = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    avoir = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    utilisateur = models.ForeignKey(
+        "comptes.Utilisateur", on_delete=models.SET_NULL, null=True, blank=True
+    )
+
+    def __str__(self):
+        return f"Retour {self.commande} : {self.montant}"
+
+
+class LigneRetourFournisseur(ModeleBase):
+    retour = models.ForeignKey(RetourFournisseur, on_delete=models.CASCADE, related_name="lignes")
+    variante = models.ForeignKey("catalogue.Variante", on_delete=models.PROTECT)
+    quantite = models.DecimalField(max_digits=12, decimal_places=2)
+    prix_achat = models.DecimalField(max_digits=12, decimal_places=2)
+    sous_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    def __str__(self):
+        return f"{self.quantite} x {self.variante}"
+

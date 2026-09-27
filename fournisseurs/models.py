@@ -32,6 +32,10 @@ class DetteFournisseur(ModeleBase):
     commande = models.ForeignKey(
         "achats.CommandeAchat", on_delete=models.SET_NULL, null=True, blank=True
     )
+    # Réception qui a créé la dette (annulation / retour fournisseur la retrouvent ainsi).
+    reception = models.ForeignKey(
+        "achats.Reception", on_delete=models.SET_NULL, null=True, blank=True, related_name="dettes"
+    )
     montant = models.DecimalField(max_digits=12, decimal_places=2)
     montant_paye = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     solde = models.DecimalField(max_digits=12, decimal_places=2, default=0)

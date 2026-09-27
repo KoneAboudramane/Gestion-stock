@@ -158,33 +158,66 @@ export function genererEcrituresLocales(boutiqueId: string): EcritureLocale[] {
     }
   }
 
-  // --- Achats : réception ---
-  const receptions = tousLesResultats<{ commandeId: string; numero: string; total: number; receptionDate: string }>(
-    `SELECT c.id as commandeId, c.numero as numero, c.total as total, MIN(r.date_creation) as receptionDate
-     FROM commandes_achat c
-     JOIN receptions r ON r.commande_id = c.id AND r.supprime = 0
-     WHERE c.boutique_id = ? AND c.supprime = 0 AND c.statut = 'recue'
-     GROUP BY c.id`,
+  // --- Achats : une écriture par réception (miroir de comptabilite/signals.py) ---
+  const receptions = tousLesResultats<{
+    id: string;
+    numero: string;
+    commandeId: string;
+    valeurRecue: number;
+    montantPaye: number;
+    dateCreation: string;
+    annulee: number;
+    dateAnnulation: string | null;
+  }>(
+    `SELECT r.id as id, c.numero as numero, c.id as commandeId, r.valeur_recue as valeurRecue,
+            r.montant_paye as montantPaye, r.date_creation as dateCreation,
+            COALESCE(r.annulee, 0) as annulee, r.date_annulation as dateAnnulation
+     FROM receptions r
+     JOIN commandes_achat c ON c.id = r.commande_id
+     WHERE c.boutique_id = ? AND c.supprime = 0 AND r.supprime = 0 AND r.valeur_recue > 0`,
     [boutiqueId],
   );
-  const commandesAvecDette = new Set(
-    tousLesResultats<{ commandeId: string }>(
-      `SELECT DISTINCT commande_id as commandeId FROM dettes_fournisseur WHERE supprime = 0 AND commande_id IS NOT NULL`,
-    ).map((r) => r.commandeId),
-  );
   for (const r of receptions) {
-    // achats/services.ts ne trace pas de mouvement de caisse pour un paiement
-    // immédiat à la réception : toute réception finance donc 100% via 401 si
-    // une dette existe, 100% via 571 sinon (voir comptabilite/signals.py).
-    const compteContrepartie = commandesAvecDette.has(r.commandeId) ? "401" : "571";
+    // Paiement immédiat partiel non tracé en caisse : tout passe par 401 dès
+    // qu'un solde subsiste, sinon tout est considéré payé comptant (571).
+    const valeur = Number(r.valeurRecue);
+    const compteContrepartie = valeur - Number(r.montantPaye) > 0 ? "401" : "571";
     ecritures.push({
-      id: `achat-reception-${r.commandeId}`,
-      date: r.receptionDate.slice(0, 10),
+      id: `achat-reception-${r.id}`,
+      date: r.dateCreation.slice(0, 10),
       journal: "AC",
       libelle: `Réception ${r.numero || r.commandeId}`,
-      referenceType: "achats.CommandeAchat",
-      referenceId: r.commandeId,
-      lignes: [ligne("601", r.total, 0), ligne(compteContrepartie, 0, r.total)],
+      referenceType: "achats.Reception",
+      referenceId: r.id,
+      lignes: [ligne("601", valeur, 0), ligne(compteContrepartie, 0, valeur)],
+    });
+    if (Number(r.annulee)) {
+      ecritures.push({
+        id: `achat-reception-annulation-${r.id}`,
+        date: (r.dateAnnulation ?? r.dateCreation).slice(0, 10),
+        journal: "AC",
+        libelle: `Annulation réception ${r.numero || r.commandeId}`,
+        referenceType: "achats.Reception:annulation",
+        referenceId: r.id,
+        lignes: [ligne(compteContrepartie, valeur, 0), ligne("601", 0, valeur)],
+      });
+    }
+  }
+  for (const retour of tousLesResultats<{ id: string; numero: string; montant: number; dateCreation: string }>(
+    `SELECT rf.id as id, c.numero as numero, rf.montant as montant, rf.date_creation as dateCreation
+     FROM retours_fournisseur rf
+     JOIN commandes_achat c ON c.id = rf.commande_id
+     WHERE c.boutique_id = ? AND rf.supprime = 0 AND rf.montant > 0`,
+    [boutiqueId],
+  )) {
+    ecritures.push({
+      id: `achat-retour-${retour.id}`,
+      date: retour.dateCreation.slice(0, 10),
+      journal: "AC",
+      libelle: `Retour fournisseur ${retour.numero}`,
+      referenceType: "achats.RetourFournisseur",
+      referenceId: retour.id,
+      lignes: [ligne("401", Number(retour.montant), 0), ligne("601", 0, Number(retour.montant))],
     });
   }
 

@@ -178,6 +178,9 @@ contextBridge.exposeInMainWorld("api", {
     modifier: (id: string, champs: unknown) => ipcRenderer.invoke("commandes:modifier", id, champs),
     receptionner: (params: unknown) => ipcRenderer.invoke("commandes:receptionner", params),
     listerReceptions: (commandeId: string) => ipcRenderer.invoke("commandes:listerReceptions", commandeId),
+    annulerReception: (receptionId: string, utilisateurId: string | null) =>
+      ipcRenderer.invoke("commandes:annulerReception", receptionId, utilisateurId),
+    retournerAuFournisseur: (params: unknown) => ipcRenderer.invoke("commandes:retournerAuFournisseur", params),
     historiqueReceptions: (boutiqueId: string, fournisseurId?: string, terme?: string) =>
       ipcRenderer.invoke("commandes:historiqueReceptions", boutiqueId, fournisseurId, terme),
   },

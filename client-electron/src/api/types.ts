@@ -637,9 +637,21 @@ export interface PaiementDetteDetail {
 }
 
 export interface LigneReceptionDetail {
+  varianteId: string;
   produitNom: string;
   reference: string;
   quantite: number;
+  quantiteRetournee: number;
+}
+
+export interface RetourFournisseurDetail {
+  id: string;
+  dateCreation: string;
+  motif: string;
+  montant: number;
+  avoir: number;
+  utilisateurId: string | null;
+  lignes: { produitNom: string; quantite: number }[];
 }
 
 export interface ReceptionDetail {
@@ -649,6 +661,9 @@ export interface ReceptionDetail {
   valeurRecue: number;
   montantPaye: number;
   lignes: LigneReceptionDetail[];
+  annulee: boolean;
+  utilisateurId: string | null;
+  retours: RetourFournisseurDetail[];
 }
 
 export interface ReceptionHistorique extends ReceptionDetail {
@@ -1225,6 +1240,13 @@ export interface WindowApi {
     modifier(id: string, champs: ParametresModifierCommande): Promise<ResultatEcriture<void>>;
     receptionner(params: ParametresReception): Promise<ResultatEcriture<string>>;
     listerReceptions(commandeId: string): Promise<ReceptionDetail[]>;
+    annulerReception(receptionId: string, utilisateurId: string | null): Promise<ResultatEcriture<{ montantARecuperer: number }>>;
+    retournerAuFournisseur(params: {
+      receptionId: string;
+      lignes: { varianteId: string; quantite: number }[];
+      motif?: string;
+      utilisateurId: string | null;
+    }): Promise<ResultatEcriture<{ montant: number; avoir: number }>>;
     historiqueReceptions(boutiqueId: string, fournisseurId?: string, terme?: string): Promise<ReceptionHistorique[]>;
   };
   dettes: {

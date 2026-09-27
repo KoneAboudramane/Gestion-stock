@@ -111,6 +111,21 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
     clauseBoutique: "commande_id IN (SELECT id FROM commandes_achat WHERE boutique_id = ?)",
   },
   {
+    table: "achats.RetourFournisseur",
+    tableLocale: "retours_fournisseur",
+    champsFK: ["commande", "reception", "depot", "utilisateur"],
+    ajoutSeul: true,
+    clauseBoutique: "commande_id IN (SELECT id FROM commandes_achat WHERE boutique_id = ?)",
+  },
+  {
+    table: "achats.LigneRetourFournisseur",
+    tableLocale: "lignes_retour_fournisseur",
+    champsFK: ["retour", "variante"],
+    ajoutSeul: true,
+    clauseBoutique:
+      "retour_id IN (SELECT r.id FROM retours_fournisseur r JOIN commandes_achat c ON c.id = r.commande_id WHERE c.boutique_id = ?)",
+  },
+  {
     table: "achats.Reception",
     tableLocale: "receptions",
     champsFK: ["commande", "depot", "utilisateur"],
@@ -171,7 +186,7 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
   {
     table: "fournisseurs.DetteFournisseur",
     tableLocale: "dettes_fournisseur",
-    champsFK: ["fournisseur", "commande"],
+    champsFK: ["fournisseur", "commande", "reception"],
     clauseBoutique: "fournisseur_id IN (SELECT id FROM fournisseurs WHERE boutique_id = ?)",
   },
   {

@@ -129,32 +129,53 @@ export async function genererEcrituresLocales(boutiqueId: string): Promise<Ecrit
     }
   }
 
-  // --- Achats : réception ---
-  const commandes = (await db.getAllFromIndex("commandes_achat", "boutique_id", boutiqueId)).filter(
-    (c) => !c.supprime && c.statut === "recue",
-  );
-  // dettes_fournisseur n'est indexé que par fournisseur_id : on charge tout,
-  // même échelle qu'une boutique de commerce (pas de souci de volumétrie ici.
+  // --- Achats : une écriture par réception (miroir de comptabilite/signals.py) ---
+  // dettes_fournisseur n'est indexé que par fournisseur_id : on charge tout
+  // (utilisé plus bas pour les paiements de dettes).
   const toutesLesDettes = (await db.getAll("dettes_fournisseur")).filter((d) => !d.supprime);
-  for (const commande of commandes) {
-    const receptions = (await db.getAllFromIndex("receptions", "commande_id", commande.id)).filter((r) => !r.supprime);
-    const reception = receptions[0];
-    if (!reception) continue;
-    // achats/services.py ne trace pas de mouvement de caisse pour un paiement
-    // immédiat à la réception : toute réception finance donc 100% via 401 si
-    // une dette existe (dette.montant == commande.total, jamais partiel), et
-    // 100% via 571 sinon. Voir comptabilite/signals.py::sur_reception_achat.
-    const aUneDette = toutesLesDettes.some((d) => d.commande_id === commande.id);
-    const compteContrepartie = aUneDette ? "401" : "571";
-    ecritures.push({
-      id: `achat-reception-${commande.id}`,
-      date: reception.date_creation.slice(0, 10),
-      journal: "AC",
-      libelle: `Réception ${commande.numero || commande.id}`,
-      referenceType: "achats.CommandeAchat",
-      referenceId: commande.id,
-      lignes: [ligne("601", commande.total, 0), ligne(compteContrepartie, 0, commande.total)],
-    });
+  const commandesBoutique = (await db.getAllFromIndex("commandes_achat", "boutique_id", boutiqueId)).filter((c) => !c.supprime);
+  for (const commande of commandesBoutique) {
+    const receptions = (await db.getAllFromIndex("receptions", "commande_id", commande.id)).filter(
+      (r) => !r.supprime && r.valeur_recue > 0,
+    );
+    for (const r of receptions) {
+      // Paiement immédiat partiel non tracé en caisse : tout passe par 401 dès
+      // qu'un solde subsiste, sinon tout est considéré payé comptant (571).
+      const compteContrepartie = r.valeur_recue - r.montant_paye > 0 ? "401" : "571";
+      ecritures.push({
+        id: `achat-reception-${r.id}`,
+        date: r.date_creation.slice(0, 10),
+        journal: "AC",
+        libelle: `Réception ${commande.numero || commande.id}`,
+        referenceType: "achats.Reception",
+        referenceId: r.id,
+        lignes: [ligne("601", r.valeur_recue, 0), ligne(compteContrepartie, 0, r.valeur_recue)],
+      });
+      if (r.annulee) {
+        ecritures.push({
+          id: `achat-reception-annulation-${r.id}`,
+          date: (r.date_annulation ?? r.date_creation).slice(0, 10),
+          journal: "AC",
+          libelle: `Annulation réception ${commande.numero || commande.id}`,
+          referenceType: "achats.Reception:annulation",
+          referenceId: r.id,
+          lignes: [ligne(compteContrepartie, r.valeur_recue, 0), ligne("601", 0, r.valeur_recue)],
+        });
+      }
+    }
+    for (const retour of (await db.getAllFromIndex("retours_fournisseur", "commande_id", commande.id)).filter(
+      (x) => !x.supprime && x.montant > 0,
+    )) {
+      ecritures.push({
+        id: `achat-retour-${retour.id}`,
+        date: retour.date_creation.slice(0, 10),
+        journal: "AC",
+        libelle: `Retour fournisseur ${commande.numero}`,
+        referenceType: "achats.RetourFournisseur",
+        referenceId: retour.id,
+        lignes: [ligne("401", retour.montant, 0), ligne("601", 0, retour.montant)],
+      });
+    }
   }
 
   // --- Paiements de dettes fournisseur ---

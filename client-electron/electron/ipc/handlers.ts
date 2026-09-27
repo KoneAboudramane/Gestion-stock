@@ -434,6 +434,12 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("commandes:receptionner", (_evt, params: achats.ParametresReception) =>
     executerEnSecurite(() => achats.receptionnerCommande(params)),
   );
+  ipcMain.handle("commandes:annulerReception", (_evt, receptionId: string, utilisateurId: string | null) =>
+    executerEnSecurite(() => achats.annulerReception(receptionId, utilisateurId)),
+  );
+  ipcMain.handle("commandes:retournerAuFournisseur", (_evt, params: achats.ParametresRetourFournisseur) =>
+    executerEnSecurite(() => achats.retournerAuFournisseur(params)),
+  );
   ipcMain.handle("commandes:listerReceptions", (_evt, commandeId: string) =>
     achats.listerReceptionsCommande(commandeId),
   );
