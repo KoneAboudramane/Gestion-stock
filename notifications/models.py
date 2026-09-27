@@ -21,6 +21,8 @@ class Notification(ModeleBase):
         FIN_DESTOCKAGE = "fin_destockage", "Fin prochaine d'un déstockage"
         ECHEANCE_PROCHE = "echeance_proche", "Échéance de dette fournisseur proche"
         ECHEANCE_RETARD = "echeance_retard", "Échéance de dette fournisseur en retard"
+        CREDIT_PROCHE = "credit_proche", "Échéance de crédit client proche"
+        CREDIT_RETARD = "credit_retard", "Échéance de crédit client en retard"
 
     boutique = models.ForeignKey(
         "comptes.Boutique", on_delete=models.CASCADE, related_name="notifications"

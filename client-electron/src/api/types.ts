@@ -820,6 +820,8 @@ export interface CreditResume {
   echeance: string | null;
   statut: StatutCredit;
   dateCreation: string;
+  /** Première tranche pas encore réglée de son échéancier (null s'il n'y en a pas). */
+  prochaineEcheance: { date: string; reste: number; enRetard: boolean } | null;
 }
 
 export interface PaiementCreditDetail {
@@ -1082,7 +1084,9 @@ export type TypeNotification =
   | "alerte_dormants"
   | "fin_destockage"
   | "echeance_proche"
-  | "echeance_retard";
+  | "echeance_retard"
+  | "credit_proche"
+  | "credit_retard";
 
 export interface NotificationResume {
   id: string;
@@ -1417,6 +1421,8 @@ export interface WindowApi {
   credits: {
     lister(boutiqueId: string, clientId?: string, statut?: StatutCredit): Promise<CreditResume[]>;
     obtenir(id: string): Promise<CreditDetail | undefined>;
+    echeancier(creditId: string): Promise<EcheanceDetail[]>;
+    planifier(creditId: string, tranches: { dateEcheance: string; montant: number }[]): Promise<ResultatEcriture<void>>;
     rembourser(
       id: string,
       montant: number,

@@ -69,6 +69,7 @@ REGISTRE = [
     EntreeRegistre("stock", "Inventaire", "boutique"),
     EntreeRegistre("stock", "LigneInventaire", "inventaire__boutique"),
     EntreeRegistre("clients", "Credit", "client__boutique"),
+    EntreeRegistre("clients", "EcheanceCredit", "credit__client__boutique"),
     EntreeRegistre("clients", "PaiementCredit", "credit__client__boutique"),
     EntreeRegistre("fournisseurs", "DetteFournisseur", "fournisseur__boutique"),
     EntreeRegistre("fournisseurs", "EcheanceDette", "dette__fournisseur__boutique"),

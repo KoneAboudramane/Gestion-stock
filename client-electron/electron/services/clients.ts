@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { dansUneTransaction, executer, tousLesResultats, unResultat } from "../db/helpers";
 import { sauvegarder } from "../db/index";
+import { calculerEcheances, erreurTranches, type EcheanceDetail } from "./echeancier";
 import { enregistrerMouvement } from "./tresorerie";
 
 /**
@@ -126,6 +127,8 @@ export interface CreditResume {
   echeance: string | null;
   statut: StatutCredit;
   dateCreation: string;
+  /** Première tranche pas encore réglée de son échéancier (null s'il n'y en a pas). */
+  prochaineEcheance: { date: string; reste: number; enRetard: boolean } | null;
 }
 
 export function listerCredits(boutiqueId: string, clientId?: string, statut?: StatutCredit): CreditResume[] {
@@ -140,7 +143,7 @@ export function listerCredits(boutiqueId: string, clientId?: string, statut?: St
     parametres.push(statut);
   }
 
-  return tousLesResultats<CreditResume>(
+  return tousLesResultats<Omit<CreditResume, "prochaineEcheance">>(
     `SELECT cr.id as id, cl.nom as clientNom, cl.est_permanent as clientEstPermanent, v.numero as venteNumero,
             cr.montant as montant, cr.montant_paye as montantPaye, cr.solde as solde,
             cr.echeance as echeance, cr.statut as statut, cr.date_creation as dateCreation
@@ -150,7 +153,15 @@ export function listerCredits(boutiqueId: string, clientId?: string, statut?: St
      WHERE ${conditions.join(" AND ")}
      ORDER BY cr.date_creation DESC`,
     parametres,
-  );
+  ).map((c) => {
+    const prochaine = c.statut === "en_cours" ? echeancierCredit(c.id).find((e) => e.statut !== "payee") : undefined;
+    return {
+      ...c,
+      prochaineEcheance: prochaine
+        ? { date: prochaine.dateEcheance, reste: prochaine.montant - prochaine.couvert, enRetard: prochaine.statut === "en_retard" }
+        : null,
+    };
+  });
 }
 
 export interface PaiementCreditDetail {
@@ -252,4 +263,72 @@ export function rembourserCredit(
   });
 
   sauvegarder();
+}
+/** Tranche non réglée d'un crédit en cours (alertes). */
+export interface EcheanceCreditEnCours extends EcheanceDetail {
+  creditId: string;
+  clientNom: string;
+  venteNumero: string | null;
+}
+
+export function echeancierCredit(creditId: string): EcheanceDetail[] {
+  const credit = unResultat<{ montant: number; montant_paye: number }>(
+    "SELECT montant, montant_paye FROM credits WHERE id = ?",
+    [creditId],
+  );
+  if (!credit) return [];
+  const tranches = tousLesResultats<{ id: string; dateEcheance: string; montant: number }>(
+    "SELECT id, date_echeance as dateEcheance, montant FROM echeances_credit WHERE credit_id = ? AND supprime = 0",
+    [creditId],
+  ).map((e) => ({ ...e, montant: Number(e.montant) }));
+  return calculerEcheances({ montant: Number(credit.montant), montantPaye: Number(credit.montant_paye) }, tranches);
+}
+
+/**
+ * (Re)planifie l'échéancier d'un crédit : les tranches déjà réglées sont
+ * gardées, les autres retirées ; les nouvelles couvrent le reste dû.
+ */
+export function planifierEcheancierCredit(creditId: string, tranches: { dateEcheance: string; montant: number }[]): void {
+  const credit = unResultat<{ solde: number; statut: string }>("SELECT solde, statut FROM credits WHERE id = ?", [creditId]);
+  if (!credit) throw new ErreurClient("Crédit introuvable.");
+  if (credit.statut !== "en_cours") throw new ErreurClient("Ce crédit est déjà soldé.");
+  const erreur = erreurTranches(tranches, Number(credit.solde));
+  if (erreur) throw new ErreurClient(erreur);
+  const aRetirer = echeancierCredit(creditId).filter((e) => e.statut !== "payee");
+  dansUneTransaction(() => {
+    const maintenant = new Date().toISOString();
+    for (const e of aRetirer) {
+      executer("UPDATE echeances_credit SET supprime = 1, synchronise = 0, date_modification = ? WHERE id = ?", [
+        maintenant,
+        e.id,
+      ]);
+    }
+    for (const t of tranches) {
+      executer(
+        `INSERT INTO echeances_credit (id, credit_id, date_echeance, montant, date_creation, date_modification)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [randomUUID(), creditId, t.dateEcheance, Math.round(t.montant * 100) / 100, maintenant, maintenant],
+      );
+    }
+  });
+  sauvegarder();
+}
+
+/** Tranches non réglées des crédits en cours de la boutique (alertes). */
+export function echeancesCreditsEnCours(boutiqueId: string): EcheanceCreditEnCours[] {
+  const resultat: EcheanceCreditEnCours[] = [];
+  for (const c of tousLesResultats<{ id: string; clientNom: string; venteNumero: string | null }>(
+    `SELECT cr.id as id, cl.nom as clientNom, v.numero as venteNumero
+     FROM credits cr
+     JOIN clients cl ON cl.id = cr.client_id
+     LEFT JOIN ventes v ON v.id = cr.vente_id
+     WHERE cl.boutique_id = ? AND cr.supprime = 0 AND cr.statut = 'en_cours'
+       AND EXISTS (SELECT 1 FROM echeances_credit e WHERE e.credit_id = cr.id AND e.supprime = 0)`,
+    [boutiqueId],
+  )) {
+    for (const e of echeancierCredit(c.id)) {
+      if (e.statut !== "payee") resultat.push({ ...e, creditId: c.id, clientNom: c.clientNom, venteNumero: c.venteNumero });
+    }
+  }
+  return resultat;
 }

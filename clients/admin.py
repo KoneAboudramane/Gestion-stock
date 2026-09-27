@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Client, Credit, PaiementCredit
+from .models import Client, Credit, EcheanceCredit, PaiementCredit
 
 
 class CreditInline(admin.TabularInline):
@@ -16,11 +16,17 @@ class ClientAdmin(admin.ModelAdmin):
     inlines = [CreditInline]
 
 
+class EcheanceCreditInline(admin.TabularInline):
+    model = EcheanceCredit
+    extra = 0
+
+
 @admin.register(Credit)
 class CreditAdmin(admin.ModelAdmin):
     list_display = ("client", "vente", "montant", "montant_paye", "solde", "echeance", "statut")
     search_fields = ("client__nom",)
     list_filter = ("statut",)
+    inlines = [EcheanceCreditInline]
 
 
 @admin.register(PaiementCredit)

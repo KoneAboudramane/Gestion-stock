@@ -184,6 +184,12 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
     clauseBoutique: "client_id IN (SELECT id FROM clients WHERE boutique_id = ?)",
   },
   {
+    table: "clients.EcheanceCredit",
+    tableLocale: "echeances_credit",
+    champsFK: ["credit"],
+    clauseBoutique: "credit_id IN (SELECT cr.id FROM credits cr JOIN clients cl ON cl.id = cr.client_id WHERE cl.boutique_id = ?)",
+  },
+  {
     table: "clients.PaiementCredit",
     tableLocale: "paiements_credit",
     champsFK: ["credit", "utilisateur"],

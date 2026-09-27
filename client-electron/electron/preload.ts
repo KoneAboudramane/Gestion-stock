@@ -215,6 +215,8 @@ contextBridge.exposeInMainWorld("api", {
     lister: (boutiqueId: string, clientId?: string, statut?: string) =>
       ipcRenderer.invoke("credits:lister", boutiqueId, clientId, statut),
     obtenir: (id: string) => ipcRenderer.invoke("credits:obtenir", id),
+    echeancier: (creditId: string) => ipcRenderer.invoke("credits:echeancier", creditId),
+    planifier: (creditId: string, tranches: unknown) => ipcRenderer.invoke("credits:planifier", creditId, tranches),
     rembourser: (id: string, montant: number, mode?: string, depotId?: string | null, utilisateurId?: string | null) =>
       ipcRenderer.invoke("credits:rembourser", id, montant, mode, depotId, utilisateurId),
   },

@@ -6,9 +6,13 @@ import ChampMontant from "../components/ChampMontant";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import RecuCredit from "../components/RecuCredit";
 import { useDevise } from "../contexts/DeviseContext";
+import PlanificateurEcheancier from "../components/PlanificateurEcheancier";
+import { LIBELLES_STATUT_ECHEANCE } from "../lib/echeancier";
 import { formaterMontant, normaliserTelephone, telephoneValide } from "../lib/formatage";
 import { MODES_REGLEMENT, libelleStatutVente } from "../lib/libelles";
 import {
+  echeancierCredit,
+  planifierEcheancierCredit,
   creerClient,
   ErreurClient,
   listerClientsDetail,
@@ -23,6 +27,7 @@ import {
   type CreditResume,
   type StatutCredit,
 } from "../services/clients";
+import type { EcheanceDetail } from "../services/echeancier";
 import { listerDepotsDetail, type DepotResume } from "../services/stock";
 import { listerVentesLocales, type VenteResumeLocale as VenteResume } from "../services/ventes";
 import { DetailVente } from "./Ventes";
@@ -66,10 +71,15 @@ function DetailCredit({ creditId, session, onRetour }: { creditId: string; sessi
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
   const [recuPaiementId, setRecuPaiementId] = useState<string | null>(null);
+  const [echeances, setEcheances] = useState<EcheanceDetail[]>([]);
+  const [planification, setPlanification] = useState(false);
+  const [erreurEcheancier, setErreurEcheancier] = useState<string | null>(null);
 
   async function rafraichir() {
     const resultat = await obtenirCredit(creditId);
     if (resultat) setCredit(resultat);
+
+    setEcheances(await echeancierCredit(creditId));
   }
   useEffect(() => {
     rafraichir();
@@ -116,6 +126,20 @@ function DetailCredit({ creditId, session, onRetour }: { creditId: string; sessi
     }
   }
 
+  async function planifier(tranches: { dateEcheance: string; montant: number }[]) {
+    setErreurEcheancier(null);
+    let succes = false;
+    try {
+      await planifierEcheancierCredit(creditId, tranches);
+      succes = true;
+    } catch (e) {
+      setErreurEcheancier(e instanceof ErreurClient ? e.message : "Erreur inattendue.");
+    }
+    if (!succes) return;
+    setPlanification(false);
+    rafraichir();
+  }
+
   async function rembourser(evenement: React.FormEvent) {
     evenement.preventDefault();
     setErreur(null);
@@ -126,6 +150,7 @@ function DetailCredit({ creditId, session, onRetour }: { creditId: string; sessi
       setMode(MODES_REGLEMENT[0].valeur);
       setAfficherModalRembourser(false);
       const creditFrais = await obtenirCredit(creditId);
+      setEcheances(await echeancierCredit(creditId));
       if (creditFrais) setCredit(creditFrais);
       if (creditFrais?.paiements[0]) setRecuPaiementId(creditFrais.paiements[0].id);
     } catch (e) {
@@ -147,6 +172,7 @@ function DetailCredit({ creditId, session, onRetour }: { creditId: string; sessi
   }
 
   if (!credit) return <p>Chargement…</p>;
+  const prochaineId = echeances.find((e) => e.statut !== "payee")?.id;
   const solde = credit.statut === "solde" ? 0 : credit.solde;
 
   return (
@@ -245,6 +271,53 @@ function DetailCredit({ creditId, session, onRetour }: { creditId: string; sessi
             Solde : {formaterMontant(solde)} {devise}
           </div>
         </div>
+
+        <div className="entete-section-echeancier">
+          <h4>Échéancier</h4>
+          {peutGerer && credit.statut === "en_cours" && !planification && (
+            <button type="button" onClick={() => setPlanification(true)}>
+              {echeances.length > 0 ? "Modifier l'échéancier" : "Planifier un échéancier"}
+            </button>
+          )}
+        </div>
+        {erreurEcheancier && <div className="message-erreur">{erreurEcheancier}</div>}
+        {planification && (
+          <PlanificateurEcheancier
+            reste={credit.solde}
+            dejaPlanifie={echeances.length > 0}
+            onAnnuler={() => setPlanification(false)}
+            onEnregistrer={planifier}
+          />
+        )}
+        {!planification &&
+          (echeances.length > 0 ? (
+            <div className="zone-tableau-scroll">
+              <table className="tableau-catalogue carte-mobile">
+                <thead>
+                  <tr>
+                    <th>Échéance</th>
+                    <th>Montant</th>
+                    <th>Déjà réglé</th>
+                    <th>Reste</th>
+                    <th>Statut</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {echeances.map((e) => (
+                    <tr key={e.id} className={e.id === prochaineId ? "ligne-prochaine-echeance" : undefined}>
+                      <td data-label="Échéance">{new Date(`${e.dateEcheance}T00:00:00`).toLocaleDateString("fr-FR")}</td>
+                      <td data-label="Montant">{formaterMontant(e.montant)} {devise}</td>
+                      <td data-label="Déjà réglé">{formaterMontant(e.couvert)} {devise}</td>
+                      <td data-label="Reste">{formaterMontant(e.montant - e.couvert)} {devise}</td>
+                      <td data-label="Statut"><span className={LIBELLES_STATUT_ECHEANCE[e.statut].classe}>{LIBELLES_STATUT_ECHEANCE[e.statut].label}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="note-aide">Pas d'échéancier : le client règle librement, un peu à la fois ou d'un coup.</p>
+          ))}
 
         <div className="barre-actions">
           <h4>Règlements</h4>
@@ -991,6 +1064,7 @@ function OngletCredits({ session }: { session: Session }) {
               <th>Montant</th>
               <th>Payé</th>
               <th>Solde</th>
+              <th>Prochaine échéance</th>
               <th>Statut</th>
             </tr>
           </thead>
@@ -1004,6 +1078,17 @@ function OngletCredits({ session }: { session: Session }) {
                 <td data-label="Montant">{formaterMontant(c.montant)}</td>
                 <td data-label="Payé">{formaterMontant(c.montantPaye)}</td>
                 <td data-label="Solde">{formaterMontant(c.solde)}</td>
+                <td data-label="Prochaine échéance">
+                  {c.prochaineEcheance ? (
+                    <span className={c.prochaineEcheance.enRetard ? "texte-erreur" : undefined}>
+                      {new Date(`${c.prochaineEcheance.date}T00:00:00`).toLocaleDateString("fr-FR")} ·{" "}
+                      {formaterMontant(c.prochaineEcheance.reste)}
+                      {c.prochaineEcheance.enRetard && " (en retard)"}
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
                 <td data-label="Statut">
                   <span className={c.statut === "solde" ? "badge-payee" : "badge-credit"}>{libelleStatutCredit(c.statut)}</span>
                 </td>
@@ -1011,13 +1096,14 @@ function OngletCredits({ session }: { session: Session }) {
             ))}
             {creditsFiltres.length === 0 && (
               <tr>
-                <td colSpan={8} className="liste-vide">
+                <td colSpan={9} className="liste-vide">
                   Aucun crédit.
                 </td>
               </tr>
             )}
             {Array.from({ length: Math.max(0, 10 - Math.max(1, creditsFiltres.length)) }).map((_, i) => (
               <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
                 <td>&nbsp;</td>
                 <td>&nbsp;</td>
                 <td>&nbsp;</td>

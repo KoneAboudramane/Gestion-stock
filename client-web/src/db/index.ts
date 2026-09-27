@@ -208,6 +208,13 @@ export function ouvrirBaseDeDonnees(): Promise<IDBPDatabase<GestionStockDB>> {
           echeances.createIndex("dette_id", "dette_id");
           echeances.createIndex("synchronise", "synchronise");
         }
+
+        // v11 : échéanciers des crédits clients.
+        if (oldVersion < 11) {
+          const echeancesCredit = db.createObjectStore("echeances_credit", { keyPath: "id" });
+          echeancesCredit.createIndex("credit_id", "credit_id");
+          echeancesCredit.createIndex("synchronise", "synchronise");
+        }
       },
     });
   }

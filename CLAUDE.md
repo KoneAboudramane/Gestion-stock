@@ -16,7 +16,7 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 6. **Montants et quantités** : `DecimalField(max_digits=12, decimal_places=2)`. Jamais de FloatField pour l'argent.
 7. Les labels d'app sont le nom du dossier : `core, comptes, catalogue, stock, ventes, achats, clients, fournisseurs, configuration, synchronisation`.
 
-## Les 10 apps et leurs 38 modèles
+## Les 10 apps et leurs 39 modèles
 
 ### core
 - `ModeleBase` (abstrait) — hérité par tous. Champs : id (UUID), date_creation, date_modification, synchronise, date_synchronisation.
@@ -64,6 +64,7 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 - `Client` — boutique (FK), nom, telephone, adresse.
 - `Credit` — client (FK → credits), vente (FK ventes.Vente, null), montant, montant_paye, solde, echeance, statut {en_cours|solde}. **Carnet de crédit.**
 - `PaiementCredit` — credit (FK → paiements), montant, mode.
+- `EcheanceCredit` — credit (FK → echeances), date_echeance, montant. **Échéancier** du crédit client, même principe que `EcheanceDette` (statut calculé ; alertes `credit_proche` J-3 et `credit_retard`).
 
 ### fournisseurs
 - `Fournisseur` — boutique (FK), nom, telephone, adresse, contact.

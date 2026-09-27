@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { executer, tousLesResultats, unResultat } from "../db/helpers";
 import { sauvegarder } from "../db/index";
 import { echeancesEnCours } from "./achats";
+import { echeancesCreditsEnCours } from "./clients";
 import { produitsDormants } from "./rapports";
 
 /**
@@ -17,7 +18,9 @@ export type TypeNotification =
   | "alerte_dormants"
   | "fin_destockage"
   | "echeance_proche"
-  | "echeance_retard";
+  | "echeance_retard"
+  | "credit_proche"
+  | "credit_retard";
 
 const FENETRE_ANTI_DOUBLON_HEURES = 24;
 
@@ -189,6 +192,45 @@ export function genererAlertesDestockage(boutiqueId: string): string[] {
           "fournisseurs.EcheanceDette",
           e.id,
         ),
+      );
+    }
+  }
+
+  // Échéances des crédits clients : 3 jours avant, puis dès le lendemain si pas réglée.
+  const creditsAlertes = new Set(
+    tousLesResultats<{ cle: string }>(
+      `SELECT type || ':' || reference_id as cle FROM notifications
+       WHERE boutique_id = ? AND type IN ('credit_proche', 'credit_retard') AND supprime = 0`,
+      [boutiqueId],
+    ).map((n) => n.cle),
+  );
+  for (const e of echeancesCreditsEnCours(boutiqueId)) {
+    const date = new Date(`${e.dateEcheance}T00:00:00`).toLocaleDateString("fr-FR");
+    const reste = `${formaterNombre(e.montant - e.couvert)} ${devise}`;
+    const vente = e.venteNumero ? ` (vente ${e.venteNumero})` : "";
+    if (e.statut === "en_retard" && !creditsAlertes.has(`credit_retard:${e.id}`)) {
+      idsCrees.push(
+        insererAlerte(
+        boutiqueId,
+        "credit_retard",
+        `Crédit en retard : ${e.clientNom} doit ${reste}${vente} depuis le ${date}. Clients → Crédits.`,
+        "clients.EcheanceCredit",
+        e.id,
+      ),
+      );
+    } else if (
+      e.statut !== "en_retard" &&
+      e.dateEcheance <= jourLocal(limiteEcheance) &&
+      !creditsAlertes.has(`credit_proche:${e.id}`)
+    ) {
+      idsCrees.push(
+        insererAlerte(
+        boutiqueId,
+        "credit_proche",
+        `Échéance le ${date} : ${e.clientNom} doit régler ${reste}${vente}. Clients → Crédits.`,
+        "clients.EcheanceCredit",
+        e.id,
+      ),
       );
     }
   }

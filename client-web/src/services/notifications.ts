@@ -1,6 +1,7 @@
 import { ouvrirBaseDeDonnees } from "../db";
 import { maintenant, suiviSyncNeuf } from "../db/helpers";
 import { echeancesEnCours } from "./achats";
+import { echeancesCreditsEnCours } from "./clients";
 import type { NotificationLocale } from "../db/schema";
 import { produitsDormants } from "./rapports";
 import { listerDestockages } from "./stock";
@@ -17,7 +18,9 @@ export type TypeNotification =
   | "alerte_dormants"
   | "fin_destockage"
   | "echeance_proche"
-  | "echeance_retard";
+  | "echeance_retard"
+  | "credit_proche"
+  | "credit_retard";
 
 const FENETRE_ANTI_DOUBLON_HEURES = 24;
 
@@ -173,6 +176,38 @@ async function genererAlertesDestockageImpl(boutiqueId: string): Promise<string[
         "echeance_proche",
         `Échéance le ${date} : ${reste} à payer à ${e.fournisseurNom}${commande}. Achats → Dettes.`,
         "fournisseurs.EcheanceDette",
+        e.id,
+      );
+    }
+  }
+  // Échéances des crédits clients : 3 jours avant, puis dès le lendemain si pas réglée.
+  const creditsAlertes = new Set(
+    notifications
+      .filter((n) => n.type === "credit_proche" || n.type === "credit_retard")
+      .map((n) => `${n.type}:${n.reference_id}`),
+  );
+  for (const e of await echeancesCreditsEnCours(boutiqueId)) {
+    const date = new Date(`${e.dateEcheance}T00:00:00`).toLocaleDateString("fr-FR");
+    const reste = `${formaterNombre(e.montant - e.couvert)} ${devise}`;
+    const vente = e.venteNumero ? ` (vente ${e.venteNumero})` : "";
+    if (e.statut === "en_retard" && !creditsAlertes.has(`credit_retard:${e.id}`)) {
+      await inserer(
+        
+        "credit_retard",
+        `Crédit en retard : ${e.clientNom} doit ${reste}${vente} depuis le ${date}. Clients → Crédits.`,
+        "clients.EcheanceCredit",
+        e.id,
+      );
+    } else if (
+      e.statut !== "en_retard" &&
+      e.dateEcheance <= jourLocal(limiteEcheance) &&
+      !creditsAlertes.has(`credit_proche:${e.id}`)
+    ) {
+      await inserer(
+        
+        "credit_proche",
+        `Échéance le ${date} : ${e.clientNom} doit régler ${reste}${vente}. Clients → Crédits.`,
+        "clients.EcheanceCredit",
         e.id,
       );
     }

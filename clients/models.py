@@ -47,6 +47,22 @@ class Credit(ModeleBase):
         return f"Crédit {self.client} : solde {self.solde}"
 
 
+class EcheanceCredit(ModeleBase):
+    """Tranche prévue d'un échéancier de remboursement d'un crédit client
+    (même principe que fournisseurs.EcheanceDette) : les règlements couvrent
+    les tranches dans l'ordre des dates, le statut est calculé à l'affichage."""
+
+    credit = models.ForeignKey(Credit, on_delete=models.CASCADE, related_name="echeances")
+    date_echeance = models.DateField()
+    montant = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        ordering = ["date_echeance"]
+
+    def __str__(self):
+        return f"{self.credit} : {self.montant} le {self.date_echeance}"
+
+
 class PaiementCredit(ModeleBase):
     """Règlement partiel ou total d'un crédit."""
 

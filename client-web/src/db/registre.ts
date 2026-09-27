@@ -160,6 +160,12 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
     champsNumeriques: ["montant", "montant_paye", "solde"],
   },
   {
+    table: "clients.EcheanceCredit",
+    store: "echeances_credit",
+    champsFK: ["credit"],
+    champsNumeriques: ["montant"],
+  },
+  {
     table: "clients.PaiementCredit",
     store: "paiements_credit",
     champsFK: ["credit", "utilisateur"],

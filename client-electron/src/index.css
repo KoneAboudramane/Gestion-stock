@@ -6123,3 +6123,10 @@ button.tuile-dormance.active {
 .texte-erreur {
   color: var(--danger, #dc2626);
 }
+
+/* Corps de modale (hors modales à menu latéral, qui ont leur propre règle) :
+   un tableau ne se laisse pas écraser à zéro quand le contenu est long — c'est
+   le corps qui défile. */
+.modale-corps > .zone-tableau-scroll {
+  flex-shrink: 0;
+}

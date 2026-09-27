@@ -1,6 +1,7 @@
 import { ouvrirBaseDeDonnees } from "../db";
 import { ecrireLigne, maintenant, obtenirLigne, suiviSyncNeuf } from "../db/helpers";
-import type { ClientLocal, CreditLocal, PaiementCreditLocal } from "../db/schema";
+import type { ClientLocal, CreditLocal, EcheanceCreditLocale, PaiementCreditLocal } from "../db/schema";
+import { calculerEcheances, erreurTranches, type EcheanceDetail } from "./echeancier";
 import { enregistrerMouvement } from "./tresorerie";
 
 /**
@@ -140,6 +141,8 @@ export interface CreditResume {
   echeance: string | null;
   statut: StatutCredit;
   dateCreation: string;
+  /** Première tranche pas encore réglée de son échéancier (null s'il n'y en a pas). */
+  prochaineEcheance: { date: string; reste: number; enRetard: boolean } | null;
 }
 
 export async function listerCredits(boutiqueId: string, clientId?: string, statut?: StatutCredit): Promise<CreditResume[]> {
@@ -173,7 +176,19 @@ export async function listerCredits(boutiqueId: string, clientId?: string, statu
       echeance: cr.echeance,
       statut: cr.statut,
       dateCreation: cr.date_creation,
+      prochaineEcheance: null,
     });
+  }
+  for (const c of resultat) {
+    if (c.statut !== "en_cours") continue;
+    const prochaine = (await echeancierCredit(c.id)).find((e) => e.statut !== "payee");
+    if (prochaine) {
+      c.prochaineEcheance = {
+        date: prochaine.dateEcheance,
+        reste: prochaine.montant - prochaine.couvert,
+        enRetard: prochaine.statut === "en_retard",
+      };
+    }
   }
   return resultat.sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));
 }
@@ -211,6 +226,7 @@ export async function obtenirCredit(id: string): Promise<CreditDetail | undefine
     echeance: cr.echeance,
     statut: cr.statut,
     dateCreation: cr.date_creation,
+    prochaineEcheance: null,
     paiements: paiements
       .map((p) => ({ id: p.id, montant: p.montant, mode: p.mode, dateCreation: p.date_creation, utilisateurId: p.utilisateur_id ?? null }))
       .sort((a, b) => b.dateCreation.localeCompare(a.dateCreation)),
@@ -270,4 +286,62 @@ export async function rembourserCredit(
       referenceId: paiementId,
     });
   }
+}
+/** Tranche non réglée d'un crédit en cours (alertes). */
+export interface EcheanceCreditEnCours extends EcheanceDetail {
+  creditId: string;
+  clientNom: string;
+  venteNumero: string | null;
+}
+
+export async function echeancierCredit(creditId: string): Promise<EcheanceDetail[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const credit = await db.get("credits", creditId);
+  if (!credit) return [];
+  const tranches = (await db.getAllFromIndex("echeances_credit", "credit_id", creditId))
+    .filter((e) => !e.supprime)
+    .map((e) => ({ id: e.id, dateEcheance: e.date_echeance, montant: Number(e.montant) }));
+  return calculerEcheances({ montant: Number(credit.montant), montantPaye: Number(credit.montant_paye) }, tranches);
+}
+
+/**
+ * (Re)planifie l'échéancier d'un crédit : les tranches déjà réglées sont
+ * gardées, les autres retirées ; les nouvelles couvrent le reste dû.
+ */
+export async function planifierEcheancierCredit(
+  creditId: string,
+  tranches: { dateEcheance: string; montant: number }[],
+): Promise<void> {
+  const db = await ouvrirBaseDeDonnees();
+  const credit = await db.get("credits", creditId);
+  if (!credit) throw new ErreurClient("Crédit introuvable.");
+  if (credit.statut !== "en_cours") throw new ErreurClient("Ce crédit est déjà soldé.");
+  const erreur = erreurTranches(tranches, Number(credit.solde));
+  if (erreur) throw new ErreurClient(erreur);
+  const instant = maintenant();
+  for (const e of (await echeancierCredit(creditId)).filter((x) => x.statut !== "payee")) {
+    const ligne = await db.get("echeances_credit", e.id);
+    if (ligne) await ecrireLigne("echeances_credit", { ...ligne, supprime: 1, synchronise: 0, date_modification: instant });
+  }
+  for (const t of tranches) {
+    const echeance: EcheanceCreditLocale = {
+      id: crypto.randomUUID(),
+      credit_id: creditId,
+      date_echeance: t.dateEcheance,
+      montant: Math.round(t.montant * 100) / 100,
+      ...suiviSyncNeuf(),
+    };
+    await ecrireLigne("echeances_credit", echeance);
+  }
+}
+
+/** Tranches non réglées des crédits en cours de la boutique (alertes). */
+export async function echeancesCreditsEnCours(boutiqueId: string): Promise<EcheanceCreditEnCours[]> {
+  const resultat: EcheanceCreditEnCours[] = [];
+  for (const c of await listerCredits(boutiqueId, undefined, "en_cours")) {
+    for (const e of await echeancierCredit(c.id)) {
+      if (e.statut !== "payee") resultat.push({ ...e, creditId: c.id, clientNom: c.clientNom, venteNumero: c.venteNumero });
+    }
+  }
+  return resultat;
 }

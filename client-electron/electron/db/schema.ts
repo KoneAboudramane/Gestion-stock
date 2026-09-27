@@ -377,6 +377,15 @@ CREATE TABLE IF NOT EXISTS dettes_fournisseur (
   ${SUIVI_SYNC}
 );
 
+-- echeances_credit : tranches prévues d'un échéancier de crédit client.
+CREATE TABLE IF NOT EXISTS echeances_credit (
+  id TEXT PRIMARY KEY,
+  credit_id TEXT NOT NULL,
+  date_echeance TEXT NOT NULL,
+  montant REAL NOT NULL,
+  ${SUIVI_SYNC}
+);
+
 -- echeances_dette : tranches prévues d'un échéancier de remboursement.
 CREATE TABLE IF NOT EXISTS echeances_dette (
   id TEXT PRIMARY KEY,
