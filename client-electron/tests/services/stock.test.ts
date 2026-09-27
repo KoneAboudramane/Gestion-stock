@@ -5,6 +5,7 @@ import { executer, tousLesResultats, unResultat } from "../../electron/db/helper
 import {
   CLE_PARAMETRE_FABRICATION_PROPRE,
   ErreurStock,
+  ajouterLigneInventaire,
   appliquerMouvement,
   creerDepot,
   creerEntreeProduction,
@@ -208,6 +209,37 @@ describe("stock.demarrerInventaire / modifierLigneInventaire / validerInventaire
     expect(inventaire!.statut).toBe("valide");
 
     expect(() => validerInventaire(inventaireId, null)).toThrow(ErreurStock);
+  });
+
+  it("comptage à zéro : chaque article part de 0, un article non compté sort du stock à la validation", () => {
+    const inventaireId = demarrerInventaire(boutiqueId, depotId, null, true);
+    const ligne = ligneDe(inventaireId);
+    expect(Number(ligne.qte_physique)).toBe(0);
+    expect(Number(ligne.ecart)).toBe(-20);
+    validerInventaire(inventaireId, null);
+    const stock = unResultat<{ quantite: number }>("SELECT quantite FROM stocks WHERE variante_id = ? AND depot_id = ?", [
+      varianteId,
+      depotId,
+    ]);
+    expect(Number(stock!.quantite)).toBe(0);
+  });
+
+  it("ajouter un article absent de la liste pendant le comptage", () => {
+    const inventaireId = demarrerInventaire(boutiqueId, depotId, null);
+    const nouvelle = randomUUID();
+    ajouterLigneInventaire(inventaireId, nouvelle, 4);
+    const ajoutee = unResultat<{ qte_theorique: number; qte_physique: number; ecart: number }>(
+      "SELECT qte_theorique, qte_physique, ecart FROM lignes_inventaire WHERE inventaire_id = ? AND variante_id = ?",
+      [inventaireId, nouvelle],
+    )!;
+    expect([Number(ajoutee.qte_theorique), Number(ajoutee.qte_physique), Number(ajoutee.ecart)]).toEqual([0, 4, 4]);
+    expect(() => ajouterLigneInventaire(inventaireId, nouvelle, 1)).toThrow(ErreurStock);
+    validerInventaire(inventaireId, null);
+    const stock = unResultat<{ quantite: number }>("SELECT quantite FROM stocks WHERE variante_id = ? AND depot_id = ?", [
+      nouvelle,
+      depotId,
+    ]);
+    expect(Number(stock!.quantite)).toBe(4);
   });
 });
 

@@ -233,7 +233,9 @@ def transferer_stock(variante, depot_source, depot_destination, quantite, utilis
 
 
 @transaction.atomic
-def demarrer_inventaire(boutique, depot, utilisateur=None):
+def demarrer_inventaire(boutique, depot, utilisateur=None, a_zero=False):
+    """a_zero : « comptage à zéro » — chaque article part de 0 et seul ce qui
+    est compté compte (ce qui n'est pas compté sera considéré comme absent)."""
     from .models import LigneInventaire
 
     inventaire = Inventaire.objects.create(
@@ -245,13 +247,30 @@ def demarrer_inventaire(boutique, depot, utilisateur=None):
             inventaire=inventaire,
             variante=stock.variante,
             qte_theorique=stock.quantite,
-            qte_physique=stock.quantite,
-            ecart=0,
+            qte_physique=0 if a_zero else stock.quantite,
+            ecart=-stock.quantite if a_zero else 0,
         )
         for stock in Stock.objects.filter(depot=depot)
     ]
     LigneInventaire.objects.bulk_create(lignes)
     return inventaire
+
+
+def ajouter_ligne_inventaire(inventaire, variante, qte_physique=0):
+    """Article trouvé sur place mais absent de la liste (jamais eu de stock
+    dans ce dépôt) : ajouté pendant le comptage."""
+    from .models import LigneInventaire
+
+    if inventaire.statut == Inventaire.Statut.VALIDE:
+        raise ValidationError("Cet inventaire est déjà validé.")
+    if inventaire.lignes.filter(variante=variante).exists():
+        raise ValidationError("Cet article est déjà dans l'inventaire.")
+    stock = Stock.objects.filter(variante=variante, depot=inventaire.depot).first()
+    theorique = stock.quantite if stock else 0
+    return LigneInventaire.objects.create(
+        inventaire=inventaire, variante=variante, qte_theorique=theorique,
+        qte_physique=qte_physique, ecart=qte_physique - theorique,
+    )
 
 
 @transaction.atomic

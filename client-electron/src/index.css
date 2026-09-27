@@ -5762,3 +5762,27 @@ input.champ-invalide:focus {
   padding: 0.6rem 0.8rem;
   font-weight: 600;
 }
+
+/* Inventaire en cours : douchette (code-barres + Entrée) et ajout d'article. */
+.barre-saisie-inventaire {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  flex-shrink: 0;
+}
+
+.champ-douchette input {
+  width: 320px;
+  max-width: 100%;
+}
+
+.barre-saisie-inventaire .recherche-commande-combobox {
+  width: 300px;
+  max-width: 100%;
+}
+
+.retour-douchette {
+  color: var(--succes-fonce);
+  font-weight: 600;
+}

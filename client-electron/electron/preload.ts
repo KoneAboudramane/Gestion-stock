@@ -155,8 +155,10 @@ contextBridge.exposeInMainWorld("api", {
   },
   inventaires: {
     lister: (boutiqueId: string) => ipcRenderer.invoke("inventaires:lister", boutiqueId),
-    demarrer: (boutiqueId: string, depotId: string, utilisateurId: string | null) =>
-      ipcRenderer.invoke("inventaires:demarrer", boutiqueId, depotId, utilisateurId),
+    demarrer: (boutiqueId: string, depotId: string, utilisateurId: string | null, aZero?: boolean) =>
+      ipcRenderer.invoke("inventaires:demarrer", boutiqueId, depotId, utilisateurId, aZero),
+    ajouterLigne: (inventaireId: string, varianteId: string, qtePhysique?: number) =>
+      ipcRenderer.invoke("inventaires:ajouterLigne", inventaireId, varianteId, qtePhysique),
     obtenir: (id: string) => ipcRenderer.invoke("inventaires:obtenir", id),
     validerLigne: (id: string, qtePhysique: number) => ipcRenderer.invoke("inventaires:validerLigne", id, qtePhysique),
     valider: (id: string, utilisateurId: string | null) =>

@@ -19,6 +19,7 @@ from .serializers import (
     TransfertStockSerializer,
 )
 from .services import (
+    ajouter_ligne_inventaire,
     annuler_perte,
     arreter_destockage,
     arreter_operation_destockage,
@@ -183,6 +184,22 @@ class InventaireViewSet(_LectureStockMixin, viewsets.ModelViewSet):
         inventaire = self.get_object()
         valider_inventaire(inventaire)
         return Response(self.get_serializer(inventaire).data)
+
+    @action(detail=True, methods=["post"], url_path="ajouter-ligne")
+    def ajouter_ligne(self, request, pk=None):
+        """{"variante": id, "qte_physique": "3"} : article absent de la liste."""
+        from catalogue.models import Variante
+
+        variante = Variante.objects.filter(
+            id=request.data.get("variante"), produit__boutique=request.user.boutique
+        ).first()
+        if variante is None:
+            raise serializers.ValidationError("Article introuvable.")
+        qte = serializers.DecimalField(max_digits=12, decimal_places=2).to_internal_value(
+            request.data.get("qte_physique", 0)
+        )
+        ligne = ajouter_ligne_inventaire(self.get_object(), variante, qte)
+        return Response(LigneInventaireSerializer(ligne).data)
 
 
 class LigneInventaireViewSet(

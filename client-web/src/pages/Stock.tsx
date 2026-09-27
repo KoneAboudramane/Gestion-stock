@@ -9,6 +9,7 @@ import { formaterMontant } from "../lib/formatage";
 import { rechercherVariantesAchat, type VarianteAchat } from "../services/achats";
 import {
   creerMouvementManuel,
+  ajouterLigneInventaire,
   annulerPerte,
   arreterDestockage,
   arreterOperationDestockage,
@@ -28,7 +29,9 @@ import {
   modifierDestockage,
   modifierLigneInventaire,
   obtenirInventaire,
+  rechercherVariantesDestockage,
   transfererStock,
+  trouverVarianteParCodeBarres,
   validerInventaire,
   type DepotResume,
   type DestockageResume,
@@ -42,6 +45,7 @@ import {
   type PerteResume,
   type TransfertResume,
   type TypeMouvement,
+  type VarianteDestockage,
 } from "../services/stock";
 import { useFabricationPropre } from "../hooks/useFabricationPropre";
 import { libelleMotifPerte, libelleStatutDestockage, MOTIFS_PERTE } from "../lib/libelles";
@@ -1053,6 +1057,63 @@ function DetailInventaire({
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
   const devise = useDevise();
+  // Douchette / saisie d'un code-barres (Entrée) : +1 sur l'article, ajouté
+  // à l'inventaire s'il n'y est pas encore.
+  const [codeSaisi, setCodeSaisi] = useState("");
+  const [dernierScan, setDernierScan] = useState<string | null>(null);
+  const [erreurSaisie, setErreurSaisie] = useState<string | null>(null);
+  const [termeAjout, setTermeAjout] = useState("");
+  const [resultatsAjout, setResultatsAjout] = useState<VarianteDestockage[]>([]);
+  const [listeAjoutOuverte, setListeAjoutOuverte] = useState(false);
+
+  useEffect(() => {
+    if (!termeAjout.trim()) {
+      setResultatsAjout([]);
+      return;
+    }
+    const identifiant = setTimeout(() => {
+      rechercherVariantesDestockage(session.boutiqueId, termeAjout.trim()).then(setResultatsAjout);
+    }, 200);
+    return () => clearTimeout(identifiant);
+  }, [termeAjout, session.boutiqueId]);
+
+  async function ajouterArticle(varianteId: string, quantite: number): Promise<boolean> {
+    if (!inventaire) return false;
+      try {
+        await ajouterLigneInventaire(inventaire.id, varianteId, quantite);
+      } catch (e) {
+        setErreurSaisie(e instanceof ErreurStock ? e.message : "Erreur inattendue.");
+        return false;
+      }
+      return true;
+  }
+
+  async function scanner(evenement: React.FormEvent) {
+    evenement.preventDefault();
+    const code = codeSaisi.trim();
+    if (!code || !inventaire) return;
+    setErreurSaisie(null);
+    setCodeSaisi("");
+    const ligne = inventaire.lignes.find((l) => l.codeBarres === code);
+    if (ligne) {
+      try {
+        await enregistrerLigne(ligne.id, ligne.qtePhysique + 1);
+        setDernierScan(`✓ ${ligne.produitNom} : ${ligne.qtePhysique + 1}`);
+      } catch (e) {
+        setErreurSaisie(e instanceof ErreurStock ? e.message : "Erreur inattendue.");
+      }
+      return;
+    }
+    const trouve = await trouverVarianteParCodeBarres(session.boutiqueId, code);
+    if (!trouve) {
+      setErreurSaisie(`Aucun article avec le code-barres « ${code} ».`);
+      return;
+    }
+    if (await ajouterArticle(trouve.id, 1)) {
+      setDernierScan(`✓ ${trouve.produitNom} ajouté : 1`);
+      rafraichir();
+    }
+  }
 
   async function rafraichir() {
     setInventaire((await obtenirInventaire(inventaireId)) ?? null);
@@ -1103,6 +1164,54 @@ function DetailInventaire({
       </div>
       <div className="modale-corps">
         {erreur && <div className="message-erreur">{erreur}</div>}
+      {!estValide && peutGerer && (
+        <div className="barre-saisie-inventaire">
+          <form onSubmit={scanner} className="champ-douchette">
+            <input
+              value={codeSaisi}
+              onChange={(e) => setCodeSaisi(e.target.value)}
+              placeholder="Scanner ou taper un code-barres, puis Entrée (+1)"
+              autoFocus
+            />
+          </form>
+          <div className="recherche-commande-combobox">
+            <input
+              placeholder="+ Ajouter un article absent de la liste…"
+              value={termeAjout}
+              onChange={(e) => setTermeAjout(e.target.value)}
+              onFocus={() => setListeAjoutOuverte(true)}
+              onBlur={() => setListeAjoutOuverte(false)}
+            />
+            {termeAjout.trim() && listeAjoutOuverte && (
+              <ul className="resultats-recherche">
+                {resultatsAjout
+                  .filter((v) => !inventaire.lignes.some((l) => l.varianteId === v.id))
+                  .map((v) => (
+                    <li
+                      key={v.id}
+                      onMouseDown={async (e) => {
+                        e.preventDefault();
+                        setErreurSaisie(null);
+                        if (await ajouterArticle(v.id, 0)) {
+                          setTermeAjout("");
+                          setDernierScan(`✓ ${v.produitNom} ajouté : saisissez la quantité comptée`);
+                          rafraichir();
+                        }
+                      }}
+                    >
+                      <span>
+                        {v.produitNom} {v.reference && `(${v.reference})`}
+                      </span>
+                    </li>
+                  ))}
+                {resultatsAjout.length === 0 && <li className="liste-vide">Aucun résultat.</li>}
+              </ul>
+            )}
+          </div>
+          {dernierScan && <span className="retour-douchette">{dernierScan}</span>}
+          {erreurSaisie && <span className="message-erreur">{erreurSaisie}</span>}
+        </div>
+      )}
         <div className="zone-tableau-scroll">
           <table className="tableau-catalogue carte-mobile">
             <thead>
@@ -1180,6 +1289,9 @@ function OngletInventaire({ session }: { session: Session }) {
   const [inventaireSelectionneId, setInventaireSelectionneId] = useState<string | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  // « Comptage à zéro » : chaque article part de 0 ; ce qui n'est pas compté
+  // sera considéré comme absent à la validation (stock très faux à reprendre).
+  const [aZero, setAZero] = useState(false);
 
   async function rafraichir() {
     const tous = await listerInventaires(session.boutiqueId);
@@ -1199,7 +1311,7 @@ function OngletInventaire({ session }: { session: Session }) {
     setEnCours(true);
     setErreur(null);
     try {
-      const id = await demarrerInventaire(session.boutiqueId, depotChoisi, session.utilisateurId);
+      const id = await demarrerInventaire(session.boutiqueId, depotChoisi, session.utilisateurId, aZero);
       await rafraichir();
       setInventaireSelectionneId(id);
       setVue("detail");
@@ -1237,6 +1349,10 @@ function OngletInventaire({ session }: { session: Session }) {
                 </option>
               ))}
             </select>
+            <label className="case-a-cocher" title="Chaque article part de 0 : ce qui n'est pas compté sera considéré comme absent à la validation.">
+              <input type="checkbox" checked={aZero} onChange={(e) => setAZero(e.target.checked)} />
+              Comptage à zéro
+            </label>
             <span className="actions-ligne">
               <button type="button" className="bouton-primaire" onClick={demarrer} disabled={enCours || !depotChoisi}>
                 {enCours ? "Démarrage…" : "Démarrer un inventaire"}

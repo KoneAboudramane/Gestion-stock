@@ -391,8 +391,11 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("inventaires:lister", (_evt, boutiqueId: string) => stock.listerInventaires(boutiqueId));
   ipcMain.handle(
     "inventaires:demarrer",
-    (_evt, boutiqueId: string, depotId: string, utilisateurId: string | null) =>
-      executerEnSecurite(() => stock.demarrerInventaire(boutiqueId, depotId, utilisateurId)),
+    (_evt, boutiqueId: string, depotId: string, utilisateurId: string | null, aZero?: boolean) =>
+      executerEnSecurite(() => stock.demarrerInventaire(boutiqueId, depotId, utilisateurId, !!aZero)),
+  );
+  ipcMain.handle("inventaires:ajouterLigne", (_evt, inventaireId: string, varianteId: string, qtePhysique?: number) =>
+    executerEnSecurite(() => stock.ajouterLigneInventaire(inventaireId, varianteId, qtePhysique ?? 0)),
   );
   ipcMain.handle("inventaires:obtenir", (_evt, id: string) => stock.obtenirInventaire(id));
   ipcMain.handle("inventaires:validerLigne", (_evt, id: string, qtePhysique: number) =>

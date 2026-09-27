@@ -816,6 +816,20 @@ export async function terminerDestockageSiEpuise(varianteId: string): Promise<vo
   }
 }
 
+/** Article dont le code-barres est exactement `code` (douchette de l'inventaire). */
+export async function trouverVarianteParCodeBarres(
+  boutiqueId: string,
+  code: string,
+): Promise<{ id: string; produitNom: string } | undefined> {
+  const db = await ouvrirBaseDeDonnees();
+  for (const produit of (await db.getAllFromIndex("produits", "boutique_id", boutiqueId)).filter((p) => !p.supprime)) {
+    for (const v of await db.getAllFromIndex("variantes", "produit_id", produit.id)) {
+      if (!v.supprime && v.code_barres === code) return { id: v.id, produitNom: produit.nom };
+    }
+  }
+  return undefined;
+}
+
 export interface VarianteDestockage {
   id: string;
   produitNom: string;
@@ -955,7 +969,13 @@ export async function listerInventaires(boutiqueId: string): Promise<InventaireR
   return resultat;
 }
 
-export async function demarrerInventaire(boutiqueId: string, depotId: string, utilisateurId: string | null): Promise<string> {
+/** aZero : « comptage à zéro » — chaque article part de 0, seul ce qui est compté compte. */
+export async function demarrerInventaire(
+  boutiqueId: string,
+  depotId: string,
+  utilisateurId: string | null,
+  aZero = false,
+): Promise<string> {
   const db = await ouvrirBaseDeDonnees();
   const id = crypto.randomUUID();
   const inventaire: InventaireLocal = {
@@ -977,8 +997,8 @@ export async function demarrerInventaire(boutiqueId: string, depotId: string, ut
       inventaire_id: id,
       variante_id: s.variante_id,
       qte_theorique: s.quantite,
-      qte_physique: s.quantite,
-      ecart: 0,
+      qte_physique: aZero ? 0 : s.quantite,
+      ecart: aZero ? -s.quantite : 0,
       prix_achat_fige: 0,
       ...suiviSyncNeuf(),
     };
@@ -993,6 +1013,7 @@ export interface LigneInventaireDetail {
   varianteId: string;
   produitNom: string;
   reference: string;
+  codeBarres: string;
   qteTheorique: number;
   qtePhysique: number;
   ecart: number;
@@ -1079,6 +1100,7 @@ export async function obtenirInventaire(id: string): Promise<InventaireDetail | 
       varianteId: l.variante_id,
       produitNom: produit?.nom ?? "",
       reference: variante.reference,
+      codeBarres: variante.code_barres ?? "",
       qteTheorique: l.qte_theorique,
       qtePhysique: l.qte_physique,
       ecart: l.ecart,
@@ -1107,6 +1129,31 @@ export async function obtenirInventaire(id: string): Promise<InventaireDetail | 
     ecartValeur: Math.round(valeurPhysique - valeurTheorique),
     caPeriode: Math.round(caPeriode),
   };
+}
+
+/** Article trouvé sur place mais absent de la liste : ajouté pendant le comptage. */
+export async function ajouterLigneInventaire(inventaireId: string, varianteId: string, qtePhysique = 0): Promise<string> {
+  const db = await ouvrirBaseDeDonnees();
+  const inventaire = await obtenirLigne("inventaires", inventaireId);
+  if (!inventaire) throw new ErreurStock("Inventaire introuvable.");
+  if (inventaire.statut === "valide") throw new ErreurStock("Cet inventaire est déjà validé.");
+  const existantes = await db.getAll("lignes_inventaire");
+  if (existantes.some((l) => !l.supprime && l.inventaire_id === inventaireId && l.variante_id === varianteId)) {
+    throw new ErreurStock("Cet article est déjà dans l'inventaire.");
+  }
+  const theorique = (await db.getFromIndex("stocks", "variante_depot", [varianteId, inventaire.depot_id]))?.quantite ?? 0;
+  const ligne: LigneInventaireLocale = {
+    id: crypto.randomUUID(),
+    inventaire_id: inventaireId,
+    variante_id: varianteId,
+    qte_theorique: theorique,
+    qte_physique: qtePhysique,
+    ecart: qtePhysique - theorique,
+    prix_achat_fige: 0,
+    ...suiviSyncNeuf(),
+  };
+  await ecrireLigne("lignes_inventaire", ligne);
+  return ligne.id;
 }
 
 export async function modifierLigneInventaire(id: string, qtePhysique: number): Promise<void> {

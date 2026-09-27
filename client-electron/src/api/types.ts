@@ -507,6 +507,7 @@ export interface LigneInventaireDetail {
   varianteId: string;
   produitNom: string;
   reference: string;
+  codeBarres: string;
   qteTheorique: number;
   qtePhysique: number;
   ecart: number;
@@ -1211,7 +1212,13 @@ export interface WindowApi {
   };
   inventaires: {
     lister(boutiqueId: string): Promise<InventaireResume[]>;
-    demarrer(boutiqueId: string, depotId: string, utilisateurId: string | null): Promise<ResultatEcriture<string>>;
+    demarrer(
+      boutiqueId: string,
+      depotId: string,
+      utilisateurId: string | null,
+      aZero?: boolean,
+    ): Promise<ResultatEcriture<string>>;
+    ajouterLigne(inventaireId: string, varianteId: string, qtePhysique?: number): Promise<ResultatEcriture<string>>;
     obtenir(id: string): Promise<InventaireDetail | undefined>;
     validerLigne(id: string, qtePhysique: number): Promise<ResultatEcriture<void>>;
     valider(id: string, utilisateurId: string | null): Promise<ResultatEcriture<void>>;

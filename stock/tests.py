@@ -384,3 +384,35 @@ class AnnulationPerteEtModificationDestockageTests(APITestCase):
             reverse("destockage-modifier", args=[destockage.id]), {"prix_destockage": "600"}, format="json",
         )
         self.assertEqual(refus.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class InventaireComptageAZeroEtAjoutTests(APITestCase):
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique I"}, {"username": "patronI", "password": "UnMotDePasseSolide123"}
+        )
+        self.depot = Depot.objects.create(boutique=self.boutique, nom="Magasin")
+        self.variante = Variante.objects.create(
+            produit=Produit.objects.create(boutique=self.boutique, nom="Bol"), prix_achat=100, prix_vente=200,
+        )
+        appliquer_mouvement(self.variante, self.depot, MouvementStock.Type.ENTREE, 8)
+        self.client.force_authenticate(user=self.patron)
+
+    def test_comptage_a_zero_puis_ajout_d_un_article(self):
+        reponse = self.client.post(
+            reverse("inventaire-list"), {"depot": str(self.depot.id), "a_zero": True}, format="json"
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+        ligne = reponse.data["lignes"][0]
+        self.assertEqual((float(ligne["qte_physique"]), float(ligne["ecart"])), (0.0, -8.0))
+
+        nouvelle = Variante.objects.create(
+            produit=Produit.objects.create(boutique=self.boutique, nom="Tasse"), prix_achat=50, prix_vente=90,
+        )
+        ajout = self.client.post(
+            reverse("inventaire-ajouter-ligne", args=[reponse.data["id"]]),
+            {"variante": str(nouvelle.id), "qte_physique": "3"},
+            format="json",
+        )
+        self.assertEqual(ajout.status_code, status.HTTP_200_OK, ajout.data)
+        self.assertEqual(float(ajout.data["ecart"]), 3.0)

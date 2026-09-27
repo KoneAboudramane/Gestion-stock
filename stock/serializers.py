@@ -233,8 +233,10 @@ class InventaireSerializer(_RestreintABoutiqueMixin, serializers.ModelSerializer
 
     class Meta:
         model = Inventaire
-        fields = ["id", "depot", "statut", "utilisateur", "date_creation", "lignes"]
+        fields = ["id", "depot", "statut", "utilisateur", "date_creation", "lignes", "a_zero"]
         read_only_fields = ["id", "statut", "utilisateur", "date_creation", "lignes"]
+
+    a_zero = serializers.BooleanField(default=False, write_only=True)
 
     def create(self, validated_data):
         request = self.context["request"]
@@ -242,4 +244,5 @@ class InventaireSerializer(_RestreintABoutiqueMixin, serializers.ModelSerializer
             boutique=request.user.boutique,
             depot=validated_data["depot"],
             utilisateur=request.user,
+            a_zero=validated_data.get("a_zero", False),
         )

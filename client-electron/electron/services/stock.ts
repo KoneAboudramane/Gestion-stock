@@ -969,7 +969,8 @@ export function listerInventaires(boutiqueId: string): InventaireResume[] {
   );
 }
 
-export function demarrerInventaire(boutiqueId: string, depotId: string, utilisateurId: string | null): string {
+/** aZero : « comptage à zéro » — chaque article part de 0, seul ce qui est compté compte. */
+export function demarrerInventaire(boutiqueId: string, depotId: string, utilisateurId: string | null, aZero = false): string {
   const inventaireId = dansUneTransaction(() => {
     const maintenant = new Date().toISOString();
     const id = randomUUID();
@@ -987,8 +988,17 @@ export function demarrerInventaire(boutiqueId: string, depotId: string, utilisat
       executer(
         `INSERT INTO lignes_inventaire
            (id, inventaire_id, variante_id, qte_theorique, qte_physique, ecart, date_creation, date_modification)
-         VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
-        [randomUUID(), id, s.variante_id, s.quantite, s.quantite, maintenant, maintenant],
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          randomUUID(),
+          id,
+          s.variante_id,
+          s.quantite,
+          aZero ? 0 : s.quantite,
+          aZero ? -Number(s.quantite) : 0,
+          maintenant,
+          maintenant,
+        ],
       );
     }
     return id;
@@ -1003,6 +1013,7 @@ export interface LigneInventaireDetail {
   varianteId: string;
   produitNom: string;
   reference: string;
+  codeBarres: string;
   qteTheorique: number;
   qtePhysique: number;
   ecart: number;
@@ -1077,12 +1088,14 @@ export function obtenirInventaire(id: string): InventaireDetail | undefined {
     varianteId: string;
     produitNom: string;
     reference: string;
+    codeBarres: string;
     qteTheorique: number;
     qtePhysique: number;
     ecart: number;
     prixAchat: number;
   }>(
     `SELECT li.id as id, v.id as varianteId, p.nom as produitNom, v.reference as reference,
+            COALESCE(v.code_barres, '') as codeBarres,
             li.qte_theorique as qteTheorique, li.qte_physique as qtePhysique, li.ecart as ecart,
             CASE WHEN i.statut = 'valide' THEN li.prix_achat_fige ELSE v.prix_achat END as prixAchat
      FROM lignes_inventaire li
@@ -1136,6 +1149,36 @@ export function obtenirInventaire(id: string): InventaireDetail | undefined {
     ecartValeur: Math.round(valeurPhysique - valeurTheorique),
     caPeriode: Math.round(caPeriode),
   };
+}
+
+/** Article trouvé sur place mais absent de la liste : ajouté pendant le comptage. */
+export function ajouterLigneInventaire(inventaireId: string, varianteId: string, qtePhysique = 0): string {
+  const inventaire = unResultat<{ statut: string; depot_id: string }>("SELECT statut, depot_id FROM inventaires WHERE id = ?", [
+    inventaireId,
+  ]);
+  if (!inventaire) throw new ErreurStock("Inventaire introuvable.");
+  if (inventaire.statut === "valide") throw new ErreurStock("Cet inventaire est déjà validé.");
+  const deja = unResultat<{ id: string }>(
+    "SELECT id FROM lignes_inventaire WHERE inventaire_id = ? AND variante_id = ? AND supprime = 0",
+    [inventaireId, varianteId],
+  );
+  if (deja) throw new ErreurStock("Cet article est déjà dans l'inventaire.");
+  const theorique = Number(
+    unResultat<{ quantite: number }>("SELECT quantite FROM stocks WHERE variante_id = ? AND depot_id = ?", [
+      varianteId,
+      inventaire.depot_id,
+    ])?.quantite ?? 0,
+  );
+  const id = randomUUID();
+  const maintenant = new Date().toISOString();
+  executer(
+    `INSERT INTO lignes_inventaire
+       (id, inventaire_id, variante_id, qte_theorique, qte_physique, ecart, date_creation, date_modification)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, inventaireId, varianteId, theorique, qtePhysique, qtePhysique - theorique, maintenant, maintenant],
+  );
+  sauvegarder();
+  return id;
 }
 
 export function modifierLigneInventaire(id: string, qtePhysique: number): void {
