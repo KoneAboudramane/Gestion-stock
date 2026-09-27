@@ -42,13 +42,22 @@ class LigneAchat(ModeleBase):
     quantite = models.DecimalField(max_digits=12, decimal_places=2)
     prix_achat = models.DecimalField(max_digits=12, decimal_places=2)
     sous_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Cumul des quantités déjà réceptionnées (réception partielle possible sur
+    # plusieurs livraisons) : la commande ne repasse au statut "recue" que
+    # lorsque quantite_recue atteint quantite sur toutes ses lignes.
+    quantite_recue = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
     def __str__(self):
         return f"{self.quantite} x {self.variante}"
 
 
 class Reception(ModeleBase):
-    """Réception physique d'une commande dans un dépôt (déclenche l'entrée en stock)."""
+    """Réception physique d'une commande dans un dépôt (déclenche l'entrée en
+    stock) — partielle ou totale. valeur_recue/montant_paye couvrent
+    uniquement ce qui a été livré à CETTE réception (pas le total de la
+    commande) : comptabilite/signals.py s'en sert pour générer une écriture
+    par réception plutôt qu'une seule à la clôture de la commande.
+    """
 
     commande = models.ForeignKey(
         CommandeAchat, on_delete=models.CASCADE, related_name="receptions"
@@ -57,6 +66,8 @@ class Reception(ModeleBase):
     utilisateur = models.ForeignKey(
         "comptes.Utilisateur", on_delete=models.SET_NULL, null=True, blank=True
     )
+    valeur_recue = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    montant_paye = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
     def __str__(self):
         return f"Réception {self.commande}"

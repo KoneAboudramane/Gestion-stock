@@ -152,10 +152,13 @@ class AchatFournisseurComptableTests(ComptabiliteTestsBase):
             self.boutique, fournisseur, self.patron, CommandeAchat.Statut.COMMANDEE,
             [{"variante": self.variante, "quantite": 10, "prix_achat": 1000}],
         )
-        receptionner_commande(commande, self.depot, self.patron, montant_deja_paye=4000)
+        reception = receptionner_commande(
+            commande, self.depot, self.patron, montant_deja_paye=4000,
+            lignes=[{"ligne": commande.lignes.get(), "quantite": 10}],
+        )
 
         ecriture = EcritureComptable.objects.get(
-            reference_type="achats.CommandeAchat", reference_id=commande.id
+            reference_type="achats.Reception", reference_id=reception.id
         )
         lignes = _lignes(ecriture)
         self.assertEqual(lignes["601"], (10000, 0))
@@ -178,10 +181,13 @@ class AchatFournisseurComptableTests(ComptabiliteTestsBase):
             self.boutique, fournisseur, self.patron, CommandeAchat.Statut.COMMANDEE,
             [{"variante": self.variante, "quantite": 5, "prix_achat": 1000}],
         )
-        receptionner_commande(commande, self.depot, self.patron, montant_deja_paye=5000)
+        reception = receptionner_commande(
+            commande, self.depot, self.patron, montant_deja_paye=5000,
+            lignes=[{"ligne": commande.lignes.get(), "quantite": 5}],
+        )
 
         ecriture = EcritureComptable.objects.get(
-            reference_type="achats.CommandeAchat", reference_id=commande.id
+            reference_type="achats.Reception", reference_id=reception.id
         )
         lignes = _lignes(ecriture)
         self.assertEqual(lignes["601"], (5000, 0))

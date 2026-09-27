@@ -107,51 +107,43 @@ def sur_annulation_vente(sender, instance, created, **kwargs):
 
 # --- Achats ---
 
-@receiver(post_save, sender="achats.CommandeAchat")
+@receiver(post_save, sender="achats.Reception")
 def sur_reception_achat(sender, instance, created, **kwargs):
-    """Se déclenche quand une commande passe au statut 'recue'. Ne peut pas
-    s'accrocher à achats.Reception : dans achats/services.py::receptionner_commande,
-    la Reception est créée AVANT la DetteFournisseur, donc un signal sur
-    Reception verrait toujours solde=0. Le passage à 'recue' est le dernier
-    évènement de la transaction : à ce moment, Reception et DetteFournisseur
-    existent déjà toutes les deux."""
-    if created or instance.statut != "recue":
+    """Une écriture par réception (pas par commande) : une commande peut être
+    livrée en plusieurs fois (réception partielle, voir
+    achats/services.py::receptionner_commande), et chaque livraison porte sa
+    propre valeur reçue — jamais forcément le total de la commande."""
+    if not created:
         return
     try:
-        if _reference_deja_comptabilisee("achats.CommandeAchat", instance.id):
+        if _reference_deja_comptabilisee("achats.Reception", instance.id):
             return
-        from achats.models import Reception
-        from fournisseurs.models import DetteFournisseur
-
-        reception = Reception.objects.filter(commande=instance).order_by("-date_creation").first()
-        if reception is None:
+        valeur_recue = instance.valeur_recue
+        if valeur_recue <= 0:
             return
+        commande = instance.commande
 
-        contexte = preparer_contexte(instance.boutique, reception.date_creation.date())
-        # achats/services.py::receptionner_commande ne crée une DetteFournisseur
-        # que si solde > 0, et dette.montant vaut alors toujours instance.total
-        # (jamais un montant partiel) : un paiement immédiat à la réception est
-        # simplement absorbé dans le solde/montant_paye initial de la dette,
-        # sans mouvement de caisse séparé (même limite côté tresorerie, qui n'en
-        # crée pas non plus). Utiliser l'existence de la dette (pas son solde,
-        # qui diminue avec le temps au fil des paiements ultérieurs, déjà
-        # comptabilisés par sur_paiement_dette_fournisseur) évite de sous-compter
-        # le 401 si l'écriture était régénérée après coup.
-        a_une_dette = DetteFournisseur.objects.filter(commande=instance).exists()
-        compte_contrepartie = "401" if a_une_dette else "571"
+        contexte = preparer_contexte(commande.boutique, instance.date_creation.date())
+        # achats/services.py::receptionner_commande ne trace pas séparément un
+        # paiement immédiat partiel à la réception (aucun MouvementCaisse créé
+        # pour lui, même limite côté trésorerie) : la réception finance donc
+        # tout le montant reçu via 401 dès qu'un solde subsiste après ce
+        # paiement, sinon tout est considéré payé comptant (571).
+        solde = valeur_recue - instance.montant_paye
+        compte_contrepartie = "401" if solde > 0 else "571"
         lignes = [
-            {"compte": "601", "debit": instance.total},
-            {"compte": compte_contrepartie, "credit": instance.total},
+            {"compte": "601", "debit": valeur_recue},
+            {"compte": compte_contrepartie, "credit": valeur_recue},
         ]
         creer_ecriture(
-            contexte, "AC", reception.date_creation.date(),
-            f"Réception {instance.numero or instance.id}",
+            contexte, "AC", instance.date_creation.date(),
+            f"Réception {commande.numero or commande.id}",
             lignes,
-            reference_type="achats.CommandeAchat", reference_id=instance.id,
-            utilisateur=reception.utilisateur,
+            reference_type="achats.Reception", reference_id=instance.id,
+            utilisateur=instance.utilisateur,
         )
     except Exception:
-        logger.exception("comptabilite: échec génération écriture pour achats.CommandeAchat %s", instance.id)
+        logger.exception("comptabilite: échec génération écriture pour achats.Reception %s", instance.id)
 
 
 @receiver(post_save, sender="fournisseurs.PaiementDetteFournisseur")

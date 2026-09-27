@@ -6,7 +6,7 @@ from catalogue.models import Produit, Variante
 from comptes.models import Role, Utilisateur
 from comptes.services import inscrire_boutique
 from fournisseurs.models import DetteFournisseur, Fournisseur
-from stock.models import Depot, Stock
+from stock.models import Depot, MouvementStock, Stock
 
 from .models import CommandeAchat
 
@@ -55,13 +55,51 @@ class CommandeAchatTests(APITestCase):
         depot = Depot.objects.create(boutique=self.boutique, nom="Entrepot")
         self.client.post(
             reverse("reception-list"),
-            {"commande": str(commande.id), "depot": str(depot.id)},
+            {
+                "commande": str(commande.id),
+                "depot": str(depot.id),
+                "lignes": [{"variante": str(self.variante.id), "quantite": "2"}],
+            },
             format="json",
         )
         reponse = self.client.patch(
             reverse("commandeachat-detail", args=[commande.id]),
             {"lignes_saisie": [{"variante": str(self.variante.id), "quantite": "5", "prix_achat": "5000"}]},
             format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_annulation_commande_sans_reception(self):
+        commande = CommandeAchat.objects.create(
+            boutique=self.boutique, fournisseur=self.fournisseur, statut="commandee", total=0,
+        )
+        reponse = self.client.patch(
+            reverse("commandeachat-detail", args=[commande.id]), {"statut": "annulee"}, format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK, reponse.data)
+        commande.refresh_from_db()
+        self.assertEqual(commande.statut, "annulee")
+
+    def test_annulation_refusee_apres_reception_partielle(self):
+        commande = CommandeAchat.objects.create(
+            boutique=self.boutique, fournisseur=self.fournisseur, statut="commandee", total=50000,
+        )
+        from .models import LigneAchat
+        LigneAchat.objects.create(
+            commande=commande, variante=self.variante, quantite=10, prix_achat=5000, sous_total=50000,
+        )
+        depot = Depot.objects.create(boutique=self.boutique, nom="Entrepot")
+        self.client.post(
+            reverse("reception-list"),
+            {
+                "commande": str(commande.id),
+                "depot": str(depot.id),
+                "lignes": [{"variante": str(self.variante.id), "quantite": "3"}],
+            },
+            format="json",
+        )
+        reponse = self.client.patch(
+            reverse("commandeachat-detail", args=[commande.id]), {"statut": "annulee"}, format="json",
         )
         self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -87,7 +125,12 @@ class ReceptionTests(APITestCase):
     def test_reception_incremente_stock_et_cree_dette_partielle(self):
         reponse = self.client.post(
             reverse("reception-list"),
-            {"commande": str(self.commande.id), "depot": str(self.depot.id), "montant_deja_paye": "15000"},
+            {
+                "commande": str(self.commande.id),
+                "depot": str(self.depot.id),
+                "montant_deja_paye": "15000",
+                "lignes": [{"variante": str(self.variante.id), "quantite": "10"}],
+            },
             format="json",
         )
         self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
@@ -107,7 +150,12 @@ class ReceptionTests(APITestCase):
     def test_reception_totalement_payee_ne_cree_pas_de_dette(self):
         reponse = self.client.post(
             reverse("reception-list"),
-            {"commande": str(self.commande.id), "depot": str(self.depot.id), "montant_deja_paye": "40000"},
+            {
+                "commande": str(self.commande.id),
+                "depot": str(self.depot.id),
+                "montant_deja_paye": "40000",
+                "lignes": [{"variante": str(self.variante.id), "quantite": "10"}],
+            },
             format="json",
         )
         self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
@@ -116,12 +164,20 @@ class ReceptionTests(APITestCase):
     def test_double_reception_refusee(self):
         self.client.post(
             reverse("reception-list"),
-            {"commande": str(self.commande.id), "depot": str(self.depot.id)},
+            {
+                "commande": str(self.commande.id),
+                "depot": str(self.depot.id),
+                "lignes": [{"variante": str(self.variante.id), "quantite": "10"}],
+            },
             format="json",
         )
         reponse = self.client.post(
             reverse("reception-list"),
-            {"commande": str(self.commande.id), "depot": str(self.depot.id)},
+            {
+                "commande": str(self.commande.id),
+                "depot": str(self.depot.id),
+                "lignes": [{"variante": str(self.variante.id), "quantite": "10"}],
+            },
             format="json",
         )
         self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
@@ -132,7 +188,11 @@ class ReceptionTests(APITestCase):
         )
         reponse = self.client.post(
             reverse("reception-list"),
-            {"commande": str(commande_brouillon.id), "depot": str(self.depot.id)},
+            {
+                "commande": str(commande_brouillon.id),
+                "depot": str(self.depot.id),
+                "lignes": [{"variante": str(self.variante.id), "quantite": "1"}],
+            },
             format="json",
         )
         self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
@@ -143,7 +203,7 @@ class ReceptionTests(APITestCase):
             {
                 "commande": str(self.commande.id),
                 "depot": str(self.depot.id),
-                "lignes_prix": [{"variante": str(self.variante.id), "prix_vente": "5500"}],
+                "lignes": [{"variante": str(self.variante.id), "quantite": "10", "prix_vente": "5500"}],
             },
             format="json",
         )
@@ -159,7 +219,79 @@ class ReceptionTests(APITestCase):
             {
                 "commande": str(self.commande.id),
                 "depot": str(self.depot.id),
-                "lignes_prix": [{"variante": str(self.variante.id), "prix_vente": "1000"}],
+                "lignes": [{"variante": str(self.variante.id), "quantite": "10", "prix_vente": "1000"}],
+            },
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_reception_partielle_garde_la_commande_commandee_puis_la_termine(self):
+        reponse = self.client.post(
+            reverse("reception-list"),
+            {
+                "commande": str(self.commande.id),
+                "depot": str(self.depot.id),
+                "lignes": [{"variante": str(self.variante.id), "quantite": "6"}],
+            },
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+
+        self.commande.refresh_from_db()
+        self.assertEqual(self.commande.statut, "commandee")
+
+        stock = Stock.objects.get(variante=self.variante, depot=self.depot)
+        self.assertEqual(stock.quantite, 6)
+
+        ligne = self.commande.lignes.get()
+        self.assertEqual(ligne.quantite_recue, 6)
+
+        reponse = self.client.post(
+            reverse("reception-list"),
+            {
+                "commande": str(self.commande.id),
+                "depot": str(self.depot.id),
+                "lignes": [{"variante": str(self.variante.id), "quantite": "4"}],
+            },
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+
+        self.commande.refresh_from_db()
+        self.assertEqual(self.commande.statut, "recue")
+        stock.refresh_from_db()
+        self.assertEqual(stock.quantite, 10)
+
+        # Chaque réception garde la trace de ses propres articles livrés.
+        quantites_par_reception = [
+            [
+                m.quantite
+                for m in MouvementStock.objects.filter(
+                    reference_type="achats.Reception", reference_id=reception.id
+                )
+            ]
+            for reception in self.commande.receptions.order_by("date_creation")
+        ]
+        self.assertEqual(quantites_par_reception, [[6], [4]])
+
+    def test_reception_partielle_quantite_superieure_au_restant_refusee(self):
+        reponse = self.client.post(
+            reverse("reception-list"),
+            {
+                "commande": str(self.commande.id),
+                "depot": str(self.depot.id),
+                "lignes": [{"variante": str(self.variante.id), "quantite": "6"}],
+            },
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+
+        reponse = self.client.post(
+            reverse("reception-list"),
+            {
+                "commande": str(self.commande.id),
+                "depot": str(self.depot.id),
+                "lignes": [{"variante": str(self.variante.id), "quantite": "5"}],
             },
             format="json",
         )

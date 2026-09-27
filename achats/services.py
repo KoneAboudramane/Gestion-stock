@@ -42,6 +42,15 @@ def creer_commande(boutique, fournisseur, utilisateur, statut, lignes_donnees):
 def modifier_commande(commande, fournisseur, statut, lignes_donnees=None):
     if commande.statut in (CommandeAchat.Statut.RECUE, CommandeAchat.Statut.ANNULEE):
         raise ValidationError("Cette commande ne peut plus être modifiée.")
+    deja_receptionnee = commande.lignes.filter(quantite_recue__gt=0).exists()
+    if statut == CommandeAchat.Statut.ANNULEE and deja_receptionnee:
+        raise ValidationError(
+            "Cette commande a déjà été partiellement réceptionnée, elle ne peut plus être annulée."
+        )
+    if lignes_donnees is not None and deja_receptionnee:
+        raise ValidationError(
+            "Cette commande a déjà été partiellement réceptionnée, ses lignes ne peuvent plus être modifiées."
+        )
 
     if lignes_donnees is not None:
         lignes_calculees, total = _calculer_lignes_et_total(lignes_donnees)
@@ -59,22 +68,48 @@ def modifier_commande(commande, fournisseur, statut, lignes_donnees=None):
 
 
 @transaction.atomic
-def receptionner_commande(commande, depot, utilisateur, montant_deja_paye=0, lignes_prix=None):
+def receptionner_commande(commande, depot, utilisateur, montant_deja_paye=0, lignes=None):
+    """Réceptionne tout ou partie d'une commande. `lignes` est une liste de
+    {"ligne": LigneAchat, "quantite": Decimal, "prix_vente": Decimal|None} —
+    seules les quantités indiquées sont reçues (réception partielle possible
+    sur plusieurs livraisons). La commande ne repasse au statut "recue" que
+    lorsque toutes les lignes ont atteint leur quantité commandée.
+    """
     if commande.statut != CommandeAchat.Statut.COMMANDEE:
         raise ValidationError(
             "Seule une commande au statut 'commandée' peut être réceptionnée."
         )
-    if montant_deja_paye > commande.total:
-        raise ValidationError("Le montant déjà payé ne peut pas dépasser le total de la commande.")
 
-    prix_vente_par_variante = {
-        donnee["variante"].id: donnee["prix_vente"] for donnee in (lignes_prix or [])
-    }
+    lignes = [donnee for donnee in (lignes or []) if donnee["quantite"] > 0]
+    if not lignes:
+        raise ValidationError("Indiquez au moins une quantité à réceptionner.")
 
-    for ligne in commande.lignes.all():
+    valeur_recue = 0
+    for donnee in lignes:
+        ligne = donnee["ligne"]
+        restant = ligne.quantite - ligne.quantite_recue
+        if donnee["quantite"] > restant:
+            raise ValidationError(
+                f"Quantité reçue supérieure à la quantité restante pour {ligne.variante}."
+            )
+        valeur_recue += donnee["quantite"] * ligne.prix_achat
+
+    if montant_deja_paye > valeur_recue:
+        raise ValidationError("Le montant déjà payé ne peut pas dépasser la valeur reçue.")
+
+    # Créée avant les mouvements pour qu'ils puissent la référencer : c'est ce
+    # lien qui permet de retrouver les articles livrés à chaque réception.
+    reception = Reception.objects.create(
+        commande=commande, depot=depot, utilisateur=utilisateur,
+        valeur_recue=valeur_recue, montant_paye=montant_deja_paye,
+    )
+
+    for donnee in lignes:
+        ligne = donnee["ligne"]
         variante = ligne.variante
+        quantite = donnee["quantite"]
         motif = f"Réception {commande.numero}"
-        nouveau_prix_vente = prix_vente_par_variante.get(variante.id)
+        nouveau_prix_vente = donnee.get("prix_vente")
         if nouveau_prix_vente is not None:
             if nouveau_prix_vente < ligne.prix_achat:
                 raise ValidationError("Le prix de vente ne peut pas être inférieur au prix d'achat.")
@@ -88,21 +123,23 @@ def receptionner_commande(commande, depot, utilisateur, montant_deja_paye=0, lig
             )
 
         appliquer_mouvement(
-            variante, depot, MouvementStock.Type.ENTREE, ligne.quantite,
+            variante, depot, MouvementStock.Type.ENTREE, quantite,
             motif=motif, utilisateur=utilisateur,
-            reference_type="achats.CommandeAchat", reference_id=commande.id,
+            reference_type="achats.Reception", reference_id=reception.id,
         )
+        ligne.quantite_recue += quantite
+        ligne.save(update_fields=["quantite_recue", "date_modification"])
 
-    reception = Reception.objects.create(commande=commande, depot=depot, utilisateur=utilisateur)
-
-    solde = commande.total - montant_deja_paye
+    solde = valeur_recue - montant_deja_paye
     if solde > 0:
         DetteFournisseur.objects.create(
             fournisseur=commande.fournisseur, commande=commande,
-            montant=commande.total, montant_paye=montant_deja_paye, solde=solde,
+            montant=valeur_recue, montant_paye=montant_deja_paye, solde=solde,
             statut=DetteFournisseur.Statut.EN_COURS,
         )
 
-    commande.statut = CommandeAchat.Statut.RECUE
-    commande.save(update_fields=["statut", "date_modification"])
+    if all(l.quantite_recue >= l.quantite for l in commande.lignes.all()):
+        commande.statut = CommandeAchat.Statut.RECUE
+        commande.save(update_fields=["statut", "date_modification"])
+
     return reception

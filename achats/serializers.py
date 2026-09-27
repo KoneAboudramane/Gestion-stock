@@ -21,7 +21,7 @@ class LigneAchatEntreeSerializer(serializers.Serializer):
 class LigneAchatSerializer(serializers.ModelSerializer):
     class Meta:
         model = LigneAchat
-        fields = ["id", "variante", "quantite", "prix_achat", "sous_total"]
+        fields = ["id", "variante", "quantite", "prix_achat", "sous_total", "quantite_recue"]
         read_only_fields = fields
 
 
@@ -66,23 +66,30 @@ class CommandeAchatSerializer(serializers.ModelSerializer):
         )
 
 
-class LignePrixVenteSerializer(serializers.Serializer):
-    """Prix de vente confirmé/ajusté à la réception pour une variante de la commande."""
+class LigneReceptionSerializer(serializers.Serializer):
+    """Quantité effectivement reçue (réception partielle possible) et prix de
+    vente confirmé/ajusté à la réception, pour une variante de la commande."""
 
     variante = serializers.PrimaryKeyRelatedField(queryset=Variante.objects.all())
-    prix_vente = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0"))
+    quantite = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
+    prix_vente = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=Decimal("0"), required=False
+    )
 
 
 class ReceptionSerializer(serializers.ModelSerializer):
     montant_deja_paye = serializers.DecimalField(
         max_digits=12, decimal_places=2, required=False, default=0, write_only=True
     )
-    lignes_prix = LignePrixVenteSerializer(many=True, required=False, write_only=True)
+    lignes = LigneReceptionSerializer(many=True, write_only=True)
 
     class Meta:
         model = Reception
-        fields = ["id", "commande", "depot", "utilisateur", "date_creation", "montant_deja_paye", "lignes_prix"]
-        read_only_fields = ["id", "utilisateur", "date_creation"]
+        fields = [
+            "id", "commande", "depot", "utilisateur", "date_creation",
+            "valeur_recue", "montant_paye", "montant_deja_paye", "lignes",
+        ]
+        read_only_fields = ["id", "utilisateur", "date_creation", "valeur_recue", "montant_paye"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -91,16 +98,28 @@ class ReceptionSerializer(serializers.ModelSerializer):
             boutique = request.user.boutique
             self.fields["commande"].queryset = CommandeAchat.objects.filter(boutique=boutique)
             self.fields["depot"].queryset = Depot.objects.filter(boutique=boutique)
-            self.fields["lignes_prix"].child.fields["variante"].queryset = Variante.objects.filter(
+            self.fields["lignes"].child.fields["variante"].queryset = Variante.objects.filter(
                 produit__boutique=boutique
             )
 
     def create(self, validated_data):
         request = self.context["request"]
+        commande = validated_data["commande"]
+        lignes_par_variante = {ligne.variante_id: ligne for ligne in commande.lignes.all()}
+
+        lignes_donnees = []
+        for donnee in validated_data["lignes"]:
+            ligne = lignes_par_variante.get(donnee["variante"].id)
+            if ligne is None:
+                raise serializers.ValidationError("Cette variante ne fait pas partie de la commande.")
+            lignes_donnees.append(
+                {"ligne": ligne, "quantite": donnee["quantite"], "prix_vente": donnee.get("prix_vente")}
+            )
+
         return receptionner_commande(
-            commande=validated_data["commande"],
+            commande=commande,
             depot=validated_data["depot"],
             utilisateur=request.user,
             montant_deja_paye=validated_data.get("montant_deja_paye") or 0,
-            lignes_prix=validated_data.get("lignes_prix"),
+            lignes=lignes_donnees,
         )
