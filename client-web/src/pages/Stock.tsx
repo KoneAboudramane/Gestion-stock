@@ -2805,7 +2805,7 @@ function ModaleDestockage({ session, onFermer }: { session: Session; onFermer: (
   );
 }
 
-// --- Historique : pertes et déstockages, filtrables (carte « Historique » de la page Stock) ---
+// --- Historique : pertes, déstockages, transferts et dormants, filtrables (carte « Historique » de la page Stock) ---
 
 type PeriodeHistorique = "tout" | "7j" | "30j" | "mois" | "personnalisee";
 
@@ -3026,13 +3026,14 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   // Comme la carte Produits dormants : montre des coûts, réservé à la gestion / aux rapports.
   const peutVoirDormants = peutGerer || !!session.permissions.voir_rapports_complets;
-  const [section, setSection] = useState<"pertes" | "destockages" | "dormants">("pertes");
+  const [section, setSection] = useState<"pertes" | "destockages" | "transferts" | "dormants">("pertes");
   const [releves, setReleves] = useState<ReleveDormants[]>([]);
   const [sorties, setSorties] = useState<SortieDormance[]>([]);
   const [seuilDormance, setSeuilDormance] = useState(60);
   const [actionDormance, setActionDormance] = useState("");
   const [pertes, setPertes] = useState<PerteResume[]>([]);
   const [destockages, setDestockages] = useState<DestockageResume[]>([]);
+  const [transferts, setTransferts] = useState<TransfertResume[]>([]);
   const [depots, setDepots] = useState<DepotResume[]>([]);
 
   const [periode, setPeriode] = useState<PeriodeHistorique>("tout");
@@ -3042,16 +3043,29 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
   const [depot, setDepot] = useState("");
   const [statut, setStatut] = useState<"" | "en_cours" | "termine">("");
   const [operation, setOperation] = useState("");
+  const [depotDepart, setDepotDepart] = useState("");
+  const [depotArrivee, setDepotArrivee] = useState("");
+  const [rechercheTransfert, setRechercheTransfert] = useState("");
 
   useEffect(() => {
     Promise.all([
       listerPertes(session.boutiqueId),
+      listerTransferts(session.boutiqueId, 5000),
       listerDestockages(session.boutiqueId),
       listerDepotsDetail(session.boutiqueId),
-    ]).then(([toutesPertes, tousDestockages, listeDepots]) => {
+    ]).then(([toutesPertes, tousTransferts, tousDestockages, listeDepots]) => {
       // Sans droit de gestion, on ne voit que les pertes de son dépôt (même règle que la carte Pertes).
       setPertes(
         peutGerer || !session.depotNom ? toutesPertes : toutesPertes.filter((p) => p.depotNom === session.depotNom),
+      );
+      // Même règle que la carte Transferts : sans droit de gestion, seulement ceux
+      // qui touchent son dépôt (départ ou arrivée).
+      setTransferts(
+        peutGerer || !session.depotNom
+          ? tousTransferts
+          : tousTransferts.filter(
+              (t) => t.depotSourceNom === session.depotNom || t.depotDestinationNom === session.depotNom,
+            ),
       );
       setDestockages(tousDestockages);
       setDepots(listeDepots);
@@ -3084,6 +3098,16 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
       dansPeriode(d.dateCreation, bornes) &&
       (!statut || d.statut === statut) &&
       (!operation || (operation === "__seul" ? !d.operationId : d.operationId === operation)),
+  );
+  const rechercheT = rechercheTransfert.trim().toLowerCase();
+  const transfertsFiltres = transferts.filter(
+    (t) =>
+      dansPeriode(t.dateCreation, bornes) &&
+      (!depotDepart || t.depotSourceNom === depotDepart) &&
+      (!depotArrivee || t.depotDestinationNom === depotArrivee) &&
+      (!rechercheT ||
+        t.produitNom.toLowerCase().includes(rechercheT) ||
+        (t.reference ?? "").toLowerCase().includes(rechercheT)),
   );
   const operations = [
     ...new Map(destockages.filter((d) => d.operationId).map((d) => [d.operationId!, d.operationNom ?? ""])),
@@ -3123,6 +3147,15 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
               <span className="icone-menu-modale">🏷️</span>
               Déstockages
               <span className="compteur-menu-modale">{destockagesFiltres.length}</span>
+            </button>
+            <button
+              type="button"
+              className={section === "transferts" ? "actif" : ""}
+              onClick={() => setSection("transferts")}
+            >
+              <span className="icone-menu-modale">🔁</span>
+              Transferts
+              <span className="compteur-menu-modale">{transfertsFiltres.length}</span>
             </button>
             {peutVoirDormants && (
               <button
@@ -3224,6 +3257,91 @@ function ModaleHistoriqueStock({ session, onFermer }: { session: Session; onFerm
                       Valeur perdue :{" "}
                       {formaterMontant(pertesFiltrees.filter((p) => !p.annulee).reduce((somme, p) => somme + p.valeur, 0))}{" "}
                       {devise}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : section === "transferts" ? (
+              <>
+                <div className="barre-actions barre-filtres-historique">
+                  {filtrePeriode}
+                  {depots.length > 1 && (
+                    <>
+                      <select value={depotDepart} onChange={(e) => setDepotDepart(e.target.value)}>
+                        <option value="">Départ : tous les dépôts</option>
+                        {depots.map((d) => (
+                          <option key={d.id} value={d.nom}>
+                            De {d.nom}
+                          </option>
+                        ))}
+                      </select>
+                      <select value={depotArrivee} onChange={(e) => setDepotArrivee(e.target.value)}>
+                        <option value="">Arrivée : tous les dépôts</option>
+                        {depots.map((d) => (
+                          <option key={d.id} value={d.nom}>
+                            Vers {d.nom}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  )}
+                  <input
+                    type="search"
+                    placeholder="Rechercher un article…"
+                    value={rechercheTransfert}
+                    onChange={(e) => setRechercheTransfert(e.target.value)}
+                  />
+                </div>
+                <div className="zone-tableau-scroll">
+                  <table className="tableau-catalogue carte-mobile">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Désignation</th>
+                        <th>De</th>
+                        <th>Vers</th>
+                        <th>Quantité</th>
+                        <th>Fait par</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {transfertsFiltres.map((t) => (
+                        <tr key={t.id}>
+                          <td data-label="Date">{new Date(t.dateCreation).toLocaleString("fr-FR")}</td>
+                          <td data-label="Désignation">{t.produitNom} {t.reference && <span className="sous-info">({t.reference})</span>}</td>
+                          <td data-label="De">{t.depotSourceNom}</td>
+                          <td data-label="Vers">{t.depotDestinationNom}</td>
+                          <td data-label="Quantité">{t.quantite}</td>
+                          <td data-label="Fait par">{nomUtilisateur(t.utilisateurId)}</td>
+                        </tr>
+                      ))}
+                      {transfertsFiltres.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="liste-vide">
+                            Aucun transfert pour ces filtres.
+                          </td>
+                        </tr>
+                      )}
+                      {Array.from({ length: Math.max(0, 10 - Math.max(1, transfertsFiltres.length)) }).map((_, i) => (
+                        <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {transfertsFiltres.length > 0 && (
+                  <div className="totaux">
+                    <div>
+                      {transfertsFiltres.length} transfert{transfertsFiltres.length > 1 ? "s" : ""}
+                    </div>
+                    <div className="total-net">
+                      Quantité déplacée : {transfertsFiltres.reduce((somme, t) => somme + t.quantite, 0)}
                     </div>
                   </div>
                 )}

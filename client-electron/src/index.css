@@ -6004,3 +6004,9 @@ button.tuile-dormance.active {
   height: auto;
   padding: 0.8rem !important;
 }
+
+/* Stock → Historique → Transferts : recherche d'article dans la barre de filtres. */
+.barre-filtres-historique input[type="search"] {
+  width: 220px;
+  margin-left: auto;
+}
