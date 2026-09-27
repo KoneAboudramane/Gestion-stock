@@ -16,7 +16,7 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 6. **Montants et quantités** : `DecimalField(max_digits=12, decimal_places=2)`. Jamais de FloatField pour l'argent.
 7. Les labels d'app sont le nom du dossier : `core, comptes, catalogue, stock, ventes, achats, clients, fournisseurs, configuration, synchronisation`.
 
-## Les 10 apps et leurs 34 modèles
+## Les 10 apps et leurs 36 modèles
 
 ### core
 - `ModeleBase` (abstrait) — hérité par tous. Champs : id (UUID), date_creation, date_modification, synchronise, date_synchronisation.
@@ -40,7 +40,7 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 - `Stock` — variante (FK), depot (FK), quantite. unique_together(variante, depot).
 - `MouvementStock` — variante (FK), depot (FK), type {entree|sortie|ajustement}, quantite, motif, reference_type, reference_id (UUID), utilisateur (FK).
 - `TransfertStock` — variante (FK), depot_source (FK → transferts_sortants), depot_destination (FK → transferts_entrants), quantite, utilisateur (FK).
-- `PerteStock` — variante (FK, PROTECT), depot (FK → pertes, PROTECT), quantite, motif {perime|abime|vol|don|consommation|autre}, detail (obligatoire si « autre »), valeur (figée au CUMP), utilisateur (FK). **Sortie sans vente** : crée un `MouvementStock` `sortie` (reference_type `stock.PerteStock`). À distinguer d'un ajustement (correction d'erreur).
+- `PerteStock` — variante (FK, PROTECT), depot (FK → pertes, PROTECT), quantite, motif {perime|abime|vol|don|consommation|autre}, detail (obligatoire si « autre »), valeur (figée au CUMP), utilisateur (FK), annulee, date_annulation. **Sortie sans vente** : crée un `MouvementStock` `sortie` (reference_type `stock.PerteStock`). À distinguer d'un ajustement (correction d'erreur).
 - `OperationDestockage` — boutique (FK), nom, date_fin (null), utilisateur (FK). **Groupe nommé** de déstockages lancés ensemble (ex. « Liquidation fin d'année ») : création tout-ou-rien, arrêt en un clic, bilan commun.
 - `Destockage` — variante (FK → destockages, PROTECT), prix_normal (figé au démarrage), prix_destockage, date_fin (null), statut {en_cours|termine}, motif_fin {date|epuise|manuel}, date_arret, utilisateur (FK), operation (FK OperationDestockage, null). **Prix réduit appliqué automatiquement en caisse** ; s'arrête à date_fin, quand le stock (tous dépôts) tombe à 0, ou à la main. Vente à perte permise.
 - `ReleveDormants` — boutique (FK), date, jours_seuil (déf. 60), nombre_articles, valeur_immobilisee. **Photo quotidienne de l'argent qui dort**, prise par les clients à l'ouverture (ajout seul, pas d'unicité par date : plusieurs appareils → l'affichage garde le plus récent).
@@ -55,7 +55,9 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 ### achats  (une réception entre en stock d'un dépôt)
 - `CommandeAchat` — boutique (FK), fournisseur (FK fournisseurs.Fournisseur, PROTECT), utilisateur (FK), numero, statut {brouillon|commandee|recue|annulee}, total.
 - `LigneAchat` — commande (FK → lignes), variante (FK, PROTECT), quantite, prix_achat, sous_total.
-- `Reception` — commande (FK → receptions), depot (FK stock.Depot, PROTECT), utilisateur (FK).
+- `Reception` — commande (FK → receptions), depot (FK stock.Depot, PROTECT), utilisateur (FK), valeur_recue, montant_paye, annulee, date_annulation. Réception partielle possible (LigneAchat.quantite_recue) ; annulable si la marchandise est encore en stock (contre-écriture).
+- `RetourFournisseur` — commande (FK → retours), reception (FK → retours), depot (FK, PROTECT), motif, montant, avoir, utilisateur (FK). Réduit la dette de la réception ; l'excédent est un avoir à récupérer. Écriture 401/601.
+- `LigneRetourFournisseur` — retour (FK → lignes), variante (FK, PROTECT), quantite, prix_achat, sous_total.
 
 ### clients
 - `Client` — boutique (FK), nom, telephone, adresse.
@@ -64,7 +66,7 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 
 ### fournisseurs
 - `Fournisseur` — boutique (FK), nom, telephone, adresse, contact.
-- `DetteFournisseur` — fournisseur (FK → dettes), commande (FK achats.CommandeAchat, null), montant, montant_paye, solde, statut {en_cours|solde}.
+- `DetteFournisseur` — fournisseur (FK → dettes), commande (FK achats.CommandeAchat, null), reception (FK achats.Reception, null), montant, montant_paye, solde, statut {en_cours|solde}.
 
 ### configuration
 - `Parametre` — boutique (FK), cle, valeur. unique_together(boutique, cle). Réglages dynamiques (devise, TVA, format ticket). **PAS l'interface** (elle reste dans le code React).
@@ -79,6 +81,10 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 - **TransfertStock** → une sortie sur depot_source + une entrée sur depot_destination.
 - **Alerte de rupture** quand `Stock.quantite <= Variante.seuil_alerte`.
 - `rapports` **ne définit aucun modèle** : il lit les autres apps (CA, bénéfice = prix_vente − prix_achat, top produits, valeur du stock).
+
+## Comptabilité des pertes et du stock (décision)
+- Les pertes (`PerteStock`) ne passent **aucune écriture** : le module comptable ne valorise pas encore le stock (achats en 601, pas de 31/6031). Une écriture par perte fausserait les comptes (double comptage à l'inventaire).
+- À faire plus tard, après validation d'un comptable SYSCOHADA : une **écriture de variation de stock de fin d'exercice** (6031/31) calculée depuis l'inventaire, qui englobe les pertes.
 
 ## Périmètre
 - **V1** : les 10 apps ci-dessus.
