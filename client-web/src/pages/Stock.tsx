@@ -914,7 +914,7 @@ function OngletTransferts({ session }: { session: Session }) {
   const transfertsFiltres = transferts.filter((t) => dansPeriode(t.dateCreation, bornesPeriode(periode, debutPerso, finPerso)));
 
   return (
-    <div>
+    <div className="onglet-transferts">
       <div className="barre-actions barre-actions-avec-onglets">
         <FiltrePeriodeHistorique
           periode={periode}
@@ -979,6 +979,16 @@ function OngletTransferts({ session }: { session: Session }) {
                 </td>
               </tr>
             )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, transfertsFiltres.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

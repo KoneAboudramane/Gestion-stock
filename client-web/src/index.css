@@ -6794,3 +6794,24 @@ button.tuile-dormance.active {
   height: auto;
   padding: 0.8rem !important;
 }
+
+/* Transferts : barre de filtres fixe, seules les lignes du tableau défilent ;
+   les lignes vides de remplissage dessinent la grille. */
+.onglet-transferts {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.onglet-transferts > .zone-tableau-scroll {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+
+.onglet-transferts .liste-vide {
+  height: auto;
+  padding: 0.8rem !important;
+}
