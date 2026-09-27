@@ -154,3 +154,38 @@ export async function envoyerMessage(id: string): Promise<void> {
     date_modification: maintenant(),
   });
 }
+
+/**
+ * Relance d'un crédit envoyée à la main (WhatsApp ouvert depuis la liste des
+ * crédits) : laisse une trace « envoyée » dans Messages.
+ */
+export async function enregistrerRelanceCredit(
+  creditId: string,
+  destinataire: string,
+  message: string,
+  utilisateurId: string | null,
+): Promise<string> {
+  const db = await ouvrirBaseDeDonnees();
+  const credit = await db.get("credits", creditId);
+  if (!credit) throw new ErreurMessage("Crédit introuvable.");
+  const client = await db.get("clients", credit.client_id);
+  const vente = credit.vente_id ? await db.get("ventes", credit.vente_id) : undefined;
+  const instant = maintenant();
+  const messageLocal: MessageLocal = {
+    id: crypto.randomUUID(),
+    boutique_id: client?.boutique_id ?? "",
+    depot_id: vente?.depot_id ?? null,
+    utilisateur_id: utilisateurId,
+    type: "rappel_credit",
+    canal: "whatsapp",
+    destinataire,
+    message,
+    reference_type: "clients.Credit",
+    reference_id: creditId,
+    statut: "envoyee",
+    date_envoi: instant,
+    ...suiviSyncNeuf(),
+  };
+  await db.put("messages", messageLocal);
+  return messageLocal.id;
+}

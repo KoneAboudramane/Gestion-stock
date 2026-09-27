@@ -723,6 +723,11 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("messages:genererTicketWhatsapp", (_evt, venteId: string) =>
     executerEnSecurite(() => messages.genererTicketWhatsapp(venteId)),
   );
+  ipcMain.handle(
+    "messages:enregistrerRelanceCredit",
+    (_evt, creditId: string, destinataire: string, message: string, utilisateurId: string | null) =>
+      executerEnSecurite(() => messages.enregistrerRelanceCredit(creditId, destinataire, message, utilisateurId)),
+  );
   ipcMain.handle("messages:envoyer", (_evt, id: string) => executerEnSecurite(() => messages.envoyerMessage(id)));
 
   ipcMain.handle("tresorerie:solde", (_evt, depotId: string, jusqua?: string) =>

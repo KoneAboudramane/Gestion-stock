@@ -199,3 +199,33 @@ export function envoyerMessage(id: string): void {
   );
   sauvegarder();
 }
+
+/**
+ * Relance d'un crédit envoyée à la main (WhatsApp ouvert depuis la liste des
+ * crédits) : laisse une trace « envoyée » dans Messages.
+ */
+export function enregistrerRelanceCredit(
+  creditId: string,
+  destinataire: string,
+  message: string,
+  utilisateurId: string | null,
+): string {
+  const credit = unResultat<{ boutiqueId: string; depotId: string | null }>(
+    `SELECT cl.boutique_id as boutiqueId, v.depot_id as depotId
+     FROM credits cr JOIN clients cl ON cl.id = cr.client_id LEFT JOIN ventes v ON v.id = cr.vente_id
+     WHERE cr.id = ?`,
+    [creditId],
+  );
+  if (!credit) throw new ErreurMessage("Crédit introuvable.");
+  const id = randomUUID();
+  const maintenant = new Date().toISOString();
+  executer(
+    `INSERT INTO messages
+       (id, boutique_id, depot_id, utilisateur_id, type, canal, destinataire, message, reference_type, reference_id,
+        statut, date_envoi, date_creation, date_modification)
+     VALUES (?, ?, ?, ?, 'rappel_credit', 'whatsapp', ?, ?, 'clients.Credit', ?, 'envoyee', ?, ?, ?)`,
+    [id, credit.boutiqueId, credit.depotId ?? null, utilisateurId, destinataire, message, creditId, maintenant, maintenant, maintenant],
+  );
+  sauvegarder();
+  return id;
+}

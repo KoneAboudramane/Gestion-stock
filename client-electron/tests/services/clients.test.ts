@@ -10,6 +10,7 @@ import {
   planifierEcheancierCredit,
   rembourserCredit,
 } from "../../electron/services/clients";
+import { enregistrerRelanceCredit } from "../../electron/services/messages";
 import { genererAlertesDestockage } from "../../electron/services/notifications";
 import { creerBaseDeTest } from "../setup";
 
@@ -157,5 +158,35 @@ describe("clients : échéancier d'un crédit", () => {
       [],
     ).map((n) => n.type);
     expect(types).toEqual(["credit_proche", "credit_retard"]);
+  });
+});
+
+describe("messages.enregistrerRelanceCredit (bouton « Relancer » de la liste des crédits)", () => {
+  const boutiqueId = randomUUID();
+  const clientId = randomUUID();
+  let creditId: string;
+
+  beforeEach(async () => {
+    await creerBaseDeTest();
+    executer("INSERT INTO clients (id, boutique_id, nom, telephone) VALUES (?, ?, ?, ?)", [clientId, boutiqueId, "Mme Test", "+2250700000000"]);
+    creditId = randomUUID();
+    executer("INSERT INTO credits (id, client_id, montant, montant_paye, solde, statut) VALUES (?, ?, ?, ?, ?, ?)", [
+      creditId,
+      clientId,
+      10000,
+      0,
+      10000,
+      "en_cours",
+    ]);
+  });
+
+  it("laisse une trace « envoyée » dans Messages et expose le téléphone dans la liste", () => {
+    expect(listerCredits(boutiqueId)[0].clientTelephone).toBe("+2250700000000");
+    enregistrerRelanceCredit(creditId, "+2250700000000", "Bonjour, petit rappel…", "u1");
+    const message = unResultat<{ type: string; statut: string; canal: string; reference_id: string; utilisateur_id: string }>(
+      "SELECT type, statut, canal, reference_id, utilisateur_id FROM messages",
+      [],
+    )!;
+    expect(message).toMatchObject({ type: "rappel_credit", statut: "envoyee", canal: "whatsapp", reference_id: creditId, utilisateur_id: "u1" });
   });
 });

@@ -813,6 +813,8 @@ export interface CreditResume {
   id: string;
   clientNom: string;
   clientEstPermanent: number;
+  /** Pour la relance WhatsApp depuis la liste des crédits. */
+  clientTelephone: string;
   venteNumero: string | null;
   montant: number;
   montantPaye: number;
@@ -1521,6 +1523,12 @@ export interface WindowApi {
     genererRappelsCredit(boutiqueId: string): Promise<ResultatEcriture<string[]>>;
     genererTicketWhatsapp(venteId: string): Promise<ResultatEcriture<string>>;
     envoyer(id: string): Promise<ResultatEcriture<void>>;
+    enregistrerRelanceCredit(
+      creditId: string,
+      destinataire: string,
+      message: string,
+      utilisateurId: string | null,
+    ): Promise<ResultatEcriture<string>>;
   };
   tresorerie: {
     solde(depotId: string, jusqua?: string): Promise<number>;

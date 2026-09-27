@@ -120,6 +120,8 @@ export interface CreditResume {
   clientNom: string;
   // SQLite renvoie 0/1 (comme "actif" ailleurs dans ce fichier), pas un booléen.
   clientEstPermanent: number;
+  /** Pour la relance WhatsApp depuis la liste des crédits. */
+  clientTelephone: string;
   venteNumero: string | null;
   montant: number;
   montantPaye: number;
@@ -144,7 +146,8 @@ export function listerCredits(boutiqueId: string, clientId?: string, statut?: St
   }
 
   return tousLesResultats<Omit<CreditResume, "prochaineEcheance">>(
-    `SELECT cr.id as id, cl.nom as clientNom, cl.est_permanent as clientEstPermanent, v.numero as venteNumero,
+    `SELECT cr.id as id, cl.nom as clientNom, cl.est_permanent as clientEstPermanent,
+            COALESCE(cl.telephone, '') as clientTelephone, v.numero as venteNumero,
             cr.montant as montant, cr.montant_paye as montantPaye, cr.solde as solde,
             cr.echeance as echeance, cr.statut as statut, cr.date_creation as dateCreation
      FROM credits cr

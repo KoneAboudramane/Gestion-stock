@@ -317,6 +317,8 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("notifications:marquerLues", boutiqueId, depotId),
   },
   messages: {
+    enregistrerRelanceCredit: (creditId: string, destinataire: string, message: string, utilisateurId: string | null) =>
+      ipcRenderer.invoke("messages:enregistrerRelanceCredit", creditId, destinataire, message, utilisateurId),
     lister: (boutiqueId: string, filtres?: unknown) => ipcRenderer.invoke("messages:lister", boutiqueId, filtres),
     genererRappelsCredit: (boutiqueId: string) => ipcRenderer.invoke("messages:genererRappelsCredit", boutiqueId),
     genererTicketWhatsapp: (venteId: string) => ipcRenderer.invoke("messages:genererTicketWhatsapp", venteId),

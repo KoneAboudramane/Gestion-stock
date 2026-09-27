@@ -133,6 +133,8 @@ export interface CreditResume {
   clientId: string;
   clientNom: string;
   clientEstPermanent: boolean;
+  /** Pour la relance WhatsApp depuis la liste des crédits. */
+  clientTelephone: string;
   venteId: string | null;
   venteNumero: string | null;
   montant: number;
@@ -168,6 +170,7 @@ export async function listerCredits(boutiqueId: string, clientId?: string, statu
       clientId: cr.client_id,
       clientNom: client?.nom ?? "",
       clientEstPermanent: client?.est_permanent === 1,
+      clientTelephone: client?.telephone ?? "",
       venteId: cr.vente_id,
       venteNumero: vente?.numero ?? null,
       montant: cr.montant,
@@ -218,6 +221,7 @@ export async function obtenirCredit(id: string): Promise<CreditDetail | undefine
     clientId: cr.client_id,
     clientNom: client?.nom ?? "",
     clientEstPermanent: client?.est_permanent === 1,
+    clientTelephone: client?.telephone ?? "",
     venteId: cr.vente_id,
     venteNumero: vente?.numero ?? null,
     montant: cr.montant,

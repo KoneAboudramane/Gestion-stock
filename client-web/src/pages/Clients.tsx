@@ -28,6 +28,7 @@ import {
   type StatutCredit,
 } from "../services/clients";
 import type { EcheanceDetail } from "../services/echeancier";
+import { enregistrerRelanceCredit } from "../services/messages";
 import { listerDepotsDetail, type DepotResume } from "../services/stock";
 import { listerVentesLocales, type VenteResumeLocale as VenteResume } from "../services/ventes";
 import { DetailVente } from "./Ventes";
@@ -1019,6 +1020,8 @@ function OngletCredits({ session }: { session: Session }) {
   const [credits, setCredits] = useState<CreditResume[]>([]);
   const [regleMois, setRegleMois] = useState(0);
   const [creditSelectionneId, setCreditSelectionneId] = useState<string | null>(null);
+  const [vue, setVue] = useState<"credits" | "clients">("credits");
+  const [messageRelance, setMessageRelance] = useState<{ ok: boolean; texte: string } | null>(null);
 
   async function rafraichir() {
     setCredits(await listerCredits(session.boutiqueId));
@@ -1053,6 +1056,48 @@ function OngletCredits({ session }: { session: Session }) {
   const pourcentage = (c: CreditResume) =>
     c.montant > 0 ? Math.min(100, Math.round((c.montantPaye / c.montant) * 100)) : 100;
   const somme = (valeurs: number[]) => valeurs.reduce((t, v) => t + v, 0);
+  const anciennete = (dateIso: string) => Math.max(0, Math.floor((Date.now() - new Date(dateIso).getTime()) / 86_400_000));
+
+  /** Relance WhatsApp préparée (le message s'ouvre dans WhatsApp) et tracée dans Messages. */
+  async function relancer(c: CreditResume) {
+    setMessageRelance(null);
+    const numero = c.clientTelephone.replace(/\D/g, "");
+    if (!numero) {
+      setMessageRelance({ ok: false, texte: `Pas de numéro de téléphone pour ${c.clientNom} : ajoutez-le dans sa fiche.` });
+      return;
+    }
+    const texte =
+      `Bonjour ${c.clientNom}, petit rappel de ${session.boutiqueNom} : il reste ${formaterMontant(c.solde)} ${devise} ` +
+      `à régler pour votre achat du ${new Date(c.dateCreation).toLocaleDateString("fr-FR")}` +
+      (c.prochaineEcheance
+        ? `, prochaine échéance le ${new Date(`${c.prochaineEcheance.date}T00:00:00`).toLocaleDateString("fr-FR")} ` +
+          `(${formaterMontant(c.prochaineEcheance.reste)} ${devise})`
+        : "") +
+      ". Merci !";
+    window.open(`https://wa.me/${numero}?text=${encodeURIComponent(texte)}`, "_blank", "noopener");
+    await enregistrerRelanceCredit(c.id, c.clientTelephone, texte, session.utilisateurId);
+    setMessageRelance({ ok: true, texte: `Relance WhatsApp préparée pour ${c.clientNom} (trace dans Messages).` });
+  }
+
+  // Vue « par client » : une ligne par client (sur les crédits affichés).
+  const parClient = [
+    ...creditsFiltres
+      .reduce((groupes, c) => groupes.set(c.clientNom, [...(groupes.get(c.clientNom) ?? []), c]), new Map<string, CreditResume[]>())
+      .entries(),
+  ]
+    .map(([nom, liste]) => {
+      const echeances = liste.map((c) => c.prochaineEcheance).filter((e): e is NonNullable<typeof e> => !!e);
+      const prochaine = echeances.sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
+      return {
+        nom,
+        nombre: liste.length,
+        du: somme(liste.map((c) => c.solde)),
+        plusAncien: liste.reduce((p, c) => (!p || c.dateCreation < p ? c.dateCreation : p), ""),
+        prochaine,
+        enRetard: liste.some((c) => c.prochaineEcheance?.enRetard),
+      };
+    })
+    .sort((a, b) => Number(b.enRetard) - Number(a.enRetard) || b.du - a.du);
 
   return (
     <div className="liste-dettes-credits">
@@ -1091,6 +1136,14 @@ function OngletCredits({ session }: { session: Session }) {
             }}
           >
             Clients de passage
+          </button>
+        </div>
+        <div className="barre-onglets">
+          <button type="button" className={`onglet ${vue === "credits" ? "actif" : ""}`} onClick={() => setVue("credits")}>
+            Par crédit
+          </button>
+          <button type="button" className={`onglet ${vue === "clients" ? "actif" : ""}`} onClick={() => setVue("clients")}>
+            Par client
           </button>
         </div>
       </div>
@@ -1137,12 +1190,75 @@ function OngletCredits({ session }: { session: Session }) {
           onChange={(e) => setRecherche(e.target.value)}
         />
       </div>
+      {messageRelance && (
+        <div className={messageRelance.ok ? "message-succes" : "message-erreur"}>{messageRelance.texte}</div>
+      )}
+      {vue === "clients" ? (
+        <div className="zone-tableau-scroll">
+          <table className="tableau-catalogue carte-mobile">
+            <thead>
+              <tr>
+                <th>N°</th>
+                <th>Client</th>
+                <th>Crédits</th>
+                <th>Total dû</th>
+                <th>Plus ancien</th>
+                <th>Prochaine échéance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {parClient.map((g, index) => (
+                <tr
+                  key={g.nom}
+                  onClick={() => {
+                    setClientNom(g.nom);
+                    setVue("credits");
+                  }}
+                  title="Voir les crédits de ce client"
+                >
+                  <td data-label="N°">{index + 1}</td>
+                  <td data-label="Client"><strong>{g.nom}</strong></td>
+                  <td data-label="Crédits">{g.nombre}</td>
+                  <td data-label="Total dû"><strong className="nowrap">{formaterMontant(g.du)} {devise}</strong></td>
+                  <td data-label="Plus ancien"><span className="nowrap">{new Date(g.plusAncien).toLocaleDateString("fr-FR")} · {anciennete(g.plusAncien)} j</span></td>
+                  <td data-label="Prochaine échéance">{g.prochaine ? (
+                      <span className={g.enRetard ? "texte-erreur nowrap" : "nowrap"}>
+                        {new Date(`${g.prochaine.date}T00:00:00`).toLocaleDateString("fr-FR")} · {formaterMontant(g.prochaine.reste)}
+                        {g.enRetard && " (en retard)"}
+                      </span>
+                    ) : (
+                      "—"
+                    )}</td>
+                </tr>
+              ))}
+              {parClient.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="liste-vide">
+                    Aucun crédit pour ces filtres.
+                  </td>
+                </tr>
+              )}
+              {Array.from({ length: Math.max(0, 10 - Math.max(1, parClient.length)) }).map((_, i) => (
+                <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
       <div className="zone-tableau-scroll">
         <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>N°</th>
               <th>Date d'achat</th>
+              <th>Ancienneté</th>
               <th>Client</th>
               <th>Vente</th>
               <th>Montant</th>
@@ -1150,6 +1266,7 @@ function OngletCredits({ session }: { session: Session }) {
               <th>Reste</th>
               <th>Prochaine échéance</th>
               <th>Statut</th>
+              <th />
             </tr>
           </thead>
           <tbody>
@@ -1157,6 +1274,13 @@ function OngletCredits({ session }: { session: Session }) {
               <tr key={c.id} onClick={() => setCreditSelectionneId(c.id)} title="Voir le crédit">
                   <td data-label="N°">{index + 1}</td>
                   <td data-label="Date d'achat">{new Date(c.dateCreation).toLocaleDateString("fr-FR")}</td>
+                  <td data-label="Ancienneté">{c.statut === "en_cours" ? (
+                    <span className={anciennete(c.dateCreation) > 60 ? "texte-erreur nowrap" : "nowrap"}>
+                      {anciennete(c.dateCreation)} jours
+                    </span>
+                  ) : (
+                    "—"
+                  )}</td>
                   <td data-label="Client">{c.clientNom}</td>
                   <td data-label="Vente">{c.venteNumero ?? "—"}</td>
                   <td data-label="Montant"><span className="nowrap">{formaterMontant(c.montant)} {devise}</span></td>
@@ -1179,11 +1303,24 @@ function OngletCredits({ session }: { session: Session }) {
                   <td data-label="Statut"><span className={`nowrap ${c.statut === "solde" ? "badge-payee" : "badge-credit"}`}>
                     {libelleStatutCredit(c.statut)}
                   </span></td>
+                  <td data-label="Relance">{c.statut === "en_cours" && (
+                    <button
+                      type="button"
+                      className="nowrap"
+                      title="Envoyer un rappel par WhatsApp"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        relancer(c);
+                      }}
+                    >
+                      📲 Relancer
+                    </button>
+                  )}</td>
               </tr>
             ))}
             {creditsFiltres.length === 0 && (
               <tr>
-                <td colSpan={9} className="liste-vide">
+                <td colSpan={11} className="liste-vide">
                   Aucun crédit pour ces filtres.
                 </td>
               </tr>
@@ -1199,12 +1336,25 @@ function OngletCredits({ session }: { session: Session }) {
                   <td>&nbsp;</td>
                   <td>&nbsp;</td>
                   <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      {creditsFiltres.length > 0 && (
+      )}
+      {vue === "clients" && parClient.length > 0 && (
+        <div className="totaux">
+          <div>
+            {parClient.length} client{parClient.length > 1 ? "s" : ""} · {creditsFiltres.length} crédit(s)
+          </div>
+          <div className="total-net">
+            Total dû : {formaterMontant(somme(parClient.map((g) => g.du)))} {devise}
+          </div>
+        </div>
+      )}
+      {vue === "credits" && creditsFiltres.length > 0 && (
         <div className="totaux">
           <div>
             {creditsFiltres.length} crédit{creditsFiltres.length > 1 ? "s" : ""} · Montant :{" "}
