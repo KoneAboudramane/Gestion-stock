@@ -9,7 +9,9 @@ import {
   creerValeurAttribut,
   creerVariante,
   listerAttributs,
+  listerArticlesCategorie,
   listerCategories,
+  listerCategoriesDetail,
   listerUnites,
   modifierAttribut,
   modifierCategorie,
@@ -203,5 +205,41 @@ describe("modifierCategorie / supprimerCategorie", () => {
     supprimerCategorie(categorieId);
 
     expect(listerCategories(BOUTIQUE_ID).find((c) => c.id === categorieId)).toBeUndefined();
+  });
+});
+
+describe("catégories : doublons, suppression protégée, articles d'une catégorie", () => {
+  it("refuse un nom déjà pris (sans tenir compte des accents ni des majuscules) et trie à la française", () => {
+    creerCategorie(BOUTIQUE_ID, "Électricité");
+    creerCategorie(BOUTIQUE_ID, "Plomberie");
+    expect(() => creerCategorie(BOUTIQUE_ID, "  electricite ")).toThrow(/existe déjà/);
+    const id = creerCategorie(BOUTIQUE_ID, "Peinture");
+    expect(() => modifierCategorie(id, "PLOMBERIE")).toThrow(/existe déjà/);
+    modifierCategorie(id, "Peinture"); // son propre nom reste permis
+    expect(listerCategories(BOUTIQUE_ID).map((c) => c.nom)).toEqual(["Électricité", "Peinture", "Plomberie"]);
+  });
+
+  it("compte les articles et refuse de supprimer une catégorie non vide sans dire où les déplacer", () => {
+    const peinture = creerCategorie(BOUTIQUE_ID, "Peinture");
+    const quincaillerie = creerCategorie(BOUTIQUE_ID, "Quincaillerie");
+    const { produitId } = creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "Rouleau", categorieId: peinture, prixVente: 1500 });
+    creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "Pinceau", categorieId: peinture });
+
+    expect(listerCategoriesDetail(BOUTIQUE_ID).find((c) => c.id === peinture)!.nombreArticles).toBe(2);
+    expect(listerArticlesCategorie(peinture).map((a) => a.produitNom)).toEqual(["Pinceau", "Rouleau"]);
+
+    expect(() => supprimerCategorie(peinture)).toThrow(/2 article\(s\)/);
+    supprimerCategorie(peinture, quincaillerie);
+
+    expect(listerCategories(BOUTIQUE_ID).map((c) => c.id)).toEqual([quincaillerie]);
+    expect(obtenirProduit(produitId)!.categorieId).toBe(quincaillerie);
+    expect(listerCategoriesDetail(BOUTIQUE_ID)[0].nombreArticles).toBe(2);
+  });
+
+  it("supprime une catégorie en laissant ses articles sans catégorie si on le choisit", () => {
+    const peinture = creerCategorie(BOUTIQUE_ID, "Peinture");
+    const { produitId } = creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "Rouleau", categorieId: peinture });
+    supprimerCategorie(peinture, null);
+    expect(obtenirProduit(produitId)!.categorieId).toBeNull();
   });
 });

@@ -27,6 +27,10 @@ import {
   type ProduitDetail,
   type ProduitResume,
   type ReferenceNommee,
+  type ArticleCategorie,
+  type CategorieDetail,
+  listerArticlesCategorie,
+  listerCategoriesDetail,
   type UniteResume,
   type ValeurAttributResume,
   type VarianteResume,
@@ -1292,17 +1296,29 @@ function OngletProduits({ session }: { session: Session }) {
   );
 }
 
+/** Nom comparable pour la recherche : sans accents ni majuscules. */
+function normaliserRecherche(texte: string): string {
+  return texte
+    .toLocaleLowerCase("fr")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
 function OngletCategories({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
-  const [categories, setCategories] = useState<ReferenceNommee[]>([]);
+  const [categories, setCategories] = useState<CategorieDetail[]>([]);
+  const [recherche, setRecherche] = useState("");
+  const [ajoutOuvert, setAjoutOuvert] = useState(false);
   const [nom, setNom] = useState("");
   const [erreur, setErreur] = useState<string | null>(null);
   const [enEditionId, setEnEditionId] = useState<string | null>(null);
   const [nomEdition, setNomEdition] = useState("");
-  const [confirmationSuppressionId, setConfirmationSuppressionId] = useState<string | null>(null);
+  const [aSupprimer, setASupprimer] = useState<CategorieDetail | null>(null);
+  const [remplacementId, setRemplacementId] = useState("");
+  const [categorieOuverte, setCategorieOuverte] = useState<CategorieDetail | null>(null);
 
   async function rafraichir() {
-    setCategories(await listerCategories(session.boutiqueId));
+    setCategories(await listerCategoriesDetail(session.boutiqueId));
   }
   useEffect(() => {
     rafraichir();
@@ -1315,6 +1331,7 @@ function OngletCategories({ session }: { session: Session }) {
     try {
       await creerCategorie(session.boutiqueId, nom.trim());
       setNom("");
+      setAjoutOuvert(false);
       setErreur(null);
       rafraichir();
     } catch (e) {
@@ -1322,9 +1339,10 @@ function OngletCategories({ session }: { session: Session }) {
     }
   }
 
-  function commencerEdition(c: ReferenceNommee) {
+  function commencerEdition(c: CategorieDetail) {
     setEnEditionId(c.id);
     setNomEdition(c.nom);
+    setErreur(null);
   }
 
   async function enregistrerEdition(id: string) {
@@ -1332,80 +1350,269 @@ function OngletCategories({ session }: { session: Session }) {
     try {
       await modifierCategorie(id, nomEdition.trim());
       setEnEditionId(null);
+      setErreur(null);
       rafraichir();
     } catch (e) {
       setErreur(e instanceof ErreurProduit ? e.message : "Erreur inattendue.");
     }
   }
 
-  async function supprimer(id: string) {
+  async function supprimer() {
+    if (!aSupprimer) return;
     try {
-      await supprimerCategorie(id);
-      setConfirmationSuppressionId(null);
+      await supprimerCategorie(aSupprimer.id, aSupprimer.nombreArticles > 0 ? remplacementId || null : undefined);
+      setASupprimer(null);
+      setErreur(null);
       rafraichir();
     } catch (e) {
-      setConfirmationSuppressionId(null);
       setErreur(e instanceof ErreurProduit ? e.message : "Erreur inattendue.");
     }
   }
+
+  const cle = normaliserRecherche(recherche.trim());
+  const categoriesFiltrees = categories.filter((c) => !cle || normaliserRecherche(c.nom).includes(cle));
+  const nombreColonnes = peutGerer ? 4 : 3;
 
   return (
-    <div className="reglage-catalogue">
-      <div className="barre-actions barre-actions-fixe barre-actions-avec-onglets">
-        {peutGerer && (
-          <form onSubmit={ajouter} className="formulaire-inline">
-            <input placeholder="Nouvelle catégorie" value={nom} onChange={(e) => setNom(e.target.value)} />
-            <button type="submit">Ajouter</button>
-          </form>
-        )}
+    <div className="onglet-categories">
+      <div className="barre-actions barre-actions-avec-onglets">
+        <input
+          type="search"
+          className="champ-recherche-categories"
+          placeholder="Rechercher une catégorie…"
+          value={recherche}
+          onChange={(e) => setRecherche(e.target.value)}
+        />
+        {peutGerer &&
+          (ajoutOuvert ? (
+            <form onSubmit={ajouter} className="formulaire-inline">
+              <input
+                autoFocus
+                placeholder="Nom de la catégorie"
+                value={nom}
+                onChange={(e) => setNom(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setAjoutOuvert(false);
+                  setNom("");
+                  setErreur(null);
+                }}
+              >
+                Annuler
+              </button>
+              <button type="submit" className="bouton-primaire">
+                Ajouter
+              </button>
+            </form>
+          ) : (
+            <button type="button" className="bouton-ajouter-variante" onClick={() => setAjoutOuvert(true)}>
+              + Nouvelle catégorie
+            </button>
+          ))}
       </div>
       {erreur && <div className="message-erreur">{erreur}</div>}
-      <ul className="liste-simple">
-        {categories.map((c) =>
-          enEditionId === c.id ? (
-            <li key={c.id} className="ligne-liste-simple">
-              <input value={nomEdition} onChange={(e) => setNomEdition(e.target.value)} />
-              <div className="actions-ligne-simple">
-                <button type="button" onClick={() => setEnEditionId(null)}>
-                  Annuler
-                </button>
-                <button type="button" className="bouton-primaire" onClick={() => enregistrerEdition(c.id)}>
-                  Enregistrer
-                </button>
-              </div>
-            </li>
-          ) : (
-            <li key={c.id} className="ligne-liste-simple">
-              <span>{c.nom}</span>
-              {peutGerer && (
-                <div className="actions-ligne-simple">
-                  <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(c)}>
-                    ✎
-                  </button>
-                  <button
-                    type="button"
-                    className="lien-icone lien-icone-danger"
-                    title="Supprimer"
-                    onClick={() => setConfirmationSuppressionId(c.id)}
-                  >
-                    ×
-                  </button>
-                </div>
-              )}
-            </li>
-          ),
-        )}
-        {categories.length === 0 && <li className="liste-vide">Aucune catégorie.</li>}
-      </ul>
-      {confirmationSuppressionId && (
-        <ModaleConfirmation
-          titre="Supprimer cette catégorie ?"
-          labelConfirmer="Supprimer"
-          dangereux
-          onAnnuler={() => setConfirmationSuppressionId(null)}
-          onConfirmer={() => supprimer(confirmationSuppressionId)}
-        />
+      <div className="zone-tableau-scroll">
+        <table className="tableau-catalogue carte-mobile">
+          <thead>
+            <tr>
+              <th>N°</th>
+              <th>Catégorie</th>
+              <th>Articles</th>
+              {peutGerer && <th className="colonne-actions-categorie">Actions</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {categoriesFiltrees.map((c, index) =>
+              enEditionId === c.id ? (
+                <tr key={c.id}>
+                  <td data-label="N°">{index + 1}</td>
+                  <td data-label="Catégorie">
+                  <input
+                    autoFocus
+                    value={nomEdition}
+                    onChange={(e) => setNomEdition(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") enregistrerEdition(c.id);
+                      if (e.key === "Escape") setEnEditionId(null);
+                    }}
+                  />
+                  </td>
+                  <td data-label="Articles">{c.nombreArticles}</td>
+                  <td data-label="Actions" className="colonne-actions-categorie">
+                    <span className="actions-ligne">
+                      <button type="button" onClick={() => setEnEditionId(null)}>
+                        Annuler
+                      </button>
+                      <button type="button" className="bouton-primaire" onClick={() => enregistrerEdition(c.id)}>
+                        Enregistrer
+                      </button>
+                    </span>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={c.id} onClick={() => setCategorieOuverte(c)} title="Voir les articles de cette catégorie">
+                  <td data-label="N°">{index + 1}</td>
+                  <td data-label="Catégorie">{c.nom}</td>
+                  <td data-label="Articles">{c.nombreArticles}</td>
+                  {peutGerer && (
+                    <td data-label="Actions" className="colonne-actions-categorie">
+                      <span className="actions-ligne" onClick={(e) => e.stopPropagation()}>
+                        <button type="button" className="lien-icone" title="Renommer" onClick={() => commencerEdition(c)}>
+                          ✎
+                        </button>
+                        <button
+                          type="button"
+                          className="lien-icone lien-icone-danger"
+                          title="Supprimer"
+                          onClick={() => {
+                            setRemplacementId("");
+                            setASupprimer(c);
+                          }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    </td>
+                  )}
+                </tr>
+              ),
+            )}
+            {categoriesFiltrees.length === 0 && (
+              <tr>
+                <td colSpan={nombreColonnes} className="liste-vide">
+                  {categories.length === 0 ? "Aucune catégorie." : "Aucune catégorie ne correspond à la recherche."}
+                </td>
+              </tr>
+            )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, categoriesFiltrees.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                {peutGerer && <td>&nbsp;</td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {categories.length > 0 && (
+        <div className="totaux">
+          <div>
+            {categories.length} catégorie{categories.length > 1 ? "s" : ""}
+          </div>
+          <div className="total-net">
+            {categories.reduce((t, c) => t + c.nombreArticles, 0)} article(s) rangé(s)
+          </div>
+        </div>
       )}
+      {aSupprimer && (
+        <ModaleConfirmation
+          titre={`Supprimer la catégorie « ${aSupprimer.nom} » ?`}
+          description={
+            aSupprimer.nombreArticles > 0
+              ? `${aSupprimer.nombreArticles} article(s) sont rangés dans cette catégorie. Choisissez où les déplacer avant de la supprimer.`
+              : "Cette catégorie ne contient aucun article."
+          }
+          labelConfirmer={aSupprimer.nombreArticles > 0 ? "Déplacer et supprimer" : "Supprimer"}
+          dangereux
+          onAnnuler={() => setASupprimer(null)}
+          onConfirmer={supprimer}
+        >
+          {aSupprimer.nombreArticles > 0 && (
+            <label className="champ-formulaire">
+              Déplacer les articles vers
+              <select value={remplacementId} onChange={(e) => setRemplacementId(e.target.value)}>
+                <option value="">Sans catégorie</option>
+                {categories
+                  .filter((c) => c.id !== aSupprimer.id)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nom}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
+        </ModaleConfirmation>
+      )}
+      {categorieOuverte && (
+        <ModaleArticlesCategorie categorie={categorieOuverte} onFermer={() => setCategorieOuverte(null)} />
+      )}
+    </div>
+  );
+}
+
+/** Articles rangés dans une catégorie (prix de vente, stock tous dépôts). */
+function ModaleArticlesCategorie({
+  categorie,
+  onFermer,
+}: {
+  categorie: CategorieDetail;
+  onFermer: () => void;
+}) {
+  const [articles, setArticles] = useState<ArticleCategorie[]>([]);
+  useEffect(() => {
+    listerArticlesCategorie(categorie.id).then(setArticles);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categorie.id]);
+
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre={`Catégorie « ${categorie.nom} »`} onFermer={onFermer} />
+        <div className="modale-corps">
+          <div className="zone-tableau-scroll">
+            <table className="tableau-catalogue carte-mobile">
+              <thead>
+                <tr>
+                  <th>N°</th>
+                  <th>Désignation</th>
+                  <th>Référence</th>
+                  <th>Prix de vente</th>
+                  <th>Stock</th>
+                </tr>
+              </thead>
+              <tbody>
+                {articles.map((a, index) => (
+                  <tr key={a.varianteId}>
+                    <td data-label="N°">{index + 1}</td>
+                    <td data-label="Désignation">{a.produitNom}</td>
+                    <td data-label="Référence">{a.reference}</td>
+                    <td data-label="Prix de vente">{formaterMontant(a.prixVente)}</td>
+                    <td data-label="Stock">{a.quantiteStock <= 0 ? <span className="badge-rupture">{a.quantiteStock}</span> : a.quantiteStock}</td>
+                  </tr>
+                ))}
+                {articles.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="liste-vide">
+                      Aucun article dans cette catégorie.
+                    </td>
+                  </tr>
+                )}
+                {Array.from({ length: Math.max(0, 10 - Math.max(1, articles.length)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {articles.length > 0 && (
+            <div className="totaux">
+              <div>
+                {articles.length} article{articles.length > 1 ? "s" : ""}
+              </div>
+              <div className="total-net">Stock total : {articles.reduce((t, a) => t + a.quantiteStock, 0)}</div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -386,23 +386,113 @@ function supprimerReferenceNommee(table: string, id: string): void {
   sauvegarder();
 }
 
+export interface CategorieDetail {
+  id: string;
+  nom: string;
+  /** Articles (produits non supprimés) rangés dans cette catégorie. */
+  nombreArticles: number;
+}
+
+export interface ArticleCategorie {
+  varianteId: string;
+  produitId: string;
+  produitNom: string;
+  reference: string;
+  prixVente: number;
+  /** Stock total, tous dépôts confondus. */
+  quantiteStock: number;
+}
+
+/** Nom de catégorie comparable : sans accents, sans majuscules, sans espaces autour. */
+function cleNomCategorie(nom: string): string {
+  return nom
+    .trim()
+    .toLocaleLowerCase("fr")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
 export function listerCategories(boutiqueId: string): ReferenceNommee[] {
   return tousLesResultats<ReferenceNommee>(
-    "SELECT id, nom FROM categories WHERE boutique_id = ? AND supprime = 0 ORDER BY nom",
+    "SELECT id, nom FROM categories WHERE boutique_id = ? AND supprime = 0",
     [boutiqueId],
-  );
+  ).sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
+}
+
+export function listerCategoriesDetail(boutiqueId: string): CategorieDetail[] {
+  return tousLesResultats<CategorieDetail>(
+    `SELECT c.id as id, c.nom as nom,
+            (SELECT COUNT(*) FROM produits p WHERE p.categorie_id = c.id AND p.supprime = 0) as nombreArticles
+     FROM categories c
+     WHERE c.boutique_id = ? AND c.supprime = 0`,
+    [boutiqueId],
+  )
+    .map((c) => ({ ...c, nombreArticles: Number(c.nombreArticles) }))
+    .sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
+}
+
+function verifierNomCategorieLibre(boutiqueId: string, nom: string, saufId?: string): void {
+  if (!nom.trim()) throw new ErreurProduit("Le nom de la catégorie est requis.");
+  const cle = cleNomCategorie(nom);
+  if (listerCategories(boutiqueId).some((c) => c.id !== saufId && cleNomCategorie(c.nom) === cle)) {
+    throw new ErreurProduit(`La catégorie « ${nom.trim()} » existe déjà.`);
+  }
 }
 
 export function creerCategorie(boutiqueId: string, nom: string): string {
-  return creerReferenceNommee("categories", boutiqueId, { nom });
+  verifierNomCategorieLibre(boutiqueId, nom);
+  return creerReferenceNommee("categories", boutiqueId, { nom: nom.trim() });
 }
 
 export function modifierCategorie(id: string, nom: string): void {
-  modifierReferenceNommee("categories", id, { nom });
+  const categorie = unResultat<{ boutiqueId: string }>("SELECT boutique_id as boutiqueId FROM categories WHERE id = ?", [
+    id,
+  ]);
+  if (!categorie) throw new ErreurProduit("Catégorie introuvable.");
+  verifierNomCategorieLibre(categorie.boutiqueId, nom, id);
+  modifierReferenceNommee("categories", id, { nom: nom.trim() });
 }
 
-export function supprimerCategorie(id: string): void {
-  supprimerReferenceNommee("categories", id);
+/**
+ * Supprime une catégorie. Si des articles y sont encore rangés, il faut dire où
+ * les déplacer : `remplacementId` (une autre catégorie, ou null = sans catégorie).
+ * Sans ce choix, la suppression est refusée — pour ne pas laisser d'articles orphelins.
+ */
+export function supprimerCategorie(id: string, remplacementId?: string | null): void {
+  const { nombre } = unResultat<{ nombre: number }>(
+    "SELECT COUNT(*) as nombre FROM produits WHERE categorie_id = ? AND supprime = 0",
+    [id],
+  )!;
+  if (Number(nombre) > 0 && remplacementId === undefined) {
+    throw new ErreurProduit(
+      `${nombre} article(s) sont encore dans cette catégorie : choisissez où les déplacer avant de la supprimer.`,
+    );
+  }
+  if (remplacementId === id) throw new ErreurProduit("Choisissez une autre catégorie.");
+  dansUneTransaction(() => {
+    if (Number(nombre) > 0) {
+      executer(
+        `UPDATE produits SET categorie_id = ?, date_modification = ?, synchronise = 0
+         WHERE categorie_id = ? AND supprime = 0`,
+        [remplacementId ?? null, new Date().toISOString(), id],
+      );
+    }
+    supprimerReferenceNommee("categories", id);
+  });
+}
+
+export function listerArticlesCategorie(categorieId: string): ArticleCategorie[] {
+  return tousLesResultats<ArticleCategorie>(
+    `SELECT v.id as varianteId, p.id as produitId, p.nom as produitNom, v.reference as reference,
+            v.prix_vente as prixVente,
+            COALESCE((SELECT SUM(s.quantite) FROM stocks s WHERE s.variante_id = v.id), 0) as quantiteStock
+     FROM produits p
+     JOIN variantes v ON v.produit_id = p.id AND v.supprime = 0
+     WHERE p.categorie_id = ? AND p.supprime = 0`,
+    [categorieId],
+  )
+    .map((a) => ({ ...a, prixVente: Number(a.prixVente), quantiteStock: Number(a.quantiteStock) }))
+    .sort((a, b) => a.produitNom.localeCompare(b.produitNom, "fr") || a.reference.localeCompare(b.reference, "fr"));
 }
 
 export interface UniteResume extends ReferenceNommee {

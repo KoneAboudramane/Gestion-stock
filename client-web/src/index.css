@@ -6842,3 +6842,26 @@ button.tuile-dormance.active {
 .modale-avec-menu .modale-corps > :not(.zone-tableau-scroll) {
   flex-shrink: 0;
 }
+
+/* Articles → Catégories */
+.onglet-categories {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.onglet-categories > .zone-tableau-scroll {
+  flex: 1;
+  min-height: 170px;
+  max-height: none;
+}
+
+.champ-recherche-categories {
+  width: 280px;
+}
+
+.colonne-actions-categorie {
+  width: 1%;
+  white-space: nowrap;
+}

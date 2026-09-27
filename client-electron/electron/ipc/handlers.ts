@@ -281,14 +281,16 @@ export function enregistrerLesHandlers(): void {
   );
 
   ipcMain.handle("categories:lister", (_evt, boutiqueId: string) => produits.listerCategories(boutiqueId));
+  ipcMain.handle("categories:listerDetail", (_evt, boutiqueId: string) => produits.listerCategoriesDetail(boutiqueId));
+  ipcMain.handle("categories:articles", (_evt, categorieId: string) => produits.listerArticlesCategorie(categorieId));
   ipcMain.handle("categories:creer", (_evt, boutiqueId: string, nom: string) =>
     executerEnSecurite(() => produits.creerCategorie(boutiqueId, nom)),
   );
   ipcMain.handle("categories:modifier", (_evt, id: string, nom: string) =>
     executerEnSecurite(() => produits.modifierCategorie(id, nom)),
   );
-  ipcMain.handle("categories:supprimer", (_evt, id: string) =>
-    executerEnSecurite(() => produits.supprimerCategorie(id)),
+  ipcMain.handle("categories:supprimer", (_evt, id: string, remplacementId?: string | null) =>
+    executerEnSecurite(() => produits.supprimerCategorie(id, remplacementId)),
   );
 
   ipcMain.handle("unites:lister", (_evt, boutiqueId: string) => produits.listerUnites(boutiqueId));

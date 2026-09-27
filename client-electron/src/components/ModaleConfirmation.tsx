@@ -6,6 +6,7 @@ export default function ModaleConfirmation({
   enCours = false,
   onAnnuler,
   onConfirmer,
+  children,
 }: {
   titre: string;
   description?: string;
@@ -14,12 +15,15 @@ export default function ModaleConfirmation({
   enCours?: boolean;
   onAnnuler: () => void;
   onConfirmer: () => void;
+  /** Champ(s) à remplir avant de confirmer (ex. où déplacer les articles). */
+  children?: React.ReactNode;
 }) {
   return (
     <div className="fond-modale" onClick={onAnnuler}>
       <div className="modale-confirmation" onClick={(e) => e.stopPropagation()}>
         <h3>{titre}</h3>
         {description && <p className="note-aide">{description}</p>}
+        {children}
         <div className="actions-formulaire">
           <button type="button" onClick={onAnnuler} disabled={enCours}>
             Annuler

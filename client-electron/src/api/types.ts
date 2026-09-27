@@ -203,6 +203,23 @@ export interface ReferenceNommee {
   nom: string;
 }
 
+export interface CategorieDetail {
+  id: string;
+  nom: string;
+  /** Articles (produits non supprimés) rangés dans cette catégorie. */
+  nombreArticles: number;
+}
+
+export interface ArticleCategorie {
+  varianteId: string;
+  produitId: string;
+  produitNom: string;
+  reference: string;
+  prixVente: number;
+  /** Stock total, tous dépôts confondus. */
+  quantiteStock: number;
+}
+
 export interface UniteResume extends ReferenceNommee {
   abreviation: string;
 }
@@ -1170,9 +1187,12 @@ export interface WindowApi {
   };
   categories: {
     lister(boutiqueId: string): Promise<ReferenceNommee[]>;
+    listerDetail(boutiqueId: string): Promise<CategorieDetail[]>;
+    articles(categorieId: string): Promise<ArticleCategorie[]>;
     creer(boutiqueId: string, nom: string): Promise<ResultatEcriture<string>>;
     modifier(id: string, nom: string): Promise<ResultatEcriture<void>>;
-    supprimer(id: string): Promise<ResultatEcriture<void>>;
+    /** remplacementId : où déplacer les articles de la catégorie (null = sans catégorie). */
+    supprimer(id: string, remplacementId?: string | null): Promise<ResultatEcriture<void>>;
   };
   unites: {
     lister(boutiqueId: string): Promise<UniteResume[]>;

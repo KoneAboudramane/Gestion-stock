@@ -359,14 +359,70 @@ export interface ReferenceNommee {
   nom: string;
 }
 
+export interface CategorieDetail {
+  id: string;
+  nom: string;
+  /** Articles (produits non supprimés) rangés dans cette catégorie. */
+  nombreArticles: number;
+}
+
+export interface ArticleCategorie {
+  varianteId: string;
+  produitId: string;
+  produitNom: string;
+  reference: string;
+  prixVente: number;
+  /** Stock total, tous dépôts confondus. */
+  quantiteStock: number;
+}
+
+/** Nom de catégorie comparable : sans accents, sans majuscules, sans espaces autour. */
+function cleNomCategorie(nom: string): string {
+  return nom
+    .trim()
+    .toLocaleLowerCase("fr")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
 export async function listerCategories(boutiqueId: string): Promise<ReferenceNommee[]> {
   const categories = (await listerParIndex("categories", "boutique_id", boutiqueId)).filter((c) => !c.supprime);
-  return categories.map((c) => ({ id: c.id, nom: c.nom })).sort((a, b) => a.nom.localeCompare(b.nom));
+  return categories.map((c) => ({ id: c.id, nom: c.nom })).sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
+}
+
+async function produitsDeLaCategorie(boutiqueId: string, categorieId: string) {
+  return (await listerParIndex("produits", "boutique_id", boutiqueId)).filter(
+    (p) => !p.supprime && p.categorie_id === categorieId,
+  );
+}
+
+export async function listerCategoriesDetail(boutiqueId: string): Promise<CategorieDetail[]> {
+  const categories = await listerCategories(boutiqueId);
+  const produits = (await listerParIndex("produits", "boutique_id", boutiqueId)).filter((p) => !p.supprime);
+  return categories.map((c) => ({
+    ...c,
+    nombreArticles: produits.filter((p) => p.categorie_id === c.id).length,
+  }));
+}
+
+async function verifierNomCategorieLibre(boutiqueId: string, nom: string, saufId?: string): Promise<void> {
+  if (!nom.trim()) throw new ErreurProduit("Le nom de la catégorie est requis.");
+  const cle = cleNomCategorie(nom);
+  if ((await listerCategories(boutiqueId)).some((c) => c.id !== saufId && cleNomCategorie(c.nom) === cle)) {
+    throw new ErreurProduit(`La catégorie « ${nom.trim()} » existe déjà.`);
+  }
 }
 
 export async function creerCategorie(boutiqueId: string, nom: string): Promise<string> {
+  await verifierNomCategorieLibre(boutiqueId, nom);
   const id = crypto.randomUUID();
-  const categorie: CategorieLocale = { id, boutique_id: boutiqueId, nom, categorie_parent_id: null, ...suiviSyncNeuf() };
+  const categorie: CategorieLocale = {
+    id,
+    boutique_id: boutiqueId,
+    nom: nom.trim(),
+    categorie_parent_id: null,
+    ...suiviSyncNeuf(),
+  };
   await ecrireLigne("categories", categorie);
   return id;
 }
@@ -374,13 +430,54 @@ export async function creerCategorie(boutiqueId: string, nom: string): Promise<s
 export async function modifierCategorie(id: string, nom: string): Promise<void> {
   const categorie = await obtenirLigne("categories", id);
   if (!categorie) throw new ErreurProduit("Catégorie introuvable.");
-  await ecrireLigne("categories", { ...categorie, nom, date_modification: maintenant(), synchronise: 0 });
+  await verifierNomCategorieLibre(categorie.boutique_id, nom, id);
+  await ecrireLigne("categories", { ...categorie, nom: nom.trim(), date_modification: maintenant(), synchronise: 0 });
 }
 
-export async function supprimerCategorie(id: string): Promise<void> {
+/**
+ * Supprime une catégorie. Si des articles y sont encore rangés, il faut dire où
+ * les déplacer : `remplacementId` (une autre catégorie, ou null = sans catégorie).
+ * Sans ce choix, la suppression est refusée — pour ne pas laisser d'articles orphelins.
+ */
+export async function supprimerCategorie(id: string, remplacementId?: string | null): Promise<void> {
   const categorie = await obtenirLigne("categories", id);
   if (!categorie) return;
-  await ecrireLigne("categories", { ...categorie, supprime: 1, synchronise: 0, date_modification: maintenant() });
+  const produits = await produitsDeLaCategorie(categorie.boutique_id, id);
+  if (produits.length > 0 && remplacementId === undefined) {
+    throw new ErreurProduit(
+      `${produits.length} article(s) sont encore dans cette catégorie : choisissez où les déplacer avant de la supprimer.`,
+    );
+  }
+  if (remplacementId === id) throw new ErreurProduit("Choisissez une autre catégorie.");
+  const date = maintenant();
+  for (const produit of produits) {
+    await ecrireLigne("produits", { ...produit, categorie_id: remplacementId ?? null, date_modification: date, synchronise: 0 });
+  }
+  await ecrireLigne("categories", { ...categorie, supprime: 1, synchronise: 0, date_modification: date });
+}
+
+export async function listerArticlesCategorie(categorieId: string): Promise<ArticleCategorie[]> {
+  const categorie = await obtenirLigne("categories", categorieId);
+  if (!categorie) return [];
+  const produits = await produitsDeLaCategorie(categorie.boutique_id, categorieId);
+  const stocks = await listerTout("stocks");
+  const resultat: ArticleCategorie[] = [];
+  for (const produit of produits) {
+    const variantes = (await listerParIndex("variantes", "produit_id", produit.id)).filter((v) => !v.supprime);
+    for (const v of variantes) {
+      resultat.push({
+        varianteId: v.id,
+        produitId: produit.id,
+        produitNom: produit.nom,
+        reference: v.reference,
+        prixVente: Number(v.prix_vente),
+        quantiteStock: stocks.filter((s) => s.variante_id === v.id).reduce((t, s) => t + Number(s.quantite), 0),
+      });
+    }
+  }
+  return resultat.sort(
+    (a, b) => a.produitNom.localeCompare(b.produitNom, "fr") || a.reference.localeCompare(b.reference, "fr"),
+  );
 }
 
 export interface UniteResume extends ReferenceNommee {
