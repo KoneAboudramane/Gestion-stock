@@ -16,8 +16,7 @@ import ChampMontant from "../components/ChampMontant";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import RecuCredit from "../components/RecuCredit";
 import { useDevise } from "../contexts/DeviseContext";
-import PlanificateurEcheancier from "../components/PlanificateurEcheancier";
-import { LIBELLES_STATUT_ECHEANCE } from "../lib/echeancier";
+import ModaleEcheancier from "../components/ModaleEcheancier";
 import { formaterMontant, normaliserTelephone, telephoneValide } from "../lib/formatage";
 import { MODES_REGLEMENT, libelleStatutVente } from "../lib/libelles";
 import { DetailVente } from "./Ventes";
@@ -57,7 +56,6 @@ function DetailCredit({
   const [recuPaiementId, setRecuPaiementId] = useState<string | null>(null);
   const [echeances, setEcheances] = useState<EcheanceDetail[]>([]);
   const [planification, setPlanification] = useState(false);
-  const [erreurEcheancier, setErreurEcheancier] = useState<string | null>(null);
 
   useEffect(() => {
     if (!session.depotId) api.depots.lister(session.boutiqueId).then(setDepots);
@@ -115,15 +113,11 @@ function DetailCredit({
     }
   }
 
-  async function planifier(tranches: { dateEcheance: string; montant: number }[]) {
-    setErreurEcheancier(null);
-    let succes = false;
+  async function planifier(tranches: { dateEcheance: string; montant: number }[]): Promise<string | null> {
     const resultat = await api.credits.planifier(creditId, tranches);
-    if (resultat.succes) succes = true;
-    else setErreurEcheancier(resultat.message);
-    if (!succes) return;
-    setPlanification(false);
+    if (!resultat.succes) return resultat.message;
     rafraichir();
+    return null;
   }
 
   async function rembourser(evenement: React.FormEvent) {
@@ -166,7 +160,6 @@ function DetailCredit({
   }
 
   if (!credit) return <p>Chargement…</p>;
-  const prochaineId = echeances.find((e) => e.statut !== "payee")?.id;
   const solde = credit.statut === "solde" ? 0 : credit.solde;
 
   return (
@@ -264,50 +257,39 @@ function DetailCredit({
 
       <div className="entete-section-echeancier">
         <h4>Échéancier</h4>
-        {peutGerer && credit.statut === "en_cours" && !planification && (
+        {(echeances.length > 0 || (peutGerer && credit.statut === "en_cours")) && (
           <button type="button" onClick={() => setPlanification(true)}>
-            {echeances.length > 0 ? "Modifier l'échéancier" : "Planifier un échéancier"}
+            {echeances.length > 0 ? "Voir l'échéancier" : "Planifier un échéancier"}
           </button>
         )}
       </div>
-      {erreurEcheancier && <div className="message-erreur">{erreurEcheancier}</div>}
+      <p className="note-aide">
+        {echeances.length === 0
+          ? "Pas d'échéancier : le remboursement se fait librement, un peu à la fois ou d'un coup."
+          : (() => {
+              const prochaine = echeances.find((e) => e.statut !== "payee");
+              const payees = echeances.filter((e) => e.statut === "payee").length;
+              return (
+                `${echeances.length} tranche${echeances.length > 1 ? "s" : ""}, ${payees} payée${payees > 1 ? "s" : ""}` +
+                (prochaine
+                  ? ` · prochaine le ${new Date(`${prochaine.dateEcheance}T00:00:00`).toLocaleDateString("fr-FR")} ` +
+                    `(${formaterMontant(prochaine.montant - prochaine.couvert)} ${devise})` +
+                    (prochaine.statut === "en_retard" ? " — en retard" : "")
+                  : "")
+              );
+            })()}
+      </p>
       {planification && (
-        <PlanificateurEcheancier
+        <ModaleEcheancier
+          titre={`Échéancier — crédit de ${credit.clientNom}`}
           reste={credit.solde}
-          dejaPlanifie={echeances.length > 0}
-          onAnnuler={() => setPlanification(false)}
-          onEnregistrer={planifier}
+          enCours={credit.statut === "en_cours"}
+          peutGerer={peutGerer}
+          echeances={echeances}
+          onPlanifier={planifier}
+          onFermer={() => setPlanification(false)}
         />
       )}
-      {!planification &&
-        (echeances.length > 0 ? (
-          <div className="zone-tableau-scroll">
-            <table className="tableau-catalogue">
-              <thead>
-                <tr>
-                  <th>Échéance</th>
-                  <th>Montant</th>
-                  <th>Déjà réglé</th>
-                  <th>Reste</th>
-                  <th>Statut</th>
-                </tr>
-              </thead>
-              <tbody>
-                {echeances.map((e) => (
-                  <tr key={e.id} className={e.id === prochaineId ? "ligne-prochaine-echeance" : undefined}>
-                    <td>{new Date(`${e.dateEcheance}T00:00:00`).toLocaleDateString("fr-FR")}</td>
-                    <td>{formaterMontant(e.montant)} {devise}</td>
-                    <td>{formaterMontant(e.couvert)} {devise}</td>
-                    <td>{formaterMontant(e.montant - e.couvert)} {devise}</td>
-                    <td><span className={LIBELLES_STATUT_ECHEANCE[e.statut].classe}>{LIBELLES_STATUT_ECHEANCE[e.statut].label}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="note-aide">Pas d'échéancier : le client règle librement, un peu à la fois ou d'un coup.</p>
-        ))}
 
       <div className="barre-actions">
         <h4>Règlements</h4>

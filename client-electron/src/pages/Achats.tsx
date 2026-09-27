@@ -27,8 +27,7 @@ import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant } from "../lib/formatage";
 import { libelleModeReglement, MODES_REGLEMENT } from "../lib/libelles";
 import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
-import PlanificateurEcheancier from "../components/PlanificateurEcheancier";
-import { LIBELLES_STATUT_ECHEANCE } from "../lib/echeancier";
+import ModaleEcheancier from "../components/ModaleEcheancier";
 import FiltrePeriodeHistorique from "../components/FiltrePeriodeHistorique";
 import { bornesPeriode, dansPeriode, jourLocal, type PeriodeHistorique } from "../lib/periode";
 
@@ -1986,18 +1985,12 @@ function ModaleDette({
     onPaye();
   }
 
-  async function planifier(tranches: { dateEcheance: string; montant: number }[]) {
-    setErreur(null);
-    setMessage(null);
-    let succes = false;
+  async function planifier(tranches: { dateEcheance: string; montant: number }[]): Promise<string | null> {
     const resultat = await api.dettes.planifier(dette.id, tranches);
-    if (resultat.succes) succes = true;
-    else setErreur(resultat.message);
-    if (!succes) return;
-    setPlanification(false);
-    setMessage("Échéancier enregistré.");
+    if (!resultat.succes) return resultat.message;
     chargerPaiements();
     onPaye();
+    return null;
   }
 
   async function annulerRemboursement() {
@@ -2027,7 +2020,6 @@ function ModaleDette({
     onPaye();
   }
 
-  const prochaineId = echeances.find((e) => e.statut !== "payee")?.id;
 
   // Traces : ce qui a été payé à la réception (s'il y en a), puis chaque règlement.
   const regle = paiements.filter((x) => !x.annulee).reduce((t, x) => t + Number(x.montant), 0);
@@ -2149,51 +2141,39 @@ function ModaleDette({
 
           <div className="entete-section-echeancier">
             <h4>Échéancier</h4>
-            {peutGerer && dette.statut === "en_cours" && !planification && (
+            {(echeances.length > 0 || (peutGerer && dette.statut === "en_cours")) && (
               <button type="button" onClick={() => setPlanification(true)}>
-                {echeances.length > 0 ? "Modifier l'échéancier" : "Planifier un échéancier"}
+                {echeances.length > 0 ? "Voir l'échéancier" : "Planifier un échéancier"}
               </button>
             )}
           </div>
+          <p className="note-aide">
+            {echeances.length === 0
+              ? "Pas d'échéancier : le remboursement se fait librement, un peu à la fois ou d'un coup."
+              : (() => {
+                  const prochaine = echeances.find((e) => e.statut !== "payee");
+                  const payees = echeances.filter((e) => e.statut === "payee").length;
+                  return (
+                    `${echeances.length} tranche${echeances.length > 1 ? "s" : ""}, ${payees} payée${payees > 1 ? "s" : ""}` +
+                    (prochaine
+                      ? ` · prochaine le ${new Date(`${prochaine.dateEcheance}T00:00:00`).toLocaleDateString("fr-FR")} ` +
+                        `(${formaterMontant(prochaine.montant - prochaine.couvert)} ${devise})` +
+                        (prochaine.statut === "en_retard" ? " — en retard" : "")
+                      : "")
+                  );
+                })()}
+          </p>
           {planification && (
-            <PlanificateurEcheancier
+            <ModaleEcheancier
+              titre={`Échéancier — ${dette.fournisseurNom}`}
               reste={dette.solde}
-              dejaPlanifie={echeances.length > 0}
-              onAnnuler={() => setPlanification(false)}
-              onEnregistrer={planifier}
+              enCours={dette.statut === "en_cours"}
+              peutGerer={peutGerer}
+              echeances={echeances}
+              onPlanifier={planifier}
+              onFermer={() => setPlanification(false)}
             />
           )}
-          {!planification &&
-            (echeances.length > 0 ? (
-              <div className="zone-tableau-scroll zone-echeances-dette">
-                <table className="tableau-catalogue">
-                  <thead>
-                    <tr>
-                      <th>Échéance</th>
-                      <th>Montant</th>
-                      <th>Déjà couvert</th>
-                      <th>Reste</th>
-                      <th>Statut</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {echeances.map((e) => (
-                      <tr key={e.id} className={e.id === prochaineId ? "ligne-prochaine-echeance" : undefined}>
-                        <td>{new Date(`${e.dateEcheance}T00:00:00`).toLocaleDateString("fr-FR")}</td>
-                        <td>{formaterMontant(e.montant)} {devise}</td>
-                        <td>{formaterMontant(e.couvert)} {devise}</td>
-                        <td>{formaterMontant(e.montant - e.couvert)} {devise}</td>
-                        <td><span className={LIBELLES_STATUT_ECHEANCE[e.statut].classe}>{LIBELLES_STATUT_ECHEANCE[e.statut].label}</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="note-aide">
-                Pas d'échéancier : la dette se rembourse librement, un peu à la fois ou d'un coup.
-              </p>
-            ))}
 
           <h4>Traces des paiements</h4>
           <div className="zone-tableau-scroll zone-traces-dette">
