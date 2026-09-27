@@ -5997,3 +5997,10 @@ button.tuile-dormance.active {
   height: auto;
   padding: 0.8rem !important;
 }
+
+/* Tableau-liste vide : le message « aucune ligne » garde une hauteur de ligne
+   normale dès que des lignes de remplissage dessinent la grille en dessous. */
+.tableau-catalogue tbody:has(> tr.ligne-groupe-vide) .liste-vide {
+  height: auto;
+  padding: 0.8rem !important;
+}

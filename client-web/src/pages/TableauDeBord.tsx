@@ -572,6 +572,15 @@ export default function TableauDeBord({
                     </td>
                   </tr>
                 )}
+                {Array.from({ length: Math.max(0, 5 - Math.max(1, Math.min(ruptures.length, 5))) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -635,6 +644,14 @@ export default function TableauDeBord({
                     </td>
                   </tr>
                 )}
+                {Array.from({ length: Math.max(0, 5 - Math.max(1, meilleursClients.length)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

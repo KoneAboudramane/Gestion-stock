@@ -292,6 +292,18 @@ function OngletStockNiveau({
                 </td>
               </tr>
             )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, lignesAffichees.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -651,6 +663,17 @@ function OngletMouvements({ session }: { session: Session }) {
                 </td>
               </tr>
             )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, mouvementsFiltres.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -1271,6 +1294,19 @@ function DetailInventaire({
                   </td>
                 </tr>
               )}
+              {Array.from({ length: Math.max(0, 10 - Math.max(1, inventaire.lignes.length)) }).map((_, i) => (
+                <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                </tr>
+              ))}
             </tbody>
             {inventaire.lignes.length > 0 && (
               <tfoot>
@@ -1401,6 +1437,13 @@ function OngletInventaire({ session }: { session: Session }) {
                 </td>
               </tr>
             )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, inventaires.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -1555,6 +1598,16 @@ function EntreeGroupeeDepuisSelection({
                     ✕
                   </button>
                 </td>
+              </tr>
+            ))}
+            {Array.from({ length: Math.max(0, 10 - lignesEditees.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
               </tr>
             ))}
           </tbody>
@@ -1960,6 +2013,18 @@ function OngletPertes({ session }: { session: Session }) {
                 </td>
               </tr>
             )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, pertes.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                {peutGerer && <td>&nbsp;</td>}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -2706,6 +2771,20 @@ function OngletDestockage({ session }: { session: Session }) {
                 </td>
               </tr>
             )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, destockages.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                {peutGerer && <td>&nbsp;</td>}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

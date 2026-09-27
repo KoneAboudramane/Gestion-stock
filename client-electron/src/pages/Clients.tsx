@@ -273,14 +273,13 @@ function DetailCredit({
               </td>
             </tr>
           )}
-          {credit.paiements.length > 0 &&
-            Array.from({ length: Math.max(0, 10 - credit.paiements.length) }).map((_, i) => (
-              <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-              </tr>
-            ))}
+          {Array.from({ length: Math.max(0, 10 - Math.max(1, credit.paiements.length)) }).map((_, i) => (
+            <tr key={`vide-${i}`} className="ligne-groupe-vide">
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+            </tr>
+          ))}
         </tbody>
       </table>
       </div>
@@ -537,16 +536,15 @@ function DetailClient({
               </td>
             </tr>
           )}
-          {ventes.length > 0 &&
-            Array.from({ length: Math.max(0, 10 - ventes.length) }).map((_, i) => (
-              <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-              </tr>
-            ))}
+          {Array.from({ length: Math.max(0, 10 - Math.max(1, ventes.length)) }).map((_, i) => (
+            <tr key={`vide-${i}`} className="ligne-groupe-vide">
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+            </tr>
+          ))}
         </tbody>
       </table>
       </div>
@@ -589,18 +587,17 @@ function DetailClient({
               </td>
             </tr>
           )}
-          {credits.length > 0 &&
-            Array.from({ length: Math.max(0, 10 - credits.length) }).map((_, i) => (
-              <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-              </tr>
-            ))}
+          {Array.from({ length: Math.max(0, 10 - Math.max(1, credits.length)) }).map((_, i) => (
+            <tr key={`vide-${i}`} className="ligne-groupe-vide">
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+            </tr>
+          ))}
         </tbody>
       </table>
       </div>
@@ -922,17 +919,16 @@ function OngletClients({ session }: { session: Session }) {
               </td>
             </tr>
           )}
-          {clientsListe.length > 0 &&
-            Array.from({ length: Math.max(0, 10 - clientsListe.length) }).map((_, i) => (
-              <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                {peutGerer && <td>&nbsp;</td>}
-              </tr>
-            ))}
+          {Array.from({ length: Math.max(0, 10 - Math.max(1, clientsListe.length)) }).map((_, i) => (
+            <tr key={`vide-${i}`} className="ligne-groupe-vide">
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              {peutGerer && <td>&nbsp;</td>}
+            </tr>
+          ))}
         </tbody>
       </table>
       </div>
@@ -1045,18 +1041,17 @@ function OngletCredits({
               </td>
             </tr>
           )}
-          {creditsFiltres.length > 0 &&
-            Array.from({ length: Math.max(0, 10 - creditsFiltres.length) }).map((_, i) => (
-              <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-              </tr>
-            ))}
+          {Array.from({ length: Math.max(0, 10 - Math.max(1, creditsFiltres.length)) }).map((_, i) => (
+            <tr key={`vide-${i}`} className="ligne-groupe-vide">
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+            </tr>
+          ))}
         </tbody>
       </table>
       </div>

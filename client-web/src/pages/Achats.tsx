@@ -489,6 +489,16 @@ function ApercuCommandesGroupees({
                 </td>
               </tr>
             ))}
+            {Array.from({ length: Math.max(0, 10 - lignesEditees.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -767,6 +777,18 @@ function DetailCommande({
                 <td data-label="Sous-total">{formaterMontant(l.sousTotal)}</td>
               </tr>
             ))}
+            {Array.from({ length: Math.max(0, 10 - commande.lignes.length) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -959,6 +981,14 @@ function DetailCommande({
                               <td colSpan={4} className="liste-vide">Aucune réception enregistrée.</td>
                             </tr>
                           )}
+                          {Array.from({ length: Math.max(0, 10 - Math.max(1, receptions.length)) }).map((_, i) => (
+                            <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                              <td>&nbsp;</td>
+                              <td>&nbsp;</td>
+                              <td>&nbsp;</td>
+                              <td>&nbsp;</td>
+                            </tr>
+                          ))}
                         </tbody>
                       </table>
                     </div>
@@ -1006,6 +1036,14 @@ function DetailCommande({
                               </td>
                             </tr>
                           )}
+                          {Array.from({ length: Math.max(0, 10 - Math.max(1, paiementsCommande.length)) }).map((_, i) => (
+                            <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                              <td>&nbsp;</td>
+                              <td>&nbsp;</td>
+                              <td>&nbsp;</td>
+                              <td>&nbsp;</td>
+                            </tr>
+                          ))}
                         </tbody>
                       </table>
                     </div>
@@ -1125,6 +1163,16 @@ function DetailCommande({
                     </tr>
                   );
                 })}
+                {Array.from({ length: Math.max(0, 10 - lignesAReceptionner.length) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -1319,6 +1367,16 @@ function OngletCommandes({
                 </td>
               </tr>
             )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, commandes.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -1403,6 +1461,16 @@ function OngletReception({ session }: { session: Session }) {
                 </td>
               </tr>
             )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, commandes.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -1649,6 +1717,15 @@ function OngletFournisseurs({ session }: { session: Session }) {
                 </td>
               </tr>
             )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, fournisseurs.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -1786,6 +1863,19 @@ function OngletDettes({ session }: { session: Session }) {
                 </td>
               </tr>
             )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, dettes.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                {peutGerer && <td>&nbsp;</td>}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -1962,6 +2052,14 @@ function ModaleRetourFournisseur({
                     </td>
                   </tr>
                 ))}
+                {Array.from({ length: Math.max(0, 10 - lignes.length) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -2106,6 +2204,14 @@ function ModaleDetailReception({
                     </td>
                   </tr>
                 )}
+                {Array.from({ length: Math.max(0, 10 - Math.max(1, reception.lignes.length)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    {aDesRetours && <td>&nbsp;</td>}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -2135,6 +2241,16 @@ function ModaleDetailReception({
                         </td>
                         <td data-label="Avoir à récupérer">{r.avoir > 0 ? `${formaterMontant(r.avoir)} ${devise}` : "—"}</td>
                         <td data-label="Fait par">{nomUtilisateur(r.utilisateurId)}</td>
+                      </tr>
+                    ))}
+                    {Array.from({ length: Math.max(0, 10 - reception.retours.length) }).map((_, i) => (
+                      <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
                       </tr>
                     ))}
                   </tbody>
@@ -2272,6 +2388,17 @@ function OngletHistoriqueReceptions({ session }: { session: Session }) {
                 </td>
               </tr>
             )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, receptions.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

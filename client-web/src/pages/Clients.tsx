@@ -282,6 +282,14 @@ function DetailCredit({ creditId, session, onRetour }: { creditId: string; sessi
                   </td>
                 </tr>
               )}
+              {Array.from({ length: Math.max(0, 10 - Math.max(1, credit.paiements.length)) }).map((_, i) => (
+                <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -522,6 +530,15 @@ function DetailClient({ client, session, onRetour }: { client: ClientResume; ses
                     </td>
                   </tr>
                 )}
+                {Array.from({ length: Math.max(0, 10 - Math.max(1, ventes.length)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -562,6 +579,17 @@ function DetailClient({ client, session, onRetour }: { client: ClientResume; ses
                     </td>
                   </tr>
                 )}
+                {Array.from({ length: Math.max(0, 10 - Math.max(1, credits.length)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -885,6 +913,16 @@ function OngletClients({ session }: { session: Session }) {
                 </td>
               </tr>
             )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, clientsFiltres.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                {peutGerer && <td>&nbsp;</td>}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -978,6 +1016,18 @@ function OngletCredits({ session }: { session: Session }) {
                 </td>
               </tr>
             )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, creditsFiltres.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

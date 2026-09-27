@@ -154,6 +154,17 @@ function ModaleJournal({
                   {lignes.length === 0 && (
                     <tr><td colSpan={7} className="liste-vide">Aucune écriture sur la période.</td></tr>
                   )}
+                  {Array.from({ length: Math.max(0, 10 - Math.max(1, lignes.length)) }).map((_, i) => (
+                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -238,6 +249,16 @@ function ModaleGrandLivre({
                   {lignes.length === 0 && (
                     <tr><td colSpan={6} className="liste-vide">Aucun mouvement sur ce compte.</td></tr>
                   )}
+                  {Array.from({ length: Math.max(0, 10 - Math.max(1, lignes.length)) }).map((_, i) => (
+                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                    </tr>
+                  ))}
                 </tbody>
                 {lignes.length > 0 && (
                   <tfoot>
@@ -315,6 +336,16 @@ function ModaleBalance({
                   {lignes.length === 0 && (
                     <tr><td colSpan={6} className="liste-vide">Aucun mouvement sur la période.</td></tr>
                   )}
+                  {Array.from({ length: Math.max(0, 10 - Math.max(1, lignes.length)) }).map((_, i) => (
+                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                    </tr>
+                  ))}
                 </tbody>
                 {lignes.length > 0 && (
                   <tfoot>

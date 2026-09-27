@@ -683,6 +683,19 @@ function DetailProduit({
                           </td>
                         </tr>
                       )}
+                    {Array.from({ length: Math.max(0, 10 - produit.variantes.length) }).map((_, i) => (
+                      <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        {afficherCodeBarres && <td>&nbsp;</td>}
+                        {afficherAttributs && <td>&nbsp;</td>}
+                        {peutVoirCout && <td>&nbsp;</td>}
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        {peutGerer && <td className="colonne-actions-variante">&nbsp;</td>}
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -1259,6 +1272,18 @@ function OngletProduits({ session }: { session: Session }) {
                   </td>
                 </tr>
               )}
+              {Array.from({ length: Math.max(0, 10 - Math.max(1, produitsTries.length)) }).map((_, i) => (
+                <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  {peutVoirCout && <td>&nbsp;</td>}
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  {peutGerer && <td>&nbsp;</td>}
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

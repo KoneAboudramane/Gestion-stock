@@ -186,6 +186,16 @@ export function DetailVente({ venteId, session, onRetour }: { venteId: string; s
                   <td data-label="Sous-total">{formaterMontant(l.sousTotal)}</td>
                 </tr>
               ))}
+              {Array.from({ length: Math.max(0, 10 - vente.lignes.length) }).map((_, i) => (
+                <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -374,6 +384,17 @@ export default function Ventes({ session }: { session: Session }) {
                 </td>
               </tr>
             )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, ventes.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

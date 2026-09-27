@@ -295,14 +295,13 @@ function ModaleTopProduits({ session, periodeInitiale, onFermer }: { session: Se
                     </td>
                   </tr>
                 )}
-                {lignes.length > 0 &&
-                  Array.from({ length: Math.max(0, 10 - lignes.length) }).map((_, i) => (
-                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                      {COLONNES_TOP_PRODUITS.map((c) => (
-                        <td key={c.cle}>&nbsp;</td>
-                      ))}
-                    </tr>
-                  ))}
+                {Array.from({ length: Math.max(0, 10 - Math.max(1, lignes.length)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    {COLONNES_TOP_PRODUITS.map((c) => (
+                      <td key={c.cle}>&nbsp;</td>
+                    ))}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -372,14 +371,13 @@ function ModaleTopClients({ session, periodeInitiale, onFermer }: { session: Ses
                     </td>
                   </tr>
                 )}
-                {lignes.length > 0 &&
-                  Array.from({ length: Math.max(0, 10 - lignes.length) }).map((_, i) => (
-                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                      {COLONNES_TOP_CLIENTS.map((c) => (
-                        <td key={c.cle}>&nbsp;</td>
-                      ))}
-                    </tr>
-                  ))}
+                {Array.from({ length: Math.max(0, 10 - Math.max(1, lignes.length)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    {COLONNES_TOP_CLIENTS.map((c) => (
+                      <td key={c.cle}>&nbsp;</td>
+                    ))}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -525,14 +523,13 @@ function ModaleVentesParVendeur({ session, periodeInitiale, onFermer }: { sessio
                     </td>
                   </tr>
                 )}
-                {lignesExport.length > 0 &&
-                  Array.from({ length: Math.max(0, 10 - lignesExport.length) }).map((_, i) => (
-                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                      {COLONNES_VENDEUR.map((c) => (
-                        <td key={c.cle}>&nbsp;</td>
-                      ))}
-                    </tr>
-                  ))}
+                {Array.from({ length: Math.max(0, 10 - Math.max(1, lignesExport.length)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    {COLONNES_VENDEUR.map((c) => (
+                      <td key={c.cle}>&nbsp;</td>
+                    ))}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -602,14 +599,13 @@ function ModaleVentesParCategorie({ session, periodeInitiale, onFermer }: { sess
                     </td>
                   </tr>
                 )}
-                {lignes.length > 0 &&
-                  Array.from({ length: Math.max(0, 10 - lignes.length) }).map((_, i) => (
-                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                      {COLONNES_CATEGORIE.map((c) => (
-                        <td key={c.cle}>&nbsp;</td>
-                      ))}
-                    </tr>
-                  ))}
+                {Array.from({ length: Math.max(0, 10 - Math.max(1, lignes.length)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    {COLONNES_CATEGORIE.map((c) => (
+                      <td key={c.cle}>&nbsp;</td>
+                    ))}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -670,14 +666,6 @@ function ModaleVentesParModePaiement({ session, periodeInitiale, onFermer }: { s
                     <td>{formaterMontant(l.total)}</td>
                   </tr>
                 ))}
-                {lignes.length > 0 &&
-                  Array.from({ length: Math.max(0, 10 - lignes.length) }).map((_, i) => (
-                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                      {COLONNES_MODE_PAIEMENT.map((c) => (
-                        <td key={c.cle}>&nbsp;</td>
-                      ))}
-                    </tr>
-                  ))}
                 {lignes.length === 0 && (
                   <tr>
                     <td colSpan={2} className="liste-vide">
@@ -685,6 +673,13 @@ function ModaleVentesParModePaiement({ session, periodeInitiale, onFermer }: { s
                     </td>
                   </tr>
                 )}
+                {Array.from({ length: Math.max(0, 10 - Math.max(1, lignes.length)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    {COLONNES_MODE_PAIEMENT.map((c) => (
+                      <td key={c.cle}>&nbsp;</td>
+                    ))}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -787,6 +782,13 @@ function ModalePertes({ session, periodeInitiale, onFermer }: { session: Session
                     </td>
                   </tr>
                 )}
+                {Array.from({ length: Math.max(0, 10 - Math.max(1, lignes.length)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    {COLONNES_PERTES.map((c) => (
+                      <td key={c.cle}>&nbsp;</td>
+                    ))}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -951,6 +953,13 @@ function ModaleDestockages({ session, onFermer }: { session: Session; onFermer: 
                       </td>
                     </tr>
                   )}
+                  {Array.from({ length: Math.max(0, 10 - Math.max(1, lignes.length)) }).map((_, i) => (
+                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                      {COLONNES_DESTOCKAGES.map((c) => (
+                        <td key={c.cle}>&nbsp;</td>
+                      ))}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -1001,6 +1010,19 @@ function ModaleDestockages({ session, onFermer }: { session: Session; onFermer: 
                       </td>
                     </tr>
                   )}
+                  {Array.from({ length: Math.max(0, 10 - Math.max(1, operations.length)) }).map((_, i) => (
+                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -1129,6 +1151,14 @@ export function ModaleProduitsDormants({ session, onFermer }: { session: Session
                     </td>
                   </tr>
                 )}
+                {Array.from({ length: Math.max(0, 10 - Math.max(1, lignes.length)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    {COLONNES_DORMANTS.map((c) => (
+                      <td key={c.cle}>&nbsp;</td>
+                    ))}
+                    {peutDestocker && <td>&nbsp;</td>}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

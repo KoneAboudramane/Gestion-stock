@@ -261,6 +261,18 @@ function ModaleMessages({
                         </td>
                       </tr>
                     )}
+                    {Array.from({ length: Math.max(0, 10 - Math.max(1, messagesAffiches.length)) }).map((_, i) => (
+                      <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

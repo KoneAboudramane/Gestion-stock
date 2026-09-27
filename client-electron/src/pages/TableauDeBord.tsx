@@ -597,15 +597,14 @@ export default function TableauDeBord({
                   </td>
                 </tr>
               )}
-              {ruptures.length > 0 &&
-                Array.from({ length: Math.max(0, 5 - Math.min(ruptures.length, 5)) }).map((_, i) => (
-                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                  </tr>
-                ))}
+              {Array.from({ length: Math.max(0, 5 - Math.max(1, Math.min(ruptures.length, 5))) }).map((_, i) => (
+                <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                </tr>
+              ))}
             </tbody>
           </table>
           {ruptures.length > 5 && (
@@ -665,14 +664,13 @@ export default function TableauDeBord({
                   </td>
                 </tr>
               )}
-              {meilleursClients.length > 0 &&
-                Array.from({ length: Math.max(0, 5 - meilleursClients.length) }).map((_, i) => (
-                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                  </tr>
-                ))}
+              {Array.from({ length: Math.max(0, 5 - Math.max(1, meilleursClients.length)) }).map((_, i) => (
+                <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -707,14 +705,13 @@ export default function TableauDeBord({
                 </td>
               </tr>
             )}
-            {creditsEnCours.length > 0 &&
-              Array.from({ length: Math.max(0, 5 - Math.min(creditsEnCours.length, 5)) }).map((_, i) => (
-                <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                  <td>&nbsp;</td>
-                  <td>&nbsp;</td>
-                  <td>&nbsp;</td>
-                </tr>
-              ))}
+            {Array.from({ length: Math.max(0, 5 - Math.max(1, Math.min(creditsEnCours.length, 5))) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
           </tbody>
         </table>
         {creditsEnCours.length > 5 && (

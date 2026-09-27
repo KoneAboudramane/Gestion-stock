@@ -974,21 +974,6 @@ function OngletUtilisateursRoles({ session }: { session: Session }) {
                     onModifie={rafraichir}
                   />
                 ))}
-                {utilisateurs.length > 0 &&
-                  Array.from({ length: Math.max(0, 10 - utilisateurs.length) }).map((_, i) => (
-                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                    </tr>
-                  ))}
                 {utilisateurs.length === 0 && (
                   <tr>
                     <td colSpan={10} className="liste-vide">
@@ -996,6 +981,20 @@ function OngletUtilisateursRoles({ session }: { session: Session }) {
                     </td>
                   </tr>
                 )}
+                {Array.from({ length: Math.max(0, 10 - Math.max(1, utilisateurs.length)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
             </div>

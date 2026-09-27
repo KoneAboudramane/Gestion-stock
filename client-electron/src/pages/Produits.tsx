@@ -762,16 +762,15 @@ function DetailProduit({
                       </td>
                     </tr>
                   )}
-                  {mouvements.length > 0 &&
-                    Array.from({ length: Math.max(0, 10 - mouvements.length) }).map((_, i) => (
-                      <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                      </tr>
-                    ))}
+                  {Array.from({ length: Math.max(0, 10 - Math.max(1, mouvements.length)) }).map((_, i) => (
+                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
               </div>
@@ -812,18 +811,17 @@ function DetailProduit({
                       </td>
                     </tr>
                   )}
-                  {ventesHistorique.length > 0 &&
-                    Array.from({ length: Math.max(0, 10 - ventesHistorique.length) }).map((_, i) => (
-                      <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                      </tr>
-                    ))}
+                  {Array.from({ length: Math.max(0, 10 - Math.max(1, ventesHistorique.length)) }).map((_, i) => (
+                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
               </div>
@@ -1401,19 +1399,18 @@ function OngletProduits({ session }: { session: Session }) {
               </td>
             </tr>
           )}
-          {produits.length > 0 &&
-            Array.from({ length: Math.max(0, 10 - produits.length) }).map((_, i) => (
-              <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td className="colonne-categorie-articles">&nbsp;</td>
-                {peutVoirCout && <td>&nbsp;</td>}
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                {peutGerer && <td>&nbsp;</td>}
-              </tr>
-            ))}
+          {Array.from({ length: Math.max(0, 10 - Math.max(1, produits.length)) }).map((_, i) => (
+            <tr key={`vide-${i}`} className="ligne-groupe-vide">
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td className="colonne-categorie-articles">&nbsp;</td>
+              {peutVoirCout && <td>&nbsp;</td>}
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              {peutGerer && <td>&nbsp;</td>}
+            </tr>
+          ))}
         </tbody>
       </table>
       </div>
