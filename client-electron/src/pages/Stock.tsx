@@ -2796,6 +2796,13 @@ const LIBELLES_SORTIE_DORMANCE: Record<string, { label: string; classe: string }
   destockage: { label: "Déstockage", classe: "badge-destockage" },
 };
 
+/** Motif d'un mouvement sans le détail entre parenthèses (prix avant → après…),
+ * qui reste lisible au survol. Ex. « Réception CMD-20260926-0001 (Prix achat…) ». */
+function motifCourt(motif: string): string {
+  const i = (motif ?? "").indexOf(" (");
+  return i > 0 ? motif.slice(0, i) : (motif ?? "");
+}
+
 type SectionHistorique = "mouvements" | "pertes" | "destockages" | "transferts" | "inventaires" | "dormants";
 
 function ModaleHistoriqueStock({
@@ -3110,7 +3117,9 @@ function ModaleHistoriqueStock({
                           <td>{libelleTypeMouvement(m.type)}</td>
                           <td>{libelleOrigineMouvement(m.referenceType)}</td>
                           <td>{m.quantite}</td>
-                          <td>{m.motif || ""}</td>
+                          <td title={m.motif || undefined}>
+                            {motifCourt(m.motif)}
+                          </td>
                           <td>{nomUtilisateur(m.utilisateurId)}</td>
                         </tr>
                       ))}
