@@ -237,6 +237,8 @@ export interface NotificationResume {
   depotNom: string | null;
   referenceType: string;
   referenceId: string | null;
+  /** Déjà vue (la page Notifications marque tout comme lu à l'ouverture). */
+  lu: boolean;
 }
 
 export interface FiltresNotifications {
@@ -260,6 +262,7 @@ export async function listerNotifications(boutiqueId: string, filtres: FiltresNo
       depotNom: depot?.nom ?? null,
       referenceType: n.reference_type,
       referenceId: n.reference_id,
+      lu: !!n.lu,
     });
   }
   return resultat.sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));

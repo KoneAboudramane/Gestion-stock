@@ -1115,6 +1115,8 @@ export interface NotificationResume {
   depotNom: string | null;
   referenceType: string;
   referenceId: string | null;
+  /** Déjà vue (la page Notifications marque tout comme lu à l'ouverture). */
+  lu: boolean;
 }
 
 export interface FiltresNotifications {

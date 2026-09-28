@@ -8,7 +8,7 @@ import type { LigneAchatInitiale } from "../services/stock";
 import Accueil from "./Accueil";
 import Achats from "./Achats";
 import Caisse from "./Caisse";
-import Clients from "./Clients";
+import Clients, { type SectionClients } from "./Clients";
 import Comptabilite from "./Comptabilite";
 import Depense from "./Depense";
 import Messages from "./Messages";
@@ -65,6 +65,7 @@ export default function Shell({
   const [lignesAchatInitiales, setLignesAchatInitiales] = useState<LigneAchatInitiale[]>([]);
   const [ongletRapportsInitial, setOngletRapportsInitial] = useState<DocumentRapport | undefined>(undefined);
   const [periodeRapportsInitiale, setPeriodeRapportsInitiale] = useState<Periode | undefined>(undefined);
+  const [sectionClientsInitiale, setSectionClientsInitiale] = useState<SectionClients | undefined>(undefined);
   const [notificationsNonLues, setNotificationsNonLues] = useState(0);
 
   async function rafraichirNonLues() {
@@ -125,6 +126,9 @@ export default function Shell({
     } else if (cible === "rapports:tout") {
       setZone("rapports");
       setPeriodeRapportsInitiale("tout");
+    } else if (cible === "clients:credits") {
+      setZone("clients");
+      setSectionClientsInitiale("credits");
     } else if (cible === "stock:rupture") {
       setZone("stock");
       setFiltreRuptureInitial(true);
@@ -154,6 +158,7 @@ export default function Shell({
       setOngletRapportsInitial(undefined);
       setPeriodeRapportsInitiale(undefined);
     }
+    if (zone !== "clients") setSectionClientsInitiale(undefined);
   }, [zone]);
 
   function basculerBarreLaterale() {
@@ -238,7 +243,7 @@ export default function Shell({
           {zone === "caisse" && <Caisse session={session} />}
           {zone === "ventes" && <Ventes session={session} />}
           {zone === "produits" && <Produits session={session} />}
-          {zone === "clients" && <Clients session={session} />}
+          {zone === "clients" && <Clients session={session} sectionInitiale={sectionClientsInitiale} />}
           {zone === "achats" && (
             <Achats
               session={session}

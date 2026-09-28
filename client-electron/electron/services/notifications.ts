@@ -249,6 +249,8 @@ export interface NotificationResume {
   depotNom: string | null;
   referenceType: string;
   referenceId: string | null;
+  /** Déjà vue (la page Notifications marque tout comme lu à l'ouverture). */
+  lu: boolean;
 }
 
 export interface FiltresNotifications {
@@ -270,13 +272,14 @@ export function listerNotifications(boutiqueId: string, filtres: FiltresNotifica
   }
   return tousLesResultats<NotificationResume>(
     `SELECT n.id as id, n.type as type, n.message as message, n.date_creation as dateCreation,
-            n.depot_id as depotId, d.nom as depotNom, n.reference_type as referenceType, n.reference_id as referenceId
+            n.depot_id as depotId, d.nom as depotNom, n.reference_type as referenceType, n.reference_id as referenceId,
+            n.lu as lu
      FROM notifications n
      LEFT JOIN depots d ON d.id = n.depot_id
      WHERE ${conditions.join(" AND ")}
      ORDER BY n.date_creation DESC`,
     parametres,
-  );
+  ).map((n) => ({ ...n, lu: !!Number(n.lu) }));
 }
 
 /** Un caissier ne doit voir que le compteur de son propre dépôt (badge de la cloche). */

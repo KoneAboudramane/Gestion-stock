@@ -7503,3 +7503,34 @@ button.tuile-dormance.active {
   max-height: none;
   overflow-y: auto;
 }
+
+/* Notifications : compteur sur les cartes, lignes non lues, détail compact. */
+.carte-document-comptable {
+  position: relative;
+}
+
+.compteur-carte {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.7rem;
+  min-width: 1.6rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--gris-200);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.compteur-carte--nouveau {
+  background: var(--danger, #dc2626);
+  color: #fff;
+}
+
+.tableau-catalogue tr.ligne-non-lue td {
+  font-weight: 600;
+}
+
+.modale-detail-notification {
+  max-width: 560px;
+}

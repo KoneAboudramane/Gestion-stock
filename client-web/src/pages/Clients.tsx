@@ -1612,8 +1612,10 @@ function ModaleCredits({ session, onFermer }: { session: Session; onFermer: () =
   );
 }
 
-export default function Clients({ session }: { session: Session }) {
-  const [sectionOuverte, setSectionOuverte] = useState<Section | null>(null);
+export type SectionClients = Section;
+
+export default function Clients({ session, sectionInitiale }: { session: Session; sectionInitiale?: Section }) {
+  const [sectionOuverte, setSectionOuverte] = useState<Section | null>(sectionInitiale ?? null);
 
   return (
     <div className="page-produits page-accueil">
