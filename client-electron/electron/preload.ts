@@ -323,7 +323,9 @@ contextBridge.exposeInMainWorld("api", {
     lister: (boutiqueId: string, filtres?: unknown) => ipcRenderer.invoke("messages:lister", boutiqueId, filtres),
     genererRappelsCredit: (boutiqueId: string) => ipcRenderer.invoke("messages:genererRappelsCredit", boutiqueId),
     genererTicketWhatsapp: (venteId: string) => ipcRenderer.invoke("messages:genererTicketWhatsapp", venteId),
-    envoyer: (id: string) => ipcRenderer.invoke("messages:envoyer", id),
+    envoyer: (id: string, texte?: string, destinataire?: string) =>
+      ipcRenderer.invoke("messages:envoyer", id, texte, destinataire),
+    marquerTraite: (id: string) => ipcRenderer.invoke("messages:marquerTraite", id),
   },
   tresorerie: {
     solde: (depotId: string, jusqua?: string) => ipcRenderer.invoke("tresorerie:solde", depotId, jusqua),

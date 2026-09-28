@@ -11,9 +11,11 @@ import type {
   UtilisateurResume,
   VenteDetail,
 } from "../api/client";
+import FiltrePeriodeHistorique from "../components/FiltrePeriodeHistorique";
 import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant } from "../lib/formatage";
-import { libelleCanalMessage, libelleModePaiement, libelleStatutVente } from "../lib/libelles";
+import { libelleModePaiement, libelleStatutVente } from "../lib/libelles";
+import { bornesPeriode, dansPeriode, jourLocal, type PeriodeHistorique } from "../lib/periode";
 
 /**
  * Chaque section (En attente / Historique) est un bouton-carte qui ouvre sa
@@ -24,10 +26,28 @@ function libelleType(type: MessageResume["type"]): string {
   return type === "rappel_credit" ? "Rappel de crédit" : "Ticket WhatsApp";
 }
 
-function libelleStatut(statut: StatutMessage): string {
-  if (statut === "envoyee") return "Envoyée";
-  if (statut === "echouee") return "Échouée";
+function libelleStatut(message: MessageResume): string {
+  if (message.statut === "envoyee") return message.canal === "interne" ? "Traité" : "Envoyé";
+  if (message.statut === "echouee") return "Échec";
   return "En attente";
+}
+
+function classeStatut(statut: StatutMessage): string {
+  return statut === "envoyee" ? "badge-payee" : statut === "echouee" ? "badge-annulee" : "badge-credit";
+}
+
+/** Numéro utilisable par WhatsApp : celui du message, sinon celui du client. */
+function numeroWhatsapp(message: MessageResume): string {
+  return (message.destinataire || message.clientTelephone || "").replace(/\D/g, "");
+}
+
+function ouvrirWhatsapp(numero: string, texte: string) {
+  const url = `https://wa.me/${numero}?text=${encodeURIComponent(texte)}`;
+  void api.systeme.ouvrirExterne(url);
+}
+
+function dateCourte(iso: string): string {
+  return new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
 }
 
 function DetailCreditLie({ creditId }: { creditId: string }) {
@@ -38,20 +58,33 @@ function DetailCreditLie({ creditId }: { creditId: string }) {
     api.credits.obtenir(creditId).then((c) => setCredit(c ?? null));
   }, [creditId]);
 
-  if (credit === undefined) return <p>Chargement du crédit…</p>;
-  if (credit === null) return <p>Crédit introuvable (peut-être supprimé).</p>;
+  if (credit === undefined) return <p className="sous-info">Chargement du crédit…</p>;
+  if (credit === null) return <p className="sous-info">Crédit introuvable (peut-être supprimé).</p>;
 
   return (
-    <div className="totaux">
-      <h3>Crédit lié</h3>
-      <div>Client : {credit.clientNom}</div>
-      <div>
-        Montant : {formaterMontant(credit.montant)} {devise} · Payé : {formaterMontant(credit.montantPaye)} {devise}
+    <div className="tuiles-fiche">
+      <div className="tuile-fiche">
+        <span className="sous-info">👤 Client</span>
+        <strong>{credit.clientNom}</strong>
       </div>
-      <div className="total-net">
-        Solde : {formaterMontant(credit.solde)} {devise}
+      <div className="tuile-fiche">
+        <span className="sous-info">💳 Montant du crédit</span>
+        <strong className="nowrap">
+          {formaterMontant(credit.montant)} {devise}
+        </strong>
       </div>
-      {credit.echeance && <div>Échéance : {credit.echeance}</div>}
+      <div className="tuile-fiche">
+        <span className="sous-info">✅ Déjà payé</span>
+        <strong className="nowrap">
+          {formaterMontant(credit.montantPaye)} {devise}
+        </strong>
+      </div>
+      <div className={`tuile-fiche${credit.solde > 0 ? " tuile-fiche--alerte" : ""}`}>
+        <span className="sous-info">💰 Reste dû</span>
+        <strong className="nowrap">
+          {formaterMontant(credit.solde)} {devise}
+        </strong>
+      </div>
     </div>
   );
 }
@@ -64,90 +97,134 @@ function DetailVenteLiee({ venteId }: { venteId: string }) {
     api.ventes.obtenir(venteId).then((v) => setVente(v ?? null));
   }, [venteId]);
 
-  if (vente === undefined) return <p>Chargement de la vente…</p>;
-  if (vente === null) return <p>Vente introuvable (peut-être supprimée).</p>;
+  if (vente === undefined) return <p className="sous-info">Chargement de la vente…</p>;
+  if (vente === null) return <p className="sous-info">Vente introuvable (peut-être supprimée ou pas encore synchronisée).</p>;
 
   return (
-    <div className="totaux">
-      <h3>
-        Vente {vente.numero} <span className={`badge-${vente.statut}`}>{libelleStatutVente(vente.statut)}</span>
-      </h3>
-      <ul className="liste-simple">
-        {vente.lignes.map((l) => (
-          <li key={l.id}>
-            {l.produitNom} x{l.quantite} = {formaterMontant(l.sousTotal)} {devise}
-          </li>
-        ))}
-      </ul>
-      <div className="total-net">
-        Total net : {formaterMontant(vente.totalNet)} {devise}
+    <div className="tuiles-fiche">
+      <div className="tuile-fiche">
+        <span className="sous-info">🧾 Vente</span>
+        <strong>
+          {vente.numero} <span className={`badge-${vente.statut}`}>{libelleStatutVente(vente.statut)}</span>
+        </strong>
       </div>
-      <ul className="liste-simple">
-        {vente.paiements.map((p) => (
-          <li key={p.id}>
-            {libelleModePaiement(p.mode)} : {formaterMontant(p.montant)} {devise}
-          </li>
-        ))}
-      </ul>
+      <div className="tuile-fiche">
+        <span className="sous-info">📦 Articles</span>
+        <strong>{vente.lignes.reduce((t, l) => t + l.quantite, 0)}</strong>
+      </div>
+      <div className="tuile-fiche">
+        <span className="sous-info">💰 Total net</span>
+        <strong className="nowrap">
+          {formaterMontant(vente.totalNet)} {devise}
+        </strong>
+      </div>
+      <div className="tuile-fiche">
+        <span className="sous-info">💵 Paiement</span>
+        <strong>{vente.paiements.map((p) => libelleModePaiement(p.mode)).join(", ") || "—"}</strong>
+      </div>
     </div>
   );
 }
 
 function DetailMessage({
   message,
-  onRetour,
+  onFermer,
   onEnvoye,
+  onNaviguer,
 }: {
   message: MessageResume;
-  onRetour: () => void;
+  onFermer: () => void;
   onEnvoye: () => void;
+  onNaviguer?: (cible: string) => void;
 }) {
+  const [texte, setTexte] = useState(message.message);
+  const [numero, setNumero] = useState(message.destinataire || message.clientTelephone || "");
+  const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  const enAttente = message.statut === "en_attente";
 
-  async function envoyer() {
+  async function executer(action: () => Promise<boolean>) {
     setEnCours(true);
+    setErreur(null);
     try {
-      if (message.canal === "whatsapp" && message.destinataire) {
-        const numero = message.destinataire.replace(/\D/g, "");
-        await api.systeme.ouvrirExterne(`https://wa.me/${numero}?text=${encodeURIComponent(message.message)}`);
-      }
-      await api.messages.envoyer(message.id);
-      onEnvoye();
+      if (await action()) onEnvoye();
     } finally {
       setEnCours(false);
     }
   }
 
-  return (
-    <div className="detail-produit">
-      <div className="entete-detail">
-        <h3>{libelleType(message.type)}</h3>
-        <button type="button" className="lien bouton-retour" onClick={onRetour}>
-          ← Retour à la liste
-        </button>
-      </div>
-      <p>
-        {message.depotNom ?? "Dépôt inconnu"} · {new Date(message.dateCreation).toLocaleString("fr-FR")}
-      </p>
-      <p>
-        Canal : {libelleCanalMessage(message.canal)} · Destinataire : {message.destinataire || "aucun"} · Statut :{" "}
-        <span className={message.statut === "envoyee" ? "badge-payee" : "badge-credit"}>
-          {libelleStatut(message.statut)}
-        </span>
-      </p>
-      <p>{message.message}</p>
-      {message.statut === "en_attente" && (
-        <button type="button" onClick={envoyer} disabled={enCours}>
-          {enCours ? "Envoi…" : "Envoyer"}
-        </button>
-      )}
+  async function envoyer(): Promise<boolean> {
+    const chiffres = numero.replace(/\D/g, "");
+    if (!chiffres) {
+      setErreur("Ajoutez le numéro WhatsApp du client pour envoyer ce message.");
+      return false;
+    }
+    ouvrirWhatsapp(chiffres, texte);
+    const resultat = await api.messages.envoyer(message.id, texte, numero || undefined);
+      if (!resultat.succes) {
+        setErreur(resultat.message);
+        return false;
+      }
+      return true;
+  }
 
-      {message.referenceType === "clients.Credit" && message.referenceId && (
-        <DetailCreditLie creditId={message.referenceId} />
-      )}
-      {message.referenceType === "ventes.Vente" && message.referenceId && (
-        <DetailVenteLiee venteId={message.referenceId} />
-      )}
+  async function traiter(): Promise<boolean> {
+    const id = message.id;
+    const resultat = await api.messages.marquerTraite(id);
+      if (!resultat.succes) {
+        setErreur(resultat.message);
+        return false;
+      }
+      return true;
+  }
+
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <EnteteModale titre={`${libelleType(message.type)}${message.clientNom ? ` · ${message.clientNom}` : ""}`} onFermer={onFermer} />
+        <div className="modale-corps">
+          <p className="sous-info">
+            {dateCourte(message.dateCreation)} · {message.depotNom ?? "Tous les dépôts"} ·{" "}
+            <span className={classeStatut(message.statut)}>{libelleStatut(message)}</span>
+            {message.dateEnvoi && ` le ${dateCourte(message.dateEnvoi)}`}
+          </p>
+          {erreur && <div className="message-erreur">{erreur}</div>}
+          {message.referenceType === "clients.Credit" && message.referenceId && <DetailCreditLie creditId={message.referenceId} />}
+          {message.referenceType === "ventes.Vente" && message.referenceId && <DetailVenteLiee venteId={message.referenceId} />}
+          <div className="zone-bulle-message">
+            {enAttente ? (
+              <textarea className="bulle-message bulle-message--edition" value={texte} onChange={(e) => setTexte(e.target.value)} rows={6} />
+            ) : (
+              <div className="bulle-message">{message.message}</div>
+            )}
+          </div>
+          <div className="barre-actions">
+            {enAttente && (
+              <label className="champ-numero-message">
+                📞
+                <input value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="Numéro WhatsApp du client" />
+              </label>
+            )}
+            <span className="actions-ligne">
+              {message.referenceType === "clients.Credit" && onNaviguer && (
+                <button type="button" onClick={() => onNaviguer("clients:credits")}>
+                  Ouvrir les crédits →
+                </button>
+              )}
+              {enAttente && (
+                <>
+                  <button type="button" onClick={() => executer(traiter)} disabled={enCours}>
+                    ✓ Marquer comme traité
+                  </button>
+                  <button type="button" className="bouton-primaire" onClick={() => executer(envoyer)} disabled={enCours}>
+                    📲 Envoyer par WhatsApp
+                  </button>
+                </>
+              )}
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -166,30 +243,39 @@ function EnteteModale({ titre, onFermer }: { titre: string; onFermer: () => void
 // --- Modale (En attente / Historique) ---
 
 function ModaleMessages({
-  session, statut, titre, onFermer,
-}: { session: Session; statut: "enAttente" | "historique"; titre: string; onFermer: () => void }) {
+  session, statut, titre, onNaviguer, onFermer,
+}: {
+  session: Session;
+  statut: "enAttente" | "historique";
+  titre: string;
+  onNaviguer?: (cible: string) => void;
+  onFermer: () => void;
+}) {
   const [messagesListe, setMessagesListe] = useState<MessageResume[]>([]);
   const [depots, setDepots] = useState<Depot[]>([]);
   const [utilisateurs, setUtilisateurs] = useState<UtilisateurResume[]>([]);
   const [filtreDepotId, setFiltreDepotId] = useState("");
   const [filtreUtilisateurId, setFiltreUtilisateurId] = useState("");
+  const [filtreType, setFiltreType] = useState<"" | MessageResume["type"]>("");
+  const [periode, setPeriode] = useState<PeriodeHistorique>("tout");
+  const [debutPerso, setDebutPerso] = useState(jourLocal(new Date()));
+  const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
+  const [terme, setTerme] = useState("");
   const [messageSelectionneId, setMessageSelectionneId] = useState<string | null>(null);
+  const [erreur, setErreur] = useState<string | null>(null);
 
   const verrouilleSurDepot = Boolean(session.depotId);
-  const depotIdEffectif = verrouilleSurDepot ? session.depotId! : filtreDepotId || undefined;
+  const depotIdEffectif = verrouilleSurDepot ? (session.depotId ?? undefined) : filtreDepotId || undefined;
   const utilisateurIdEffectif = verrouilleSurDepot ? undefined : filtreUtilisateurId || undefined;
 
   const nomsUtilisateurs = new Map(
     utilisateurs.map((u) => [String(u.id), `${u.first_name} ${u.last_name}`.trim() || u.username]),
   );
+  // Rappels et tickets automatiques : pas d'auteur humain.
+  const auteur = (m: MessageResume) => (m.utilisateurId ? (nomsUtilisateurs.get(m.utilisateurId) ?? "Autre utilisateur") : "Système");
 
   async function rafraichir() {
-    setMessagesListe(
-      await api.messages.lister(session.boutiqueId, {
-        depotId: depotIdEffectif,
-        utilisateurId: utilisateurIdEffectif,
-      }),
-    );
+    setMessagesListe(await api.messages.lister(session.boutiqueId, { depotId: depotIdEffectif, utilisateurId: utilisateurIdEffectif }));
   }
 
   useEffect(() => {
@@ -211,98 +297,200 @@ function ModaleMessages({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.boutiqueId, depotIdEffectif, utilisateurIdEffectif]);
 
-  const messagesAffiches = messagesListe.filter((m) =>
-    statut === "enAttente" ? m.statut === "en_attente" : m.statut !== "en_attente",
+  async function traiter(m: MessageResume) {
+    setErreur(null);
+    const id = m.id;
+    const ok = await (async () => {
+      const resultat = await api.messages.marquerTraite(id);
+      if (!resultat.succes) {
+        setErreur(resultat.message);
+        return false;
+      }
+      return true;
+    })();
+    if (ok) await rafraichir();
+  }
+
+  async function envoyerDirect(m: MessageResume) {
+    setErreur(null);
+    const numero = numeroWhatsapp(m);
+    if (!numero) {
+      setMessageSelectionneId(m.id);
+      return;
+    }
+    ouvrirWhatsapp(numero, m.message);
+    const message = m;
+    const texte = m.message;
+    const ok = await (async () => {
+      const resultat = await api.messages.envoyer(message.id, texte, numero || undefined);
+      if (!resultat.succes) {
+        setErreur(resultat.message);
+        return false;
+      }
+      return true;
+    })();
+    if (ok) await rafraichir();
+  }
+
+  const cle = terme.trim().toLowerCase();
+  const duStatut = messagesListe.filter((m) => (statut === "enAttente" ? m.statut === "en_attente" : m.statut !== "en_attente"));
+  const messagesAffiches = duStatut.filter(
+    (m) =>
+      (!filtreType || m.type === filtreType) &&
+      dansPeriode(m.dateCreation, bornesPeriode(periode, debutPerso, finPerso)) &&
+      (!cle || m.message.toLowerCase().includes(cle) || (m.clientNom ?? "").toLowerCase().includes(cle)),
   );
   const messageSelectionne = messagesListe.find((m) => m.id === messageSelectionneId);
+  const debutMois = jourLocal(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const envoyesCeMois = messagesListe.filter((m) => m.statut === "envoyee" && (m.dateEnvoi ?? m.dateCreation).slice(0, 10) >= debutMois).length;
 
   return (
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre={titre} onFermer={onFermer} />
         <div className="modale-corps">
-          {messageSelectionne ? (
-            <DetailMessage
-              message={messageSelectionne}
-              onRetour={() => setMessageSelectionneId(null)}
-              onEnvoye={rafraichir}
+          <div className="tuiles-fiche">
+            <div className={`tuile-fiche${messagesListe.some((m) => m.statut === "en_attente") ? " tuile-fiche--attention" : ""}`}>
+              <span className="sous-info">⏳ En attente</span>
+              <strong>{messagesListe.filter((m) => m.statut === "en_attente").length}</strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">💳 Rappels de crédit</span>
+              <strong>{duStatut.filter((m) => m.type === "rappel_credit").length}</strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">🧾 Tickets WhatsApp</span>
+              <strong>{duStatut.filter((m) => m.type === "ticket_whatsapp").length}</strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">📤 Envoyés ce mois</span>
+              <strong>{envoyesCeMois}</strong>
+            </div>
+          </div>
+          <div className="barre-actions barre-filtres-historique">
+            <select value={filtreType} onChange={(e) => setFiltreType(e.target.value as typeof filtreType)}>
+              <option value="">Tous les types</option>
+              <option value="rappel_credit">Rappels de crédit</option>
+              <option value="ticket_whatsapp">Tickets WhatsApp</option>
+            </select>
+            <FiltrePeriodeHistorique
+              periode={periode}
+              setPeriode={setPeriode}
+              debutPerso={debutPerso}
+              setDebutPerso={setDebutPerso}
+              finPerso={finPerso}
+              setFinPerso={setFinPerso}
             />
-          ) : (
-            <>
-              {!verrouilleSurDepot && (
-                <div className="barre-actions">
-                  <select value={filtreDepotId} onChange={(e) => setFiltreDepotId(e.target.value)}>
-                    <option value="">Tous les dépôts</option>
-                    {depots.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.nom}
-                      </option>
-                    ))}
-                  </select>
-                  <select value={filtreUtilisateurId} onChange={(e) => setFiltreUtilisateurId(e.target.value)}>
-                    <option value="">Tous les caissiers</option>
-                    {utilisateurs.map((u) => (
-                      <option key={u.id} value={String(u.id)}>
-                        {`${u.first_name} ${u.last_name}`.trim() || u.username}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div className="zone-tableau-scroll">
-                <table className="tableau-catalogue">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Type</th>
-                      <th>Dépôt</th>
-                      <th>Caissier</th>
-                      <th>Canal</th>
-                      <th>Destinataire</th>
-                      <th>Statut</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {messagesAffiches.map((m) => (
-                      <tr key={m.id} onClick={() => setMessageSelectionneId(m.id)}>
-                        <td>{new Date(m.dateCreation).toLocaleString("fr-FR")}</td>
-                        <td>{libelleType(m.type)}</td>
-                        <td>{m.depotNom ?? ""}</td>
-                        <td>{m.utilisateurId ? nomsUtilisateurs.get(m.utilisateurId) ?? "inconnu" : "inconnu"}</td>
-                        <td>{libelleCanalMessage(m.canal)}</td>
-                        <td>{m.destinataire || ""}</td>
-                        <td>
-                          <span className={m.statut === "envoyee" ? "badge-payee" : "badge-credit"}>
-                            {libelleStatut(m.statut)}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                    {messagesAffiches.length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="liste-vide">
-                          {statut === "enAttente" ? "Aucun message en attente." : "Aucun message dans l'historique."}
-                        </td>
-                      </tr>
-                    )}
-                    {Array.from({ length: Math.max(0, 10 - Math.max(1, messagesAffiches.length)) }).map((_, i) => (
-                      <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
+            {!verrouilleSurDepot && depots.length > 1 && (
+              <select value={filtreDepotId} onChange={(e) => setFiltreDepotId(e.target.value)}>
+                <option value="">Tous les dépôts</option>
+                {depots.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.nom}
+                  </option>
+                ))}
+              </select>
+            )}
+            {!verrouilleSurDepot && utilisateurs.length > 0 && (
+              <select value={filtreUtilisateurId} onChange={(e) => setFiltreUtilisateurId(e.target.value)}>
+                <option value="">Tous les caissiers</option>
+                {utilisateurs.map((u) => (
+                  <option key={u.id} value={String(u.id)}>
+                    {`${u.first_name} ${u.last_name}`.trim() || u.username}
+                  </option>
+                ))}
+              </select>
+            )}
+            <input type="search" placeholder="Client, message…" value={terme} onChange={(e) => setTerme(e.target.value)} />
+          </div>
+          {erreur && <div className="message-erreur">{erreur}</div>}
+          <div className="zone-tableau-scroll zone-commandes-fiche">
+            <table className="tableau-catalogue">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Client</th>
+                  <th>Message</th>
+                  <th>Téléphone</th>
+                  <th>Date</th>
+                  <th>{statut === "enAttente" ? "Actions" : "Statut"}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {messagesAffiches.map((m) => (
+                  <tr key={m.id} onClick={() => setMessageSelectionneId(m.id)} title="Ouvrir le message">
+                    <td className="nowrap">
+                      {m.type === "rappel_credit" ? "💳" : "🧾"} {libelleType(m.type)}
+                    </td>
+                    <td>
+                      {m.clientNom ?? "—"}
+                      <br />
+                      <span className="sous-info">par {auteur(m)}</span>
+                    </td>
+                    <td className="apercu-message" title={m.message}>
+                      {m.message}
+                    </td>
+                    <td className="nowrap">{m.destinataire || m.clientTelephone || "—"}</td>
+                    <td className="nowrap">{dateCourte(m.dateCreation)}</td>
+                    <td className="nowrap" onClick={(e) => e.stopPropagation()}>
+                      {m.statut === "en_attente" ? (
+                        <span className="actions-ligne">
+                          <button
+                            type="button"
+                            className="lien-icone"
+                            title={numeroWhatsapp(m) ? "Envoyer par WhatsApp" : "Pas de numéro : ouvrir pour l'ajouter"}
+                            onClick={() => envoyerDirect(m)}
+                          >
+                            📲
+                          </button>
+                          <button type="button" className="lien-icone" title="Marquer comme traité" onClick={() => traiter(m)}>
+                            ✓
+                          </button>
+                        </span>
+                      ) : (
+                        <span className={classeStatut(m.statut)}>{libelleStatut(m)}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {messagesAffiches.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="liste-vide">
+                      {duStatut.length === 0
+                        ? statut === "enAttente"
+                          ? "Aucun message en attente 👍"
+                          : "Aucun message dans l'historique."
+                        : "Aucun message pour ces filtres."}
+                    </td>
+                  </tr>
+                )}
+                {Array.from({ length: Math.max(0, 10 - Math.max(1, messagesAffiches.length)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
+      {messageSelectionne && (
+        <DetailMessage
+          key={messageSelectionne.id}
+          message={messageSelectionne}
+          onFermer={() => setMessageSelectionneId(null)}
+          onEnvoye={() => {
+            setMessageSelectionneId(null);
+            rafraichir();
+          }}
+          onNaviguer={onNaviguer}
+        />
+      )}
     </div>
   );
 }
@@ -329,7 +517,7 @@ const CERCLES_FOND = [
   { taille: 55, couleur: "var(--cercle-6)", duree: 23, delai: -10, depart: ["-10vw", "35vh"], arrivee: ["105vw", "90vh"] },
 ] as const;
 
-export default function Messages({ session }: { session: Session }) {
+export default function Messages({ session, onNaviguer }: { session: Session; onNaviguer?: (cible: string) => void }) {
   const [sectionOuverte, setSectionOuverte] = useState<SectionMessages | null>(null);
 
   return (
@@ -372,6 +560,7 @@ export default function Messages({ session }: { session: Session }) {
           session={session}
           statut={sectionOuverte}
           titre={SECTIONS.find((s) => s.cle === sectionOuverte)!.label}
+          onNaviguer={onNaviguer}
           onFermer={() => setSectionOuverte(null)}
         />
       )}

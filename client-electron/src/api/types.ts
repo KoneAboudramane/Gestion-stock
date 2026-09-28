@@ -1141,6 +1141,9 @@ export interface MessageResume {
   utilisateurId: string | null;
   referenceType: string;
   referenceId: string | null;
+  /** Client concerné (via le crédit ou la vente liés), pour la liste et l'envoi WhatsApp. */
+  clientNom: string | null;
+  clientTelephone: string | null;
 }
 
 export interface FiltresMessages {
@@ -1541,7 +1544,8 @@ export interface WindowApi {
     lister(boutiqueId: string, filtres?: FiltresMessages): Promise<MessageResume[]>;
     genererRappelsCredit(boutiqueId: string): Promise<ResultatEcriture<string[]>>;
     genererTicketWhatsapp(venteId: string): Promise<ResultatEcriture<string>>;
-    envoyer(id: string): Promise<ResultatEcriture<void>>;
+    envoyer(id: string, texte?: string, destinataire?: string): Promise<ResultatEcriture<void>>;
+    marquerTraite(id: string): Promise<ResultatEcriture<void>>;
     enregistrerRelanceCredit(
       creditId: string,
       destinataire: string,

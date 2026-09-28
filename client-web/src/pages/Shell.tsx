@@ -273,7 +273,7 @@ export default function Shell({
           {zone === "notifications" && (
             <Notifications session={session} onNaviguer={naviguer} onLues={rafraichirNonLues} />
           )}
-          {zone === "messages" && <Messages session={session} />}
+          {zone === "messages" && <Messages session={session} onNaviguer={naviguer} />}
           {zone === "reglages" && <Reglages session={session} />}
         </main>
       </div>

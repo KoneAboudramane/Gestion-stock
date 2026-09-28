@@ -322,7 +322,7 @@ export default function Shell({
               onCommander={commanderProduit}
             />
           )}
-          {zone === "messages" && <Messages session={session} />}
+          {zone === "messages" && <Messages session={session} onNaviguer={naviguer} />}
         </main>
       </div>
     </div>

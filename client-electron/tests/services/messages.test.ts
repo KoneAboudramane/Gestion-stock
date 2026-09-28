@@ -44,7 +44,7 @@ describe("messages.genererRappelsCredit (miroir de notifications/services.py::ge
     expect(messages[0].canal).toBe("whatsapp");
     expect(messages[0].destinataire).toBe("0700000000");
     expect(messages[0].message).toContain("Mme Test");
-    expect(messages[0].message).toContain("10000");
+    expect(messages[0].message).toContain("10 000");
     expect(messages[0].depotId).toBeNull();
     expect(messages[0].referenceType).toBe("clients.Credit");
   });
@@ -98,6 +98,57 @@ describe("messages.genererRappelsCredit (miroir de notifications/services.py::ge
   });
 });
 
+describe("messages.genererRappelsCredit : un seul rappel en attente par crédit", () => {
+  const boutiqueId = randomUUID();
+
+  beforeEach(async () => {
+    await creerBaseDeTest();
+  });
+
+  it("met à jour le rappel en attente et retire les doublons au lieu d'en empiler un par jour", () => {
+    const clientId = randomUUID();
+    const creditId = randomUUID();
+    executer("INSERT INTO clients (id, boutique_id, nom, telephone) VALUES (?, ?, ?, ?)", [clientId, boutiqueId, "Mme Test", ""]);
+    executer(
+      "INSERT INTO credits (id, client_id, montant, montant_paye, solde, statut) VALUES (?, ?, ?, ?, ?, ?)",
+      [creditId, clientId, 10000, 0, 10000, "en_cours"],
+    );
+    // Deux vieux rappels en attente pour le même crédit (accumulés avant la correction).
+    for (const jours of [3, 2]) {
+      const date = new Date(Date.now() - jours * 86_400_000).toISOString();
+      executer(
+        `INSERT INTO messages (id, boutique_id, type, canal, destinataire, message, reference_type, reference_id, statut,
+           date_creation, date_modification)
+         VALUES (?, ?, 'rappel_credit', 'interne', '', 'Rappel : ancien texte', 'clients.Credit', ?, 'en_attente', ?, ?)`,
+        [randomUUID(), boutiqueId, creditId, date, date],
+      );
+    }
+    executer("UPDATE credits SET montant_paye = 4000, solde = 6000 WHERE id = ?", [creditId]);
+
+    expect(genererRappelsCredit(boutiqueId)).toHaveLength(0);
+    const enAttente = listerMessages(boutiqueId).filter((m) => m.statut === "en_attente");
+    expect(enAttente).toHaveLength(1);
+    expect(enAttente[0].message).toContain("6 000");
+    expect(enAttente[0].clientNom).toBe("Mme Test");
+  });
+
+  it("retire les rappels en attente d'un crédit désormais soldé", () => {
+    const clientId = randomUUID();
+    const creditId = randomUUID();
+    executer("INSERT INTO clients (id, boutique_id, nom, telephone) VALUES (?, ?, ?, ?)", [clientId, boutiqueId, "M. Solde", ""]);
+    executer(
+      "INSERT INTO credits (id, client_id, montant, montant_paye, solde, statut) VALUES (?, ?, ?, ?, ?, ?)",
+      [creditId, clientId, 10000, 0, 10000, "en_cours"],
+    );
+    genererRappelsCredit(boutiqueId);
+    expect(listerMessages(boutiqueId).filter((m) => m.statut === "en_attente")).toHaveLength(1);
+
+    executer("UPDATE credits SET montant_paye = 10000, solde = 0, statut = 'solde' WHERE id = ?", [creditId]);
+    genererRappelsCredit(boutiqueId);
+    expect(listerMessages(boutiqueId).filter((m) => m.statut === "en_attente")).toHaveLength(0);
+  });
+});
+
 describe("messages.genererTicketWhatsapp (miroir de notifications/services.py::generer_ticket_whatsapp)", () => {
   const boutiqueId = randomUUID();
   const depotId = randomUUID();
@@ -143,7 +194,7 @@ describe("messages.genererTicketWhatsapp (miroir de notifications/services.py::g
     expect(message!.destinataire).toBe("0711111111");
     expect(message!.message).toContain("VTE-TEST-0001");
     expect(message!.message).toContain("Riz 25kg");
-    expect(message!.message).toContain("12500");
+    expect(message!.message).toContain("12 500");
     expect(message!.depot_id).toBe(depotId);
     expect(message!.utilisateur_id).toBe("7");
   });

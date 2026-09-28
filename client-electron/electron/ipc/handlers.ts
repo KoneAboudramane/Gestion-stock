@@ -729,7 +729,10 @@ export function enregistrerLesHandlers(): void {
     (_evt, creditId: string, destinataire: string, message: string, utilisateurId: string | null) =>
       executerEnSecurite(() => messages.enregistrerRelanceCredit(creditId, destinataire, message, utilisateurId)),
   );
-  ipcMain.handle("messages:envoyer", (_evt, id: string) => executerEnSecurite(() => messages.envoyerMessage(id)));
+  ipcMain.handle("messages:envoyer", (_evt, id: string, texte?: string, destinataire?: string) =>
+    executerEnSecurite(() => messages.envoyerMessage(id, texte, destinataire)),
+  );
+  ipcMain.handle("messages:marquerTraite", (_evt, id: string) => executerEnSecurite(() => messages.marquerMessageTraite(id)));
 
   ipcMain.handle("tresorerie:solde", (_evt, depotId: string, jusqua?: string) =>
     tresorerie.soldeCaisse(depotId, jusqua),
