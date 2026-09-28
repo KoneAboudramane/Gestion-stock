@@ -240,6 +240,12 @@ export interface ProduitResume {
   prixAchat: number | null;
   dateCreation: string;
   enStock: number;
+  /** Toutes variantes et tous dépôts confondus. */
+  quantiteStock: number;
+  /** Seuil d'alerte de la variante par défaut. */
+  seuilAlerte: number;
+  /** Stock valorisé au prix d'achat de chaque variante. */
+  valeurStock: number;
 }
 
 export interface VarianteDetail {

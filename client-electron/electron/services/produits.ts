@@ -59,6 +59,12 @@ export interface ProduitResume {
   prixAchat: number | null;
   dateCreation: string;
   enStock: number;
+  /** Toutes variantes et tous dépôts confondus. */
+  quantiteStock: number;
+  /** Seuil d'alerte de la variante par défaut. */
+  seuilAlerte: number;
+  /** Stock valorisé au prix d'achat de chaque variante. */
+  valeurStock: number;
 }
 
 export function listerProduits(boutiqueId: string, terme = ""): ProduitResume[] {
@@ -70,7 +76,12 @@ export function listerProduits(boutiqueId: string, terme = ""): ProduitResume[] 
               SELECT 1 FROM stocks s
               JOIN variantes v2 ON v2.id = s.variante_id
               WHERE v2.produit_id = p.id AND v2.supprime = 0 AND s.quantite > 0
-            ) THEN 1 ELSE 0 END as enStock
+            ) THEN 1 ELSE 0 END as enStock,
+            COALESCE(v.seuil_alerte, 0) as seuilAlerte,
+            COALESCE((SELECT SUM(s.quantite) FROM stocks s JOIN variantes v2 ON v2.id = s.variante_id
+              WHERE v2.produit_id = p.id AND v2.supprime = 0), 0) as quantiteStock,
+            COALESCE((SELECT SUM(s.quantite * v2.prix_achat) FROM stocks s JOIN variantes v2 ON v2.id = s.variante_id
+              WHERE v2.produit_id = p.id AND v2.supprime = 0), 0) as valeurStock
      FROM produits p
      LEFT JOIN categories c ON c.id = p.categorie_id
      LEFT JOIN variantes v ON v.produit_id = p.id AND v.supprime = 0
@@ -79,7 +90,12 @@ export function listerProduits(boutiqueId: string, terme = ""): ProduitResume[] 
      ORDER BY p.nom
      LIMIT 200`,
     [boutiqueId, motif],
-  );
+  ).map((p) => ({
+    ...p,
+    quantiteStock: Number(p.quantiteStock),
+    seuilAlerte: Number(p.seuilAlerte),
+    valeurStock: Number(p.valeurStock),
+  }));
 }
 
 export interface VarianteDetail {

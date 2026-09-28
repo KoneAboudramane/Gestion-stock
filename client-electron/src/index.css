@@ -6404,3 +6404,25 @@ button.tuile-dormance.active {
 .tuile-fiche--attention strong {
   color: var(--avertissement, #d97706);
 }
+
+/* Fiche article : informations en ligne compacte (le tableau ne sert qu'à la modification). */
+.fiche-infos-produit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1.6rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--bordure-tableau, var(--gris-200));
+  border-radius: var(--rayon-sm);
+}
+
+.fiche-infos-produit > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.fiche-infos-produit .fiche-infos-description {
+  flex: 1;
+  min-width: 200px;
+}

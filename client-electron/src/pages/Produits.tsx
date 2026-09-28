@@ -19,6 +19,9 @@ import type {
 import ChampMontant from "../components/ChampMontant";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import { formaterMontant } from "../lib/formatage";
+import { useDevise } from "../contexts/DeviseContext";
+import BoutonsExport from "../components/BoutonsExport";
+import type { ColonneExport } from "../api/client";
 import { libelleStatutVente } from "../lib/libelles";
 import { useFabricationPropre } from "../hooks/useFabricationPropre";
 
@@ -494,7 +497,7 @@ function DetailProduit({
   useEffect(() => {
     rafraichir();
     api.mouvements.listerParProduit(produitId, 50).then(setMouvements);
-    api.ventes.listerParProduit(produitId, 50).then(setVentesHistorique);
+    api.ventes.listerParProduit(produitId, 500).then(setVentesHistorique);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [produitId]);
 
@@ -513,6 +516,22 @@ function DetailProduit({
     1 + // Seuil
     1 + // Stock
     (peutGerer ? 1 : 0);
+
+  const devise = useDevise();
+  // Chiffres de la fiche : toutes variantes, tous dépôts.
+  const variantesFiche = produit?.variantes ?? [];
+  const stockTotal = variantesFiche.reduce((t, v) => t + v.quantiteStock, 0);
+  const valeurStockFiche = variantesFiche.reduce((t, v) => t + v.quantiteStock * (v.prixAchat ?? 0), 0);
+  const margesUnitaires = variantesFiche.map((v) => v.prixVente - (v.prixAchat ?? 0));
+  const margeMin = margesUnitaires.length > 0 ? Math.min(...margesUnitaires) : 0;
+  const margeMax = margesUnitaires.length > 0 ? Math.max(...margesUnitaires) : 0;
+  const premiereVariante = variantesFiche[0];
+  const tauxMargeFiche =
+    premiereVariante && premiereVariante.prixVente > 0 ? Math.round((margeMin / premiereVariante.prixVente) * 100) : 0;
+  const depuis30Jours = Date.now() - 30 * 86_400_000;
+  const vendus30Jours = ventesHistorique
+    .filter((l) => l.statut !== "annulee" && new Date(l.dateCreation).getTime() >= depuis30Jours)
+    .reduce((t, l) => t + l.quantite, 0);
 
   return (
     <div className="fond-modale" onClick={onFermer}>
@@ -551,9 +570,39 @@ function DetailProduit({
                   Historique des ventes
                 </button>
               </div>
+              <div className="tuiles-fiche">
+                <div className={`tuile-fiche${stockTotal <= 0 ? " tuile-fiche--alerte" : ""}`}>
+                  <span className="sous-info">📦 Stock total</span>
+                  <strong>{formaterMontant(stockTotal)}</strong>
+                </div>
+                {peutVoirCout && (
+                  <>
+                    <div className="tuile-fiche">
+                      <span className="sous-info">💰 Valeur du stock</span>
+                      <strong className="nowrap">
+                        {formaterMontant(valeurStockFiche)} {devise}
+                      </strong>
+                    </div>
+                    <div className={`tuile-fiche${margeMin < 0 ? " tuile-fiche--alerte" : ""}`}>
+                      <span className="sous-info">📈 Marge unitaire</span>
+                      <strong className="nowrap">
+                        {margeMin === margeMax
+                          ? `${formaterMontant(margeMin)} ${devise} (${tauxMargeFiche} %)`
+                          : `${formaterMontant(margeMin)} à ${formaterMontant(margeMax)} ${devise}`}
+                      </strong>
+                    </div>
+                  </>
+                )}
+                <div className="tuile-fiche">
+                  <span className="sous-info">🛒 Vendus sur 30 jours</span>
+                  <strong>{formaterMontant(vendus30Jours)}</strong>
+                </div>
+              </div>
 
               {pageDetail === "details" && (
               <>
+              {modifierInfos ? (
+                <>
               <h4>Informations</h4>
               <div className="zone-tableau-scroll zone-tableau-scroll-modale">
               <table className="tableau-catalogue">
@@ -595,6 +644,28 @@ function DetailProduit({
                 </tbody>
               </table>
               </div>
+                </>
+              ) : (
+                <div className="fiche-infos-produit">
+                  <div>
+                    <span className="sous-info">Catégorie</span>
+                    <strong>{produit.categorieNom || "—"}</strong>
+                  </div>
+                  <div>
+                    <span className="sous-info">Unité</span>
+                    <strong>{produit.uniteNom || "—"}</strong>
+                  </div>
+                  <div className="fiche-infos-description">
+                    <span className="sous-info">Description</span>
+                    <span>{produit.description || "—"}</span>
+                  </div>
+                  {peutGerer && (
+                    <button type="button" onClick={() => setModifierInfos(true)}>
+                      ✎ Modifier
+                    </button>
+                  )}
+                </div>
+              )}
 
               <div className="entete-section-tableau">
                 <h4>Variantes</h4>
@@ -647,14 +718,25 @@ function DetailProduit({
                           <td>{v.reference || ""}</td>
                           {afficherCodeBarres && <td>{v.codeBarres || ""}</td>}
                           {afficherAttributs && <td>{v.valeurs.join(", ") || ""}</td>}
-                          {peutVoirCout && <td>{formaterMontant(v.prixAchat)}</td>}
-                          <td>{formaterMontant(v.prixVente)}</td>
+                          {peutVoirCout && (
+                            <td className="nowrap">
+                              {formaterMontant(v.prixAchat)} {devise}
+                            </td>
+                          )}
+                          <td className="nowrap">
+                            {formaterMontant(v.prixVente)} {devise}
+                          </td>
                           <td>{v.seuilAlerte}</td>
                           <td>
-                            {v.quantiteStock <= v.seuilAlerte ? (
-                              <span className="badge-rupture">{v.quantiteStock}</span>
+                            {v.quantiteStock <= 0 ? (
+                              <span className="badge-rupture">Rupture</span>
                             ) : (
-                              v.quantiteStock
+                              <strong
+                                className={v.quantiteStock <= v.seuilAlerte ? "texte-erreur" : undefined}
+                                title={v.quantiteStock <= v.seuilAlerte ? "Sous le seuil d'alerte" : undefined}
+                              >
+                                {formaterMontant(v.quantiteStock)}
+                              </strong>
                             )}
                           </td>
                           {peutGerer && (
@@ -880,6 +962,15 @@ function FormulaireProduitsGroupe({
   const [enCours, setEnCours] = useState(false);
   const [prochaineRefBase, setProchaineRefBase] = useState<number | null>(null);
   const sousPrixAchat = Number(prixVente) > 0 && Number(prixAchat) > 0 && Number(prixVente) < Number(prixAchat);
+  const devise = useDevise();
+  // Marge affichée en direct pendant la saisie (en % du prix de vente).
+  const margeSaisie = (Number(prixVente) || 0) - (Number(prixAchat) || 0);
+  const tauxMargeSaisie = Number(prixVente) > 0 ? Math.round((margeSaisie / Number(prixVente)) * 100) : 0;
+  const valeurStockInitial = lignes.reduce(
+    (t, l) => t + (Number(l.quantiteInitiale) || 0) * (Number(l.prixAchat) || 0),
+    0,
+  );
+  const quantiteInitialeTotale = lignes.reduce((t, l) => t + (Number(l.quantiteInitiale) || 0), 0);
 
   useEffect(() => {
     api.categories.lister(session.boutiqueId).then(setCategories);
@@ -986,9 +1077,6 @@ function FormulaireProduitsGroupe({
       <div className="modale-entete entete-fixe">
         <h3>Nouvel article</h3>
         <div className="actions-formulaire">
-          <button type="button" onClick={onAnnuler}>
-            Annuler
-          </button>
           <button type="submit" disabled={enCours}>
             {enCours ? "Enregistrement…" : `Enregistrer la liste (${lignes.length})`}
           </button>
@@ -1063,12 +1151,19 @@ function FormulaireProduitsGroupe({
               />
             </label>
             <label>
-              Prix de vente{" "}
-              {sousPrixAchat && (
-                <span className="badge-rupture" title="Le prix de vente est inférieur au prix d'achat">
-                  ⚠
-                </span>
-              )}
+              <span className="nowrap">
+                Prix de vente{" "}
+                {Number(prixVente) > 0 && (
+                  <span className={`sous-info${margeSaisie < 0 ? " texte-erreur" : ""}`}>
+                    · marge {formaterMontant(margeSaisie)} ({tauxMargeSaisie} %){" "}
+                  </span>
+                )}
+                {sousPrixAchat && (
+                  <span className="badge-rupture" title="Le prix de vente est inférieur au prix d'achat">
+                    ⚠
+                  </span>
+                )}
+              </span>
               <ChampMontant
                 className={sousPrixAchat ? "champ-invalide" : undefined}
                 value={prixVente}
@@ -1166,6 +1261,17 @@ function FormulaireProduitsGroupe({
               </tbody>
             </table>
           </div>
+          {lignes.length > 0 && (
+            <div className="totaux">
+              <div>
+                {lignes.length} article{lignes.length > 1 ? "s" : ""} · {formaterMontant(quantiteInitialeTotale)} unité(s) en
+                stock initial
+              </div>
+              <div className="total-net">
+                Valeur du stock initial : {formaterMontant(valeurStockInitial)} {devise}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </form>
@@ -1242,17 +1348,58 @@ function OngletProduits({ session }: { session: Session }) {
     );
   }
 
+  const devise = useDevise();
+  const [categorieFiltre, setCategorieFiltre] = useState("");
+  const [statutFiltre, setStatutFiltre] = useState<"tous" | "actifs" | "inactifs">("tous");
+  const nomsCategories = [...new Set(produits.map((p) => p.categorieNom ?? "").filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, "fr"),
+  );
+  const produitsVisibles = produits.filter(
+    (p) =>
+      (!categorieFiltre || (p.categorieNom ?? "") === categorieFiltre) &&
+      (statutFiltre === "tous" || (statutFiltre === "actifs") === !!p.actif),
+  );
+  const marge = (p: ProduitResume) => (p.prixVente ?? 0) - (p.prixAchat ?? 0);
+  /** Marge en % du prix de vente (taux de marque). */
+  const tauxMarge = (p: ProduitResume) => ((p.prixVente ?? 0) > 0 ? Math.round((marge(p) / (p.prixVente ?? 1)) * 100) : 0);
+  const stockBas = (p: ProduitResume) => p.quantiteStock <= p.seuilAlerte;
+  const avecPrix = produitsVisibles.filter((p) => (p.prixVente ?? 0) > 0);
+  const margeMoyenne = avecPrix.length > 0 ? Math.round(avecPrix.reduce((t, p) => t + tauxMarge(p), 0) / avecPrix.length) : 0;
+  const valeurStock = produitsVisibles.reduce((t, p) => t + p.valeurStock, 0);
+  const nombreStockBas = produitsVisibles.filter(stockBas).length;
+  const colonnesExport: ColonneExport[] = [
+    { cle: "reference", libelle: "Référence" },
+    { cle: "designation", libelle: "Désignation" },
+    { cle: "categorie", libelle: "Catégorie" },
+    ...(peutVoirCout ? [{ cle: "prixAchat", libelle: `Prix d'achat (${devise})` }] : []),
+    { cle: "prixVente", libelle: `Prix de vente (${devise})` },
+    ...(peutVoirCout ? [{ cle: "marge", libelle: `Marge (${devise})` }, { cle: "taux", libelle: "Marge (%)" }] : []),
+    { cle: "stock", libelle: "Stock" },
+    { cle: "statut", libelle: "Statut" },
+  ];
+  const lignesExport = produitsVisibles.map((p) => ({
+    reference: p.reference ?? "",
+    designation: p.nom,
+    categorie: p.categorieNom ?? "",
+    prixAchat: p.prixAchat ?? 0,
+    prixVente: p.prixVente ?? 0,
+    marge: marge(p),
+    taux: tauxMarge(p),
+    stock: p.quantiteStock,
+    statut: p.actif ? "Actif" : "Inactif",
+  }));
+
   const produitsTries = useMemo(() => {
-    const copie = [...produits];
+    const copie = [...produitsVisibles];
     copie.sort((a, b) => {
       let comparaison = 0;
       if (tri.colonne === "nom") comparaison = a.nom.localeCompare(b.nom);
       else if (tri.colonne === "prixVente") comparaison = (a.prixVente ?? 0) - (b.prixVente ?? 0);
-      else if (tri.colonne === "enStock") comparaison = a.enStock - b.enStock;
+      else if (tri.colonne === "enStock") comparaison = a.quantiteStock - b.quantiteStock;
       return tri.direction === "asc" ? comparaison : -comparaison;
     });
     return copie;
-  }, [produits, tri]);
+  }, [produitsVisibles, tri]);
 
   function icone(colonne: ColonneTriProduit) {
     if (tri.colonne !== colonne) return null;
@@ -1308,70 +1455,118 @@ function OngletProduits({ session }: { session: Session }) {
         onConfirmer={() => supprimer(produitASupprimerId)}
       />
     )}
-    <div>
-      <div className="barre-actions barre-actions-fixe barre-actions-avec-onglets">
-        <input
-          className="champ-recherche"
-          placeholder="Rechercher un article…"
-          value={terme}
-          onChange={(e) => setTerme(e.target.value)}
-        />
-        {peutGerer && (
-          <span className="actions-ligne">
+    <div className="liste-dettes-credits">
+      <div className="tuiles-fiche">
+        <div className="tuile-fiche">
+          <span className="sous-info">🏷️ Articles</span>
+          <strong>{produitsVisibles.length}</strong>
+        </div>
+        <div className={`tuile-fiche${nombreStockBas > 0 ? " tuile-fiche--alerte" : ""}`}>
+          <span className="sous-info">⚠️ En rupture ou stock bas</span>
+          <strong>{nombreStockBas}</strong>
+        </div>
+        {peutVoirCout && (
+          <>
+            <div className="tuile-fiche">
+              <span className="sous-info">💰 Valeur du stock (prix d'achat)</span>
+              <strong className="nowrap">
+                {formaterMontant(valeurStock)} {devise}
+              </strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">📈 Marge moyenne</span>
+              <strong>{margeMoyenne} %</strong>
+            </div>
+          </>
+        )}
+      </div>
+      <div className="barre-actions barre-actions-avec-onglets barre-filtres-historique">
+        <input className="champ-recherche" placeholder="Rechercher un article…" value={terme} onChange={(e) => setTerme(e.target.value)} />
+        <select value={categorieFiltre} onChange={(e) => setCategorieFiltre(e.target.value)}>
+          <option value="">Toutes les catégories</option>
+          {nomsCategories.map((nom) => (
+            <option key={nom} value={nom}>
+              {nom}
+            </option>
+          ))}
+        </select>
+        <select value={statutFiltre} onChange={(e) => setStatutFiltre(e.target.value as typeof statutFiltre)}>
+          <option value="tous">Actifs et inactifs</option>
+          <option value="actifs">Actifs</option>
+          <option value="inactifs">Inactifs</option>
+        </select>
+        <span className="actions-ligne">
+          <BoutonsExport titre="Catalogue des articles" colonnes={colonnesExport} lignes={lignesExport} compact />
+          {peutGerer && (
             <button type="button" className="bouton-ajouter-variante" onClick={() => setVue("groupe")}>
               + Nouvel article
             </button>
-          </span>
-        )}
+          )}
+        </span>
       </div>
       <div className="zone-tableau-scroll">
-      <table className="tableau-catalogue">
-        <thead>
-          <tr>
-            <th>N°</th>
-            <th>Référence</th>
-            <th className="th-triable" onClick={() => basculerTri("nom")}>
-              Désignation{icone("nom")}
-            </th>
-            <th className="colonne-categorie-articles">Catégorie</th>
-            {peutVoirCout && <th>Prix d'achat</th>}
-            <th className="th-triable" onClick={() => basculerTri("prixVente")}>
-              Prix de vente{icone("prixVente")}
-            </th>
-            <th className="th-triable" onClick={() => basculerTri("enStock")}>
-              Stock{icone("enStock")}
-            </th>
-            {peutGerer && <th>Actions</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {produitsTries.map((p, index) => (
-            <tr
-              key={p.id}
-              onClick={() => setProduitSelectionneId(p.id)}
-            >
-              <td>{index + 1}</td>
-              <td>{p.reference || ""}</td>
-              <td>{p.nom}</td>
-              <td className="colonne-categorie-articles">{p.categorieNom ?? ""}</td>
-              {peutVoirCout && <td>{p.prixAchat ?? ""}</td>}
-              <td>{p.prixVente ?? ""}</td>
-              <td>
-                {p.enStock ? (
-                  "En stock"
-                ) : (
-                  <span className="badge-rupture">Rupture</span>
+        <table className="tableau-catalogue">
+          <thead>
+            <tr>
+              <th>N°</th>
+              <th>Référence</th>
+              <th className="th-triable" onClick={() => basculerTri("nom")}>
+                Désignation{icone("nom")}
+              </th>
+              <th>Catégorie</th>
+              {peutVoirCout && <th>Prix d'achat</th>}
+              <th className="th-triable" onClick={() => basculerTri("prixVente")}>
+                Prix de vente{icone("prixVente")}
+              </th>
+              {peutVoirCout && <th>Marge</th>}
+              <th className="th-triable" onClick={() => basculerTri("enStock")}>
+                Stock{icone("enStock")}
+              </th>
+              {peutGerer && <th>Actions</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {produitsTries.map((p, index) => (
+              <tr key={p.id} onClick={() => setProduitSelectionneId(p.id)}>
+                <td>{index + 1}</td>
+                <td>{p.reference || ""}</td>
+                <td>{p.nom}</td>
+                <td>{p.categorieNom ?? ""}</td>
+                {peutVoirCout && (
+                  <td className="nowrap">
+                    {p.prixAchat !== null ? `${formaterMontant(p.prixAchat)} ${devise}` : ""}
+                  </td>
                 )}
-              </td>
-              {peutGerer && (
-                <td onClick={(e) => e.stopPropagation()}>
+                <td className="nowrap">
+                  {p.prixVente !== null ? `${formaterMontant(p.prixVente)} ${devise}` : ""}
+                </td>
+                {peutVoirCout && (
+                  <td className="nowrap">
+                    {(p.prixVente ?? 0) > 0 ? (
+                      <span className={marge(p) < 0 ? "texte-erreur" : undefined} title="En % du prix de vente">
+                        {formaterMontant(marge(p))} <span className="sous-info">({tauxMarge(p)} %)</span>
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                )}
+                <td className="nowrap">
+                  {p.quantiteStock <= 0 ? (
+                    <span className="badge-rupture">Rupture</span>
+                  ) : (
+                    <strong
+                      className={stockBas(p) ? "texte-erreur" : undefined}
+                      title={stockBas(p) ? `Sous le seuil d'alerte (${p.seuilAlerte})` : undefined}
+                    >
+                      {formaterMontant(p.quantiteStock)}
+                    </strong>
+                  )}
+                </td>
+                {peutGerer && (
+                  <td onClick={(e) => e.stopPropagation()}>
                     <span className="actions-ligne">
-                      <button
-                        type="button"
-                        className="lien-icone"
-                        title="Modifier"
-                        onClick={() => setProduitSelectionneId(p.id)}
-                      >
+                      <button type="button" className="lien-icone" title="Modifier" onClick={() => setProduitSelectionneId(p.id)}>
                         ✎
                       </button>
                       <button
@@ -1390,32 +1585,46 @@ function OngletProduits({ session }: { session: Session }) {
                         {p.actif ? "Actif" : "Inactif"}
                       </button>
                     </span>
+                  </td>
+                )}
+              </tr>
+            ))}
+            {produitsTries.length === 0 && (
+              <tr>
+                <td colSpan={5 + (peutVoirCout ? 2 : 0) + (peutGerer ? 1 : 0)} className="liste-vide">
+                  {produits.length === 0 ? "Aucun article." : "Aucun article pour ces filtres."}
                 </td>
-              )}
-            </tr>
-          ))}
-          {produits.length === 0 && (
-            <tr>
-              <td colSpan={6 + (peutVoirCout ? 1 : 0) + (peutGerer ? 1 : 0)} className="liste-vide">
-                Aucun article.
-              </td>
-            </tr>
-          )}
-          {Array.from({ length: Math.max(0, 10 - Math.max(1, produits.length)) }).map((_, i) => (
-            <tr key={`vide-${i}`} className="ligne-groupe-vide">
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td className="colonne-categorie-articles">&nbsp;</td>
-              {peutVoirCout && <td>&nbsp;</td>}
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              {peutGerer && <td>&nbsp;</td>}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              </tr>
+            )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, produitsTries.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                {peutVoirCout && <td>&nbsp;</td>}
+                <td>&nbsp;</td>
+                {peutVoirCout && <td>&nbsp;</td>}
+                <td>&nbsp;</td>
+                {peutGerer && <td>&nbsp;</td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
+      {produitsTries.length > 0 && (
+        <div className="totaux">
+          <div>
+            {produitsTries.length} article{produitsTries.length > 1 ? "s" : ""}
+            {nombreStockBas > 0 && ` · ${nombreStockBas} en rupture ou stock bas`}
+          </div>
+          {peutVoirCout && (
+            <div className="total-net">
+              Valeur du stock : {formaterMontant(valeurStock)} {devise}
+            </div>
+          )}
+        </div>
+      )}
     </div>
     </>
   );

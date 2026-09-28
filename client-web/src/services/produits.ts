@@ -56,6 +56,12 @@ export interface ProduitResume {
   prixVente: number | null;
   enStock: boolean;
   actif: boolean;
+  /** Toutes variantes et tous dépôts confondus. */
+  quantiteStock: number;
+  /** Seuil d'alerte de la variante par défaut. */
+  seuilAlerte: number;
+  /** Stock valorisé au prix d'achat de chaque variante. */
+  valeurStock: number;
 }
 
 export async function listerProduits(boutiqueId: string, terme = ""): Promise<ProduitResume[]> {
@@ -72,6 +78,8 @@ export async function listerProduits(boutiqueId: string, terme = ""): Promise<Pr
     const varianteDefaut = variantes[0];
     const idsVariantes = new Set(variantes.map((v) => v.id));
     const enStock = stocks.some((s) => idsVariantes.has(s.variante_id) && s.quantite > 0);
+    const prixAchatParVariante = new Map(variantes.map((v) => [v.id, v.prix_achat ?? 0]));
+    const stocksProduit = stocks.filter((s) => idsVariantes.has(s.variante_id));
     resultat.push({
       id: produit.id,
       nom: produit.nom,
@@ -81,6 +89,9 @@ export async function listerProduits(boutiqueId: string, terme = ""): Promise<Pr
       prixVente: varianteDefaut?.prix_vente ?? null,
       enStock,
       actif: !!produit.actif,
+      quantiteStock: stocksProduit.reduce((t, s) => t + s.quantite, 0),
+      seuilAlerte: varianteDefaut?.seuil_alerte ?? 0,
+      valeurStock: stocksProduit.reduce((t, s) => t + s.quantite * (prixAchatParVariante.get(s.variante_id) ?? 0), 0),
     });
   }
   return resultat.sort((a, b) => a.nom.localeCompare(b.nom)).slice(0, 200);

@@ -392,3 +392,40 @@ export async function obtenirVenteDetail(venteId: string): Promise<VenteDetail |
     paiements: paiements.map((p) => ({ id: p.id, mode: p.mode, operateur: p.operateur, montant: p.montant })),
   };
 }
+
+export interface LigneVenteHistorique {
+  venteId: string;
+  venteNumero: string;
+  dateCreation: string;
+  clientNom: string | null;
+  statut: StatutVente;
+  quantite: number;
+  prixUnitaire: number;
+  sousTotal: number;
+}
+
+// Historique produit (toutes variantes confondues) — port de
+// client-electron/electron/services/ventes.ts::listerVentesParProduit.
+export async function listerVentesParProduit(produitId: string, limite = 100): Promise<LigneVenteHistorique[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const idsVariantes = new Set((await db.getAllFromIndex("variantes", "produit_id", produitId)).map((v) => v.id));
+  const resultat: LigneVenteHistorique[] = [];
+  for (const lv of await db.getAll("lignes_vente")) {
+    if (lv.supprime || !idsVariantes.has(lv.variante_id)) continue;
+    const vente = await db.get("ventes", lv.vente_id);
+    if (!vente || vente.supprime) continue;
+    const client = vente.client_id ? await db.get("clients", vente.client_id) : undefined;
+    resultat.push({
+      venteId: vente.id,
+      venteNumero: vente.numero,
+      dateCreation: vente.date_creation,
+      clientNom: client?.nom ?? null,
+      statut: vente.statut,
+      quantite: lv.quantite,
+      prixUnitaire: lv.prix_unitaire,
+      sousTotal: lv.sous_total,
+    });
+  }
+  resultat.sort((a, b) => (a.dateCreation < b.dateCreation ? 1 : -1));
+  return resultat.slice(0, limite);
+}

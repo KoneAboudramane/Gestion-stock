@@ -368,6 +368,38 @@ export async function listerMouvements(boutiqueId: string, depotId?: string, lim
   return resultat.slice(0, limite);
 }
 
+// Historique produit (toutes variantes, tous dépôts) — port de
+// client-electron/electron/services/stock.ts::listerMouvementsParProduit.
+export async function listerMouvementsParProduit(produitId: string, limite = 100): Promise<MouvementResume[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const produit = await db.get("produits", produitId);
+  if (!produit) return [];
+  const variantes = new Map(
+    (await db.getAllFromIndex("variantes", "produit_id", produitId)).map((v) => [v.id, v]),
+  );
+  const resultat: MouvementResume[] = [];
+  for (const m of await db.getAll("mouvements_stock")) {
+    const variante = variantes.get(m.variante_id);
+    if (m.supprime || !variante) continue;
+    const depot = await db.get("depots", m.depot_id);
+    if (!depot) continue;
+    resultat.push({
+      id: m.id,
+      produitNom: produit.nom,
+      reference: variante.reference,
+      depotNom: depot.nom,
+      type: m.type,
+      quantite: m.quantite,
+      motif: m.motif,
+      dateCreation: m.date_creation,
+      utilisateurId: m.utilisateur_id ?? null,
+      referenceType: m.reference_type ?? "",
+    });
+  }
+  resultat.sort((a, b) => (a.dateCreation < b.dateCreation ? 1 : -1));
+  return resultat.slice(0, limite);
+}
+
 // --- Transferts (miroir de stock/services.py::transferer_stock) ---
 
 export interface ParametresTransfert {
