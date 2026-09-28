@@ -7250,3 +7250,19 @@ button.tuile-dormance.active {
   flex: 0 0 auto;
   min-height: 0;
 }
+
+/* Fiche article en barre latérale : le dernier tableau (variantes, mouvements ou
+   ventes) prend toute la hauteur restante, sans espace vide en bas. */
+.modale-avec-menu .detail-produit-modale-scroll {
+  flex: 1;
+}
+
+.modale-avec-menu .detail-produit-modale-scroll > * {
+  flex-shrink: 0;
+}
+
+.modale-avec-menu .detail-produit-modale-scroll > .zone-tableau-scroll-modale:last-child {
+  flex: 1 1 auto;
+  min-height: 170px;
+  max-height: none;
+}
