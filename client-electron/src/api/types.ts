@@ -218,6 +218,10 @@ export interface ArticleCategorie {
   prixVente: number;
   /** Stock total, tous dépôts confondus. */
   quantiteStock: number;
+  /** Catégorie de l'article (null = sans catégorie). */
+  categorieId: string | null;
+  prixAchat: number;
+  seuilAlerte: number;
 }
 
 export interface UniteResume extends ReferenceNommee {
@@ -1299,6 +1303,7 @@ export interface WindowApi {
     lister(boutiqueId: string): Promise<ReferenceNommee[]>;
     listerDetail(boutiqueId: string): Promise<CategorieDetail[]>;
     articles(categorieId: string): Promise<ArticleCategorie[]>;
+    articlesBoutique(boutiqueId: string): Promise<ArticleCategorie[]>;
     creer(boutiqueId: string, nom: string): Promise<ResultatEcriture<string>>;
     modifier(id: string, nom: string): Promise<ResultatEcriture<void>>;
     /** remplacementId : où déplacer les articles de la catégorie (null = sans catégorie). */

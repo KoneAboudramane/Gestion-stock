@@ -385,6 +385,10 @@ export interface ArticleCategorie {
   prixVente: number;
   /** Stock total, tous dépôts confondus. */
   quantiteStock: number;
+  /** Catégorie de l'article (null = sans catégorie). */
+  categorieId: string | null;
+  prixAchat: number;
+  seuilAlerte: number;
 }
 
 /** Nom de catégorie comparable : sans accents, sans majuscules, sans espaces autour. */
@@ -470,7 +474,15 @@ export async function supprimerCategorie(id: string, remplacementId?: string | n
 export async function listerArticlesCategorie(categorieId: string): Promise<ArticleCategorie[]> {
   const categorie = await obtenirLigne("categories", categorieId);
   if (!categorie) return [];
-  const produits = await produitsDeLaCategorie(categorie.boutique_id, categorieId);
+  return articlesDe(await produitsDeLaCategorie(categorie.boutique_id, categorieId));
+}
+
+/** Tous les articles de la boutique avec leur catégorie : chiffres par catégorie et « Sans catégorie ». */
+export async function listerArticlesBoutique(boutiqueId: string): Promise<ArticleCategorie[]> {
+  return articlesDe((await listerParIndex("produits", "boutique_id", boutiqueId)).filter((p) => !p.supprime));
+}
+
+async function articlesDe(produits: ProduitLocal[]): Promise<ArticleCategorie[]> {
   const stocks = await listerTout("stocks");
   const resultat: ArticleCategorie[] = [];
   for (const produit of produits) {
@@ -483,6 +495,9 @@ export async function listerArticlesCategorie(categorieId: string): Promise<Arti
         reference: v.reference,
         prixVente: Number(v.prix_vente),
         quantiteStock: stocks.filter((s) => s.variante_id === v.id).reduce((t, s) => t + Number(s.quantite), 0),
+        categorieId: produit.categorie_id ?? null,
+        prixAchat: Number(v.prix_achat ?? 0),
+        seuilAlerte: Number(v.seuil_alerte ?? 0),
       });
     }
   }

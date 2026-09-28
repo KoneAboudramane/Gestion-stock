@@ -283,6 +283,7 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("categories:lister", (_evt, boutiqueId: string) => produits.listerCategories(boutiqueId));
   ipcMain.handle("categories:listerDetail", (_evt, boutiqueId: string) => produits.listerCategoriesDetail(boutiqueId));
   ipcMain.handle("categories:articles", (_evt, categorieId: string) => produits.listerArticlesCategorie(categorieId));
+  ipcMain.handle("categories:articlesBoutique", (_evt, boutiqueId: string) => produits.listerArticlesBoutique(boutiqueId));
   ipcMain.handle("categories:creer", (_evt, boutiqueId: string, nom: string) =>
     executerEnSecurite(() => produits.creerCategorie(boutiqueId, nom)),
   );

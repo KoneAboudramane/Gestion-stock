@@ -417,6 +417,10 @@ export interface ArticleCategorie {
   prixVente: number;
   /** Stock total, tous dépôts confondus. */
   quantiteStock: number;
+  /** Catégorie de l'article (null = sans catégorie). */
+  categorieId: string | null;
+  prixAchat: number;
+  seuilAlerte: number;
 }
 
 /** Nom de catégorie comparable : sans accents, sans majuscules, sans espaces autour. */
@@ -497,18 +501,35 @@ export function supprimerCategorie(id: string, remplacementId?: string | null): 
   });
 }
 
-export function listerArticlesCategorie(categorieId: string): ArticleCategorie[] {
+function articlesOu(condition: string, parametre: string): ArticleCategorie[] {
   return tousLesResultats<ArticleCategorie>(
     `SELECT v.id as varianteId, p.id as produitId, p.nom as produitNom, v.reference as reference,
-            v.prix_vente as prixVente,
+            v.prix_vente as prixVente, v.prix_achat as prixAchat, v.seuil_alerte as seuilAlerte,
+            p.categorie_id as categorieId,
             COALESCE((SELECT SUM(s.quantite) FROM stocks s WHERE s.variante_id = v.id), 0) as quantiteStock
      FROM produits p
      JOIN variantes v ON v.produit_id = p.id AND v.supprime = 0
-     WHERE p.categorie_id = ? AND p.supprime = 0`,
-    [categorieId],
+     WHERE ${condition} AND p.supprime = 0`,
+    [parametre],
   )
-    .map((a) => ({ ...a, prixVente: Number(a.prixVente), quantiteStock: Number(a.quantiteStock) }))
+    .map((a) => ({
+      ...a,
+      categorieId: a.categorieId ?? null,
+      prixVente: Number(a.prixVente),
+      prixAchat: Number(a.prixAchat ?? 0),
+      seuilAlerte: Number(a.seuilAlerte ?? 0),
+      quantiteStock: Number(a.quantiteStock),
+    }))
     .sort((a, b) => a.produitNom.localeCompare(b.produitNom, "fr") || a.reference.localeCompare(b.reference, "fr"));
+}
+
+export function listerArticlesCategorie(categorieId: string): ArticleCategorie[] {
+  return articlesOu("p.categorie_id = ?", categorieId);
+}
+
+/** Tous les articles de la boutique avec leur catégorie : chiffres par catégorie et « Sans catégorie ». */
+export function listerArticlesBoutique(boutiqueId: string): ArticleCategorie[] {
+  return articlesOu("p.boutique_id = ?", boutiqueId);
 }
 
 export interface UniteResume extends ReferenceNommee {

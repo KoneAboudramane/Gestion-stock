@@ -33,6 +33,7 @@ import {
   type ArticleCategorie,
   type CategorieDetail,
   listerArticlesCategorie,
+  listerArticlesBoutique,
   listerCategoriesDetail,
   type UniteResume,
   type ValeurAttributResume,
@@ -1677,6 +1678,14 @@ function normaliserRecherche(texte: string): string {
 
 function OngletCategories({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
+  const peutVoirCout = !!session.permissions.voir_benefices_achat;
+  const devise = useDevise();
+  const [articles, setArticles] = useState<ArticleCategorie[]>([]);
+  const [tri, setTri] = useState<{ colonne: "nom" | "articles" | "valeur"; sens: 1 | -1 }>({ colonne: "nom", sens: 1 });
+  const [sansCategorieOuverte, setSansCategorieOuverte] = useState(false);
+  const [produitOuvertId, setProduitOuvertId] = useState<string | null>(null);
+  const [unites, setUnites] = useState<UniteResume[]>([]);
+  const [depots, setDepots] = useState<DepotResume[]>([]);
   const [categories, setCategories] = useState<CategorieDetail[]>([]);
   const [recherche, setRecherche] = useState("");
   const [ajoutOuvert, setAjoutOuvert] = useState(false);
@@ -1690,9 +1699,12 @@ function OngletCategories({ session }: { session: Session }) {
 
   async function rafraichir() {
     setCategories(await listerCategoriesDetail(session.boutiqueId));
+    setArticles(await listerArticlesBoutique(session.boutiqueId));
   }
   useEffect(() => {
     rafraichir();
+    listerUnites(session.boutiqueId).then(setUnites);
+    listerDepots(session.boutiqueId).then(setDepots);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1741,11 +1753,76 @@ function OngletCategories({ session }: { session: Session }) {
   }
 
   const cle = normaliserRecherche(recherche.trim());
-  const categoriesFiltrees = categories.filter((c) => !cle || normaliserRecherche(c.nom).includes(cle));
-  const nombreColonnes = peutGerer ? 4 : 3;
+  const somme = (valeurs: number[]) => valeurs.reduce((t, v) => t + v, 0);
+  // Chiffres d'une catégorie (null = articles sans catégorie), toutes variantes et tous dépôts.
+  function chiffres(categorieId: string | null) {
+    const liste = articles.filter((a) => a.categorieId === categorieId);
+    return {
+      liste,
+      produits: new Set(liste.map((a) => a.produitId)).size,
+      quantite: somme(liste.map((a) => a.quantiteStock)),
+      valeur: somme(liste.map((a) => a.quantiteStock * a.prixAchat)),
+      ruptures: liste.filter((a) => a.quantiteStock <= a.seuilAlerte).length,
+    };
+  }
+  const categoriesFiltrees = categories
+    .filter((c) => !cle || normaliserRecherche(c.nom).includes(cle))
+    .sort((a, b) => {
+      if (tri.colonne === "articles") return (a.nombreArticles - b.nombreArticles) * tri.sens;
+      if (tri.colonne === "valeur") return (chiffres(a.id).valeur - chiffres(b.id).valeur) * tri.sens;
+      return a.nom.localeCompare(b.nom, "fr") * tri.sens;
+    });
+  const sansCategorie = chiffres(null);
+  const afficherSansCategorie = sansCategorie.produits > 0 && (!cle || normaliserRecherche("sans categorie").includes(cle));
+  const plusLourde = [...categories].sort((a, b) =>
+    peutVoirCout ? chiffres(b.id).valeur - chiffres(a.id).valeur : b.nombreArticles - a.nombreArticles,
+  )[0];
+  const nombreColonnes = 5 + (peutVoirCout ? 1 : 0) + (peutGerer ? 1 : 0);
+  function trierPar(colonne: "nom" | "articles" | "valeur") {
+    setTri((t) => ({ colonne, sens: t.colonne === colonne ? (-t.sens as 1 | -1) : colonne === "nom" ? 1 : -1 }));
+  }
+  const fleche = (colonne: string) => (tri.colonne === colonne ? (tri.sens === 1 ? " ▲" : " ▼") : "");
+  const cellulesChiffres = (id: string | null) => {
+    const ch = chiffres(id);
+    return (
+      <>
+        <td data-label="Stock">{formaterMontant(ch.quantite)}</td>
+        {peutVoirCout && (
+          <td data-label="Valeur" className="nowrap">
+            {formaterMontant(ch.valeur)} {devise}
+          </td>
+        )}
+        <td data-label="En rupture">{ch.ruptures > 0 ? <strong className="texte-erreur">{ch.ruptures}</strong> : "0"}</td>
+      </>
+    );
+  };
 
   return (
-    <div className="onglet-categories">
+    <div className="onglet-categories liste-dettes-credits">
+      <div className="tuiles-fiche">
+        <div className="tuile-fiche">
+          <span className="sous-info">🗂️ Catégories</span>
+          <strong>{categories.length}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">🏷️ Articles rangés</span>
+          <strong>{somme(categories.map((c) => c.nombreArticles))}</strong>
+        </div>
+        <div className={`tuile-fiche${sansCategorie.produits > 0 ? " tuile-fiche--attention" : ""}`}>
+          <span className="sous-info">📭 Sans catégorie</span>
+          <strong>{sansCategorie.produits}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">🏆 {peutVoirCout ? "Plus grosse valeur de stock" : "Plus d'articles"}</span>
+          <strong>
+            {!plusLourde
+              ? "—"
+              : peutVoirCout
+                ? `${plusLourde.nom} (${formaterMontant(chiffres(plusLourde.id).valeur)} ${devise})`
+                : `${plusLourde.nom} (${plusLourde.nombreArticles})`}
+          </strong>
+        </div>
+      </div>
       <div className="barre-actions barre-actions-avec-onglets">
         <input
           type="search"
@@ -1789,8 +1866,19 @@ function OngletCategories({ session }: { session: Session }) {
           <thead>
             <tr>
               <th>N°</th>
-              <th>Catégorie</th>
-              <th>Articles</th>
+              <th className="th-triable" onClick={() => trierPar("nom")}>
+                Catégorie{fleche("nom")}
+              </th>
+              <th className="th-triable" onClick={() => trierPar("articles")}>
+                Articles{fleche("articles")}
+              </th>
+              <th>Stock</th>
+              {peutVoirCout && (
+                <th className="th-triable" onClick={() => trierPar("valeur")}>
+                  Valeur{fleche("valeur")}
+                </th>
+              )}
+              <th>En rupture</th>
               {peutGerer && <th className="colonne-actions-categorie">Actions</th>}
             </tr>
           </thead>
@@ -1800,17 +1888,18 @@ function OngletCategories({ session }: { session: Session }) {
                 <tr key={c.id}>
                   <td data-label="N°">{index + 1}</td>
                   <td data-label="Catégorie">
-                  <input
-                    autoFocus
-                    value={nomEdition}
-                    onChange={(e) => setNomEdition(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") enregistrerEdition(c.id);
-                      if (e.key === "Escape") setEnEditionId(null);
-                    }}
-                  />
+                    <input
+                      autoFocus
+                      value={nomEdition}
+                      onChange={(e) => setNomEdition(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") enregistrerEdition(c.id);
+                        if (e.key === "Escape") setEnEditionId(null);
+                      }}
+                    />
                   </td>
                   <td data-label="Articles">{c.nombreArticles}</td>
+                  {cellulesChiffres(c.id)}
                   <td data-label="Actions" className="colonne-actions-categorie">
                     <span className="actions-ligne">
                       <button type="button" onClick={() => setEnEditionId(null)}>
@@ -1827,6 +1916,7 @@ function OngletCategories({ session }: { session: Session }) {
                   <td data-label="N°">{index + 1}</td>
                   <td data-label="Catégorie">{c.nom}</td>
                   <td data-label="Articles">{c.nombreArticles}</td>
+                  {cellulesChiffres(c.id)}
                   {peutGerer && (
                     <td data-label="Actions" className="colonne-actions-categorie">
                       <span className="actions-ligne" onClick={(e) => e.stopPropagation()}>
@@ -1850,19 +1940,29 @@ function OngletCategories({ session }: { session: Session }) {
                 </tr>
               ),
             )}
-            {categoriesFiltrees.length === 0 && (
+            {afficherSansCategorie && (
+              <tr className="ligne-sans-categorie" onClick={() => setSansCategorieOuverte(true)} title="Voir les articles sans catégorie">
+                <td data-label="N°">—</td>
+                <td data-label="Catégorie">
+                  <em>Sans catégorie</em>
+                </td>
+                <td data-label="Articles">{sansCategorie.produits}</td>
+                {cellulesChiffres(null)}
+                {peutGerer && <td />}
+              </tr>
+            )}
+            {categoriesFiltrees.length === 0 && !afficherSansCategorie && (
               <tr>
                 <td colSpan={nombreColonnes} className="liste-vide">
                   {categories.length === 0 ? "Aucune catégorie." : "Aucune catégorie ne correspond à la recherche."}
                 </td>
               </tr>
             )}
-            {Array.from({ length: Math.max(0, 10 - Math.max(1, categoriesFiltrees.length)) }).map((_, i) => (
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, categoriesFiltrees.length + (afficherSansCategorie ? 1 : 0))) }).map((_, i) => (
               <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                {peutGerer && <td>&nbsp;</td>}
+                {Array.from({ length: nombreColonnes }).map((_, j) => (
+                  <td key={j}>&nbsp;</td>
+                ))}
               </tr>
             ))}
           </tbody>
@@ -1871,11 +1971,14 @@ function OngletCategories({ session }: { session: Session }) {
       {categories.length > 0 && (
         <div className="totaux">
           <div>
-            {categories.length} catégorie{categories.length > 1 ? "s" : ""}
+            {categories.length} catégorie{categories.length > 1 ? "s" : ""} ·{" "}
+            {somme(categories.map((c) => c.nombreArticles))} article(s) rangé(s)
           </div>
-          <div className="total-net">
-            {categories.reduce((t, c) => t + c.nombreArticles, 0)} article(s) rangé(s)
-          </div>
+          {peutVoirCout && (
+            <div className="total-net">
+              Valeur du stock : {formaterMontant(somme(articles.map((a) => a.quantiteStock * a.prixAchat)))} {devise}
+            </div>
+          )}
         </div>
       )}
       {aSupprimer && (
@@ -1908,8 +2011,30 @@ function OngletCategories({ session }: { session: Session }) {
           )}
         </ModaleConfirmation>
       )}
-      {categorieOuverte && (
-        <ModaleArticlesCategorie categorie={categorieOuverte} onFermer={() => setCategorieOuverte(null)} />
+      {(categorieOuverte || sansCategorieOuverte) && (
+        <ModaleArticlesCategorie
+          titre={categorieOuverte ? `Catégorie « ${categorieOuverte.nom} »` : "Articles sans catégorie"}
+          articles={chiffres(categorieOuverte ? categorieOuverte.id : null).liste}
+          peutVoirCout={peutVoirCout}
+          onOuvrirArticle={setProduitOuvertId}
+          onFermer={() => {
+            setCategorieOuverte(null);
+            setSansCategorieOuverte(false);
+          }}
+        />
+      )}
+      {produitOuvertId && (
+        <DetailProduit
+          produitId={produitOuvertId}
+          session={session}
+          categories={categories}
+          unites={unites}
+          depots={depots}
+          onFermer={() => {
+            setProduitOuvertId(null);
+            rafraichir();
+          }}
+        />
       )}
     </div>
   );
@@ -1917,58 +2042,111 @@ function OngletCategories({ session }: { session: Session }) {
 
 /** Articles rangés dans une catégorie (prix de vente, stock tous dépôts). */
 function ModaleArticlesCategorie({
-  categorie,
+  titre,
+  articles,
+  peutVoirCout,
+  onOuvrirArticle,
   onFermer,
 }: {
-  categorie: CategorieDetail;
+  titre: string;
+  articles: ArticleCategorie[];
+  peutVoirCout: boolean;
+  onOuvrirArticle: (produitId: string) => void;
   onFermer: () => void;
 }) {
-  const [articles, setArticles] = useState<ArticleCategorie[]>([]);
-  useEffect(() => {
-    listerArticlesCategorie(categorie.id).then(setArticles);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categorie.id]);
+  const devise = useDevise();
+  const somme = (valeurs: number[]) => valeurs.reduce((t, v) => t + v, 0);
+  const stockTotal = somme(articles.map((a) => a.quantiteStock));
+  const valeur = somme(articles.map((a) => a.quantiteStock * a.prixAchat));
+  const ruptures = articles.filter((a) => a.quantiteStock <= a.seuilAlerte).length;
+  const marge = (a: ArticleCategorie) => a.prixVente - a.prixAchat;
+  const taux = (a: ArticleCategorie) => (a.prixVente > 0 ? Math.round((marge(a) / a.prixVente) * 100) : 0);
+  const nombreColonnes = 5 + (peutVoirCout ? 2 : 0);
 
   return (
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
-        <EnteteModale titre={`Catégorie « ${categorie.nom} »`} onFermer={onFermer} />
+        <EnteteModale titre={titre} onFermer={onFermer} />
         <div className="modale-corps">
-          <div className="zone-tableau-scroll">
+          <div className="tuiles-fiche">
+            <div className="tuile-fiche">
+              <span className="sous-info">🏷️ Articles</span>
+              <strong>{new Set(articles.map((a) => a.produitId)).size}</strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">📦 Stock total</span>
+              <strong>{formaterMontant(stockTotal)}</strong>
+            </div>
+            {peutVoirCout && (
+              <div className="tuile-fiche">
+                <span className="sous-info">💰 Valeur du stock</span>
+                <strong className="nowrap">
+                  {formaterMontant(valeur)} {devise}
+                </strong>
+              </div>
+            )}
+            <div className={`tuile-fiche${ruptures > 0 ? " tuile-fiche--alerte" : ""}`}>
+              <span className="sous-info">⚠️ En rupture ou stock bas</span>
+              <strong>{ruptures}</strong>
+            </div>
+          </div>
+          <div className="zone-tableau-scroll zone-commandes-fiche">
             <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th>N°</th>
                   <th>Désignation</th>
                   <th>Référence</th>
+                  {peutVoirCout && <th>Prix d'achat</th>}
                   <th>Prix de vente</th>
+                  {peutVoirCout && <th>Marge</th>}
                   <th>Stock</th>
                 </tr>
               </thead>
               <tbody>
                 {articles.map((a, index) => (
-                  <tr key={a.varianteId}>
+                  <tr key={a.varianteId} onClick={() => onOuvrirArticle(a.produitId)} title="Ouvrir la fiche de l'article">
                     <td data-label="N°">{index + 1}</td>
                     <td data-label="Désignation">{a.produitNom}</td>
                     <td data-label="Référence">{a.reference}</td>
-                    <td data-label="Prix de vente">{formaterMontant(a.prixVente)}</td>
-                    <td data-label="Stock">{a.quantiteStock <= 0 ? <span className="badge-rupture">{a.quantiteStock}</span> : a.quantiteStock}</td>
+                    {peutVoirCout && (
+                      <td data-label="Prix d'achat" className="nowrap">
+                        {formaterMontant(a.prixAchat)} {devise}
+                      </td>
+                    )}
+                    <td data-label="Prix de vente" className="nowrap">
+                      {formaterMontant(a.prixVente)} {devise}
+                    </td>
+                    {peutVoirCout && (
+                      <td data-label="Marge" className="nowrap">
+                        <span className={marge(a) < 0 ? "texte-erreur" : undefined}>
+                          {formaterMontant(marge(a))} <span className="sous-info">({taux(a)} %)</span>
+                        </span>
+                      </td>
+                    )}
+                    <td data-label="Stock" className="nowrap">
+                      {a.quantiteStock <= 0 ? (
+                        <span className="badge-rupture">Rupture</span>
+                      ) : (
+                        <strong className={a.quantiteStock <= a.seuilAlerte ? "texte-erreur" : undefined}>
+                          {formaterMontant(a.quantiteStock)}
+                        </strong>
+                      )}
+                    </td>
                   </tr>
                 ))}
                 {articles.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="liste-vide">
+                    <td colSpan={nombreColonnes} className="liste-vide">
                       Aucun article dans cette catégorie.
                     </td>
                   </tr>
                 )}
                 {Array.from({ length: Math.max(0, 10 - Math.max(1, articles.length)) }).map((_, i) => (
                   <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
+                    {Array.from({ length: nombreColonnes }).map((_, j) => (
+                      <td key={j}>&nbsp;</td>
+                    ))}
                   </tr>
                 ))}
               </tbody>
@@ -1977,9 +2155,13 @@ function ModaleArticlesCategorie({
           {articles.length > 0 && (
             <div className="totaux">
               <div>
-                {articles.length} article{articles.length > 1 ? "s" : ""}
+                {articles.length} ligne{articles.length > 1 ? "s" : ""} · stock total {formaterMontant(stockTotal)}
               </div>
-              <div className="total-net">Stock total : {articles.reduce((t, a) => t + a.quantiteStock, 0)}</div>
+              {peutVoirCout && (
+                <div className="total-net">
+                  Valeur du stock : {formaterMontant(valeur)} {devise}
+                </div>
+              )}
             </div>
           )}
         </div>

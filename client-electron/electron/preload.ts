@@ -97,6 +97,7 @@ contextBridge.exposeInMainWorld("api", {
     lister: (boutiqueId: string) => ipcRenderer.invoke("categories:lister", boutiqueId),
     listerDetail: (boutiqueId: string) => ipcRenderer.invoke("categories:listerDetail", boutiqueId),
     articles: (categorieId: string) => ipcRenderer.invoke("categories:articles", categorieId),
+    articlesBoutique: (boutiqueId: string) => ipcRenderer.invoke("categories:articlesBoutique", boutiqueId),
     creer: (boutiqueId: string, nom: string) => ipcRenderer.invoke("categories:creer", boutiqueId, nom),
     modifier: (id: string, nom: string) => ipcRenderer.invoke("categories:modifier", id, nom),
     supprimer: (id: string, remplacementId?: string | null) =>
