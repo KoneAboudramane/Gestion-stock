@@ -864,7 +864,7 @@ export interface CreditDetail {
   paiements: PaiementCreditDetail[];
 }
 
-export type Periode = "jour" | "semaine" | "mois" | "tout" | "personnalise";
+export type Periode = "jour" | "semaine" | "mois" | "mois_dernier" | "annee" | "tout" | "personnalise";
 
 export interface SyntheseVentes {
   totalBrut: number;

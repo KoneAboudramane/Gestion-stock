@@ -8,7 +8,7 @@ import { ErreurApi, apiFetch, executerEnSecurite, extraireMessageErreur, type Re
  * attendu par les pages (portées telles quelles depuis client-electron).
  */
 
-export type Periode = "jour" | "semaine" | "mois" | "tout" | "personnalise";
+export type Periode = "jour" | "semaine" | "mois" | "mois_dernier" | "annee" | "tout" | "personnalise";
 
 const DEBUT_PERIODE_TOUT = "2000-01-01T00:00:00.000Z";
 
@@ -49,6 +49,12 @@ export async function plageDates(periode: Periode = "jour", dateDebut?: string, 
   } else if (periode === "mois") {
     debutDate = new Date(maintenant.getFullYear(), maintenant.getMonth(), 1);
     finDate = new Date(maintenant.getFullYear(), maintenant.getMonth() + 1, 0);
+  } else if (periode === "mois_dernier") {
+    debutDate = new Date(maintenant.getFullYear(), maintenant.getMonth() - 1, 1);
+    finDate = new Date(maintenant.getFullYear(), maintenant.getMonth(), 0);
+  } else if (periode === "annee") {
+    debutDate = new Date(maintenant.getFullYear(), 0, 1);
+    finDate = new Date(maintenant.getFullYear(), 11, 31);
   } else {
     debutDate = maintenant;
     finDate = maintenant;

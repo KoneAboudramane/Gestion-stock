@@ -10,7 +10,7 @@ import { listerDestockages } from "./stock";
  * point de vue des rapports (mêmes exclusions que côté serveur).
  */
 
-export type Periode = "jour" | "semaine" | "mois" | "tout" | "personnalise";
+export type Periode = "jour" | "semaine" | "mois" | "mois_dernier" | "annee" | "tout" | "personnalise";
 
 // Borne de départ pour la période "tout" (toutes les dates) : antérieure à toute
 // donnée plausible dans l'app, sans introduire de vraie notion d'"illimité".
@@ -52,6 +52,12 @@ export function calculerPlageDates(periode: Periode = "jour", dateDebut?: string
   } else if (periode === "mois") {
     debutDate = new Date(maintenant.getFullYear(), maintenant.getMonth(), 1);
     finDate = new Date(maintenant.getFullYear(), maintenant.getMonth() + 1, 0);
+  } else if (periode === "mois_dernier") {
+    debutDate = new Date(maintenant.getFullYear(), maintenant.getMonth() - 1, 1);
+    finDate = new Date(maintenant.getFullYear(), maintenant.getMonth(), 0);
+  } else if (periode === "annee") {
+    debutDate = new Date(maintenant.getFullYear(), 0, 1);
+    finDate = new Date(maintenant.getFullYear(), 11, 31);
   } else {
     debutDate = maintenant;
     finDate = maintenant;

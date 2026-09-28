@@ -22,6 +22,7 @@ import type {
 } from "../api/client";
 import BoutonsExport from "../components/BoutonsExport";
 import { useDevise } from "../contexts/DeviseContext";
+import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
 import { FormulaireDestockage } from "./Stock";
 import { formaterMontant } from "../lib/formatage";
 import { libelleModePaiement, libelleMotifPerte, libelleStatutDestockage } from "../lib/libelles";
@@ -64,6 +65,8 @@ function SelecteurPeriode({
         <option value="jour">Aujourd'hui</option>
         <option value="semaine">Cette semaine</option>
         <option value="mois">Ce mois</option>
+        <option value="mois_dernier">Mois dernier</option>
+        <option value="annee">Cette année</option>
         <option value="tout">Toutes les dates</option>
         <option value="personnalise">Période personnalisée</option>
       </select>
@@ -88,6 +91,49 @@ function EnteteModale({ titre, onFermer }: { titre: string; onFermer: () => void
   );
 }
 
+/** Rang d'un classement : médailles pour les trois premiers. */
+function rangClassement(index: number): string {
+  return index < 3 ? ["🥇", "🥈", "🥉"][index] : String(index + 1);
+}
+
+/** Part d'une ligne dans le total, avec une petite barre. */
+function CellulePart({ valeur, total }: { valeur: number; total: number }) {
+  const pourcentage = total > 0 ? Math.round((valeur / total) * 100) : 0;
+  return (
+    <span className="mini-progression">
+      <span className="barre-progression">
+        <span style={{ width: `${Math.max(0, Math.min(100, pourcentage))}%` }} />
+      </span>
+      <span className="sous-info">{pourcentage} %</span>
+    </span>
+  );
+}
+
+/** Tuiles de résumé en haut d'un rapport. */
+function TuilesRapport({
+  tuiles,
+}: {
+  tuiles: { icone: string; libelle: string; valeur: string; alerte?: boolean; note?: { texte: string; hausse: boolean | null } }[];
+}) {
+  return (
+    <div className="tuiles-fiche">
+      {tuiles.map((t) => (
+        <div key={t.libelle} className={`tuile-fiche${t.alerte ? " tuile-fiche--alerte" : ""}`}>
+          <span className="sous-info">
+            {t.icone} {t.libelle}
+          </span>
+          <strong className="nowrap">{t.valeur}</strong>
+          {t.note && (
+            <span className={`sous-info nowrap${t.note.hausse === null ? "" : t.note.hausse ? " montant-entree" : " texte-erreur"}`}>
+              {t.note.texte}
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const DOCUMENTS = [
   { cle: "synthese", label: "Synthèse", icone: "📊" },
   { cle: "topProduits", label: "Top articles", icone: "🏷️" },
@@ -105,7 +151,7 @@ export type OngletRapports = (typeof DOCUMENTS)[number]["cle"];
 
 /** Fabrique le state période + la plage recalculée, commun à tous les documents sauf Valeur du stock. */
 function useFiltrePeriode(session: Session, periodeInitiale?: Periode) {
-  const [periode, setPeriode] = useState<Periode>(periodeInitiale ?? "jour");
+  const [periode, setPeriode] = useState<Periode>(periodeInitiale ?? "mois");
   const [dateDebutPerso, setDateDebutPerso] = useState(new Date().toISOString().slice(0, 10));
   const [dateFinPerso, setDateFinPerso] = useState(new Date().toISOString().slice(0, 10));
   const [plage, setPlage] = useState<PlageDates | null>(null);
@@ -130,54 +176,81 @@ const COLONNES_SYNTHESE: ColonneExport[] = [
 
 function ModaleSynthese({ session, periodeInitiale, onFermer }: { session: Session; periodeInitiale?: Periode; onFermer: () => void }) {
   const f = useFiltrePeriode(session, periodeInitiale);
+  const devise = useDevise();
   const [synthese, setSynthese] = useState<SyntheseVentes | null>(null);
+  const [precedente, setPrecedente] = useState<SyntheseVentes | null>(null);
 
   useEffect(() => {
     if (!f.plage) return;
     api.rapports.syntheseVentes(session.boutiqueId, f.plage.debut, f.plage.fin).then(setSynthese);
-  }, [session.boutiqueId, f.plage]);
+    // Période précédente de même durée, juste avant (pas de comparaison pour « Toutes les dates »).
+    if (f.periode === "tout") {
+      setPrecedente(null);
+      return;
+    }
+    const debut = new Date(f.plage.debut).getTime();
+    const fin = new Date(f.plage.fin).getTime();
+    const finAvant = new Date(debut - 1);
+    const debutAvant = new Date(debut - 1 - (fin - debut));
+    api.rapports.syntheseVentes(session.boutiqueId, debutAvant.toISOString(), finAvant.toISOString()).then(setPrecedente);
+  }, [session.boutiqueId, f.plage, f.periode]);
+
+  function comparaison(actuel: number, avant: number | undefined) {
+    if (avant === undefined || f.periode === "tout") return undefined;
+    if (avant === 0) return { texte: actuel > 0 ? "▲ nouveau par rapport à avant" : "= comme avant", hausse: actuel > 0 ? true : null };
+    const variation = Math.round(((actuel - avant) / Math.abs(avant)) * 100);
+    if (variation === 0) return { texte: "= comme la période précédente", hausse: null };
+    return {
+      texte: `${variation > 0 ? "▲ +" : "▼ "}${variation} % vs période précédente`,
+      hausse: variation > 0,
+    };
+  }
+  const s = synthese;
+  const p = precedente ?? undefined;
+  const tauxMarge = s && s.totalNet > 0 ? Math.round((s.beneficeTotal / s.totalNet) * 100) : 0;
 
   return (
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Synthèse" onFermer={onFermer} />
         <div className="modale-corps">
-          <div className="barre-actions">
+          <div className="barre-actions barre-filtres-historique">
             <SelecteurPeriode
               periode={f.periode} setPeriode={f.setPeriode}
               dateDebutPerso={f.dateDebutPerso} setDateDebutPerso={f.setDateDebutPerso}
               dateFinPerso={f.dateFinPerso} setDateFinPerso={f.setDateFinPerso}
             />
-            {synthese && (
+            {s && (
               <span className="actions-ligne">
-                <BoutonsExport
-                  titre="Synthese des ventes"
-                  colonnes={COLONNES_SYNTHESE}
-                  lignes={[synthese as unknown as Record<string, unknown>]}
-                />
+                <BoutonsExport titre="Synthese des ventes" colonnes={COLONNES_SYNTHESE} lignes={[s as unknown as Record<string, unknown>]} compact />
               </span>
             )}
           </div>
-          {!synthese ? (
+          {!s ? (
             <p>Chargement…</p>
           ) : (
-            <div className="zone-tableau-scroll">
-              <table className="tableau-catalogue">
-                <thead>
-                  <tr>
-                    {COLONNES_SYNTHESE.map((c) => (
-                      <th key={c.cle}>{c.libelle}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    {COLONNES_SYNTHESE.map((c) => (
-                      <td key={c.cle}>{formaterMontant((synthese as unknown as Record<string, unknown>)[c.cle] as number)}</td>
-                    ))}
-                  </tr>
-                </tbody>
-              </table>
+            <div className="tuiles-synthese">
+              <TuilesRapport
+                tuiles={[
+                  { icone: "💰", libelle: "Chiffre d'affaires net", valeur: `${formaterMontant(s.totalNet)} ${devise}`, note: comparaison(s.totalNet, p?.totalNet) },
+                  { icone: "🧾", libelle: "Nombre de ventes", valeur: String(s.nombreVentes), note: comparaison(s.nombreVentes, p?.nombreVentes) },
+                  { icone: "🧺", libelle: "Panier moyen", valeur: `${formaterMontant(s.panierMoyen)} ${devise}`, note: comparaison(s.panierMoyen, p?.panierMoyen) },
+                  {
+                    icone: "📈",
+                    libelle: `Bénéfice (marge ${tauxMarge} %)`,
+                    valeur: `${formaterMontant(s.beneficeTotal)} ${devise}`,
+                    alerte: s.beneficeTotal < 0,
+                    note: comparaison(s.beneficeTotal, p?.beneficeTotal),
+                  },
+                  { icone: "🏷️", libelle: "Remises accordées", valeur: `${formaterMontant(s.totalRemises)} ${devise}`, note: comparaison(s.totalRemises, p?.totalRemises) },
+                  { icone: "🧮", libelle: "Total brut (avant remises)", valeur: `${formaterMontant(s.totalBrut)} ${devise}` },
+                ]}
+              />
+              {f.periode !== "tout" && (
+                <p className="note-aide">
+                  Les flèches comparent avec la période précédente de même durée, juste avant celle choisie.
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -197,20 +270,31 @@ const COLONNES_TOP_PRODUITS: ColonneExport[] = [
 
 function ModaleTopProduits({ session, periodeInitiale, onFermer }: { session: Session; periodeInitiale?: Periode; onFermer: () => void }) {
   const f = useFiltrePeriode(session, periodeInitiale);
+  const devise = useDevise();
+
   const [ordre, setOrdre] = useState<"asc" | "desc">("desc");
   const [lignes, setLignes] = useState<LigneTopProduit[]>([]);
 
   useEffect(() => {
     if (!f.plage) return;
-    api.rapports.topProduits(session.boutiqueId, f.plage.debut, f.plage.fin, 10, ordre).then(setLignes);
+    api.rapports.topProduits(session.boutiqueId, f.plage.debut, f.plage.fin, 50, ordre).then(setLignes);
   }, [session.boutiqueId, f.plage, ordre]);
+
+  const total = lignes.reduce((t, l) => t + l.caGenere, 0);
+  const quantite = lignes.reduce((t, l) => t + l.quantiteVendue, 0);
 
   return (
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Top articles" onFermer={onFermer} />
         <div className="modale-corps">
-          <div className="barre-actions">
+          <TuilesRapport tuiles={[
+            { icone: "🏷️", libelle: "Articles classés", valeur: String(lignes.length) },
+            { icone: "📦", libelle: "Quantité vendue", valeur: formaterMontant(quantite) },
+            { icone: "💰", libelle: "Chiffre d'affaires", valeur: `${formaterMontant(total)} ${devise}` },
+            { icone: "🏆", libelle: ordre === "desc" ? "Le plus vendu" : "Le moins vendu", valeur: lignes[0]?.produit ?? "—" },
+          ]} />
+          <div className="barre-actions barre-filtres-historique">
             <SelecteurPeriode
               periode={f.periode} setPeriode={f.setPeriode}
               dateDebutPerso={f.dateDebutPerso} setDateDebutPerso={f.setDateDebutPerso}
@@ -221,48 +305,63 @@ function ModaleTopProduits({ session, periodeInitiale, onFermer }: { session: Se
               <option value="asc">Les moins vendus</option>
             </select>
             <span className="actions-ligne">
-              <BoutonsExport
-                titre="Top articles"
-                colonnes={COLONNES_TOP_PRODUITS}
-                lignes={lignes as unknown as Record<string, unknown>[]}
-              />
+              <BoutonsExport titre="Top articles" colonnes={COLONNES_TOP_PRODUITS} lignes={lignes as unknown as Record<string, unknown>[]} compact />
             </span>
           </div>
-          <div className="zone-tableau-scroll">
+          <div className="zone-tableau-scroll zone-commandes-fiche">
             <table className="tableau-catalogue">
               <thead>
                 <tr>
-                  {COLONNES_TOP_PRODUITS.map((c) => (
-                    <th key={c.cle}>{c.libelle}</th>
-                  ))}
+                  <th>Rang</th>
+                  <th>Désignation</th>
+                  <th>Référence</th>
+                  <th>Quantité vendue</th>
+                  <th>CA généré</th>
+                  <th>Part du CA</th>
                 </tr>
               </thead>
               <tbody>
-                {lignes.map((l) => (
+                {lignes.map((l, index) => (
                   <tr key={l.varianteId}>
+                    <td>{ordre === "desc" ? rangClassement(index) : index + 1}</td>
                     <td>{l.produit}</td>
-                    <td>{l.reference || ""}</td>
-                    <td>{l.quantiteVendue}</td>
-                    <td>{formaterMontant(l.caGenere)}</td>
+                    <td>{l.reference || "—"}</td>
+                    <td>{formaterMontant(l.quantiteVendue)}</td>
+                    <td className="nowrap">
+                      {formaterMontant(l.caGenere)} {devise}
+                    </td>
+                    <td>
+                      <CellulePart valeur={l.caGenere} total={total} />
+                    </td>
                   </tr>
                 ))}
                 {lignes.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="liste-vide">
+                    <td colSpan={6} className="liste-vide">
                       Aucune vente sur la période.
                     </td>
                   </tr>
                 )}
                 {Array.from({ length: Math.max(0, 10 - Math.max(1, lignes.length)) }).map((_, i) => (
                   <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                    {COLONNES_TOP_PRODUITS.map((c) => (
-                      <td key={c.cle}>&nbsp;</td>
+                    {Array.from({ length: 6 }).map((_, j) => (
+                      <td key={j}>&nbsp;</td>
                     ))}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {lignes.length > 0 && (
+            <div className="totaux">
+              <div>
+                {lignes.length} ligne{lignes.length > 1 ? "s" : ""}
+              </div>
+              <div className="total-net">
+                Total : {formaterMontant(total)} {devise}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -279,6 +378,8 @@ const COLONNES_TOP_CLIENTS: ColonneExport[] = [
 
 function ModaleTopClients({ session, periodeInitiale, onFermer }: { session: Session; periodeInitiale?: Periode; onFermer: () => void }) {
   const f = useFiltrePeriode(session, periodeInitiale);
+  const devise = useDevise();
+
   const [lignes, setLignes] = useState<LigneTopClient[]>([]);
 
   useEffect(() => {
@@ -286,59 +387,82 @@ function ModaleTopClients({ session, periodeInitiale, onFermer }: { session: Ses
     api.rapports.topClients(session.boutiqueId, f.plage.debut, f.plage.fin, 100).then(setLignes);
   }, [session.boutiqueId, f.plage]);
 
+  const total = lignes.reduce((t, l) => t + l.totalNet, 0);
+  const ventes = lignes.reduce((t, l) => t + l.nombreVentes, 0);
+
   return (
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Top clients" onFermer={onFermer} />
         <div className="modale-corps">
-          <div className="barre-actions">
+          <TuilesRapport tuiles={[
+            { icone: "👥", libelle: "Clients", valeur: String(lignes.length) },
+            { icone: "🧾", libelle: "Ventes", valeur: String(ventes) },
+            { icone: "💰", libelle: "Chiffre d'affaires", valeur: `${formaterMontant(total)} ${devise}` },
+            { icone: "🏆", libelle: "Meilleur client", valeur: lignes[0]?.clientNom ?? "—" },
+          ]} />
+          <div className="barre-actions barre-filtres-historique">
             <SelecteurPeriode
               periode={f.periode} setPeriode={f.setPeriode}
               dateDebutPerso={f.dateDebutPerso} setDateDebutPerso={f.setDateDebutPerso}
               dateFinPerso={f.dateFinPerso} setDateFinPerso={f.setDateFinPerso}
             />
             <span className="actions-ligne">
-              <BoutonsExport
-                titre="Top clients"
-                colonnes={COLONNES_TOP_CLIENTS}
-                lignes={lignes as unknown as Record<string, unknown>[]}
-              />
+              <BoutonsExport titre="Top clients" colonnes={COLONNES_TOP_CLIENTS} lignes={lignes as unknown as Record<string, unknown>[]} compact />
             </span>
           </div>
-          <div className="zone-tableau-scroll">
+          <div className="zone-tableau-scroll zone-commandes-fiche">
             <table className="tableau-catalogue">
               <thead>
                 <tr>
-                  {COLONNES_TOP_CLIENTS.map((c) => (
-                    <th key={c.cle}>{c.libelle}</th>
-                  ))}
+                  <th>Rang</th>
+                  <th>Client</th>
+                  <th>Nombre de ventes</th>
+                  <th>CA généré</th>
+                  <th>Part du CA</th>
                 </tr>
               </thead>
               <tbody>
-                {lignes.map((l) => (
+                {lignes.map((l, index) => (
                   <tr key={l.clientId}>
+                    <td>{rangClassement(index)}</td>
                     <td>{l.clientNom}</td>
                     <td>{l.nombreVentes}</td>
-                    <td>{formaterMontant(l.totalNet)}</td>
+                    <td className="nowrap">
+                      {formaterMontant(l.totalNet)} {devise}
+                    </td>
+                    <td>
+                      <CellulePart valeur={l.totalNet} total={total} />
+                    </td>
                   </tr>
                 ))}
                 {lignes.length === 0 && (
                   <tr>
-                    <td colSpan={3} className="liste-vide">
+                    <td colSpan={5} className="liste-vide">
                       Aucune vente à un client identifié sur la période.
                     </td>
                   </tr>
                 )}
                 {Array.from({ length: Math.max(0, 10 - Math.max(1, lignes.length)) }).map((_, i) => (
                   <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                    {COLONNES_TOP_CLIENTS.map((c) => (
-                      <td key={c.cle}>&nbsp;</td>
+                    {Array.from({ length: 5 }).map((_, j) => (
+                      <td key={j}>&nbsp;</td>
                     ))}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {lignes.length > 0 && (
+            <div className="totaux">
+              <div>
+                {lignes.length} ligne{lignes.length > 1 ? "s" : ""}
+              </div>
+              <div className="total-net">
+                Total : {formaterMontant(total)} {devise}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -355,24 +479,56 @@ const COLONNES_VALEUR_STOCK: ColonneExport[] = [
 ];
 
 function ModaleValeurStock({ session, onFermer }: { session: Session; onFermer: () => void }) {
-  const [depots, setDepots] = useState<Depot[]>([]);
+  const devise = useDevise();
+  const [depots, setDepots] = useState<{ id: string; nom: string }[]>([]);
   const [depotId, setDepotId] = useState("");
   const [valeur, setValeur] = useState<ValeurStock | null>(null);
+  const [parDepot, setParDepot] = useState<{ id: string; nom: string; valeur: ValeurStock }[]>([]);
 
   useEffect(() => {
-    api.catalogue.listerDepots(session.boutiqueId).then(setDepots);
+    api.catalogue.listerDepots(session.boutiqueId).then(async (liste) => {
+      setDepots(liste);
+      // Répartition par dépôt : où se trouve l'argent du stock.
+      const lignes = await Promise.all(
+        liste.map(async (d) => ({ id: d.id, nom: d.nom, valeur: await api.rapports.valeurStock(session.boutiqueId, d.id) })),
+      );
+      setParDepot(lignes.sort((a, b) => b.valeur.valeurAchat - a.valeur.valeurAchat));
+    });
   }, [session.boutiqueId]);
 
   useEffect(() => {
     api.rapports.valeurStock(session.boutiqueId, depotId || undefined).then(setValeur);
   }, [session.boutiqueId, depotId]);
 
+  const lignesDepots = parDepot.filter((d) => !depotId || d.id === depotId);
+  // Stock encore rattaché à un dépôt supprimé : compté dans le total, montré à part.
+  const reste = (cle: keyof ValeurStock) =>
+    (valeur?.[cle] ?? 0) - parDepot.reduce((t, d) => t + d.valeur[cle], 0);
+  const lignes =
+    !depotId && valeur && reste("nombreVariantes") > 0
+      ? [
+          ...lignesDepots,
+          {
+            id: "supprimes",
+            nom: "Dépôts supprimés",
+            valeur: {
+              valeurAchat: reste("valeurAchat"),
+              valeurVentePotentielle: reste("valeurVentePotentielle"),
+              nombreVariantes: reste("nombreVariantes"),
+              nombreRuptures: reste("nombreRuptures"),
+            },
+          },
+        ]
+      : lignesDepots;
+  const total = lignes.reduce((t, d) => t + d.valeur.valeurAchat, 0);
+  const benefice = valeur ? valeur.valeurVentePotentielle - valeur.valeurAchat : 0;
+
   return (
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Valeur du stock" onFermer={onFermer} />
         <div className="modale-corps">
-          <div className="barre-actions">
+          <div className="barre-actions barre-filtres-historique">
             <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
               <option value="">Tous les dépôts</option>
               {depots.map((d) => (
@@ -383,36 +539,81 @@ function ModaleValeurStock({ session, onFermer }: { session: Session; onFermer: 
             </select>
             {valeur && (
               <span className="actions-ligne">
-                <BoutonsExport
-                  titre="Valeur du stock"
-                  colonnes={COLONNES_VALEUR_STOCK}
-                  lignes={[valeur as unknown as Record<string, unknown>]}
-                />
+                <BoutonsExport titre="Valeur du stock" colonnes={COLONNES_VALEUR_STOCK} lignes={[valeur as unknown as Record<string, unknown>]} compact />
               </span>
             )}
           </div>
           {!valeur ? (
             <p>Chargement…</p>
           ) : (
-            <div className="zone-tableau-scroll">
-              <table className="tableau-catalogue">
-                <thead>
-                  <tr>
-                    {COLONNES_VALEUR_STOCK.map((c) => (
-                      <th key={c.cle}>{c.libelle}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    {COLONNES_VALEUR_STOCK.map((c) => (
-                      <td key={c.cle}>{formaterMontant((valeur as unknown as Record<string, unknown>)[c.cle] as number)}</td>
-                    ))}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            <TuilesRapport
+              tuiles={[
+                { icone: "💰", libelle: "Valeur au coût (prix d'achat)", valeur: `${formaterMontant(valeur.valeurAchat)} ${devise}` },
+                { icone: "🏷️", libelle: "Valeur au prix de vente", valeur: `${formaterMontant(valeur.valeurVentePotentielle)} ${devise}` },
+                {
+                  icone: "📈",
+                  libelle: "Bénéfice potentiel",
+                  valeur: `${formaterMontant(benefice)} ${devise}`,
+                  alerte: benefice < 0,
+                },
+                { icone: "📦", libelle: "Lignes de stock", valeur: String(valeur.nombreVariantes) },
+                { icone: "⚠️", libelle: "En rupture", valeur: String(valeur.nombreRuptures), alerte: valeur.nombreRuptures > 0 },
+              ]}
+            />
           )}
+          <h4 className="titre-section-rapport">Par dépôt</h4>
+          <div className="zone-tableau-scroll zone-commandes-fiche">
+            <table className="tableau-catalogue">
+              <thead>
+                <tr>
+                  <th>Dépôt</th>
+                  <th>Valeur au coût</th>
+                  <th>Valeur au prix de vente</th>
+                  <th>Bénéfice potentiel</th>
+                  <th>Lignes</th>
+                  <th>Ruptures</th>
+                  <th>Part</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lignes.map((d) => (
+                  <tr key={d.id}>
+                    <td>{d.nom}</td>
+                    <td className="nowrap">
+                      {formaterMontant(d.valeur.valeurAchat)} {devise}
+                    </td>
+                    <td className="nowrap">
+                      {formaterMontant(d.valeur.valeurVentePotentielle)} {devise}
+                    </td>
+                    <td className="nowrap">
+                      {formaterMontant(d.valeur.valeurVentePotentielle - d.valeur.valeurAchat)} {devise}
+                    </td>
+                    <td>{d.valeur.nombreVariantes}</td>
+                    <td>
+                      {d.valeur.nombreRuptures > 0 ? <strong className="texte-erreur">{d.valeur.nombreRuptures}</strong> : "0"}
+                    </td>
+                    <td>
+                      <CellulePart valeur={d.valeur.valeurAchat} total={total} />
+                    </td>
+                  </tr>
+                ))}
+                {lignes.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="liste-vide">
+                      Aucun dépôt.
+                    </td>
+                  </tr>
+                )}
+                {Array.from({ length: Math.max(0, 10 - Math.max(1, lignes.length)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    {Array.from({ length: 7 }).map((_, j) => (
+                      <td key={j}>&nbsp;</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -429,15 +630,20 @@ const COLONNES_VENDEUR: ColonneExport[] = [
 
 function ModaleVentesParVendeur({ session, periodeInitiale, onFermer }: { session: Session; periodeInitiale?: Periode; onFermer: () => void }) {
   const f = useFiltrePeriode(session, periodeInitiale);
-  const [lignes, setLignes] = useState<LigneVentesVendeur[]>([]);
+  const devise = useDevise();
+  const nomUtilisateur = useNomsUtilisateurs(session);
+  const [brutes, setBrutes] = useState<LigneVentesVendeur[]>([]);
 
   useEffect(() => {
     if (!f.plage) return;
-    api.rapports.ventesParVendeur(session.boutiqueId, f.plage.debut, f.plage.fin).then(setLignes);
+    api.rapports.ventesParVendeur(session.boutiqueId, f.plage.debut, f.plage.fin).then(setBrutes);
   }, [session.boutiqueId, f.plage]);
 
+  const lignes = [...brutes].sort((a, b) => b.totalNet - a.totalNet);
+  const total = lignes.reduce((t, l) => t + l.totalNet, 0);
+  const ventes = lignes.reduce((t, l) => t + l.nombreVentes, 0);
   const lignesExport = lignes.map((l) => ({
-    vendeur: libelleVendeur(l.utilisateurId, session),
+    vendeur: nomUtilisateur(l.utilisateurId),
     nombreVentes: l.nombreVentes,
     totalNet: l.totalNet,
   }));
@@ -447,50 +653,78 @@ function ModaleVentesParVendeur({ session, periodeInitiale, onFermer }: { sessio
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Ventes par vendeur" onFermer={onFermer} />
         <div className="modale-corps">
-          <div className="barre-actions">
+          <TuilesRapport tuiles={[
+            { icone: "🧑‍💼", libelle: "Vendeurs", valeur: String(lignes.length) },
+            { icone: "🧾", libelle: "Ventes", valeur: String(ventes) },
+            { icone: "💰", libelle: "Chiffre d'affaires", valeur: `${formaterMontant(total)} ${devise}` },
+            { icone: "🏆", libelle: "Meilleur vendeur", valeur: lignes[0] ? nomUtilisateur(lignes[0].utilisateurId) : "—" },
+          ]} />
+          <div className="barre-actions barre-filtres-historique">
             <SelecteurPeriode
               periode={f.periode} setPeriode={f.setPeriode}
               dateDebutPerso={f.dateDebutPerso} setDateDebutPerso={f.setDateDebutPerso}
               dateFinPerso={f.dateFinPerso} setDateFinPerso={f.setDateFinPerso}
             />
             <span className="actions-ligne">
-              <BoutonsExport titre="Ventes par vendeur" colonnes={COLONNES_VENDEUR} lignes={lignesExport} />
+              <BoutonsExport titre="Ventes par vendeur" colonnes={COLONNES_VENDEUR} lignes={lignesExport} compact />
             </span>
           </div>
-          <div className="zone-tableau-scroll">
+          <div className="zone-tableau-scroll zone-commandes-fiche">
             <table className="tableau-catalogue">
               <thead>
                 <tr>
-                  {COLONNES_VENDEUR.map((c) => (
-                    <th key={c.cle}>{c.libelle}</th>
-                  ))}
+                  <th>Rang</th>
+                  <th>Vendeur</th>
+                  <th>Nombre de ventes</th>
+                  <th>Panier moyen</th>
+                  <th>Total net</th>
+                  <th>Part</th>
                 </tr>
               </thead>
               <tbody>
-                {lignesExport.map((l, i) => (
-                  <tr key={i}>
-                    <td>{l.vendeur}</td>
+                {lignes.map((l, index) => (
+                  <tr key={l.utilisateurId ?? index}>
+                    <td>{rangClassement(index)}</td>
+                    <td>{nomUtilisateur(l.utilisateurId)}</td>
                     <td>{l.nombreVentes}</td>
-                    <td>{formaterMontant(l.totalNet)}</td>
+                    <td className="nowrap">
+                      {formaterMontant(l.nombreVentes > 0 ? Math.round(l.totalNet / l.nombreVentes) : 0)} {devise}
+                    </td>
+                    <td className="nowrap">
+                      {formaterMontant(l.totalNet)} {devise}
+                    </td>
+                    <td>
+                      <CellulePart valeur={l.totalNet} total={total} />
+                    </td>
                   </tr>
                 ))}
-                {lignesExport.length === 0 && (
+                {lignes.length === 0 && (
                   <tr>
-                    <td colSpan={3} className="liste-vide">
+                    <td colSpan={6} className="liste-vide">
                       Aucune vente sur la période.
                     </td>
                   </tr>
                 )}
-                {Array.from({ length: Math.max(0, 10 - Math.max(1, lignesExport.length)) }).map((_, i) => (
+                {Array.from({ length: Math.max(0, 10 - Math.max(1, lignes.length)) }).map((_, i) => (
                   <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                    {COLONNES_VENDEUR.map((c) => (
-                      <td key={c.cle}>&nbsp;</td>
+                    {Array.from({ length: 6 }).map((_, j) => (
+                      <td key={j}>&nbsp;</td>
                     ))}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {lignes.length > 0 && (
+            <div className="totaux">
+              <div>
+                {lignes.length} ligne{lignes.length > 1 ? "s" : ""}
+              </div>
+              <div className="total-net">
+                Total : {formaterMontant(total)} {devise}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -507,66 +741,92 @@ const COLONNES_CATEGORIE: ColonneExport[] = [
 
 function ModaleVentesParCategorie({ session, periodeInitiale, onFermer }: { session: Session; periodeInitiale?: Periode; onFermer: () => void }) {
   const f = useFiltrePeriode(session, periodeInitiale);
-  const [lignes, setLignes] = useState<LigneVentesCategorie[]>([]);
+  const devise = useDevise();
+
+  const [brutes, setBrutes] = useState<LigneVentesCategorie[]>([]);
 
   useEffect(() => {
     if (!f.plage) return;
-    api.rapports.ventesParCategorie(session.boutiqueId, f.plage.debut, f.plage.fin).then(setLignes);
+    api.rapports.ventesParCategorie(session.boutiqueId, f.plage.debut, f.plage.fin).then(setBrutes);
   }, [session.boutiqueId, f.plage]);
+
+  const lignes = [...brutes].sort((a, b) => b.caGenere - a.caGenere);
+  const total = lignes.reduce((t, l) => t + l.caGenere, 0);
+  const quantite = lignes.reduce((t, l) => t + l.quantiteVendue, 0);
 
   return (
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Ventes par catégorie" onFermer={onFermer} />
         <div className="modale-corps">
-          <div className="barre-actions">
+          <TuilesRapport tuiles={[
+            { icone: "🗂️", libelle: "Catégories", valeur: String(lignes.length) },
+            { icone: "📦", libelle: "Quantité vendue", valeur: formaterMontant(quantite) },
+            { icone: "💰", libelle: "Chiffre d'affaires", valeur: `${formaterMontant(total)} ${devise}` },
+            { icone: "🏆", libelle: "Catégorie qui vend le plus", valeur: lignes[0]?.categorie ?? "—" },
+          ]} />
+          <div className="barre-actions barre-filtres-historique">
             <SelecteurPeriode
               periode={f.periode} setPeriode={f.setPeriode}
               dateDebutPerso={f.dateDebutPerso} setDateDebutPerso={f.setDateDebutPerso}
               dateFinPerso={f.dateFinPerso} setDateFinPerso={f.setDateFinPerso}
             />
             <span className="actions-ligne">
-              <BoutonsExport
-                titre="Ventes par categorie"
-                colonnes={COLONNES_CATEGORIE}
-                lignes={lignes as unknown as Record<string, unknown>[]}
-              />
+              <BoutonsExport titre="Ventes par catégorie" colonnes={COLONNES_CATEGORIE} lignes={lignes as unknown as Record<string, unknown>[]} compact />
             </span>
           </div>
-          <div className="zone-tableau-scroll">
+          <div className="zone-tableau-scroll zone-commandes-fiche">
             <table className="tableau-catalogue">
               <thead>
                 <tr>
-                  {COLONNES_CATEGORIE.map((c) => (
-                    <th key={c.cle}>{c.libelle}</th>
-                  ))}
+                  <th>Rang</th>
+                  <th>Catégorie</th>
+                  <th>Quantité vendue</th>
+                  <th>CA généré</th>
+                  <th>Part du CA</th>
                 </tr>
               </thead>
               <tbody>
-                {lignes.map((l, i) => (
-                  <tr key={i}>
+                {lignes.map((l, index) => (
+                  <tr key={l.categorieId ?? `sans-${index}`}>
+                    <td>{rangClassement(index)}</td>
                     <td>{l.categorie}</td>
-                    <td>{l.quantiteVendue}</td>
-                    <td>{formaterMontant(l.caGenere)}</td>
+                    <td>{formaterMontant(l.quantiteVendue)}</td>
+                    <td className="nowrap">
+                      {formaterMontant(l.caGenere)} {devise}
+                    </td>
+                    <td>
+                      <CellulePart valeur={l.caGenere} total={total} />
+                    </td>
                   </tr>
                 ))}
                 {lignes.length === 0 && (
                   <tr>
-                    <td colSpan={3} className="liste-vide">
+                    <td colSpan={5} className="liste-vide">
                       Aucune vente sur la période.
                     </td>
                   </tr>
                 )}
                 {Array.from({ length: Math.max(0, 10 - Math.max(1, lignes.length)) }).map((_, i) => (
                   <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                    {COLONNES_CATEGORIE.map((c) => (
-                      <td key={c.cle}>&nbsp;</td>
+                    {Array.from({ length: 5 }).map((_, j) => (
+                      <td key={j}>&nbsp;</td>
                     ))}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {lignes.length > 0 && (
+            <div className="totaux">
+              <div>
+                {lignes.length} ligne{lignes.length > 1 ? "s" : ""}
+              </div>
+              <div className="total-net">
+                Total : {formaterMontant(total)} {devise}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -582,65 +842,92 @@ const COLONNES_MODE_PAIEMENT: ColonneExport[] = [
 
 function ModaleVentesParModePaiement({ session, periodeInitiale, onFermer }: { session: Session; periodeInitiale?: Periode; onFermer: () => void }) {
   const f = useFiltrePeriode(session, periodeInitiale);
-  const [lignes, setLignes] = useState<LigneVentesModePaiement[]>([]);
+  const devise = useDevise();
+
+  const [brutes, setBrutes] = useState<LigneVentesModePaiement[]>([]);
 
   useEffect(() => {
     if (!f.plage) return;
-    api.rapports.ventesParModePaiement(session.boutiqueId, f.plage.debut, f.plage.fin).then(setLignes);
+    api.rapports.ventesParModePaiement(session.boutiqueId, f.plage.debut, f.plage.fin).then(setBrutes);
   }, [session.boutiqueId, f.plage]);
+
+  const lignes = [...brutes].sort((a, b) => b.total - a.total);
+  const total = lignes.reduce((t, l) => t + l.total, 0);
 
   return (
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Ventes par mode de paiement" onFermer={onFermer} />
         <div className="modale-corps">
-          <div className="barre-actions">
+          <TuilesRapport tuiles={[
+            { icone: "💰", libelle: "Total encaissé", valeur: `${formaterMontant(total)} ${devise}` },
+            { icone: "💳", libelle: "Modes utilisés", valeur: String(lignes.length) },
+            {
+              icone: "🏆",
+              libelle: "Mode principal",
+              valeur: lignes[0] ? `${libelleModePaiement(lignes[0].mode)} (${total > 0 ? Math.round((lignes[0].total / total) * 100) : 0} %)` : "—",
+            },
+          ]} />
+          <div className="barre-actions barre-filtres-historique">
             <SelecteurPeriode
               periode={f.periode} setPeriode={f.setPeriode}
               dateDebutPerso={f.dateDebutPerso} setDateDebutPerso={f.setDateDebutPerso}
               dateFinPerso={f.dateFinPerso} setDateFinPerso={f.setDateFinPerso}
             />
             <span className="actions-ligne">
-              <BoutonsExport
-                titre="Ventes par mode de paiement"
-                colonnes={COLONNES_MODE_PAIEMENT}
-                lignes={lignes.map((l) => ({ mode: libelleModePaiement(l.mode), total: l.total }))}
-              />
+              <BoutonsExport titre="Ventes par mode de paiement" colonnes={COLONNES_MODE_PAIEMENT} lignes={lignes.map((l) => ({ mode: libelleModePaiement(l.mode), total: l.total }))} compact />
             </span>
           </div>
-          <div className="zone-tableau-scroll">
+          <div className="zone-tableau-scroll zone-commandes-fiche">
             <table className="tableau-catalogue">
               <thead>
                 <tr>
-                  {COLONNES_MODE_PAIEMENT.map((c) => (
-                    <th key={c.cle}>{c.libelle}</th>
-                  ))}
+                  <th>Rang</th>
+                  <th>Mode de paiement</th>
+                  <th>Total</th>
+                  <th>Part</th>
                 </tr>
               </thead>
               <tbody>
-                {lignes.map((l, i) => (
-                  <tr key={i}>
+                {lignes.map((l, index) => (
+                  <tr key={l.mode}>
+                    <td>{rangClassement(index)}</td>
                     <td>{libelleModePaiement(l.mode)}</td>
-                    <td>{formaterMontant(l.total)}</td>
+                    <td className="nowrap">
+                      {formaterMontant(l.total)} {devise}
+                    </td>
+                    <td>
+                      <CellulePart valeur={l.total} total={total} />
+                    </td>
                   </tr>
                 ))}
                 {lignes.length === 0 && (
                   <tr>
-                    <td colSpan={2} className="liste-vide">
+                    <td colSpan={4} className="liste-vide">
                       Aucun paiement sur la période.
                     </td>
                   </tr>
                 )}
                 {Array.from({ length: Math.max(0, 10 - Math.max(1, lignes.length)) }).map((_, i) => (
                   <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                    {COLONNES_MODE_PAIEMENT.map((c) => (
-                      <td key={c.cle}>&nbsp;</td>
+                    {Array.from({ length: 4 }).map((_, j) => (
+                      <td key={j}>&nbsp;</td>
                     ))}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {lignes.length > 0 && (
+            <div className="totaux">
+              <div>
+                {lignes.length} ligne{lignes.length > 1 ? "s" : ""}
+              </div>
+              <div className="total-net">
+                Total : {formaterMontant(total)} {devise}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -672,8 +959,9 @@ const COLONNES_PERTES: ColonneExport[] = [
 ];
 
 function ModalePertes({ session, periodeInitiale, onFermer }: { session: Session; periodeInitiale?: Periode; onFermer: () => void }) {
-  const f = useFiltrePeriode(session, periodeInitiale ?? "mois");
+  const f = useFiltrePeriode(session, periodeInitiale);
   const devise = useDevise();
+
   const [pertes, setPertes] = useState<PerteResume[]>([]);
 
   useEffect(() => {
@@ -681,7 +969,7 @@ function ModalePertes({ session, periodeInitiale, onFermer }: { session: Session
     api.pertes.lister(session.boutiqueId, f.plage.debut, f.plage.fin).then(setPertes);
   }, [session.boutiqueId, f.plage]);
 
-  // Regroupement par motif, du plus coûteux au moins coûteux.
+  // Regroupement par motif, du plus coûteux au moins coûteux (pertes annulées exclues).
   const parMotif = new Map<string, { motif: string; nombre: number; quantite: number; valeur: number }>();
   for (const perte of pertes) {
     if (perte.annulee) continue;
@@ -692,34 +980,40 @@ function ModalePertes({ session, periodeInitiale, onFermer }: { session: Session
     parMotif.set(perte.motif, ligne);
   }
   const lignes = [...parMotif.values()].sort((a, b) => b.valeur - a.valeur);
-  const valeurTotale = lignes.reduce((somme, l) => somme + l.valeur, 0);
+  const total = lignes.reduce((somme, l) => somme + l.valeur, 0);
+  const declarations = lignes.reduce((somme, l) => somme + l.nombre, 0);
+  const quantite = lignes.reduce((somme, l) => somme + l.quantite, 0);
 
   return (
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Pertes" onFermer={onFermer} />
         <div className="modale-corps">
-          <div className="barre-actions">
+          <TuilesRapport tuiles={[
+            { icone: "💸", libelle: "Valeur perdue", valeur: `${formaterMontant(total)} ${devise}`, alerte: total > 0 },
+            { icone: "🧾", libelle: "Déclarations", valeur: String(declarations) },
+            { icone: "📦", libelle: "Quantité perdue", valeur: formaterMontant(quantite) },
+            { icone: "🔎", libelle: "Motif principal", valeur: lignes[0]?.motif ?? "—" },
+          ]} />
+          <div className="barre-actions barre-filtres-historique">
             <SelecteurPeriode
               periode={f.periode} setPeriode={f.setPeriode}
               dateDebutPerso={f.dateDebutPerso} setDateDebutPerso={f.setDateDebutPerso}
               dateFinPerso={f.dateFinPerso} setDateFinPerso={f.setDateFinPerso}
             />
             <span className="actions-ligne">
-              <BoutonsExport
-                titre="Pertes"
-                colonnes={COLONNES_PERTES}
-                lignes={lignes as unknown as Record<string, unknown>[]}
-              />
+              <BoutonsExport titre="Pertes" colonnes={COLONNES_PERTES} lignes={lignes as unknown as Record<string, unknown>[]} compact />
             </span>
           </div>
-          <div className="zone-tableau-scroll">
+          <div className="zone-tableau-scroll zone-commandes-fiche">
             <table className="tableau-catalogue">
               <thead>
                 <tr>
-                  {COLONNES_PERTES.map((c) => (
-                    <th key={c.cle}>{c.libelle}</th>
-                  ))}
+                  <th>Motif</th>
+                  <th>Déclarations</th>
+                  <th>Quantité</th>
+                  <th>Valeur perdue</th>
+                  <th>Part</th>
                 </tr>
               </thead>
               <tbody>
@@ -727,23 +1021,26 @@ function ModalePertes({ session, periodeInitiale, onFermer }: { session: Session
                   <tr key={l.motif}>
                     <td>{l.motif}</td>
                     <td>{l.nombre}</td>
-                    <td>{l.quantite}</td>
-                    <td>
+                    <td>{formaterMontant(l.quantite)}</td>
+                    <td className="nowrap texte-erreur">
                       {formaterMontant(l.valeur)} {devise}
+                    </td>
+                    <td>
+                      <CellulePart valeur={l.valeur} total={total} />
                     </td>
                   </tr>
                 ))}
                 {lignes.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="liste-vide">
+                    <td colSpan={5} className="liste-vide">
                       Aucune perte sur la période.
                     </td>
                   </tr>
                 )}
                 {Array.from({ length: Math.max(0, 10 - Math.max(1, lignes.length)) }).map((_, i) => (
                   <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                    {COLONNES_PERTES.map((c) => (
-                      <td key={c.cle}>&nbsp;</td>
+                    {Array.from({ length: 5 }).map((_, j) => (
+                      <td key={j}>&nbsp;</td>
                     ))}
                   </tr>
                 ))}
@@ -752,8 +1049,11 @@ function ModalePertes({ session, periodeInitiale, onFermer }: { session: Session
           </div>
           {lignes.length > 0 && (
             <div className="totaux">
+              <div>
+                {lignes.length} ligne{lignes.length > 1 ? "s" : ""}
+              </div>
               <div className="total-net">
-                Valeur totale perdue : {formaterMontant(valeurTotale)} {devise}
+                Total : {formaterMontant(total)} {devise}
               </div>
             </div>
           )}
@@ -849,7 +1149,15 @@ function ModaleDestockages({ session, onFermer }: { session: Session; onFermer: 
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Déstockages" onFermer={onFermer} />
         <div className="modale-corps">
-          <div className="barre-actions">
+          <TuilesRapport
+            tuiles={[
+              { icone: "🏷️", libelle: "Déstockages", valeur: `${lignes.length} (${lignes.filter((d) => d.statut === "en_cours").length} en cours)` },
+              { icone: "💰", libelle: "Argent récupéré", valeur: `${formaterMontant(total("chiffreAffaires"))} ${devise}` },
+              { icone: "📈", libelle: "Marge", valeur: `${formaterMontant(total("marge"))} ${devise}`, alerte: total("marge") < 0 },
+              { icone: "📉", libelle: "Manque à gagner", valeur: `${formaterMontant(total("manqueAGagner"))} ${devise}` },
+            ]}
+          />
+          <div className="barre-actions barre-filtres-historique">
             <select value={filtre} onChange={(e) => setFiltre(e.target.value as typeof filtre)}>
               <option value="tous">Tous les déstockages</option>
               <option value="en_cours">En cours</option>
@@ -861,6 +1169,7 @@ function ModaleDestockages({ session, onFermer }: { session: Session; onFermer: 
             </select>
             <span className="actions-ligne">
               <BoutonsExport
+                compact
                 titre="Destockages"
                 colonnes={COLONNES_DESTOCKAGES}
                 lignes={lignesExport}
@@ -869,7 +1178,7 @@ function ModaleDestockages({ session, onFermer }: { session: Session; onFermer: 
           </div>
           {vue === "article" ? (
             <>
-            <div className="zone-tableau-scroll">
+            <div className="zone-tableau-scroll zone-commandes-fiche">
               <table className="tableau-catalogue">
                 <thead>
                   <tr>
@@ -924,7 +1233,7 @@ function ModaleDestockages({ session, onFermer }: { session: Session; onFermer: 
             </>
           ) : (
             <>
-            <div className="zone-tableau-scroll">
+            <div className="zone-tableau-scroll zone-commandes-fiche">
               <table className="tableau-catalogue">
                 <thead>
                   <tr>
@@ -1048,7 +1357,15 @@ export function ModaleProduitsDormants({ session, onFermer }: { session: Session
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Produits dormants" onFermer={onFermer} />
         <div className="modale-corps">
-          <div className="barre-actions">
+          <TuilesRapport
+            tuiles={[
+              { icone: "😴", libelle: "Articles dormants", valeur: String(lignes.length), alerte: lignes.length > 0 },
+              { icone: "💰", libelle: "Argent qui dort", valeur: `${formaterMontant(valeurTotale)} ${devise}`, alerte: valeurTotale > 0 },
+              { icone: "⏳", libelle: "Le plus ancien", valeur: lignes.length > 0 ? `${Math.max(...lignes.map((l) => l.joursSansVente))} jours` : "—" },
+              { icone: "🏷️", libelle: "Déjà en déstockage", valeur: String(lignes.filter((l) => l.enDestockage).length) },
+            ]}
+          />
+          <div className="barre-actions barre-filtres-historique">
             <label className="case-a-cocher">
               Sans vente depuis
               <select value={jours} onChange={(e) => setJours(Number(e.target.value))}>
@@ -1060,14 +1377,14 @@ export function ModaleProduitsDormants({ session, onFermer }: { session: Session
               </select>
             </label>
             <span className="actions-ligne">
-              <BoutonsExport titre="Produits dormants" colonnes={COLONNES_DORMANTS} lignes={lignesExport} />
+              <BoutonsExport titre="Produits dormants" colonnes={COLONNES_DORMANTS} lignes={lignesExport} compact />
             </span>
           </div>
           <p className="note-aide">
             Articles en stock qui ne se sont pas vendus depuis {jours} jours ou plus (un article jamais vendu compte depuis
             son entrée en stock). Pensez à les mettre en déstockage pour récupérer cet argent.
           </p>
-          <div className="zone-tableau-scroll">
+          <div className="zone-tableau-scroll zone-commandes-fiche">
             <table className="tableau-catalogue">
               <thead>
                 <tr>
