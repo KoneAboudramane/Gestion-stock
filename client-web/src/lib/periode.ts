@@ -1,5 +1,5 @@
 /** Périodes des historiques (Stock → Historique, Achats → Historique). */
-export type PeriodeHistorique = "tout" | "7j" | "30j" | "mois" | "personnalisee";
+export type PeriodeHistorique = "tout" | "7j" | "30j" | "mois" | "mois_dernier" | "annee" | "personnalisee";
 
 export function jourLocal(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -12,6 +12,15 @@ export function bornesPeriode(periode: PeriodeHistorique, debutPerso: string, fi
   if (periode === "personnalisee") return [debutPerso || "0000-01-01", finPerso || "9999-12-31"];
   if (periode === "mois") {
     return [jourLocal(new Date(aujourdhui.getFullYear(), aujourdhui.getMonth(), 1)), jourLocal(aujourdhui)];
+  }
+  if (periode === "mois_dernier") {
+    return [
+      jourLocal(new Date(aujourdhui.getFullYear(), aujourdhui.getMonth() - 1, 1)),
+      jourLocal(new Date(aujourdhui.getFullYear(), aujourdhui.getMonth(), 0)),
+    ];
+  }
+  if (periode === "annee") {
+    return [jourLocal(new Date(aujourdhui.getFullYear(), 0, 1)), jourLocal(aujourdhui)];
   }
   const debut = new Date(aujourdhui);
   debut.setDate(debut.getDate() - (periode === "7j" ? 6 : 29));

@@ -1,8 +1,9 @@
 import { useState } from "react";
 
-import { exporterTableau, type ColonneExport, type FormatExport } from "../lib/export";
+import { api } from "../api/client";
+import type { ColonneExport, FormatExport } from "../api/client";
 
-/** Boutons d'export d'un rapport (CSV / Excel / PDF), port de BoutonsExport côté Electron. */
+/** Boutons d'export d'un tableau (CSV / Excel / PDF) : Rapports, Historique des achats. */
 export default function BoutonsExport({
   titre,
   colonnes,
@@ -22,9 +23,12 @@ export default function BoutonsExport({
     setMessage(null);
     setEnCours(format);
     try {
-      await exporterTableau(titre, colonnes, lignes, format);
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Export impossible.");
+      const resultat = await api.rapports.exporter(titre, colonnes, lignes, format);
+      if (!resultat.succes) {
+        setMessage(resultat.message);
+      } else if (!resultat.resultat.annule) {
+        setMessage(`Enregistré : ${resultat.resultat.chemin}`);
+      }
     } finally {
       setEnCours(null);
     }
@@ -32,13 +36,13 @@ export default function BoutonsExport({
 
   return (
     <div className="barre-export">
-      <button type="button" onClick={() => exporter("csv")} disabled={enCours !== null || lignes.length === 0}>
+      <button type="button" onClick={() => exporter("csv")} disabled={enCours !== null}>
         {compact ? "CSV" : "Export CSV"}
       </button>
-      <button type="button" onClick={() => exporter("xlsx")} disabled={enCours !== null || lignes.length === 0}>
-        {enCours === "xlsx" ? "Préparation…" : (compact ? "Excel" : "Export Excel")}
+      <button type="button" onClick={() => exporter("xlsx")} disabled={enCours !== null}>
+        {compact ? "Excel" : "Export Excel"}
       </button>
-      <button type="button" onClick={() => exporter("pdf")} disabled={enCours !== null || lignes.length === 0}>
+      <button type="button" onClick={() => exporter("pdf")} disabled={enCours !== null}>
         {compact ? "PDF" : "Export PDF"}
       </button>
       {message && <span className="note-aide">{message}</span>}

@@ -23,6 +23,8 @@ export default function FiltrePeriodeHistorique({
         <option value="7j">7 derniers jours</option>
         <option value="30j">30 derniers jours</option>
         <option value="mois">Ce mois</option>
+        <option value="mois_dernier">Mois dernier</option>
+        <option value="annee">Cette année</option>
         <option value="personnalisee">Période personnalisée</option>
       </select>
       {periode === "personnalisee" && (

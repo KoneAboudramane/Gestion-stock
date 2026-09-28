@@ -6335,3 +6335,59 @@ button.tuile-dormance.active {
   min-height: 150px;
   max-height: none;
 }
+
+/* Historique des achats : nom de fournisseur cliquable (filtre). */
+.lien-fournisseur {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline dotted;
+  cursor: pointer;
+}
+
+.lien-fournisseur:hover {
+  color: var(--couleur-primaire);
+}
+
+.modale-avec-menu .modale-corps > .tuiles-fiche {
+  flex-shrink: 0;
+}
+
+.tableau-catalogue button.lien-fournisseur,
+.tableau-catalogue button.lien-fournisseur:hover:not(:disabled) {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  transform: none;
+}
+
+.tableau-catalogue button.lien-fournisseur:hover:not(:disabled) {
+  color: var(--couleur-primaire);
+}
+
+/* Boutons d'export compacts dans la barre de filtres des historiques. */
+.barre-filtres-historique .barre-export {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.barre-filtres-historique .barre-export button {
+  padding: 0.4rem 0.6rem;
+}
+
+.modale-avec-menu .barre-filtres-historique select {
+  max-width: 170px;
+}
+
+.modale-avec-menu .barre-filtres-historique input[type="search"] {
+  width: 140px;
+}

@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 
 import { api } from "../api/client";
 import type {
+  ColonneExport,
   CommandeDetail,
   CommandeResume,
   Depot,
@@ -27,6 +28,7 @@ import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant } from "../lib/formatage";
 import { libelleModeReglement, MODES_REGLEMENT } from "../lib/libelles";
 import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
+import BoutonsExport from "../components/BoutonsExport";
 import ModaleEcheancier from "../components/ModaleEcheancier";
 import FiltrePeriodeHistorique from "../components/FiltrePeriodeHistorique";
 import { bornesPeriode, dansPeriode, jourLocal, type PeriodeHistorique } from "../lib/periode";
@@ -3719,6 +3721,23 @@ function ModaleDettesFournisseur({
   );
 }
 
+/** Nom de fournisseur cliquable dans l'historique : filtre sur ce fournisseur. */
+function LienFournisseur({ nom, onFiltrer }: { nom: string; onFiltrer: (nom: string) => void }) {
+  return (
+    <button
+      type="button"
+      className="lien-fournisseur"
+      title="Filtrer sur ce fournisseur"
+      onClick={(e) => {
+        e.stopPropagation();
+        onFiltrer(nom);
+      }}
+    >
+      {nom}
+    </button>
+  );
+}
+
 type SectionHistoriqueAchats = "commandes" | "receptions" | "paiements" | "dettes" | "retours";
 
 /** Carte « Historique » : tout ce qui s'est passé côté achats, filtrable par
@@ -3828,6 +3847,161 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
   const commandesValides = commandesFiltrees.filter((c) => c.statut !== "annulee");
   const somme = (valeurs: number[]) => valeurs.reduce((t, v) => t + v, 0);
 
+  const montant = (v: number) => `${formaterMontant(v)} ${devise}`;
+  const receptionsValides = receptionsFiltrees.filter((r) => !r.annulee);
+  const paiementsValides = paiementsFiltres.filter((x) => !x.annulee);
+  const tuilesSection: [string, string][] =
+    section === "commandes"
+      ? [
+          ["🧾 Commandes", String(commandesFiltrees.length)],
+          ["💰 Commandé", montant(somme(commandesValides.map((c) => c.total)))],
+          ["📥 Reçu", montant(somme(commandesValides.map((c) => c.valeurRecue)))],
+          ["❌ Annulées", String(commandesFiltrees.length - commandesValides.length)],
+        ]
+      : section === "receptions"
+        ? [
+            ["📥 Réceptions", String(receptionsFiltrees.length)],
+            ["📦 Valeur reçue", montant(somme(receptionsValides.map((r) => r.valeurRecue)))],
+            ["💵 Payé à la réception", montant(somme(receptionsValides.map((r) => r.montantPaye)))],
+            ["❌ Annulées", String(receptionsFiltrees.length - receptionsValides.length)],
+          ]
+        : section === "paiements"
+          ? [
+              ["💰 Total payé", montant(somme(paiementsValides.map((x) => x.montant)))],
+              ["🚚 Fournisseurs payés", String(paiementsParFournisseur.length)],
+              ["🧾 Paiements", String(paiementsValides.length)],
+              ["⬆️ Plus gros paiement", montant(paiementsValides.length ? Math.max(...paiementsValides.map((x) => x.montant)) : 0)],
+            ]
+          : section === "dettes"
+            ? [
+                ["🧾 Dettes soldées", String(dettesSoldees.length)],
+                ["🚚 Fournisseurs", String(dettesParFournisseur.length)],
+                ["✅ Montant réglé", montant(somme(dettesSoldees.map((d) => Number(d.montant))))],
+              ]
+            : [
+                ["↩️ Retours", String(retoursFiltres.length)],
+                ["💸 Montant retourné", montant(somme(retoursFiltres.map((r) => r.montant)))],
+                ["🎁 Avoirs à récupérer", montant(somme(retoursFiltres.map((r) => r.avoir)))],
+              ];
+
+  const jour = (iso: string) => (iso ? new Date(iso).toLocaleDateString("fr-FR") : "");
+  const exportSection: { titre: string; colonnes: ColonneExport[]; lignes: Record<string, unknown>[] } =
+    section === "commandes"
+      ? {
+          titre: "Historique des commandes",
+          colonnes: [
+            { cle: "date", libelle: "Date" },
+            { cle: "numero", libelle: "Numéro" },
+            { cle: "fournisseur", libelle: "Fournisseur" },
+            { cle: "statut", libelle: "Statut" },
+            { cle: "total", libelle: "Total" },
+            { cle: "recu", libelle: "Reçu" },
+            { cle: "faitPar", libelle: "Fait par" },
+          ],
+          lignes: commandesFiltrees.map((c) => ({
+            date: jour(c.dateCreation),
+            numero: c.numero,
+            fournisseur: c.fournisseurNom,
+            statut: libelleStatutCommande(c.statut),
+            total: c.total,
+            recu: c.valeurRecue,
+            faitPar: nomUtilisateur(c.utilisateurId),
+          })),
+        }
+      : section === "receptions"
+        ? {
+            titre: "Historique des réceptions",
+            colonnes: [
+              { cle: "date", libelle: "Date" },
+              { cle: "commande", libelle: "Commande" },
+              { cle: "fournisseur", libelle: "Fournisseur" },
+              { cle: "depot", libelle: "Dépôt" },
+              { cle: "articles", libelle: "Articles" },
+              { cle: "valeur", libelle: "Valeur reçue" },
+              { cle: "paye", libelle: "Montant payé" },
+              { cle: "annulee", libelle: "Annulée" },
+              { cle: "faitPar", libelle: "Fait par" },
+            ],
+            lignes: receptionsFiltrees.map((r) => ({
+              date: jour(r.dateCreation),
+              commande: r.commandeNumero,
+              fournisseur: r.fournisseurNom,
+              depot: r.depotNom,
+              articles: r.lignes.reduce((t, l) => t + Number(l.quantite), 0),
+              valeur: r.valeurRecue,
+              paye: r.montantPaye,
+              annulee: r.annulee ? "Oui" : "",
+              faitPar: nomUtilisateur(r.utilisateurId),
+            })),
+          }
+        : section === "paiements"
+          ? {
+              titre: "Paiements fournisseur",
+              colonnes: [
+                { cle: "fournisseur", libelle: "Fournisseur" },
+                { cle: "nombre", libelle: "Paiements" },
+                { cle: "aLaReception", libelle: "Payé à la réception" },
+                { cle: "reglements", libelle: "Règlements de dette" },
+                { cle: "totalPaye", libelle: "Total payé" },
+                { cle: "resteAPayer", libelle: "Reste à payer" },
+                { cle: "dernier", libelle: "Dernier paiement" },
+              ],
+              lignes: paiementsParFournisseur.map((f) => ({
+                fournisseur: f.fournisseurNom,
+                nombre: f.nombre,
+                aLaReception: f.aLaReception,
+                reglements: f.reglements,
+                totalPaye: f.totalPaye,
+                resteAPayer: f.resteAPayer,
+                dernier: jour(f.dernier),
+              })),
+            }
+          : section === "dettes"
+            ? {
+                titre: "Dettes soldées",
+                colonnes: [
+                  { cle: "fournisseur", libelle: "Fournisseur" },
+                  { cle: "nombre", libelle: "Dettes soldées" },
+                  { cle: "commandes", libelle: "Commandes" },
+                  { cle: "montant", libelle: "Montant réglé" },
+                  { cle: "premiere", libelle: "Première dette" },
+                  { cle: "derniere", libelle: "Dernière soldée le" },
+                ],
+                lignes: dettesParFournisseur.map((f) => ({
+                  fournisseur: f.fournisseurNom,
+                  nombre: f.nombre,
+                  commandes: f.commandes,
+                  montant: f.montant,
+                  premiere: jour(f.premiere),
+                  derniere: jour(f.derniere),
+                })),
+              }
+            : {
+                titre: "Retours fournisseur",
+                colonnes: [
+                  { cle: "date", libelle: "Date" },
+                  { cle: "commande", libelle: "Commande" },
+                  { cle: "fournisseur", libelle: "Fournisseur" },
+                  { cle: "depot", libelle: "Dépôt" },
+                  { cle: "articles", libelle: "Articles" },
+                  { cle: "motif", libelle: "Motif" },
+                  { cle: "montant", libelle: "Montant" },
+                  { cle: "avoir", libelle: "Avoir" },
+                  { cle: "faitPar", libelle: "Fait par" },
+                ],
+                lignes: retoursFiltres.map((r) => ({
+                  date: jour(r.dateCreation),
+                  commande: r.commandeNumero,
+                  fournisseur: r.fournisseurNom,
+                  depot: r.depotNom,
+                  articles: r.quantite,
+                  motif: r.motif,
+                  montant: r.montant,
+                  avoir: r.avoir,
+                  faitPar: nomUtilisateur(r.utilisateurId),
+                })),
+              };
+
   const menu: [SectionHistoriqueAchats, string, string, number][] = [
     ["commandes", "📦", "Commandes", commandesFiltrees.length],
     ["receptions", "📥", "Réceptions", receptionsFiltrees.length],
@@ -3929,6 +4103,15 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
                 value={recherche}
                 onChange={(e) => setRecherche(e.target.value)}
               />
+              <BoutonsExport titre={exportSection.titre} colonnes={exportSection.colonnes} lignes={exportSection.lignes} compact />
+            </div>
+            <div className="tuiles-fiche">
+              {tuilesSection.map(([libelle, valeur]) => (
+                <div key={libelle} className="tuile-fiche">
+                  <span className="sous-info">{libelle}</span>
+                  <strong>{valeur}</strong>
+                </div>
+              ))}
             </div>
             {section === "commandes" ? (
               <>
@@ -3948,12 +4131,12 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
                     <tbody>
                       {commandesFiltrees.map((x) => (
                       <tr key={x.id} onClick={() => setCommandeOuverteId(x.id)}>
-                        <td>{new Date(x.dateCreation).toLocaleString("fr-FR")}</td>
+                        <td><span title={new Date(x.dateCreation).toLocaleString("fr-FR")}>{new Date(x.dateCreation).toLocaleDateString("fr-FR")}</span></td>
                         <td>{x.numero}</td>
-                        <td>{x.fournisseurNom}</td>
+                        <td><LienFournisseur nom={x.fournisseurNom} onFiltrer={setFournisseur} /></td>
                         <td><BadgeStatutCommande statut={x.statut} partiellementRecue={x.partiellementRecue} /></td>
-                        <td>{formaterMontant(x.total)} {devise}</td>
-                        <td>{formaterMontant(x.valeurRecue)} {devise}</td>
+                        <td><span className="nowrap">{formaterMontant(x.total)} {devise}</span></td>
+                        <td><span className="nowrap">{formaterMontant(x.valeurRecue)} {devise}</span></td>
                         <td>{nomUtilisateur(x.utilisateurId)}</td>
                       </tr>
                       ))}
@@ -4011,13 +4194,13 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
                     <tbody>
                       {receptionsFiltrees.map((x) => (
                       <tr key={x.id} className={x.annulee ? "ligne-annulee" : "ligne-reception-cliquable"} onClick={() => setReceptionOuverte(x)}>
-                        <td>{new Date(x.dateCreation).toLocaleString("fr-FR")} {x.annulee && <span className="badge-brouillon">Annulée</span>}</td>
+                        <td><span title={new Date(x.dateCreation).toLocaleString("fr-FR")}>{new Date(x.dateCreation).toLocaleDateString("fr-FR")}</span> {x.annulee && <span className="badge-brouillon">Annulée</span>}</td>
                         <td>{x.commandeNumero}</td>
-                        <td>{x.fournisseurNom}</td>
+                        <td><LienFournisseur nom={x.fournisseurNom} onFiltrer={setFournisseur} /></td>
                         <td>{x.depotNom}</td>
                         <td>{x.lignes.length > 0 ? x.lignes.reduce((t, l) => t + Number(l.quantite), 0) : "—"}</td>
-                        <td>{formaterMontant(x.valeurRecue)} {devise}</td>
-                        <td>{formaterMontant(x.montantPaye)} {devise}</td>
+                        <td><span className="nowrap">{formaterMontant(x.valeurRecue)} {devise}</span></td>
+                        <td><span className="nowrap">{formaterMontant(x.montantPaye)} {devise}</span></td>
                         <td>{nomUtilisateur(x.utilisateurId)}</td>
                       </tr>
                       ))}
@@ -4084,11 +4267,11 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
                           onClick={() => setFournisseurPaiements(f.fournisseurNom)}
                           title="Voir tous les paiements à ce fournisseur"
                         >
-                          <td>{f.fournisseurNom}</td>
+                          <td><LienFournisseur nom={f.fournisseurNom} onFiltrer={setFournisseur} /></td>
                           <td>{f.nombre}</td>
-                          <td>{formaterMontant(f.aLaReception)} {devise}</td>
-                          <td>{formaterMontant(f.reglements)} {devise}</td>
-                          <td>{formaterMontant(f.totalPaye)} {devise}</td>
+                          <td><span className="nowrap">{formaterMontant(f.aLaReception)} {devise}</span></td>
+                          <td><span className="nowrap">{formaterMontant(f.reglements)} {devise}</span></td>
+                          <td><span className="nowrap">{formaterMontant(f.totalPaye)} {devise}</span></td>
                           <td>{f.resteAPayer > 0 ? `${formaterMontant(f.resteAPayer)} ${devise}` : "—"}</td>
                           <td>{new Date(f.dernier).toLocaleDateString("fr-FR")}</td>
                         </tr>
@@ -4151,10 +4334,10 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
                           onClick={() => setFournisseurDettes(f.fournisseurNom)}
                           title="Voir les dettes soldées de ce fournisseur"
                         >
-                          <td>{f.fournisseurNom}</td>
+                          <td><LienFournisseur nom={f.fournisseurNom} onFiltrer={setFournisseur} /></td>
                           <td>{f.nombre}</td>
                           <td>{f.commandes}</td>
-                          <td>{formaterMontant(f.montant)} {devise}</td>
+                          <td><span className="nowrap">{formaterMontant(f.montant)} {devise}</span></td>
                           <td>{new Date(f.premiere).toLocaleDateString("fr-FR")}</td>
                           <td>{new Date(f.derniere).toLocaleDateString("fr-FR")}</td>
                         </tr>
@@ -4211,13 +4394,13 @@ function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFer
                     <tbody>
                       {retoursFiltres.map((x) => (
                       <tr key={x.id}>
-                        <td>{new Date(x.dateCreation).toLocaleString("fr-FR")}</td>
+                        <td><span title={new Date(x.dateCreation).toLocaleString("fr-FR")}>{new Date(x.dateCreation).toLocaleDateString("fr-FR")}</span></td>
                         <td>{x.commandeNumero}</td>
-                        <td>{x.fournisseurNom}</td>
+                        <td><LienFournisseur nom={x.fournisseurNom} onFiltrer={setFournisseur} /></td>
                         <td>{x.depotNom}</td>
                         <td>{x.quantite}</td>
                         <td>{x.motif || "—"}</td>
-                        <td>{formaterMontant(x.montant)} {devise}</td>
+                        <td><span className="nowrap">{formaterMontant(x.montant)} {devise}</span></td>
                         <td>{x.avoir > 0 ? `${formaterMontant(x.avoir)} ${devise}` : "—"}</td>
                         <td>{nomUtilisateur(x.utilisateurId)}</td>
                       </tr>

@@ -20,6 +20,7 @@ import type {
   SyntheseVentes,
   ValeurStock,
 } from "../api/client";
+import BoutonsExport from "../components/BoutonsExport";
 import { useDevise } from "../contexts/DeviseContext";
 import { FormulaireDestockage } from "./Stock";
 import { formaterMontant } from "../lib/formatage";
@@ -39,49 +40,6 @@ function libelleVendeur(utilisateurId: string | null, session: Session): string 
 }
 
 // --- Export ---
-
-function BoutonsExport({
-  titre,
-  colonnes,
-  lignes,
-}: {
-  titre: string;
-  colonnes: ColonneExport[];
-  lignes: Record<string, unknown>[];
-}) {
-  const [message, setMessage] = useState<string | null>(null);
-  const [enCours, setEnCours] = useState<FormatExport | null>(null);
-
-  async function exporter(format: FormatExport) {
-    setMessage(null);
-    setEnCours(format);
-    try {
-      const resultat = await api.rapports.exporter(titre, colonnes, lignes, format);
-      if (!resultat.succes) {
-        setMessage(resultat.message);
-      } else if (!resultat.resultat.annule) {
-        setMessage(`Enregistré : ${resultat.resultat.chemin}`);
-      }
-    } finally {
-      setEnCours(null);
-    }
-  }
-
-  return (
-    <div className="barre-export">
-      <button type="button" onClick={() => exporter("csv")} disabled={enCours !== null}>
-        Export CSV
-      </button>
-      <button type="button" onClick={() => exporter("xlsx")} disabled={enCours !== null}>
-        Export Excel
-      </button>
-      <button type="button" onClick={() => exporter("pdf")} disabled={enCours !== null}>
-        Export PDF
-      </button>
-      {message && <span className="note-aide">{message}</span>}
-    </div>
-  );
-}
 
 // --- Sélecteur de période, à l'intérieur de chaque modale ---
 
