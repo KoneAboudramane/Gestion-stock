@@ -24,6 +24,11 @@ export interface ClientDetailResume {
   telephone: string;
   adresse: string;
   soldeCredit: number;
+  /** Ventes non annulées du client : total, nombre, date de la plus récente. */
+  totalAchats: number;
+  nombreAchats: number;
+  dernierAchat: string | null;
+  dateCreation: string;
 }
 
 export function listerClientsDetail(boutiqueId: string, terme = ""): ClientDetailResume[] {
@@ -44,12 +49,25 @@ export function listerClientsDetail(boutiqueId: string, terme = ""): ClientDetai
             COALESCE((
               SELECT SUM(cr.solde) FROM credits cr
               WHERE cr.client_id = c.id AND cr.statut = 'en_cours' AND cr.supprime = 0
-            ), 0) as soldeCredit
+            ), 0) as soldeCredit,
+            COALESCE((SELECT SUM(v.total_net) FROM ventes v
+              WHERE v.client_id = c.id AND v.statut != 'annulee' AND v.supprime = 0), 0) as totalAchats,
+            (SELECT COUNT(*) FROM ventes v
+              WHERE v.client_id = c.id AND v.statut != 'annulee' AND v.supprime = 0) as nombreAchats,
+            (SELECT MAX(v.date_creation) FROM ventes v
+              WHERE v.client_id = c.id AND v.statut != 'annulee' AND v.supprime = 0) as dernierAchat,
+            c.date_creation as dateCreation
      FROM clients c
      WHERE ${conditions.join(" AND ")}
      ORDER BY c.nom`,
     parametres,
-  );
+  ).map((c) => ({
+    ...c,
+    soldeCredit: Number(c.soldeCredit),
+    totalAchats: Number(c.totalAchats),
+    nombreAchats: Number(c.nombreAchats),
+    dernierAchat: c.dernierAchat ?? null,
+  }));
 }
 
 // Contrairement à listerClientsDetail, n'importe quel client (permanent ou
@@ -62,7 +80,14 @@ export function obtenirClient(id: string): ClientDetailResume | undefined {
             COALESCE((
               SELECT SUM(cr.solde) FROM credits cr
               WHERE cr.client_id = c.id AND cr.statut = 'en_cours' AND cr.supprime = 0
-            ), 0) as soldeCredit
+            ), 0) as soldeCredit,
+            COALESCE((SELECT SUM(v.total_net) FROM ventes v
+              WHERE v.client_id = c.id AND v.statut != 'annulee' AND v.supprime = 0), 0) as totalAchats,
+            (SELECT COUNT(*) FROM ventes v
+              WHERE v.client_id = c.id AND v.statut != 'annulee' AND v.supprime = 0) as nombreAchats,
+            (SELECT MAX(v.date_creation) FROM ventes v
+              WHERE v.client_id = c.id AND v.statut != 'annulee' AND v.supprime = 0) as dernierAchat,
+            c.date_creation as dateCreation
      FROM clients c
      WHERE c.id = ? AND c.supprime = 0`,
     [id],

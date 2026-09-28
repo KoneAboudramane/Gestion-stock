@@ -16,6 +16,8 @@ import ChampMontant from "../components/ChampMontant";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import RecuCredit from "../components/RecuCredit";
 import { useDevise } from "../contexts/DeviseContext";
+import BoutonsExport from "../components/BoutonsExport";
+import type { ColonneExport } from "../api/client";
 import ModaleEcheancier from "../components/ModaleEcheancier";
 import { formaterMontant, normaliserTelephone, telephoneValide } from "../lib/formatage";
 import { MODES_REGLEMENT, libelleModeReglement, libelleStatutVente } from "../lib/libelles";
@@ -438,6 +440,15 @@ function DetailClient({
   const [erreurInfos, setErreurInfos] = useState<string | null>(null);
   const [enCoursInfos, setEnCoursInfos] = useState(false);
   const [pageClient, setPageClient] = useState<"achats" | "credits">("achats");
+  const devise = useDevise();
+  // Chiffres du client : totaux du service (toutes ses ventes), pas seulement les 50 affichées.
+  const panierMoyen = infos.nombreAchats > 0 ? Math.round(infos.totalAchats / infos.nombreAchats) : 0;
+  const soldeDu = credits.filter((c) => c.statut !== "solde").reduce((t, c) => t + c.solde, 0);
+  function ecrire() {
+    const numero = (infos.telephone ?? "").replace(/\D/g, "");
+    if (!numero) return;
+    ((url: string) => api.systeme.ouvrirExterne(url))(`https://wa.me/${numero}?text=${encodeURIComponent(`Bonjour ${infos.nom}, `)}`);
+  }
 
   async function rafraichir() {
     setVentes(await api.ventes.lister(session.boutiqueId, undefined, undefined, "", 50, clientId));
@@ -528,8 +539,32 @@ function DetailClient({
           </button>
         </nav>
       <div className="modale-corps">
-      <h4>Informations</h4>
+      <div className="tuiles-fiche">
+        <div className="tuile-fiche">
+          <span className="sous-info">🛒 Total acheté</span>
+          <strong className="nowrap">
+            {formaterMontant(infos.totalAchats)} {devise}
+          </strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">🧾 Achats</span>
+          <strong>{infos.nombreAchats}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">🧺 Panier moyen</span>
+          <strong className="nowrap">
+            {formaterMontant(panierMoyen)} {devise}
+          </strong>
+        </div>
+        <div className={`tuile-fiche${soldeDu > 0 ? " tuile-fiche--alerte" : ""}`}>
+          <span className="sous-info">💳 Solde dû</span>
+          <strong className="nowrap">
+            {formaterMontant(soldeDu)} {devise}
+          </strong>
+        </div>
+      </div>
       {erreurInfos && <div className="message-erreur">{erreurInfos}</div>}
+      {modifierInfos ? (
       <div className="zone-tableau-scroll zone-infos-client">
       <table className="tableau-catalogue">
         <thead>
@@ -585,6 +620,34 @@ function DetailClient({
         </tbody>
       </table>
       </div>
+      ) : (
+        <div className="fiche-infos-produit">
+          <div>
+            <span className="sous-info">Téléphone</span>
+            <strong>{infos.telephone || "—"}</strong>
+          </div>
+          <div className="fiche-infos-description">
+            <span className="sous-info">Adresse</span>
+            <strong>{infos.adresse || "—"}</strong>
+          </div>
+          <div>
+            <span className="sous-info">Client depuis</span>
+            <strong>{infos.dateCreation ? new Date(infos.dateCreation).toLocaleDateString("fr-FR") : "—"}</strong>
+          </div>
+          <span className="actions-ligne">
+            {infos.telephone && (
+              <button type="button" onClick={ecrire}>
+                📲 WhatsApp
+              </button>
+            )}
+            {peutGerer && (
+              <button type="button" onClick={() => setModifierInfos(true)}>
+                ✎ Modifier
+              </button>
+            )}
+          </span>
+        </div>
+      )}
 
 
       {pageClient === "achats" && (
@@ -603,12 +666,12 @@ function DetailClient({
           {ventes.map((v, index) => (
             <tr key={v.id} onClick={() => setVenteSelectionneeId(v.id)}>
               <td>{index + 1}</td>
-              <td>{new Date(v.dateCreation).toLocaleString("fr-FR")}</td>
+              <td title={new Date(v.dateCreation).toLocaleString("fr-FR")}>{new Date(v.dateCreation).toLocaleDateString("fr-FR")}</td>
               <td>{v.numero}</td>
               <td>
                 <span className={`badge-${v.statut}`}>{libelleStatutVente(v.statut)}</span>
               </td>
-              <td>{v.totalNet}</td>
+              <td className="nowrap">{formaterMontant(v.totalNet)} {devise}</td>
             </tr>
           ))}
           {ventes.length === 0 && (
@@ -650,11 +713,16 @@ function DetailClient({
           {credits.map((c, index) => (
             <tr key={c.id} onClick={() => setCreditSelectionneId(c.id)}>
               <td>{index + 1}</td>
-              <td>{new Date(c.dateCreation).toLocaleString("fr-FR")}</td>
+              <td title={new Date(c.dateCreation).toLocaleString("fr-FR")}>{new Date(c.dateCreation).toLocaleDateString("fr-FR")}</td>
               <td>{c.venteNumero ?? ""}</td>
-              <td>{formaterMontant(c.montant)}</td>
-              <td>{formaterMontant(c.montantPaye)}</td>
-              <td>{formaterMontant(c.solde)}</td>
+              <td className="nowrap">{formaterMontant(c.montant)} {devise}</td>
+              <td className="nowrap">{formaterMontant(c.montantPaye)} {devise}</td>
+              <td className="nowrap">
+                <strong className={c.statut !== "solde" && c.prochaineEcheance?.enRetard ? "texte-erreur" : undefined}>
+                  {formaterMontant(c.solde)} {devise}
+                  {c.statut !== "solde" && c.prochaineEcheance?.enRetard && " (en retard)"}
+                </strong>
+              </td>
               <td>
                 <span className={c.statut === "solde" ? "badge-payee" : "badge-credit"}>
                   {libelleStatutCredit(c.statut)}
@@ -890,8 +958,66 @@ function OngletClients({ session }: { session: Session }) {
     }
   }
 
+  const [filtre, setFiltre] = useState<"tous" | "credit" | "inactifs">("tous");
+  const [tri, setTri] = useState<{ colonne: "nom" | "total" | "dernier" | "solde"; sens: 1 | -1 }>({ colonne: "nom", sens: 1 });
+  const somme = (valeurs: number[]) => valeurs.reduce((t, v) => t + v, 0);
+  /** Jours depuis le dernier achat (null = jamais acheté). */
+  const joursDepuis = (iso: string | null) =>
+    iso ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)) : null;
+  const inactif = (c: ClientDetailResume) => {
+    const j = joursDepuis(c.dernierAchat);
+    return j === null || j > 60;
+  };
+  const clientsVisibles = clientsListe.filter(
+    (c) => filtre === "tous" || (filtre === "credit" ? c.soldeCredit > 0 : inactif(c)),
+  ).sort((a, b) => {
+    if (tri.colonne === "total") return (a.totalAchats - b.totalAchats) * tri.sens;
+    if (tri.colonne === "solde") return (a.soldeCredit - b.soldeCredit) * tri.sens;
+    if (tri.colonne === "dernier") return (a.dernierAchat ?? "").localeCompare(b.dernierAchat ?? "") * tri.sens;
+    return a.nom.localeCompare(b.nom, "fr") * tri.sens;
+  });
+  const avecCredit = clientsListe.filter((c) => c.soldeCredit > 0);
+  const actifs30 = clientsListe.filter((c) => {
+    const j = joursDepuis(c.dernierAchat);
+    return j !== null && j <= 30;
+  }).length;
+  const meilleur = [...clientsListe].sort((a, b) => b.totalAchats - a.totalAchats)[0];
+  function trierPar(colonne: "nom" | "total" | "dernier" | "solde") {
+    setTri((t) => ({ colonne, sens: t.colonne === colonne ? (-t.sens as 1 | -1) : colonne === "nom" ? 1 : -1 }));
+  }
+  const fleche = (colonne: string) => (tri.colonne === colonne ? (tri.sens === 1 ? " ▲" : " ▼") : "");
+  function libelleDernierAchat(iso: string | null) {
+    const j = joursDepuis(iso);
+    if (j === null) return "Jamais";
+    if (j === 0) return "Aujourd'hui";
+    return `il y a ${j} jour${j > 1 ? "s" : ""}`;
+  }
+  function ecrire(c: ClientDetailResume) {
+    const numero = (c.telephone ?? "").replace(/\D/g, "");
+    if (!numero) return;
+    ((url: string) => api.systeme.ouvrirExterne(url))(`https://wa.me/${numero}?text=${encodeURIComponent(`Bonjour ${c.nom}, `)}`);
+  }
+  const colonnesExport: ColonneExport[] = [
+    { cle: "nom", libelle: "Nom" },
+    { cle: "telephone", libelle: "Téléphone" },
+    { cle: "adresse", libelle: "Adresse" },
+    { cle: "total", libelle: `Total acheté (${devise})` },
+    { cle: "achats", libelle: "Achats" },
+    { cle: "dernier", libelle: "Dernier achat" },
+    { cle: "solde", libelle: `Solde dû (${devise})` },
+  ];
+  const lignesExport = clientsVisibles.map((c) => ({
+    nom: c.nom,
+    telephone: c.telephone || "",
+    adresse: c.adresse || "",
+    total: c.totalAchats,
+    achats: c.nombreAchats,
+    dernier: c.dernierAchat ? new Date(c.dernierAchat).toLocaleDateString("fr-FR") : "",
+    solde: c.soldeCredit,
+  }));
+
   return (
-    <div>
+    <div className="liste-dettes-credits">
       {clientSelectionne && (
         <div className="fond-modale" onClick={() => setClientSelectionne(null)}>
           <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
@@ -916,20 +1042,43 @@ function OngletClients({ session }: { session: Session }) {
           onConfirmer={() => supprimer(clientASupprimerId)}
         />
       )}
-      <div className="barre-actions barre-actions-avec-onglets">
-        <input
-          className="champ-recherche"
-          placeholder="Rechercher par nom ou téléphone…"
-          value={terme}
-          onChange={(e) => setTerme(e.target.value)}
-        />
-        {peutGerer && (
-          <span className="actions-ligne">
+      <div className="tuiles-fiche">
+        <div className="tuile-fiche">
+          <span className="sous-info">👥 Clients</span>
+          <strong>{clientsListe.length}</strong>
+        </div>
+        <div className={`tuile-fiche${avecCredit.length > 0 ? " tuile-fiche--alerte" : ""}`}>
+          <span className="sous-info">💳 Doivent de l'argent</span>
+          <strong className="nowrap">
+            {avecCredit.length} · {formaterMontant(somme(avecCredit.map((c) => c.soldeCredit)))} {devise}
+          </strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">🛒 Venus ces 30 jours</span>
+          <strong>{actifs30}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">🏆 Meilleur client</span>
+          <strong>
+            {meilleur && meilleur.totalAchats > 0 ? `${meilleur.nom} (${formaterMontant(meilleur.totalAchats)} ${devise})` : "—"}
+          </strong>
+        </div>
+      </div>
+      <div className="barre-actions barre-actions-avec-onglets barre-filtres-historique">
+        <input className="champ-recherche" placeholder="Rechercher par nom ou téléphone…" value={terme} onChange={(e) => setTerme(e.target.value)} />
+        <select value={filtre} onChange={(e) => setFiltre(e.target.value as typeof filtre)}>
+          <option value="tous">Tous les clients</option>
+          <option value="credit">Avec crédit en cours</option>
+          <option value="inactifs">Inactifs (plus de 60 jours)</option>
+        </select>
+        <span className="actions-ligne">
+          <BoutonsExport titre="Clients" colonnes={colonnesExport} lignes={lignesExport} compact />
+          {peutGerer && (
             <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherForm(true)}>
               + Nouveau client
             </button>
-          </span>
-        )}
+          )}
+        </span>
       </div>
       {afficherForm && (
         <div className="fond-modale" onClick={() => setAfficherForm(false)}>
@@ -946,75 +1095,105 @@ function OngletClients({ session }: { session: Session }) {
         </div>
       )}
       <div className="zone-tableau-scroll">
-      <table className="tableau-catalogue">
-        <thead>
-          <tr>
-            <th>N°</th>
-            <th>Nom</th>
-            <th>Téléphone</th>
-            <th>Adresse</th>
-            <th>Solde dû</th>
-            {peutGerer && <th>Actions</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {clientsListe.map((c, index) => (
-            <tr key={c.id} onClick={() => setClientSelectionne(c)}>
-              <td>{index + 1}</td>
-              <td>{c.nom}</td>
-              <td>{c.telephone || ""}</td>
-              <td>{c.adresse || ""}</td>
-              <td>
-                {c.soldeCredit > 0 ? (
-                  <span className="badge-solde-du">{formaterMontant(c.soldeCredit)} {devise}</span>
-                ) : (
-                  ""
-                )}
-              </td>
-              {peutGerer && (
-                <td onClick={(e) => e.stopPropagation()}>
-                    <span className="actions-ligne">
-                      <button
-                        type="button"
-                        className="lien-icone"
-                        title="Modifier"
-                        onClick={() => setClientSelectionne(c)}
-                      >
-                        ✎
-                      </button>
-                      <button
-                        type="button"
-                        className="lien-icone lien-icone-danger"
-                        title="Supprimer"
-                        onClick={() => setClientASupprimerId(c.id)}
-                      >
-                        ×
-                      </button>
-                    </span>
-                </td>
-              )}
-            </tr>
-          ))}
-          {clientsListe.length === 0 && (
+        <table className="tableau-catalogue">
+          <thead>
             <tr>
-              <td colSpan={6} className="liste-vide">
-                Aucun client.
-              </td>
+              <th>N°</th>
+              <th className="th-triable" onClick={() => trierPar("nom")}>
+                Nom{fleche("nom")}
+              </th>
+              <th>Téléphone</th>
+              <th>Adresse</th>
+              <th className="th-triable" onClick={() => trierPar("total")}>
+                Total acheté{fleche("total")}
+              </th>
+              <th>Achats</th>
+              <th className="th-triable" onClick={() => trierPar("dernier")}>
+                Dernier achat{fleche("dernier")}
+              </th>
+              <th className="th-triable" onClick={() => trierPar("solde")}>
+                Solde dû{fleche("solde")}
+              </th>
+              <th>Actions</th>
             </tr>
-          )}
-          {Array.from({ length: Math.max(0, 10 - Math.max(1, clientsListe.length)) }).map((_, i) => (
-            <tr key={`vide-${i}`} className="ligne-groupe-vide">
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              {peutGerer && <td>&nbsp;</td>}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {clientsVisibles.map((c, index) => (
+              <tr key={c.id} onClick={() => setClientSelectionne(c)} title="Ouvrir la fiche du client">
+                <td>{index + 1}</td>
+                <td>{c.nom}</td>
+                <td>{c.telephone || "—"}</td>
+                <td>{c.adresse || "—"}</td>
+                <td className="nowrap">
+                  {formaterMontant(c.totalAchats)} {devise}
+                </td>
+                <td>{c.nombreAchats}</td>
+                <td className="nowrap" title={c.dernierAchat ? new Date(c.dernierAchat).toLocaleDateString("fr-FR") : undefined}>
+                  <span className={inactif(c) ? "sous-info" : undefined}>{libelleDernierAchat(c.dernierAchat)}</span>
+                </td>
+                <td>
+                  {c.soldeCredit > 0 ? (
+                    <span className="badge-solde-du nowrap">
+                      {formaterMontant(c.soldeCredit)} {devise}
+                    </span>
+                  ) : (
+                    ""
+                  )}
+                </td>
+                <td onClick={(e) => e.stopPropagation()}>
+                  <span className="actions-ligne">
+                    {c.telephone && (
+                      <button type="button" className="lien-icone" title="Écrire sur WhatsApp" onClick={() => ecrire(c)}>
+                        📲
+                      </button>
+                    )}
+                    {peutGerer && (
+                      <>
+                        <button type="button" className="lien-icone" title="Modifier" onClick={() => setClientSelectionne(c)}>
+                          ✎
+                        </button>
+                        <button
+                          type="button"
+                          className="lien-icone lien-icone-danger"
+                          title="Supprimer"
+                          onClick={() => setClientASupprimerId(c.id)}
+                        >
+                          ×
+                        </button>
+                      </>
+                    )}
+                  </span>
+                </td>
+              </tr>
+            ))}
+            {clientsVisibles.length === 0 && (
+              <tr>
+                <td colSpan={9} className="liste-vide">
+                  {clientsListe.length === 0 ? "Aucun client." : "Aucun client pour ces filtres."}
+                </td>
+              </tr>
+            )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, clientsVisibles.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                {Array.from({ length: 9 }).map((_, j) => (
+                  <td key={j}>&nbsp;</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
+      {clientsVisibles.length > 0 && (
+        <div className="totaux">
+          <div>
+            {clientsVisibles.length} client{clientsVisibles.length > 1 ? "s" : ""} · acheté :{" "}
+            {formaterMontant(somme(clientsVisibles.map((c) => c.totalAchats)))} {devise}
+          </div>
+          <div className="total-net">
+            Solde dû : {formaterMontant(somme(clientsVisibles.map((c) => c.soldeCredit)))} {devise}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

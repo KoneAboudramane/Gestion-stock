@@ -25,6 +25,11 @@ export interface ClientDetailResume {
   adresse: string;
   estPermanent: boolean;
   soldeCredit: number;
+  /** Ventes non annulées du client : total, nombre, date de la plus récente. */
+  totalAchats: number;
+  nombreAchats: number;
+  dernierAchat: string | null;
+  dateCreation: string;
 }
 
 async function soldeCreditClient(db: Awaited<ReturnType<typeof ouvrirBaseDeDonnees>>, clientId: string): Promise<number> {
@@ -48,8 +53,12 @@ export async function listerClientsDetail(boutiqueId: string, terme = ""): Promi
     ? clients.filter((c) => c.nom.toLowerCase().includes(motif) || c.telephone.toLowerCase().includes(motif))
     : clients;
 
+  const ventes = (await db.getAllFromIndex("ventes", "boutique_id", boutiqueId)).filter(
+    (v) => !v.supprime && v.statut !== "annulee" && v.client_id,
+  );
   const resultat: ClientDetailResume[] = [];
   for (const c of filtres) {
+    const siennes = ventes.filter((v) => v.client_id === c.id);
     resultat.push({
       id: c.id,
       nom: c.nom,
@@ -57,6 +66,10 @@ export async function listerClientsDetail(boutiqueId: string, terme = ""): Promi
       adresse: c.adresse,
       estPermanent: c.est_permanent === 1,
       soldeCredit: await soldeCreditClient(db, c.id),
+      totalAchats: siennes.reduce((t, v) => t + Number(v.total_net), 0),
+      nombreAchats: siennes.length,
+      dernierAchat: siennes.reduce<string | null>((d, v) => (!d || v.date_creation > d ? v.date_creation : d), null),
+      dateCreation: c.date_creation,
     });
   }
   return resultat.sort((a, b) => a.nom.localeCompare(b.nom));
@@ -72,6 +85,9 @@ export async function obtenirClient(id: string): Promise<ClientDetailResume | un
   const db = await ouvrirBaseDeDonnees();
   const c = await db.get("clients", id);
   if (!c || c.supprime) return undefined;
+  const siennes = (await db.getAllFromIndex("ventes", "boutique_id", c.boutique_id)).filter(
+    (v) => !v.supprime && v.statut !== "annulee" && v.client_id === c.id,
+  );
   return {
     id: c.id,
     nom: c.nom,
@@ -79,6 +95,10 @@ export async function obtenirClient(id: string): Promise<ClientDetailResume | un
     adresse: c.adresse,
     estPermanent: c.est_permanent === 1,
     soldeCredit: await soldeCreditClient(db, c.id),
+    totalAchats: siennes.reduce((t, v) => t + Number(v.total_net), 0),
+    nombreAchats: siennes.length,
+    dernierAchat: siennes.reduce<string | null>((d, v) => (!d || v.date_creation > d ? v.date_creation : d), null),
+    dateCreation: c.date_creation,
   };
 }
 

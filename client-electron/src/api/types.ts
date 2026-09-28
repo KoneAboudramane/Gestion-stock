@@ -812,6 +812,11 @@ export interface ClientDetailResume {
   telephone: string;
   adresse: string;
   soldeCredit: number;
+  /** Ventes non annulées du client : total, nombre, date de la plus récente. */
+  totalAchats: number;
+  nombreAchats: number;
+  dernierAchat: string | null;
+  dateCreation: string;
 }
 
 export interface ChampsClient {
