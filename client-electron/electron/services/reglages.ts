@@ -20,11 +20,15 @@ export interface BoutiqueDetail {
   telephone: string;
   email: string;
   devise: string;
+  /** Abonnement (formule Essentiel/Pro et échéance), affiché dans Informations boutique. */
+  formule: string;
+  dateExpirationAbonnement: string | null;
 }
 
 export function obtenirBoutique(boutiqueId: string): BoutiqueDetail | undefined {
   return unResultat<BoutiqueDetail>(
-    "SELECT id, nom, adresse, telephone, email, devise FROM boutiques WHERE id = ?",
+    `SELECT id, nom, adresse, telephone, email, devise, COALESCE(formule, 'essentiel') as formule,
+            date_expiration_abonnement as dateExpirationAbonnement FROM boutiques WHERE id = ?`,
     [boutiqueId],
   );
 }

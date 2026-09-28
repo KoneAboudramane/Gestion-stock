@@ -583,3 +583,32 @@ export async function creerValeurAttribut(attributId: string, valeur: string): P
   await ecrireLigne("valeurs_attribut", valeurAttribut);
   return id;
 }
+
+/** Nombre d'articles qui utilisent chaque unité / chaque attribut (Réglages → Paramètres). */
+export interface UsagesCatalogue {
+  unites: Record<string, number>;
+  attributs: Record<string, number>;
+}
+
+export async function usagesCatalogue(boutiqueId: string): Promise<UsagesCatalogue> {
+  const db = await ouvrirBaseDeDonnees();
+  const produits = (await db.getAllFromIndex("produits", "boutique_id", boutiqueId)).filter((p) => !p.supprime);
+  const unites: Record<string, number> = {};
+  for (const p of produits) if (p.unite_id) unites[p.unite_id] = (unites[p.unite_id] ?? 0) + 1;
+  const idsProduits = new Set(produits.map((p) => p.id));
+  const variantes = new Map((await db.getAll("variantes")).filter((v) => !v.supprime && idsProduits.has(v.produit_id)).map((v) => [v.id, v]));
+  const valeurs = new Map((await db.getAll("valeurs_attribut")).map((v) => [v.id, v]));
+  const parAttribut = new Map<string, Set<string>>();
+  for (const vv of await db.getAll("variante_valeurs")) {
+    if (vv.supprime) continue;
+    const variante = variantes.get(vv.variante_id);
+    const valeur = valeurs.get(vv.valeur_attribut_id);
+    if (!variante || !valeur) continue;
+    const ensemble = parAttribut.get(valeur.attribut_id) ?? new Set<string>();
+    ensemble.add(variante.produit_id);
+    parAttribut.set(valeur.attribut_id, ensemble);
+  }
+  const attributs: Record<string, number> = {};
+  for (const [id, ensemble] of parAttribut) attributs[id] = ensemble.size;
+  return { unites, attributs };
+}

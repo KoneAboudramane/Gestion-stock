@@ -597,3 +597,34 @@ export function creerValeurAttribut(attributId: string, valeur: string): string 
   sauvegarder();
   return id;
 }
+
+/** Nombre d'articles qui utilisent chaque unité / chaque attribut (Réglages → Paramètres). */
+export interface UsagesCatalogue {
+  unites: Record<string, number>;
+  attributs: Record<string, number>;
+}
+
+export function usagesCatalogue(boutiqueId: string): UsagesCatalogue {
+  const unites: Record<string, number> = {};
+  for (const l of tousLesResultats<{ id: string; n: number }>(
+    `SELECT unite_id as id, COUNT(*) as n FROM produits
+     WHERE boutique_id = ? AND supprime = 0 AND unite_id IS NOT NULL GROUP BY unite_id`,
+    [boutiqueId],
+  )) {
+    unites[l.id] = Number(l.n);
+  }
+  const attributs: Record<string, number> = {};
+  for (const l of tousLesResultats<{ id: string; n: number }>(
+    `SELECT va.attribut_id as id, COUNT(DISTINCT v.produit_id) as n
+     FROM variante_valeurs vv
+     JOIN valeurs_attribut va ON va.id = vv.valeur_attribut_id
+     JOIN variantes v ON v.id = vv.variante_id AND v.supprime = 0
+     JOIN produits p ON p.id = v.produit_id AND p.supprime = 0
+     WHERE p.boutique_id = ? AND vv.supprime = 0
+     GROUP BY va.attribut_id`,
+    [boutiqueId],
+  )) {
+    attributs[l.id] = Number(l.n);
+  }
+  return { unites, attributs };
+}

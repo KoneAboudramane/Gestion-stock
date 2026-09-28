@@ -6758,3 +6758,96 @@ button.tuile-dormance.active {
 .champ-numero-message input {
   width: 220px;
 }
+
+/* Informations boutique : en-tête avec logo, fiche en cartes. */
+.entete-profil-boutique {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-shrink: 0;
+}
+
+.entete-profil-boutique h2 {
+  margin: 0;
+}
+
+.cartes-profil {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.8rem;
+  flex-shrink: 0;
+}
+
+.carte-profil {
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--bordure-tableau, var(--gris-200));
+  border-radius: var(--rayon-sm);
+}
+
+.carte-profil h4 {
+  margin: 0 0 0.5rem;
+}
+
+.carte-profil dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.35rem 0.9rem;
+  margin: 0;
+}
+
+.carte-profil dt {
+  color: var(--gris-500);
+}
+
+.carte-profil dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* Utilisateurs & rôles hors ligne : message clair plutôt qu'une erreur brute. */
+.bloc-hors-ligne {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 1rem;
+  border: 1px dashed var(--avertissement, #d97706);
+  border-radius: var(--rayon-sm);
+  flex-shrink: 0;
+}
+
+/* Paramètres généraux : réglages sur toute la largeur, en cartes. */
+.modale-avec-menu .reglage-catalogue {
+  max-width: none;
+  width: 100%;
+}
+
+.modale-avec-menu .bloc-apparence {
+  padding: 0.9rem 1.1rem;
+  border: 1px solid var(--bordure-tableau, var(--gris-200));
+  border-radius: var(--rayon-sm);
+  margin-bottom: 0.8rem;
+}
+
+.reglage-synchro {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  flex: 1;
+  min-height: 0;
+}
+
+.reglage-synchro > * {
+  flex-shrink: 0;
+}
+
+.reglage-synchro > .zone-tableau-scroll {
+  flex: 1 1 auto;
+  min-height: 120px;
+}
+
+.reglage-catalogue.reglage-synchro {
+  max-width: none;
+  width: 100%;
+}

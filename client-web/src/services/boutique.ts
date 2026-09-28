@@ -25,12 +25,24 @@ export interface BoutiqueDetail {
   telephone: string;
   email: string;
   devise: string;
+  /** Abonnement (formule Essentiel/Pro et échéance), affiché dans Informations boutique. */
+  formule: string;
+  dateExpirationAbonnement: string | null;
 }
 
 export async function obtenirBoutique(boutiqueId: string): Promise<BoutiqueDetail | undefined> {
   const boutique = await obtenirLigne("boutiques", boutiqueId);
   if (!boutique) return undefined;
-  return { id: boutique.id, nom: boutique.nom, adresse: boutique.adresse, telephone: boutique.telephone, email: boutique.email, devise: boutique.devise };
+  return {
+    id: boutique.id,
+    nom: boutique.nom,
+    adresse: boutique.adresse,
+    telephone: boutique.telephone,
+    email: boutique.email,
+    devise: boutique.devise,
+    formule: boutique.formule || "essentiel",
+    dateExpirationAbonnement: boutique.date_expiration_abonnement ?? null,
+  };
 }
 
 export async function modifierBoutique(

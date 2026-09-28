@@ -218,6 +218,17 @@ export function synchroniser(session: Session): Promise<ResumeSynchro> {
   return synchronisationEnCours;
 }
 
+/** Changements locaux pas encore envoyés, par type (ex. « ventes.Vente » → 3). */
+export async function compterEnAttente(): Promise<{ table: string; nombre: number }[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const resultat: { table: string; nombre: number }[] = [];
+  for (const entree of REGISTRE_CLIENT) {
+    const nombre = await db.countFromIndex(entree.store as never, "synchronise" as never, 0 as never);
+    if (nombre > 0) resultat.push({ table: entree.table, nombre });
+  }
+  return resultat.sort((a, b) => b.nombre - a.nombre);
+}
+
 export function etatSynchro(): { derniereSynchro: string | null } {
   const brut = localStorage.getItem(CLE_ETAT);
   if (!brut) return { derniereSynchro: null };

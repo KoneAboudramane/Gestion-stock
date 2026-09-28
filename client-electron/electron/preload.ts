@@ -87,6 +87,7 @@ contextBridge.exposeInMainWorld("api", {
     creer: (params: unknown) => ipcRenderer.invoke("produits:creer", params),
     modifier: (id: string, champs: unknown) => ipcRenderer.invoke("produits:modifier", id, champs),
     supprimer: (id: string) => ipcRenderer.invoke("produits:supprimer", id),
+    usagesCatalogue: (boutiqueId: string) => ipcRenderer.invoke("produits:usagesCatalogue", boutiqueId),
     prochaineReference: (boutiqueId: string) => ipcRenderer.invoke("produits:prochaineReference", boutiqueId),
   },
   variantes: {
@@ -359,6 +360,7 @@ contextBridge.exposeInMainWorld("api", {
   sync: {
     executer: (session: unknown) => ipcRenderer.invoke("sync:executer", session),
     etat: () => ipcRenderer.invoke("sync:etat"),
+    enAttente: (boutiqueId: string) => ipcRenderer.invoke("sync:enAttente", boutiqueId),
   },
   systeme: {
     /** Clic sur le popup système d'alerte de rupture : demande d'aller sur la page Notifications. */

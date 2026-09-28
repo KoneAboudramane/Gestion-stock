@@ -1018,6 +1018,21 @@ export interface BoutiqueDetail {
   telephone: string;
   email: string;
   devise: string;
+  /** Abonnement (formule Essentiel/Pro et échéance), affiché dans Informations boutique. */
+  formule: string;
+  dateExpirationAbonnement: string | null;
+}
+
+/** Nombre d'articles qui utilisent chaque unité / chaque attribut (Réglages → Paramètres). */
+export interface UsagesCatalogue {
+  unites: Record<string, number>;
+  attributs: Record<string, number>;
+}
+
+/** Changements locaux pas encore envoyés au serveur, par type. */
+export interface EnAttenteSynchro {
+  table: string;
+  nombre: number;
 }
 
 export interface ChampsBoutique {
@@ -1303,6 +1318,7 @@ export interface WindowApi {
     creer(params: ParametresProduit): Promise<ResultatEcriture<{ produitId: string; varianteId: string }>>;
     modifier(id: string, champs: ChampsProduit): Promise<ResultatEcriture<void>>;
     supprimer(id: string): Promise<ResultatEcriture<void>>;
+    usagesCatalogue(boutiqueId: string): Promise<UsagesCatalogue>;
     prochaineReference(boutiqueId: string): Promise<string>;
   };
   variantes: {
@@ -1595,6 +1611,7 @@ export interface WindowApi {
   sync: {
     executer(session: Session): Promise<ResultatSynchro>;
     etat(): Promise<EtatSynchro>;
+    enAttente(boutiqueId: string): Promise<EnAttenteSynchro[]>;
   };
   systeme: {
     /** Retourne une fonction de désabonnement. */

@@ -46,6 +46,12 @@ import {
   type DepotResume,
 } from "../services/stock";
 import { appliquerTheme, themeActuel, type Theme } from "../lib/theme";
+import { useDevise } from "../contexts/DeviseContext";
+import { formaterMontant } from "../lib/formatage";
+import { listerClientsDetail } from "../services/clients";
+import { listerArticlesBoutique, usagesCatalogue, type UsagesCatalogue } from "../services/produits";
+import { listerStock } from "../services/stock";
+import { compterEnAttente } from "../sync";
 import { CLE_PARAMETRE_FABRICATION_PROPRE } from "../hooks/useFabricationPropre";
 import { fabricationPropreActive } from "../services/stock";
 
@@ -84,6 +90,53 @@ function formaterDateSynchro(iso: string | null): string {
   if (!iso) return "jamais";
   return new Date(iso).toLocaleString("fr-FR");
 }
+
+/** Noms lisibles des types de données synchronisés. */
+const LIBELLES_TABLES_SYNCHRO: Record<string, string> = {
+  "comptes.Boutique": "Boutique",
+  "catalogue.Categorie": "Catégories",
+  "catalogue.Unite": "Unités",
+  "catalogue.Produit": "Articles",
+  "catalogue.Attribut": "Attributs",
+  "catalogue.ValeurAttribut": "Valeurs d'attributs",
+  "catalogue.Variante": "Variantes d'articles",
+  "catalogue.VarianteValeur": "Variantes d'articles (valeurs)",
+  "stock.Depot": "Dépôts",
+  "stock.Stock": "Stock",
+  "stock.MouvementStock": "Mouvements de stock",
+  "stock.TransfertStock": "Transferts",
+  "stock.PerteStock": "Pertes",
+  "stock.Inventaire": "Inventaires",
+  "stock.LigneInventaire": "Lignes d'inventaire",
+  "stock.Destockage": "Déstockages",
+  "clients.Client": "Clients",
+  "clients.Credit": "Crédits clients",
+  "clients.PaiementCredit": "Paiements de crédits",
+  "ventes.Vente": "Ventes",
+  "ventes.LigneVente": "Lignes de vente",
+  "ventes.Paiement": "Paiements de ventes",
+  "achats.CommandeAchat": "Commandes fournisseurs",
+  "achats.LigneAchat": "Lignes de commande",
+  "achats.Reception": "Réceptions",
+  "fournisseurs.Fournisseur": "Fournisseurs",
+  "fournisseurs.DetteFournisseur": "Dettes fournisseurs",
+  "configuration.Parametre": "Paramètres",
+  "notifications.Notification": "Notifications",
+  "notifications.Message": "Messages",
+  "tresorerie.MouvementCaisse": "Mouvements de caisse",
+  "tresorerie.Depense": "Dépenses",
+  "tresorerie.Transfert": "Transferts mobile money",
+  "paiements.TransactionMobileMoney": "Paiements mobile money",
+  "tresorerie.ClotureCaisse": "Clôtures de caisse",
+  "achats.EvenementCommande": "Suivi des commandes",
+  "achats.RetourFournisseur": "Retours fournisseurs",
+  "achats.LigneRetourFournisseur": "Lignes de retour fournisseur",
+  "fournisseurs.PaiementDetteFournisseur": "Remboursements fournisseurs",
+  "fournisseurs.EcheanceDette": "Échéanciers fournisseurs",
+  "clients.EcheanceCredit": "Échéanciers clients",
+  "stock.OperationDestockage": "Opérations de déstockage",
+  "stock.ReleveDormants": "Relevés des produits dormants",
+};
 
 const LIBELLES_FORMAT_TICKET: Record<string, string> = {
   a4: "Facture A4",
@@ -127,6 +180,21 @@ function OngletProfilBoutique({ session, onFermer }: { session: Session; onFerme
   const [erreur, setErreur] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  const [chiffres, setChiffres] = useState<{ articles: number; clients: number; utilisateurs: number | null } | null>(null);
+  useEffect(() => {
+    Promise.all([
+      listerArticlesBoutique(session.boutiqueId),
+      listerClientsDetail(session.boutiqueId),
+      api.comptes.listerUtilisateurs(),
+    ]).then(([articles, clients, utilisateurs]) =>
+      setChiffres({
+        articles: new Set(articles.map((a) => a.produitId)).size,
+        clients: clients.length,
+        utilisateurs: utilisateurs.succes ? utilisateurs.resultat.length : null,
+      }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId]);
   const rafraichirDevise = useRafraichirDevise();
   const { definirSession } = useSession();
 
@@ -224,14 +292,17 @@ function OngletProfilBoutique({ session, onFermer }: { session: Session; onFerme
   if (!boutique) return <p>Chargement…</p>;
 
   if (!modeEdition) {
+    const joursRestants = boutique.dateExpirationAbonnement
+      ? Math.ceil((new Date(boutique.dateExpirationAbonnement).getTime() - Date.now()) / 86_400_000)
+      : null;
     return (
       <>
-        <div className="modale-entete entete-fixe">
+        <div className="modale-entete">
           <h3>Informations boutique</h3>
           <div className="actions-formulaire">
             {peutGerer && (
               <button type="button" className="bouton-primaire" onClick={() => setModeEdition(true)}>
-                Modifier
+                ✎ Modifier
               </button>
             )}
             <button type="button" className="lien bouton-retour" onClick={onFermer}>
@@ -240,71 +311,100 @@ function OngletProfilBoutique({ session, onFermer }: { session: Session; onFerme
           </div>
         </div>
         <div className="modale-corps">
-        <div className="formulaire-catalogue formulaire-profil-boutique">
-        {message && <p className="note-aide">{message}</p>}
-        <div className="colonnes-profil-boutique">
+          {message && <div className="message-succes">{message}</div>}
+          <div className="entete-profil-boutique">
+            <div className="apercu-logo-boutique apercu-logo-vide">{boutique.nom.charAt(0).toUpperCase()}</div>
             <div>
-              <h4>Boutique</h4>
-              <div className="grille-champs">
-                <div>
-                  <p className="note-aide">Nom de la boutique</p>
-                  <p>{boutique.nom || ""}</p>
-                </div>
-                <div>
-                  <p className="note-aide">Adresse</p>
-                  <p>{boutique.adresse || ""}</p>
-                </div>
-                <div>
-                  <p className="note-aide">Téléphone</p>
-                  <p>{boutique.telephone || ""}</p>
-                </div>
-                <div>
-                  <p className="note-aide">Email</p>
-                  <p>{boutique.email || ""}</p>
-                </div>
-                <div>
-                  <p className="note-aide">Devise</p>
-                  <p>{boutique.devise || ""}</p>
-                </div>
-                <div>
-                  <p className="note-aide">Taux de TVA</p>
-                  <p>{tauxTva ? `${tauxTva} %` : "Non assujetti"}</p>
-                </div>
-                <div>
-                  <p className="note-aide">Format du ticket</p>
-                  <p>{LIBELLES_FORMAT_TICKET[formatTicket] ?? formatTicket}</p>
-                </div>
-              </div>
+              <h2>{boutique.nom}</h2>
+              <span className="sous-info">
+                {[boutique.adresse, boutique.telephone].filter(Boolean).join(" · ") || "Coordonnées à compléter"}
+              </span>
             </div>
+          </div>
+          <div className="tuiles-fiche">
+            <div className="tuile-fiche">
+              <span className="sous-info">🏷️ Articles</span>
+              <strong>{chiffres ? chiffres.articles : "…"}</strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">👥 Clients</span>
+              <strong>{chiffres ? chiffres.clients : "…"}</strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">🏬 Dépôts</span>
+              <strong>{depots.length}</strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">🧑‍💼 Utilisateurs</span>
+              <strong title={chiffres?.utilisateurs === null ? "Connexion internet nécessaire" : undefined}>
+                {chiffres ? (chiffres.utilisateurs ?? "—") : "…"}
+              </strong>
+            </div>
+          </div>
+          <div className="cartes-profil">
+            <section className="carte-profil">
+              <h4>📇 Coordonnées</h4>
+              <dl>
+                <dt>Nom</dt>
+                <dd>{boutique.nom || "—"}</dd>
+                <dt>Adresse</dt>
+                <dd>{boutique.adresse || "—"}</dd>
+                <dt>Téléphone</dt>
+                <dd>{boutique.telephone || "—"}</dd>
+                <dt>Email</dt>
+                <dd>{boutique.email || "—"}</dd>
+              </dl>
+            </section>
+            <section className="carte-profil">
+              <h4>🧾 Vente</h4>
+              <dl>
+                <dt>Devise</dt>
+                <dd>{boutique.devise || "—"}</dd>
+                <dt>TVA</dt>
+                <dd>{tauxTva ? `${tauxTva} %` : "Non assujetti"}</dd>
+                <dt>Ticket</dt>
+                <dd>{LIBELLES_FORMAT_TICKET[formatTicket] ?? formatTicket}</dd>
+              </dl>
+            </section>
+            <section className="carte-profil">
+              <h4>⭐ Abonnement</h4>
+              <dl>
+                <dt>Formule</dt>
+                <dd>{boutique.formule === "pro" ? "Pro" : "Essentiel"}</dd>
+                <dt>Échéance</dt>
+                <dd
+                  className={
+                    joursRestants === null ? undefined : joursRestants < 0 ? "texte-erreur" : joursRestants <= 15 ? "texte-avertissement" : undefined
+                  }
+                >
+                  {boutique.dateExpirationAbonnement
+                    ? `${new Date(boutique.dateExpirationAbonnement).toLocaleDateString("fr-FR")}${
+                        joursRestants !== null && joursRestants < 0
+                          ? " (expiré)"
+                          : joursRestants !== null && joursRestants <= 15
+                            ? ` (dans ${joursRestants} j)`
+                            : ""
+                      }`
+                    : "Sans limite"}
+                </dd>
+              </dl>
+            </section>
             {moi && (
-              <div>
-                <h4>Mon compte</h4>
-                <div className="grille-champs">
-                  <div>
-                    <p className="note-aide">Nom d'utilisateur</p>
-                    <p>{moi.username}</p>
-                  </div>
-                  <div>
-                    <p className="note-aide">Rôle</p>
-                    <p>{session.role}</p>
-                  </div>
-                  <div>
-                    <p className="note-aide">Téléphone</p>
-                    <p>{moi.telephone || ""}</p>
-                  </div>
-                  <div>
-                    <p className="note-aide">Email</p>
-                    <p>{moi.email || ""}</p>
-                  </div>
-                  <div>
-                    <p className="note-aide">Dépôt de vente</p>
-                    <p>{depots.find((d) => d.id === depotId)?.nom || "Aucun"}</p>
-                  </div>
-                </div>
-              </div>
+              <section className="carte-profil">
+                <h4>👤 Mon compte</h4>
+                <dl>
+                  <dt>Utilisateur</dt>
+                  <dd>{moi.username}</dd>
+                  <dt>Rôle</dt>
+                  <dd>{session.role}</dd>
+                  <dt>Téléphone</dt>
+                  <dd>{moi.telephone || "—"}</dd>
+                  <dt>Dépôt de vente</dt>
+                  <dd>{depots.find((d) => d.id === depotId)?.nom || "Aucun"}</dd>
+                </dl>
+              </section>
             )}
           </div>
-        </div>
         </div>
       </>
     );
@@ -312,7 +412,7 @@ function OngletProfilBoutique({ session, onFermer }: { session: Session; onFerme
 
   return (
     <>
-      <div className="modale-entete entete-fixe">
+      <div className="modale-entete">
         <h3>Informations boutique</h3>
         <div className="actions-formulaire">
           <button type="button" onClick={annuler}>
@@ -674,7 +774,6 @@ function LigneUtilisateur({
   const [nouveauMotDePasse, setNouveauMotDePasse] = useState<string | null>(null);
   const [confirmationSuppression, setConfirmationSuppression] = useState(false);
   const roleActuel = roles.find((r) => r.id === utilisateur.role);
-  const depotActuel = depots.find((d) => d.id === utilisateur.depot);
 
   async function reinitialiserMotDePasse() {
     setEnCours(true);
@@ -776,8 +875,6 @@ function LigneUtilisateur({
           {utilisateur.is_active ? "Actif" : "Inactif"}
         </button>
       </td>
-      <td data-label="Rôle actuel">{roleActuel?.nom ?? ""}</td>
-      <td data-label="Dépôt actuel">{depotActuel?.nom ?? ""}</td>
       <td data-label="Mot de passe">
         {nouveauMotDePasse ? (
           <div className="mot-de-passe-genere mot-de-passe-genere-ligne">
@@ -787,12 +884,10 @@ function LigneUtilisateur({
             </button>
           </div>
         ) : (
-          <button type="button" disabled={enCours} onClick={reinitialiserMotDePasse}>
-            Réinitialiser
+          <button type="button" className="lien-icone" title="Réinitialiser le mot de passe" disabled={enCours} onClick={reinitialiserMotDePasse}>
+            🔑
           </button>
         )}
-      </td>
-      <td data-label="Retirer">
         {confirmationSuppression ? (
           <div className="confirmation-retrait">
             <span>Confirmer ?</span>
@@ -873,82 +968,84 @@ function OngletUtilisateursRoles({ session }: { session: Session }) {
   }
 
   return (
-    <div className="disposition-parametres">
-      <nav className="barre-laterale-parametres">
-        {SOUS_ONGLETS_UTILISATEURS.map((o) => (
-          <button
-            key={o.cle}
-            type="button"
-            className={`item-nav-parametres ${sousOnglet === o.cle ? "actif" : ""}`}
-            onClick={() => setSousOnglet(o.cle)}
-          >
-            {o.label}
-          </button>
-        ))}
-      </nav>
-      <div className="contenu-onglet contenu-parametres">
-        {sousOnglet === "utilisateurs" && (
-          <div className="barre-actions">
-            <span className="actions-ligne">
-              <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherForm(true)}>
-                + Nouvel utilisateur
-              </button>
-            </span>
-          </div>
-        )}
-        {erreur && <div className="message-erreur">{erreur}</div>}
-        {sousOnglet === "roles" && roles.map((r) => <CarteRole key={r.id} role={r} onModifie={rafraichir} />)}
+    <>
 
-        {sousOnglet === "utilisateurs" && (
-          <div className="zone-tableau-scroll">
-            <table className="tableau-catalogue carte-mobile">
-              <thead>
-                <tr>
-                  <th>N°</th>
-                  <th>Utilisateur</th>
-                  <th>Nom</th>
-                  <th>Téléphone</th>
-                  <th>Changer de rôle</th>
-                  <th>Dépôt</th>
-                  <th>Statut</th>
-                  <th>Rôle actuel</th>
-                  <th>Dépôt actuel</th>
-                  <th>Mot de passe</th>
-                  <th>Retirer</th>
-                </tr>
-              </thead>
-              <tbody>
-                {utilisateurs.map((u, index) => (
-                  <LigneUtilisateur key={u.id} index={index} utilisateur={u} roles={roles} depots={depots} onModifie={rafraichir} />
-                ))}
-                {utilisateurs.length === 0 && (
-                  <tr>
-                    <td colSpan={11} className="liste-vide">
-                      Aucun utilisateur.
-                    </td>
-                  </tr>
-                )}
-                {Array.from({ length: Math.max(0, 10 - Math.max(1, utilisateurs.length)) }).map((_, i) => (
-                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+      <div className="modale-avec-menu">
+        <nav className="menu-modale">
+          {SOUS_ONGLETS_UTILISATEURS.map((o) => (
+            <button key={o.cle} type="button" className={sousOnglet === o.cle ? "actif" : ""} onClick={() => setSousOnglet(o.cle)}>
+              <span className="icone-menu-modale">{o.cle === "roles" ? "🛡️" : "👥"}</span>
+              {o.label}
+              <span className="compteur-menu-modale">{o.cle === "roles" ? roles.length : utilisateurs.length}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="modale-corps">
+          {erreur && (
+            <div className="bloc-hors-ligne">
+              <span>
+                🌐 Cette partie se gère en ligne : vérifiez votre connexion internet.
+                <br />
+                <span className="sous-info">{erreur}</span>
+              </span>
+              <button type="button" onClick={rafraichir}>
+                ⟳ Réessayer
+              </button>
+            </div>
+          )}
+          {sousOnglet === "roles" && roles.map((r) => <CarteRole key={r.id} role={r} onModifie={rafraichir} />)}
+          {sousOnglet === "utilisateurs" && (
+            <>
+              <div className="barre-actions">
+                <span className="actions-ligne">
+                  <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherForm(true)} disabled={!!erreur}>
+                    + Nouvel utilisateur
+                  </button>
+                </span>
+              </div>
+              <div className="zone-tableau-scroll zone-commandes-fiche">
+                <table className="tableau-catalogue">
+                  <thead>
+                    <tr>
+                      <th>Utilisateur</th>
+                      <th>Nom</th>
+                      <th>Téléphone</th>
+                      <th>Rôle</th>
+                      <th>Dépôt</th>
+                      <th>Statut</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {utilisateurs.map((u, index) => (
+                      <LigneUtilisateur key={u.id} index={index} utilisateur={u} roles={roles} depots={depots} onModifie={rafraichir} />
+                    ))}
+                    {utilisateurs.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="liste-vide">
+                          {erreur ? "Liste indisponible hors ligne." : "Aucun utilisateur."}
+                        </td>
+                      </tr>
+                    )}
+                    {Array.from({ length: Math.max(0, 10 - Math.max(1, utilisateurs.length)) }).map((_, i) => (
+                      <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -1119,6 +1216,11 @@ function OngletUnites({ session }: { session: Session }) {
   const [nomEdition, setNomEdition] = useState("");
   const [abreviationEdition, setAbreviationEdition] = useState("");
   const [confirmationSuppressionId, setConfirmationSuppressionId] = useState<string | null>(null);
+  const [usages, setUsages] = useState<UsagesCatalogue | null>(null);
+  useEffect(() => {
+    usagesCatalogue(session.boutiqueId).then(setUsages);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId]);
 
   async function rafraichir() {
     setUnites(await listerUnites(session.boutiqueId));
@@ -1180,43 +1282,73 @@ function OngletUnites({ session }: { session: Session }) {
         </form>
       )}
       {erreur && <div className="message-erreur">{erreur}</div>}
-      <ul className="liste-simple">
-        {unites.map((u) =>
-          enEditionId === u.id ? (
-            <li key={u.id} className="ligne-liste-simple">
-              <div className="formulaire-inline">
-                <input value={nomEdition} onChange={(e) => setNomEdition(e.target.value)} />
-                <input value={abreviationEdition} onChange={(e) => setAbreviationEdition(e.target.value)} style={{ width: "100px" }} />
-              </div>
-              <div className="actions-ligne-simple">
-                <button type="button" onClick={() => setEnEditionId(null)}>
-                  Annuler
-                </button>
-                <button type="button" onClick={() => enregistrerEdition(u.id)}>
-                  Enregistrer
-                </button>
-              </div>
-            </li>
-          ) : (
-            <li key={u.id} className="ligne-liste-simple">
-              <span>
-                {u.nom} {u.abreviation && `(${u.abreviation})`}
-              </span>
-              {peutGerer && (
-                <div className="actions-ligne-simple">
-                  <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(u)}>
-                    ✎
-                  </button>
-                  <button type="button" className="lien-icone lien-icone-danger" title="Supprimer" onClick={() => setConfirmationSuppressionId(u.id)}>
-                    ×
-                  </button>
-                </div>
-              )}
-            </li>
-          ),
-        )}
-        {unites.length === 0 && <li className="liste-vide">Aucune unité.</li>}
-      </ul>
+      <div className="zone-tableau-scroll zone-commandes-fiche">
+        <table className="tableau-catalogue">
+          <thead>
+            <tr>
+              <th>Unité</th>
+              <th>Abréviation</th>
+              <th>Articles qui l'utilisent</th>
+              {peutGerer && <th>Actions</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {unites.map((u) =>
+              enEditionId === u.id ? (
+                <tr key={u.id}>
+                  <td>
+                    <input value={nomEdition} onChange={(e) => setNomEdition(e.target.value)} autoFocus />
+                  </td>
+                  <td>
+                    <input value={abreviationEdition} onChange={(e) => setAbreviationEdition(e.target.value)} style={{ width: "100px" }} />
+                  </td>
+                  <td>{usages?.unites[u.id] ?? 0}</td>
+                  <td>
+                    <span className="actions-ligne">
+                      <button type="button" onClick={() => setEnEditionId(null)}>
+                        Annuler
+                      </button>
+                      <button type="button" className="bouton-primaire" onClick={() => enregistrerEdition(u.id)}>
+                        Enregistrer
+                      </button>
+                    </span>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={u.id}>
+                  <td>{u.nom}</td>
+                  <td>{u.abreviation || "—"}</td>
+                  <td>{usages ? (usages.unites[u.id] ?? 0) : "…"}</td>
+                  {peutGerer && (
+                    <td>
+                      <span className="actions-ligne">
+                        <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(u)}>
+                          ✎
+                        </button>
+                        <button
+                          type="button"
+                          className="lien-icone lien-icone-danger"
+                          title={(usages?.unites[u.id] ?? 0) > 0 ? "Utilisée par des articles" : "Supprimer"}
+                          onClick={() => setConfirmationSuppressionId(u.id)}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    </td>
+                  )}
+                </tr>
+              ),
+            )}
+            {unites.length === 0 && (
+              <tr>
+                <td colSpan={4} className="liste-vide">
+                  Aucune unité.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
       {confirmationSuppressionId && (
         <ModaleConfirmation
           titre="Supprimer cette unité ?"
@@ -1240,6 +1372,11 @@ function OngletAttributs({ session }: { session: Session }) {
   const [enEditionId, setEnEditionId] = useState<string | null>(null);
   const [nomEdition, setNomEdition] = useState("");
   const [confirmationSuppressionId, setConfirmationSuppressionId] = useState<string | null>(null);
+  const [usages, setUsages] = useState<UsagesCatalogue | null>(null);
+  useEffect(() => {
+    usagesCatalogue(session.boutiqueId).then(setUsages);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId]);
 
   async function rafraichir() {
     setAttributs(await listerAttributs(session.boutiqueId));
@@ -1299,38 +1436,68 @@ function OngletAttributs({ session }: { session: Session }) {
       )}
       {erreur && <div className="message-erreur">{erreur}</div>}
       <p className="note-aide">Les valeurs de chaque attribut (ex. Rouge, Bleu pour Couleur) se créent directement lors de l'ajout d'une variante.</p>
-      <ul className="liste-simple">
-        {attributs.map((a) =>
-          enEditionId === a.id ? (
-            <li key={a.id} className="ligne-liste-simple">
-              <input value={nomEdition} onChange={(e) => setNomEdition(e.target.value)} />
-              <div className="actions-ligne-simple">
-                <button type="button" onClick={() => setEnEditionId(null)}>
-                  Annuler
-                </button>
-                <button type="button" onClick={() => enregistrerEdition(a.id)}>
-                  Enregistrer
-                </button>
-              </div>
-            </li>
-          ) : (
-            <li key={a.id} className="ligne-liste-simple">
-              <span>{a.nom}</span>
-              {peutGerer && (
-                <div className="actions-ligne-simple">
-                  <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(a)}>
-                    ✎
-                  </button>
-                  <button type="button" className="lien-icone lien-icone-danger" title="Supprimer" onClick={() => setConfirmationSuppressionId(a.id)}>
-                    ×
-                  </button>
-                </div>
-              )}
-            </li>
-          ),
-        )}
-        {attributs.length === 0 && <li className="liste-vide">Aucun attribut.</li>}
-      </ul>
+      <div className="zone-tableau-scroll zone-commandes-fiche">
+        <table className="tableau-catalogue">
+          <thead>
+            <tr>
+              <th>Attribut</th>
+              <th>Articles qui l'utilisent</th>
+              {peutGerer && <th>Actions</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {attributs.map((a) =>
+              enEditionId === a.id ? (
+                <tr key={a.id}>
+                  <td>
+                    <input value={nomEdition} onChange={(e) => setNomEdition(e.target.value)} autoFocus />
+                  </td>
+                  <td>{usages?.attributs[a.id] ?? 0}</td>
+                  <td>
+                    <span className="actions-ligne">
+                      <button type="button" onClick={() => setEnEditionId(null)}>
+                        Annuler
+                      </button>
+                      <button type="button" className="bouton-primaire" onClick={() => enregistrerEdition(a.id)}>
+                        Enregistrer
+                      </button>
+                    </span>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={a.id}>
+                  <td>{a.nom}</td>
+                  <td>{usages ? (usages.attributs[a.id] ?? 0) : "…"}</td>
+                  {peutGerer && (
+                    <td>
+                      <span className="actions-ligne">
+                        <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(a)}>
+                          ✎
+                        </button>
+                        <button
+                          type="button"
+                          className="lien-icone lien-icone-danger"
+                          title="Supprimer"
+                          onClick={() => setConfirmationSuppressionId(a.id)}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    </td>
+                  )}
+                </tr>
+              ),
+            )}
+            {attributs.length === 0 && (
+              <tr>
+                <td colSpan={3} className="liste-vide">
+                  Aucun attribut.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
       {confirmationSuppressionId && (
         <ModaleConfirmation
           titre="Supprimer cet attribut ?"
@@ -1363,6 +1530,32 @@ function OngletDepots({ session }: { session: Session }) {
   }
   useEffect(() => {
     rafraichir();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const devise = useDevise();
+  const [statsDepots, setStatsDepots] = useState<Record<string, { articles: number; valeur: number }>>({});
+  const [utilisateursParDepot, setUtilisateursParDepot] = useState<Record<string, number> | null>(null);
+  useEffect(() => {
+    (async () => {
+      const stats: Record<string, { articles: number; valeur: number }> = {};
+      for (const d of depots) {
+        const lignes = await listerStock(session.boutiqueId, d.id);
+        stats[d.id] = {
+          articles: lignes.filter((l) => l.quantite > 0).length,
+          valeur: lignes.reduce((t, l) => t + l.quantite * l.prixAchat, 0),
+        };
+      }
+      setStatsDepots(stats);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depots]);
+  useEffect(() => {
+    api.comptes.listerUtilisateurs().then((r) => {
+      if (!r.succes) return;
+      const parDepot: Record<string, number> = {};
+      for (const u of r.resultat) if (u.depot) parDepot[u.depot] = (parDepot[u.depot] ?? 0) + 1;
+      setUtilisateursParDepot(parDepot);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1418,43 +1611,81 @@ function OngletDepots({ session }: { session: Session }) {
         </form>
       )}
       {erreur && <div className="message-erreur">{erreur}</div>}
-      <ul className="liste-simple">
-        {depots.map((d) =>
-          enEditionId === d.id ? (
-            <li key={d.id} className="ligne-liste-simple">
-              <div className="formulaire-inline">
-                <input value={nomEdition} onChange={(e) => setNomEdition(e.target.value)} />
-                <input value={adresseEdition} onChange={(e) => setAdresseEdition(e.target.value)} />
-              </div>
-              <div className="actions-ligne-simple">
-                <button type="button" onClick={() => setEnEditionId(null)}>
-                  Annuler
-                </button>
-                <button type="button" onClick={() => enregistrerEdition(d.id)}>
-                  Enregistrer
-                </button>
-              </div>
-            </li>
-          ) : (
-            <li key={d.id} className="ligne-liste-simple">
-              <span>
-                {d.nom} {d.adresse && `(${d.adresse})`}
-              </span>
-              {peutGerer && (
-                <div className="actions-ligne-simple">
-                  <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(d)}>
-                    ✎
-                  </button>
-                  <button type="button" className="lien-icone lien-icone-danger" title="Supprimer" onClick={() => setConfirmationSuppressionId(d.id)}>
-                    ×
-                  </button>
-                </div>
-              )}
-            </li>
-          ),
-        )}
-        {depots.length === 0 && <li className="liste-vide">Aucun dépôt.</li>}
-      </ul>
+      <div className="zone-tableau-scroll zone-commandes-fiche">
+        <table className="tableau-catalogue">
+          <thead>
+            <tr>
+              <th>Dépôt</th>
+              <th>Adresse</th>
+              <th>Articles en stock</th>
+              <th>Valeur du stock</th>
+              <th>Utilisateurs</th>
+              {peutGerer && <th>Actions</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {depots.map((d) =>
+              enEditionId === d.id ? (
+                <tr key={d.id}>
+                  <td>
+                    <input value={nomEdition} onChange={(e) => setNomEdition(e.target.value)} autoFocus />
+                  </td>
+                  <td>
+                    <input value={adresseEdition} onChange={(e) => setAdresseEdition(e.target.value)} />
+                  </td>
+                  <td>{statsDepots[d.id]?.articles ?? 0}</td>
+                  <td className="nowrap">{formaterMontant(statsDepots[d.id]?.valeur ?? 0)} {devise}</td>
+                  <td>{utilisateursParDepot === null ? "—" : (utilisateursParDepot[d.id] ?? 0)}</td>
+                  <td>
+                    <span className="actions-ligne">
+                      <button type="button" onClick={() => setEnEditionId(null)}>
+                        Annuler
+                      </button>
+                      <button type="button" className="bouton-primaire" onClick={() => enregistrerEdition(d.id)}>
+                        Enregistrer
+                      </button>
+                    </span>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={d.id}>
+                  <td>{d.nom}</td>
+                  <td>{d.adresse || "—"}</td>
+                  <td>{statsDepots[d.id] ? statsDepots[d.id].articles : "…"}</td>
+                  <td className="nowrap">{statsDepots[d.id] ? `${formaterMontant(statsDepots[d.id].valeur)} ${devise}` : "…"}</td>
+                  <td title={utilisateursParDepot === null ? "Connexion internet nécessaire" : undefined}>
+                    {utilisateursParDepot === null ? "—" : (utilisateursParDepot[d.id] ?? 0)}
+                  </td>
+                  {peutGerer && (
+                    <td>
+                      <span className="actions-ligne">
+                        <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(d)}>
+                          ✎
+                        </button>
+                        <button
+                          type="button"
+                          className="lien-icone lien-icone-danger"
+                          title="Supprimer"
+                          onClick={() => setConfirmationSuppressionId(d.id)}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    </td>
+                  )}
+                </tr>
+              ),
+            )}
+            {depots.length === 0 && (
+              <tr>
+                <td colSpan={6} className="liste-vide">
+                  Aucun dépôt.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
       {confirmationSuppressionId && (
         <ModaleConfirmation
           titre="Supprimer ce dépôt ?"
@@ -1483,20 +1714,18 @@ function OngletParametresGeneraux({ session }: { session: Session }) {
   const [sousOnglet, setSousOnglet] = useState<SousOngletParametres>("general");
 
   return (
-    <div className="disposition-parametres">
-      <nav className="barre-laterale-parametres">
+    <div className="modale-avec-menu">
+      <nav className="menu-modale">
         {SOUS_ONGLETS_PARAMETRES.map((o) => (
-          <button
-            key={o.cle}
-            type="button"
-            className={`item-nav-parametres ${sousOnglet === o.cle ? "actif" : ""}`}
-            onClick={() => setSousOnglet(o.cle)}
-          >
+          <button key={o.cle} type="button" className={sousOnglet === o.cle ? "actif" : ""} onClick={() => setSousOnglet(o.cle)}>
+            <span className="icone-menu-modale">
+              {o.cle === "general" ? "⚙️" : o.cle === "unites" ? "📏" : o.cle === "attributs" ? "🎨" : "🏬"}
+            </span>
             {o.label}
           </button>
         ))}
       </nav>
-      <div className="contenu-onglet contenu-parametres">
+      <div className="modale-corps">
         {sousOnglet === "general" && <OngletParametresGeneral session={session} />}
         {sousOnglet === "unites" && <OngletUnites session={session} />}
         {sousOnglet === "attributs" && <OngletAttributs session={session} />}
@@ -1658,6 +1887,17 @@ function BlocActivationBoutiqueLocale({ session }: { session: Session }) {
 
 function OngletSynchronisation({ session }: { session: Session }) {
   const { etat, enCours, erreur, synchroniser, verifierActivation } = useSynchro();
+  const [enAttente, setEnAttente] = useState<{ table: string; nombre: number }[] | null>(null);
+  useEffect(() => {
+    compterEnAttente().then(setEnAttente);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId, etat?.derniereSynchro]);
+  const totalEnAttente = (enAttente ?? []).reduce((t, l) => t + l.nombre, 0);
+  const joursDepuis = etat?.derniereSynchro
+    ? Math.floor((Date.now() - new Date(etat.derniereSynchro).getTime()) / 86_400_000)
+    : null;
+  const libelleDerniereSynchro =
+    joursDepuis === null ? "Jamais" : joursDepuis === 0 ? "Aujourd'hui" : joursDepuis === 1 ? "Hier" : `Il y a ${joursDepuis} jours`;
 
   if (!session.synchroAutorisee) {
     return (
@@ -1677,26 +1917,70 @@ function OngletSynchronisation({ session }: { session: Session }) {
   }
 
   return (
-    <div className="reglage-catalogue">
+    <div className="reglage-catalogue reglage-synchro">
       <BlocAbonnementEnAttente />
-      <div className="grille-champs">
-        <div>
-          <p className="note-aide">Statut</p>
-          <p>
-            <span className={`point ${etat?.enLigne ? "point-en-ligne" : "point-hors-ligne"}`} />{" "}
-            {etat?.enLigne ? "En ligne" : "Hors-ligne"}
-          </p>
+      <div className="tuiles-fiche">
+        <div className={`tuile-fiche${etat?.enLigne ? "" : " tuile-fiche--alerte"}`}>
+          <span className="sous-info">📶 État</span>
+          <strong className={etat?.enLigne ? "montant-entree" : "texte-erreur"}>
+            <span className={`point ${etat?.enLigne ? "point-en-ligne" : "point-hors-ligne"}`} /> {etat?.enLigne ? "En ligne" : "Hors ligne"}
+          </strong>
         </div>
-        <div>
-          <p className="note-aide">Dernière synchro</p>
-          <p>{formaterDateSynchro(etat?.derniereSynchro ?? null)}</p>
+        <div className={`tuile-fiche${joursDepuis !== null && joursDepuis > 7 ? " tuile-fiche--alerte" : ""}`}>
+          <span className="sous-info">🕘 Dernière synchro</span>
+          <strong>{libelleDerniereSynchro}</strong>
+          <span className="sous-info">{formaterDateSynchro(etat?.derniereSynchro ?? null)}</span>
+        </div>
+        <div className={`tuile-fiche${totalEnAttente > 0 ? " tuile-fiche--attention" : ""}`}>
+          <span className="sous-info">📤 Changements à envoyer</span>
+          <strong>{enAttente === null ? "…" : totalEnAttente}</strong>
         </div>
       </div>
       {erreur && <p className="message-erreur">{erreur}</p>}
-      <div className="actions-formulaire">
-        <button type="button" className="bouton-primaire" onClick={synchroniser} disabled={enCours}>
-          {enCours ? "Synchronisation…" : "Synchroniser"}
-        </button>
+      <div className="barre-actions">
+        <span className="sous-info">
+          {totalEnAttente > 0
+            ? "Ces changements ne sont enregistrés que sur cet appareil tant qu'ils n'ont pas été envoyés."
+            : "Tout est sauvegardé en ligne."}
+        </span>
+        <span className="actions-ligne">
+          <button
+            type="button"
+            className="bouton-primaire"
+            onClick={async () => {
+              await synchroniser();
+              setEnAttente(await compterEnAttente());
+            }}
+            disabled={enCours}
+          >
+            {enCours ? "Synchronisation…" : "⟳ Synchroniser maintenant"}
+          </button>
+        </span>
+      </div>
+      <div className="zone-tableau-scroll zone-commandes-fiche">
+        <table className="tableau-catalogue">
+          <thead>
+            <tr>
+              <th>Type de données</th>
+              <th>Changements en attente</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(enAttente ?? []).map((l) => (
+              <tr key={l.table}>
+                <td>{LIBELLES_TABLES_SYNCHRO[l.table] ?? l.table}</td>
+                <td>{l.nombre}</td>
+              </tr>
+            ))}
+            {enAttente !== null && enAttente.length === 0 && (
+              <tr>
+                <td colSpan={2} className="liste-vide">
+                  Aucun changement en attente 👍
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -1720,9 +2004,7 @@ function ModaleUtilisateursRoles({ session, onFermer }: { session: Session; onFe
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Utilisateurs & rôles" onFermer={onFermer} />
-        <div className="modale-corps">
-          <OngletUtilisateursRoles session={session} />
-        </div>
+        <OngletUtilisateursRoles session={session} />
       </div>
     </div>
   );
@@ -1733,9 +2015,7 @@ function ModaleParametres({ session, onFermer }: { session: Session; onFermer: (
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Paramètres" onFermer={onFermer} />
-        <div className="modale-corps">
-          <OngletParametresGeneraux session={session} />
-        </div>
+        <OngletParametresGeneraux session={session} />
       </div>
     </div>
   );

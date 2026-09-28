@@ -243,6 +243,20 @@ export async function synchroniser(session: Session): Promise<ResumeSynchro> {
   return { push: resultatsPush, derniereSynchro };
 }
 
+/** Changements locaux pas encore envoyés, par type (ex. « ventes.Vente » → 3). */
+export function compterEnAttente(boutiqueId: string): { table: string; nombre: number }[] {
+  const resultat: { table: string; nombre: number }[] = [];
+  for (const entree of REGISTRE_CLIENT) {
+    const ligne = tousLesResultats<{ n: number }>(
+      `SELECT COUNT(*) as n FROM ${entree.tableLocale} WHERE synchronise = 0 AND (${entree.clauseBoutique})`,
+      [boutiqueId],
+    )[0];
+    const nombre = Number(ligne?.n ?? 0);
+    if (nombre > 0) resultat.push({ table: entree.table, nombre });
+  }
+  return resultat.sort((a, b) => b.nombre - a.nombre);
+}
+
 export function etatSynchro(): { derniereSynchro: string | null } {
   if (!fs.existsSync(cheminEtat())) return { derniereSynchro: null };
   const etat = lireEtat();

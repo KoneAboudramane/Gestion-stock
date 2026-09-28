@@ -267,6 +267,7 @@ export function enregistrerLesHandlers(): void {
     executerEnSecurite(() => produits.modifierProduit(id, champs)),
   );
   ipcMain.handle("produits:supprimer", (_evt, id: string) => executerEnSecurite(() => produits.supprimerProduit(id)));
+  ipcMain.handle("produits:usagesCatalogue", (_evt, boutiqueId: string) => produits.usagesCatalogue(boutiqueId));
   ipcMain.handle("produits:prochaineReference", (_evt, boutiqueId: string) =>
     produits.prochaineReferenceProduit(boutiqueId),
   );
@@ -794,6 +795,8 @@ export function enregistrerLesHandlers(): void {
       };
     }
   });
+
+  ipcMain.handle("sync:enAttente", (_evt, boutiqueId: string) => sync.compterEnAttente(boutiqueId));
 
   ipcMain.handle("sync:etat", async () => {
     const { derniereSynchro } = sync.etatSynchro();
