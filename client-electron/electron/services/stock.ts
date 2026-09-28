@@ -956,6 +956,7 @@ export function listerDestockages(boutiqueId: string): DestockageResume[] {
 
 export interface InventaireResume {
   id: string;
+  depotId: string;
   depotNom: string;
   statut: string;
   dateCreation: string;
@@ -972,7 +973,7 @@ export interface InventaireResume {
 
 export function listerInventaires(boutiqueId: string): InventaireResume[] {
   return tousLesResultats<InventaireResume>(
-    `SELECT i.id as id, d.nom as depotNom, i.statut as statut, i.date_creation as dateCreation,
+    `SELECT i.id as id, i.depot_id as depotId, d.nom as depotNom, i.statut as statut, i.date_creation as dateCreation,
             i.date_validation as dateValidation, i.utilisateur_id as utilisateurId,
             (SELECT COUNT(*) FROM lignes_inventaire li WHERE li.inventaire_id = i.id AND li.supprime = 0) as nombreArticles,
             (SELECT COUNT(*) FROM lignes_inventaire li
@@ -997,6 +998,11 @@ export function listerInventaires(boutiqueId: string): InventaireResume[] {
 
 /** aZero : « comptage à zéro » — chaque article part de 0, seul ce qui est compté compte. */
 export function demarrerInventaire(boutiqueId: string, depotId: string, utilisateurId: string | null, aZero = false): string {
+  const dejaEnCours = unResultat<{ id: string }>(
+    "SELECT id FROM inventaires WHERE depot_id = ? AND statut = 'en_cours' AND supprime = 0 LIMIT 1",
+    [depotId],
+  );
+  if (dejaEnCours) throw new ErreurStock("Un inventaire est déjà en cours sur ce dépôt : terminez-le ou reprenez-le avant d'en démarrer un autre.");
   const inventaireId = dansUneTransaction(() => {
     const maintenant = new Date().toISOString();
     const id = randomUUID();

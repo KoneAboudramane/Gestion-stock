@@ -238,6 +238,8 @@ def demarrer_inventaire(boutique, depot, utilisateur=None, a_zero=False):
     est compté compte (ce qui n'est pas compté sera considéré comme absent)."""
     from .models import LigneInventaire
 
+    if Inventaire.objects.filter(depot=depot, statut=Inventaire.Statut.EN_COURS, supprime=False).exists():
+        raise ValidationError("Un inventaire est déjà en cours sur ce dépôt : terminez-le ou reprenez-le avant d'en démarrer un autre.")
     inventaire = Inventaire.objects.create(
         boutique=boutique, depot=depot, utilisateur=utilisateur,
         statut=Inventaire.Statut.EN_COURS,

@@ -474,6 +474,7 @@ export async function listerTransferts(boutiqueId: string, limite = 100): Promis
 
 export interface InventaireResume {
   id: string;
+  depotId: string;
   depotNom: string;
   statut: string;
   dateCreation: string;
@@ -984,6 +985,7 @@ export async function listerInventaires(boutiqueId: string): Promise<InventaireR
     }
     resultat.push({
       id: inv.id,
+      depotId: inv.depot_id,
       depotNom: depot?.nom ?? "",
       statut: inv.statut,
       dateCreation: inv.date_creation,
@@ -1006,6 +1008,10 @@ export async function demarrerInventaire(
   utilisateurId: string | null,
   aZero = false,
 ): Promise<string> {
+  const dejaEnCours = (await listerParIndex("inventaires", "boutique_id", boutiqueId)).some(
+    (i) => !i.supprime && i.depot_id === depotId && i.statut === "en_cours",
+  );
+  if (dejaEnCours) throw new ErreurStock("Un inventaire est déjà en cours sur ce dépôt : terminez-le ou reprenez-le avant d'en démarrer un autre.");
   const db = await ouvrirBaseDeDonnees();
   const id = crypto.randomUUID();
   const inventaire: InventaireLocal = {

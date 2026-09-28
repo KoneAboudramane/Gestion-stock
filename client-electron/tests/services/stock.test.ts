@@ -182,6 +182,13 @@ describe("stock.demarrerInventaire / modifierLigneInventaire / validerInventaire
     expect(Number(ligne.ecart)).toBe(0);
   });
 
+  it("demarrerInventaire refuse un second inventaire en cours sur le même dépôt", () => {
+    const inventaireId = demarrerInventaire(boutiqueId, depotId, null);
+    expect(() => demarrerInventaire(boutiqueId, depotId, null)).toThrow(ErreurStock);
+    validerInventaire(inventaireId, null);
+    expect(() => demarrerInventaire(boutiqueId, depotId, null)).not.toThrow();
+  });
+
   it("modifierLigneInventaire recalcule l'écart, refuse une fois l'inventaire validé", () => {
     const inventaireId = demarrerInventaire(boutiqueId, depotId, null);
     const ligne = ligneDe(inventaireId);

@@ -6391,3 +6391,16 @@ button.tuile-dormance.active {
 .modale-avec-menu .barre-filtres-historique input[type="search"] {
   width: 140px;
 }
+
+/* Page Stock : quantité proche du seuil, tuile « à surveiller ». */
+.texte-avertissement {
+  color: var(--avertissement, #d97706);
+}
+
+.tuile-fiche--attention {
+  border-color: var(--avertissement, #d97706);
+}
+
+.tuile-fiche--attention strong {
+  color: var(--avertissement, #d97706);
+}

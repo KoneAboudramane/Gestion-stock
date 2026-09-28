@@ -516,6 +516,7 @@ export interface PerteResume {
 
 export interface InventaireResume {
   id: string;
+  depotId: string;
   depotNom: string;
   statut: string;
   dateCreation: string;

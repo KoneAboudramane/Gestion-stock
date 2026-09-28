@@ -39,6 +39,8 @@ import { useFabricationPropre } from "../hooks/useFabricationPropre";
 import { ModaleProduitsDormants } from "./Rapports";
 import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
 import FiltrePeriodeHistorique from "../components/FiltrePeriodeHistorique";
+import BoutonsExport from "../components/BoutonsExport";
+import type { ColonneExport } from "../api/client";
 import { bornesPeriode, dansPeriode, jourLocal, type PeriodeHistorique } from "../lib/periode";
 
 // --- Onglet Stock : niveaux par dépôt ---
@@ -94,6 +96,7 @@ function OngletStockNiveau({
   const [lignes, setLignes] = useState<LigneStock[]>([]);
   const [seulementRuptures, setSeulementRuptures] = useState(!!filtreRuptureInitial);
   const [selection, setSelection] = useState<Set<string>>(new Set());
+  const devise = useDevise();
 
   useEffect(() => {
     if (peutGerer) api.depots.lister(session.boutiqueId).then(setDepots);
@@ -108,6 +111,33 @@ function OngletStockNiveau({
   const lignesAffichees = seulementRuptures ? lignes.filter((l) => l.enRupture) : lignes;
   const rupturesAffichees = lignesAffichees.filter((l) => l.enRupture);
   const toutesSelectionnees = rupturesAffichees.length > 0 && rupturesAffichees.every((l) => selection.has(l.id));
+
+  // Chiffres de ce qui est affiché (dépôt, recherche et filtre rupture compris).
+  const somme = (valeurs: number[]) => valeurs.reduce((t, v) => t + v, 0);
+  const valeurLigne = (l: LigneStock) => l.quantite * l.prixAchat;
+  const quantiteTotale = somme(lignesAffichees.map((l) => l.quantite));
+  const valeurTotale = somme(lignesAffichees.map(valeurLigne));
+  // Rouge : rupture (sous le seuil) ; orange : bientôt (moins de 1,5 × le seuil).
+  const classeQuantite = (l: LigneStock) =>
+    l.enRupture ? "texte-erreur" : l.seuilAlerte > 0 && l.quantite <= l.seuilAlerte * 1.5 ? "texte-avertissement" : undefined;
+  const colonnesExport: ColonneExport[] = [
+    { cle: "reference", libelle: "Référence" },
+    { cle: "designation", libelle: "Désignation" },
+    { cle: "depot", libelle: "Dépôt" },
+    { cle: "quantite", libelle: "Quantité" },
+    { cle: "seuil", libelle: "Seuil" },
+    { cle: "valeur", libelle: `Valeur (${devise})` },
+    { cle: "statut", libelle: "Statut" },
+  ];
+  const lignesExport = lignesAffichees.map((l) => ({
+    reference: l.reference || "",
+    designation: l.produitNom,
+    depot: l.depotNom,
+    quantite: l.quantite,
+    seuil: l.seuilAlerte,
+    valeur: valeurLigne(l),
+    statut: l.enRupture ? "Rupture" : "",
+  }));
 
   function basculerSelection(id: string) {
     setSelection((actuel) => {
@@ -128,7 +158,27 @@ function OngletStockNiveau({
   }
 
   return (
-    <div>
+    <div className="liste-dettes-credits">
+      <div className="tuiles-fiche">
+        <div className="tuile-fiche">
+          <span className="sous-info">📦 Articles</span>
+          <strong>{lignesAffichees.length}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">🔢 Quantité totale</span>
+          <strong>{formaterMontant(quantiteTotale)}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">💰 Valeur du stock (prix d'achat)</span>
+          <strong className="nowrap">
+            {formaterMontant(valeurTotale)} {devise}
+          </strong>
+        </div>
+        <div className={`tuile-fiche${rupturesAffichees.length > 0 ? " tuile-fiche--alerte" : ""}`}>
+          <span className="sous-info">⚠️ En rupture</span>
+          <strong>{rupturesAffichees.length}</strong>
+        </div>
+      </div>
       <div className="barre-actions barre-actions-avec-onglets">
         {peutGerer ? (
           <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
@@ -156,6 +206,7 @@ function OngletStockNiveau({
           />
           Seulement les ruptures
         </label>
+        <BoutonsExport titre="Niveaux de stock" colonnes={colonnesExport} lignes={lignesExport} compact />
         {selection.size > 0 && (
           <span className="actions-ligne">
             <button type="button" className="bouton-primaire" onClick={commanderLaSelection}>
@@ -174,6 +225,7 @@ function OngletStockNiveau({
             <th>Dépôt</th>
             <th>Quantité</th>
             <th>Seuil</th>
+            <th>Valeur</th>
             <th className="colonne-statut-stock">Statut</th>
             <th className="colonne-actions-stock">
               <span className="entete-actions-stock">
@@ -198,11 +250,14 @@ function OngletStockNiveau({
               <td>{l.reference || ""}</td>
               <td>{l.produitNom}</td>
               <td>{l.depotNom}</td>
-              <td>{l.quantite}</td>
+              <td><strong className={classeQuantite(l)}>{l.quantite}</strong></td>
               <td>{l.seuilAlerte}</td>
+              <td className="nowrap">
+                {formaterMontant(valeurLigne(l))} {devise}
+              </td>
               <td className="colonne-statut-stock">{l.enRupture ? <span className="badge-rupture">Rupture</span> : null}</td>
               <td className="colonne-actions-stock">
-                {l.enRupture && (
+                {!!l.enRupture && (
                   <span className="actions-ligne">
                     <input
                       type="checkbox"
@@ -226,13 +281,14 @@ function OngletStockNiveau({
           ))}
           {lignesAffichees.length === 0 && (
             <tr>
-              <td colSpan={8} className="liste-vide">
+              <td colSpan={9} className="liste-vide">
                 {seulementRuptures ? "Aucune rupture de stock." : "Aucune ligne de stock."}
               </td>
             </tr>
           )}
           {Array.from({ length: Math.max(0, 10 - Math.max(1, lignesAffichees.length)) }).map((_, i) => (
             <tr key={`vide-${i}`} className="ligne-groupe-vide">
+              <td>&nbsp;</td>
               <td>&nbsp;</td>
               <td>&nbsp;</td>
               <td>&nbsp;</td>
@@ -246,6 +302,16 @@ function OngletStockNiveau({
         </tbody>
       </table>
       </div>
+      {lignesAffichees.length > 0 && (
+        <div className="totaux">
+          <div>
+            {lignesAffichees.length} article{lignesAffichees.length > 1 ? "s" : ""} · {formaterMontant(quantiteTotale)} unité(s)
+          </div>
+          <div className="total-net">
+            Valeur du stock : {formaterMontant(valeurTotale)} {devise}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -710,6 +776,8 @@ function OngletTransferts({ session }: { session: Session }) {
   const [periode, setPeriode] = useState<PeriodeHistorique>("30j");
   const [debutPerso, setDebutPerso] = useState(jourLocal(new Date()));
   const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
+  const [depotFiltre, setDepotFiltre] = useState("");
+  const [terme, setTerme] = useState("");
 
   async function rafraichir() {
     const tous = await api.transferts.lister(session.boutiqueId, 5000);
@@ -727,11 +795,41 @@ function OngletTransferts({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.boutiqueId]);
 
-  const transfertsFiltres = transferts.filter((t) => dansPeriode(t.dateCreation, bornesPeriode(periode, debutPerso, finPerso)));
+  const cle = terme.trim().toLowerCase();
+  const nomsDepots = [...new Set(transferts.flatMap((t) => [t.depotSourceNom, t.depotDestinationNom]))].sort((a, b) =>
+    a.localeCompare(b, "fr"),
+  );
+  const transfertsFiltres = transferts.filter(
+    (t) =>
+      dansPeriode(t.dateCreation, bornesPeriode(periode, debutPerso, finPerso)) &&
+      (!depotFiltre || t.depotSourceNom === depotFiltre || t.depotDestinationNom === depotFiltre) &&
+      (!cle || t.produitNom.toLowerCase().includes(cle) || (t.reference ?? "").toLowerCase().includes(cle)),
+  );
+  const articlesDeplaces = transfertsFiltres.reduce((total, t) => total + t.quantite, 0);
+  // Dépôt d'où part le plus de marchandise sur la période.
+  const envoisParDepot = transfertsFiltres.reduce(
+    (parDepot, t) => parDepot.set(t.depotSourceNom, (parDepot.get(t.depotSourceNom) ?? 0) + t.quantite),
+    new Map<string, number>(),
+  );
+  const premierExpediteur = [...envoisParDepot.entries()].sort((a, b) => b[1] - a[1])[0];
 
   return (
-    <div className="onglet-transferts">
-      <div className="barre-actions barre-actions-avec-onglets">
+    <div className="onglet-transferts liste-dettes-credits">
+      <div className="tuiles-fiche">
+        <div className="tuile-fiche">
+          <span className="sous-info">🚚 Transferts</span>
+          <strong>{transfertsFiltres.length}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">📦 Articles déplacés</span>
+          <strong>{formaterMontant(articlesDeplaces)}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">📤 Dépôt qui envoie le plus</span>
+          <strong>{premierExpediteur ? `${premierExpediteur[0]} (${formaterMontant(premierExpediteur[1])})` : "—"}</strong>
+        </div>
+      </div>
+      <div className="barre-actions barre-actions-avec-onglets barre-filtres-historique">
         <FiltrePeriodeHistorique
           periode={periode}
           setPeriode={setPeriode}
@@ -740,6 +838,17 @@ function OngletTransferts({ session }: { session: Session }) {
           finPerso={finPerso}
           setFinPerso={setFinPerso}
         />
+        {nomsDepots.length > 1 && (
+          <select value={depotFiltre} onChange={(e) => setDepotFiltre(e.target.value)}>
+            <option value="">Tous les dépôts</option>
+            {nomsDepots.map((nom) => (
+              <option key={nom} value={nom}>
+                {nom}
+              </option>
+            ))}
+          </select>
+        )}
+        <input type="search" placeholder="Rechercher un article…" value={terme} onChange={(e) => setTerme(e.target.value)} />
         {peutGerer && !afficherForm && (
           <span className="actions-ligne">
             <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherForm(true)}>
@@ -778,7 +887,7 @@ function OngletTransferts({ session }: { session: Session }) {
         <tbody>
           {transfertsFiltres.map((t) => (
             <tr key={t.id}>
-              <td>{new Date(t.dateCreation).toLocaleString("fr-FR")}</td>
+              <td title={new Date(t.dateCreation).toLocaleString("fr-FR")}>{new Date(t.dateCreation).toLocaleDateString("fr-FR")}</td>
               <td>
                 {t.produitNom} {t.reference && `(${t.reference})`}
               </td>
@@ -791,7 +900,7 @@ function OngletTransferts({ session }: { session: Session }) {
           {transfertsFiltres.length === 0 && (
             <tr>
               <td colSpan={6} className="liste-vide">
-                Aucun transfert.
+                {transferts.length === 0 ? "Aucun transfert." : "Aucun transfert pour ces filtres."}
               </td>
             </tr>
           )}
@@ -808,6 +917,14 @@ function OngletTransferts({ session }: { session: Session }) {
         </tbody>
       </table>
       </div>
+      {transfertsFiltres.length > 0 && (
+        <div className="totaux">
+          <div>
+            {transfertsFiltres.length} transfert{transfertsFiltres.length > 1 ? "s" : ""}
+          </div>
+          <div className="total-net">Articles déplacés : {formaterMontant(articlesDeplaces)}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1143,6 +1260,21 @@ function OngletInventaire({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.boutiqueId]);
 
+  const nomUtilisateur = useNomsUtilisateurs(session);
+  const devise = useDevise();
+  const enCoursListe = inventaires.filter((i) => i.statut !== "valide");
+  const valides = inventaires.filter((i) => i.statut === "valide");
+  const dernierValide = valides[0];
+  const ecartValide = valides.reduce((total, i) => total + i.ecartValeur, 0);
+  // Un seul inventaire en cours par dépôt : le bouton reprend celui qui existe.
+  const inventaireEnCoursDuDepot = enCoursListe.find((i) => i.depotId === depotChoisi);
+  const jour = (iso: string) => new Date(iso).toLocaleDateString("fr-FR");
+
+  function ouvrir(id: string) {
+    setInventaireSelectionneId(id);
+    setVue("detail");
+  }
+
   async function demarrer() {
     if (!depotChoisi) return;
     setEnCours(true);
@@ -1162,7 +1294,24 @@ function OngletInventaire({ session }: { session: Session }) {
   }
 
   return (
-    <div>
+    <div className="liste-dettes-credits">
+      <div className="tuiles-fiche">
+        <div className={`tuile-fiche${enCoursListe.length > 0 ? " tuile-fiche--attention" : ""}`}>
+          <span className="sous-info">📝 Inventaires en cours</span>
+          <strong>{enCoursListe.length}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">✅ Dernier inventaire validé</span>
+          <strong>{dernierValide ? `${jour(dernierValide.dateValidation ?? dernierValide.dateCreation)} · ${dernierValide.depotNom}` : "—"}</strong>
+        </div>
+        <div className={`tuile-fiche${ecartValide < 0 ? " tuile-fiche--alerte" : ""}`}>
+          <span className="sous-info">⚖️ Écart des inventaires validés</span>
+          <strong className="nowrap">
+            {ecartValide > 0 ? "+" : ""}
+            {formaterMontant(ecartValide)} {devise}
+          </strong>
+        </div>
+      </div>
       {vue === "detail" && inventaireSelectionneId && (
         <div className="fond-modale" onClick={() => setVue("liste")}>
           <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
@@ -1188,57 +1337,84 @@ function OngletInventaire({ session }: { session: Session }) {
                 </option>
               ))}
             </select>
-            <label className="case-a-cocher" title="Chaque article part de 0 : ce qui n'est pas compté sera considéré comme absent à la validation.">
-              <input type="checkbox" checked={aZero} onChange={(e) => setAZero(e.target.checked)} />
-              Comptage à zéro
-            </label>
-            <span className="actions-ligne">
-              <button type="button" className="bouton-primaire" onClick={demarrer} disabled={enCours || !depotChoisi}>
-                {enCours ? "Démarrage…" : "Démarrer un inventaire"}
-              </button>
-            </span>
+            {inventaireEnCoursDuDepot ? (
+              <span className="actions-ligne">
+                <span className="sous-info">Un inventaire est déjà en cours sur ce dépôt.</span>
+                <button type="button" className="bouton-primaire" onClick={() => ouvrir(inventaireEnCoursDuDepot.id)}>
+                  Reprendre l'inventaire en cours
+                </button>
+              </span>
+            ) : (
+              <>
+                <label className="case-a-cocher" title="Chaque article part de 0 : ce qui n'est pas compté sera considéré comme absent à la validation.">
+                  <input type="checkbox" checked={aZero} onChange={(e) => setAZero(e.target.checked)} />
+                  Comptage à zéro
+                </label>
+                <span className="actions-ligne">
+                  <button type="button" className="bouton-primaire" onClick={demarrer} disabled={enCours || !depotChoisi}>
+                    {enCours ? "Démarrage…" : "Démarrer un inventaire"}
+                  </button>
+                </span>
+              </>
+            )}
           </>
         )}
       </div>
       <div className="zone-tableau-scroll">
-      <table className="tableau-catalogue">
-        <thead>
-          <tr>
-            <th>Dépôt</th>
-            <th>Statut</th>
-            <th>Date</th>
-          </tr>
-        </thead>
-        <tbody>
-          {inventaires.map((i) => (
-            <tr
-              key={i.id}
-              onClick={() => {
-                setInventaireSelectionneId(i.id);
-                setVue("detail");
-              }}
-            >
-              <td>{i.depotNom}</td>
-              <td>{i.statut === "valide" ? "Validé" : "En cours"}</td>
-              <td>{new Date(i.dateCreation).toLocaleString("fr-FR")}</td>
-            </tr>
-          ))}
-          {inventaires.length === 0 && (
+        <table className="tableau-catalogue">
+          <thead>
             <tr>
-              <td colSpan={3} className="liste-vide">
-                Aucun inventaire.
-              </td>
+              <th>Date</th>
+              <th>Dépôt</th>
+              <th>Statut</th>
+              <th>Articles</th>
+              <th>Manquants</th>
+              <th>Surplus</th>
+              <th>Écart</th>
+              <th>Fait par</th>
             </tr>
-          )}
-          {Array.from({ length: Math.max(0, 10 - Math.max(1, inventaires.length)) }).map((_, i) => (
-            <tr key={`vide-${i}`} className="ligne-groupe-vide">
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {inventaires.map((i) => (
+              <tr key={i.id} onClick={() => ouvrir(i.id)} title="Ouvrir cet inventaire">
+                <td title={new Date(i.dateCreation).toLocaleString("fr-FR")}>{jour(i.dateCreation)}</td>
+                <td>{i.depotNom}</td>
+                <td>{i.statut === "valide" ? (
+                    <span className="badge-recue">Validé</span>
+                  ) : (
+                    <span className="badge-commandee">En cours</span>
+                  )}</td>
+                <td>{i.nombreArticles}</td>
+                <td><span className={i.ecartsMoins > 0 ? "texte-erreur" : undefined}>{i.ecartsMoins}</span></td>
+                <td>{i.ecartsPlus}</td>
+                <td className="nowrap"><span className={i.ecartValeur < 0 ? "texte-erreur" : undefined}>
+                    {i.ecartValeur > 0 ? "+" : ""}
+                    {formaterMontant(i.ecartValeur)} {devise}
+                  </span></td>
+                <td>{nomUtilisateur(i.utilisateurId)}</td>
+              </tr>
+            ))}
+            {inventaires.length === 0 && (
+              <tr>
+                <td colSpan={8} className="liste-vide">
+                  Aucun inventaire.
+                </td>
+              </tr>
+            )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, inventaires.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -1671,6 +1847,12 @@ function OngletPertes({ session }: { session: Session }) {
   const [perteAAnnuler, setPerteAAnnuler] = useState<PerteResume | null>(null);
   const [erreurPerte, setErreurPerte] = useState<string | null>(null);
   const [enCoursPerte, setEnCoursPerte] = useState(false);
+  const [periode, setPeriode] = useState<PeriodeHistorique>("30j");
+  const [debutPerso, setDebutPerso] = useState(jourLocal(new Date()));
+  const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
+  const [motifFiltre, setMotifFiltre] = useState("");
+  const [depotFiltre, setDepotFiltre] = useState("");
+  const [terme, setTerme] = useState("");
 
   async function rafraichir() {
     const toutes = await api.pertes.lister(session.boutiqueId);
@@ -1683,8 +1865,22 @@ function OngletPertes({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.boutiqueId]);
 
+  const cle = terme.trim().toLowerCase();
+  const nomsDepots = [...new Set(pertes.map((p) => p.depotNom))].sort((a, b) => a.localeCompare(b, "fr"));
+  const pertesFiltrees = pertes.filter(
+    (p) =>
+      dansPeriode(p.dateCreation, bornesPeriode(periode, debutPerso, finPerso)) &&
+      (!motifFiltre || p.motif === motifFiltre) &&
+      (!depotFiltre || p.depotNom === depotFiltre) &&
+      (!cle || p.produitNom.toLowerCase().includes(cle) || (p.reference ?? "").toLowerCase().includes(cle)),
+  );
   // Une perte annulée reste affichée (traçabilité) mais ne compte plus.
-  const valeurTotale = pertes.filter((p) => !p.annulee).reduce((somme, p) => somme + p.valeur, 0);
+  const pertesActives = pertesFiltrees.filter((p) => !p.annulee);
+  const valeurTotale = pertesActives.reduce((somme, p) => somme + p.valeur, 0);
+  const quantiteTotale = pertesActives.reduce((somme, p) => somme + p.quantite, 0);
+  const motifFrequent = [
+    ...pertesActives.reduce((parMotif, p) => parMotif.set(p.motif, (parMotif.get(p.motif) ?? 0) + 1), new Map<string, number>()).entries(),
+  ].sort((a, b) => b[1] - a[1])[0];
 
   async function confirmerAnnulation() {
     if (!perteAAnnuler) return;
@@ -1704,8 +1900,55 @@ function OngletPertes({ session }: { session: Session }) {
   }
 
   return (
-    <div>
-      <div className="barre-actions barre-actions-avec-onglets">
+    <div className="liste-dettes-credits">
+      <div className="tuiles-fiche">
+        <div className="tuile-fiche">
+          <span className="sous-info">🗑️ Pertes</span>
+          <strong>{pertesActives.length}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">📦 Quantité perdue</span>
+          <strong>{formaterMontant(quantiteTotale)}</strong>
+        </div>
+        <div className={`tuile-fiche${valeurTotale > 0 ? " tuile-fiche--alerte" : ""}`}>
+          <span className="sous-info">💸 Valeur perdue</span>
+          <strong className="nowrap">
+            {formaterMontant(valeurTotale)} {devise}
+          </strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">🔎 Motif le plus fréquent</span>
+          <strong>{motifFrequent ? `${libelleMotifPerte(motifFrequent[0])} (${motifFrequent[1]})` : "—"}</strong>
+        </div>
+      </div>
+      <div className="barre-actions barre-actions-avec-onglets barre-filtres-historique">
+        <FiltrePeriodeHistorique
+          periode={periode}
+          setPeriode={setPeriode}
+          debutPerso={debutPerso}
+          setDebutPerso={setDebutPerso}
+          finPerso={finPerso}
+          setFinPerso={setFinPerso}
+        />
+        <select value={motifFiltre} onChange={(e) => setMotifFiltre(e.target.value)}>
+          <option value="">Tous les motifs</option>
+          {MOTIFS_PERTE.map((m) => (
+            <option key={m.valeur} value={m.valeur}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+        {nomsDepots.length > 1 && (
+          <select value={depotFiltre} onChange={(e) => setDepotFiltre(e.target.value)}>
+            <option value="">Tous les dépôts</option>
+            {nomsDepots.map((nom) => (
+              <option key={nom} value={nom}>
+                {nom}
+              </option>
+            ))}
+          </select>
+        )}
+        <input type="search" placeholder="Rechercher un article…" value={terme} onChange={(e) => setTerme(e.target.value)} />
         {peutGerer && (
           <span className="actions-ligne">
             <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherForm(true)}>
@@ -1756,9 +1999,9 @@ function OngletPertes({ session }: { session: Session }) {
             </tr>
           </thead>
           <tbody>
-            {pertes.map((p) => (
+            {pertesFiltrees.map((p) => (
               <tr key={p.id} className={p.annulee ? "ligne-annulee" : undefined}>
-                <td>{new Date(p.dateCreation).toLocaleString("fr-FR")}</td>
+                <td title={new Date(p.dateCreation).toLocaleString("fr-FR")}>{new Date(p.dateCreation).toLocaleDateString("fr-FR")}</td>
                 <td>
                   {p.produitNom} {p.reference && `(${p.reference})`}
                 </td>
@@ -1769,7 +2012,7 @@ function OngletPertes({ session }: { session: Session }) {
                   {p.detail && <span className="sous-info"> — {p.detail}</span>}
                 </td>
                 <td>{p.quantite}</td>
-                <td>
+                <td className="nowrap">
                   {formaterMontant(p.valeur)} {devise}
                 </td>
                 <td>{nomUtilisateur(p.utilisateurId)}</td>
@@ -1784,14 +2027,14 @@ function OngletPertes({ session }: { session: Session }) {
                 )}
               </tr>
             ))}
-            {pertes.length === 0 && (
+            {pertesFiltrees.length === 0 && (
               <tr>
                 <td colSpan={8} className="liste-vide">
-                  Aucune perte déclarée.
+                  {pertes.length === 0 ? "Aucune perte déclarée." : "Aucune perte pour ces filtres."}
                 </td>
               </tr>
             )}
-            {Array.from({ length: Math.max(0, 10 - Math.max(1, pertes.length)) }).map((_, i) => (
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, pertesFiltrees.length)) }).map((_, i) => (
               <tr key={`vide-${i}`} className="ligne-groupe-vide">
                 <td>&nbsp;</td>
                 <td>&nbsp;</td>
@@ -1806,8 +2049,11 @@ function OngletPertes({ session }: { session: Session }) {
           </tbody>
         </table>
       </div>
-      {pertes.length > 0 && (
+      {pertesFiltrees.length > 0 && (
         <div className="totaux">
+          <div>
+            {pertesActives.length} perte{pertesActives.length > 1 ? "s" : ""} · {formaterMontant(quantiteTotale)} unité(s)
+          </div>
           <div className="total-net">
             Valeur totale perdue : {formaterMontant(valeurTotale)} {devise}
           </div>
@@ -2352,6 +2598,7 @@ function OngletDestockage({ session }: { session: Session }) {
   const [operationAArreter, setOperationAArreter] = useState<{ id: string; nom: string } | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  const [filtreStatut, setFiltreStatut] = useState<"tous" | "en_cours" | "termines">("tous");
 
   async function rafraichir() {
     setDestockages(await api.destockages.lister(session.boutiqueId));
@@ -2360,6 +2607,17 @@ function OngletDestockage({ session }: { session: Session }) {
     rafraichir();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.boutiqueId]);
+
+  const destockagesFiltres = destockages.filter(
+    (d) => filtreStatut === "tous" || (filtreStatut === "en_cours") === (d.statut === "en_cours"),
+  );
+  const somme = (valeurs: number[]) => valeurs.reduce((t, v) => t + v, 0);
+  const enCoursNombre = destockages.filter((d) => d.statut === "en_cours").length;
+  const vendus = somme(destockagesFiltres.map((d) => d.quantiteVendue));
+  const chiffreAffaires = somme(destockagesFiltres.map((d) => d.chiffreAffaires));
+  const manqueAGagner = somme(destockagesFiltres.map((d) => d.manqueAGagner));
+  const remise = (d: DestockageResume) =>
+    d.prixNormal > 0 ? Math.round((1 - d.prixDestockage / d.prixNormal) * 100) : 0;
 
   async function confirmerArret() {
     if (!destockageAArreter) return;
@@ -2408,8 +2666,35 @@ function OngletDestockage({ session }: { session: Session }) {
   ];
 
   return (
-    <div>
+    <div className="liste-dettes-credits">
+      <div className="tuiles-fiche">
+        <div className="tuile-fiche">
+          <span className="sous-info">🏷️ Déstockages en cours</span>
+          <strong>{enCoursNombre}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">🛒 Articles vendus</span>
+          <strong>{formaterMontant(vendus)}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">💰 Chiffre d'affaires</span>
+          <strong className="nowrap">
+            {formaterMontant(chiffreAffaires)} {devise}
+          </strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">📉 Manque à gagner</span>
+          <strong className="nowrap">
+            {formaterMontant(manqueAGagner)} {devise}
+          </strong>
+        </div>
+      </div>
       <div className="barre-actions barre-actions-avec-onglets">
+        <select value={filtreStatut} onChange={(e) => setFiltreStatut(e.target.value as typeof filtreStatut)}>
+          <option value="tous">Tous les déstockages</option>
+          <option value="en_cours">En cours</option>
+          <option value="termines">Terminés</option>
+        </select>
         {peutGerer && (
           <span className="actions-ligne">
             <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherForm(true)}>
@@ -2501,14 +2786,15 @@ function OngletDestockage({ session }: { session: Session }) {
             </tr>
           </thead>
           <tbody>
-            {destockages.map((d) => (
+            {destockagesFiltres.map((d) => (
               <tr key={d.id}>
                 <td>
                   {d.produitNom} {d.reference && <span className="sous-info">({d.reference})</span>}
                 </td>
                 <td>{d.operationNom ?? "—"}</td>
                 <td>
-                  <s className="prix-barre">{formaterMontant(d.prixNormal)}</s> {formaterMontant(d.prixDestockage)} {devise}
+                  <span className="nowrap"><s className="prix-barre">{formaterMontant(d.prixNormal)}</s> {formaterMontant(d.prixDestockage)} {devise}</span>{" "}
+                  {remise(d) > 0 && <span className="badge-destockage">-{remise(d)} %</span>}
                 </td>
                 <td>{new Date(d.dateCreation).toLocaleDateString("fr-FR")}</td>
                 <td>
@@ -2542,14 +2828,14 @@ function OngletDestockage({ session }: { session: Session }) {
                 )}
               </tr>
             ))}
-            {destockages.length === 0 && (
+            {destockagesFiltres.length === 0 && (
               <tr>
                 <td colSpan={10} className="liste-vide">
-                  Aucun déstockage.
+                  {destockages.length === 0 ? "Aucun déstockage." : "Aucun déstockage pour ce filtre."}
                 </td>
               </tr>
             )}
-            {Array.from({ length: Math.max(0, 10 - Math.max(1, destockages.length)) }).map((_, i) => (
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, destockagesFiltres.length)) }).map((_, i) => (
               <tr key={`vide-${i}`} className="ligne-groupe-vide">
                 <td>&nbsp;</td>
                 <td>&nbsp;</td>
