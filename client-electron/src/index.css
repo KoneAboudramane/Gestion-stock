@@ -6481,3 +6481,21 @@ button.tuile-dormance.active {
   padding-left: 0.55rem;
   padding-right: 0.55rem;
 }
+
+/* Barre latérale des fenêtres plus étroite : plus de place pour les tableaux
+   (sur mobile, la barre reste horizontale en haut). */
+@media (min-width: 641px) {
+  .menu-modale {
+    width: 232px;
+    padding: 0.8rem 0.45rem;
+  }
+
+  .menu-modale button {
+    padding: 0.5rem 0.4rem 0.5rem 0.5rem;
+    font-size: 0.93rem;
+  }
+
+  .icone-menu-modale {
+    font-size: 1rem;
+  }
+}
