@@ -1241,6 +1241,8 @@ function OngletCredits({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const enCoursParType = (regulier: boolean) =>
+    credits.filter((c) => c.statut === "en_cours" && !!c.clientEstPermanent === regulier).length;
   const duType = credits.filter((c) => (typeClient === "reguliers" ? c.clientEstPermanent : !c.clientEstPermanent));
   const enCours = duType.filter((c) => c.statut === "en_cours");
   const enRetard = enCours.filter((c) => c.prochaineEcheance?.enRetard).length;
@@ -1306,6 +1308,34 @@ function OngletCredits({ session }: { session: Session }) {
     .sort((a, b) => Number(b.enRetard) - Number(a.enRetard) || b.du - a.du);
 
   return (
+    <div className="modale-avec-menu">
+      <nav className="menu-modale">
+        <button
+          type="button"
+          className={typeClient === "reguliers" ? "actif" : ""}
+          onClick={() => {
+            setTypeClient("reguliers");
+            setClientNom("");
+          }}
+        >
+          <span className="icone-menu-modale">👥</span>
+          Clients réguliers
+          <span className="compteur-menu-modale">{enCoursParType(true)}</span>
+        </button>
+        <button
+          type="button"
+          className={typeClient === "occasionnels" ? "actif" : ""}
+          onClick={() => {
+            setTypeClient("occasionnels");
+            setClientNom("");
+          }}
+        >
+          <span className="icone-menu-modale">🚶</span>
+          Clients de passage
+          <span className="compteur-menu-modale">{enCoursParType(false)}</span>
+        </button>
+      </nav>
+      <div className="modale-corps">
     <div className="liste-dettes-credits">
       {creditSelectionneId && (
         <div className="fond-modale" onClick={() => setCreditSelectionneId(null)}>
@@ -1321,38 +1351,6 @@ function OngletCredits({ session }: { session: Session }) {
           </div>
         </div>
       )}
-      <div className="barre-actions barre-actions-avec-onglets">
-        <div className="barre-onglets">
-          <button
-            type="button"
-            className={`onglet ${typeClient === "reguliers" ? "actif" : ""}`}
-            onClick={() => {
-              setTypeClient("reguliers");
-              setClientNom("");
-            }}
-          >
-            Clients réguliers
-          </button>
-          <button
-            type="button"
-            className={`onglet ${typeClient === "occasionnels" ? "actif" : ""}`}
-            onClick={() => {
-              setTypeClient("occasionnels");
-              setClientNom("");
-            }}
-          >
-            Clients de passage
-          </button>
-        </div>
-        <div className="barre-onglets">
-          <button type="button" className={`onglet ${vue === "credits" ? "actif" : ""}`} onClick={() => setVue("credits")}>
-            Par crédit
-          </button>
-          <button type="button" className={`onglet ${vue === "clients" ? "actif" : ""}`} onClick={() => setVue("clients")}>
-            Par client
-          </button>
-        </div>
-      </div>
       <div className="tuiles-fiche">
         <div className="tuile-fiche">
           <span className="sous-info">💰 Total dû</span>
@@ -1395,13 +1393,21 @@ function OngletCredits({ session }: { session: Session }) {
           value={recherche}
           onChange={(e) => setRecherche(e.target.value)}
         />
+        <div className="bascule-vue" role="group" aria-label="Affichage">
+          <button type="button" className={vue === "credits" ? "actif" : ""} onClick={() => setVue("credits")}>
+            📄 Par crédit
+          </button>
+          <button type="button" className={vue === "clients" ? "actif" : ""} onClick={() => setVue("clients")}>
+            👤 Par client
+          </button>
+        </div>
       </div>
       {messageRelance && (
         <div className={messageRelance.ok ? "message-succes" : "message-erreur"}>{messageRelance.texte}</div>
       )}
       {vue === "clients" ? (
         <div className="zone-tableau-scroll">
-          <table className="tableau-catalogue carte-mobile">
+          <table className="tableau-catalogue tableau-serre carte-mobile">
             <thead>
               <tr>
                 <th>N°</th>
@@ -1459,14 +1465,12 @@ function OngletCredits({ session }: { session: Session }) {
         </div>
       ) : (
       <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue carte-mobile">
+        <table className="tableau-catalogue tableau-serre carte-mobile">
           <thead>
             <tr>
               <th>N°</th>
               <th>Date d'achat</th>
-              <th>Ancienneté</th>
               <th>Client</th>
-              <th>Vente</th>
               <th>Montant</th>
               <th>Réglé</th>
               <th>Reste</th>
@@ -1479,16 +1483,24 @@ function OngletCredits({ session }: { session: Session }) {
             {creditsFiltres.map((c, index) => (
               <tr key={c.id} onClick={() => setCreditSelectionneId(c.id)} title="Voir le crédit">
                   <td data-label="N°">{index + 1}</td>
-                  <td data-label="Date d'achat">{new Date(c.dateCreation).toLocaleDateString("fr-FR")}</td>
-                  <td data-label="Ancienneté">{c.statut === "en_cours" ? (
-                    <span className={anciennete(c.dateCreation) > 60 ? "texte-erreur nowrap" : "nowrap"}>
-                      {anciennete(c.dateCreation)} jours
-                    </span>
-                  ) : (
-                    "—"
-                  )}</td>
-                  <td data-label="Client">{c.clientNom}</td>
-                  <td data-label="Vente">{c.venteNumero ?? "—"}</td>
+                  <td data-label="Date d'achat">
+                    {new Date(c.dateCreation).toLocaleDateString("fr-FR")}
+                    {c.statut === "en_cours" && (
+                      <span className={`sous-info nowrap${anciennete(c.dateCreation) > 60 ? " texte-erreur" : ""}`}>
+                        <br />
+                        il y a {anciennete(c.dateCreation)} jours
+                      </span>
+                    )}
+                  </td>
+                  <td data-label="Client">
+                    {c.clientNom}
+                    {c.venteNumero && (
+                      <span className="sous-info nowrap">
+                        <br />
+                        {c.venteNumero}
+                      </span>
+                    )}
+                  </td>
                   <td data-label="Montant"><span className="nowrap">{formaterMontant(c.montant)} {devise}</span></td>
                   <td data-label="Réglé"><span className="mini-progression">
                     <span className="barre-progression">
@@ -1512,29 +1524,27 @@ function OngletCredits({ session }: { session: Session }) {
                   <td data-label="Relance">{c.statut === "en_cours" && (
                     <button
                       type="button"
-                      className="nowrap"
-                      title="Envoyer un rappel par WhatsApp"
+                      className="lien-icone"
+                      title="Relancer par WhatsApp"
                       onClick={(e) => {
                         e.stopPropagation();
                         relancer(c);
                       }}
                     >
-                      📲 Relancer
+                      📲
                     </button>
                   )}</td>
               </tr>
             ))}
             {creditsFiltres.length === 0 && (
               <tr>
-                <td colSpan={11} className="liste-vide">
+                <td colSpan={9} className="liste-vide">
                   Aucun crédit pour ces filtres.
                 </td>
               </tr>
             )}
             {Array.from({ length: Math.max(0, 10 - Math.max(1, creditsFiltres.length)) }).map((_, i) => (
               <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                  <td>&nbsp;</td>
-                  <td>&nbsp;</td>
                   <td>&nbsp;</td>
                   <td>&nbsp;</td>
                   <td>&nbsp;</td>
@@ -1573,6 +1583,8 @@ function OngletCredits({ session }: { session: Session }) {
         </div>
       )}
     </div>
+      </div>
+    </div>
   );
 }
 
@@ -1594,9 +1606,7 @@ function ModaleCredits({ session, onFermer }: { session: Session; onFermer: () =
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Crédits" onFermer={onFermer} />
-        <div className="modale-corps">
-          <OngletCredits session={session} />
-        </div>
+        <OngletCredits session={session} />
       </div>
     </div>
   );
