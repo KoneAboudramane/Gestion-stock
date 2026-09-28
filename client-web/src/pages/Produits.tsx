@@ -551,34 +551,40 @@ function DetailProduit({
             ← Retour
           </button>
         </div>
+        <div className="modale-avec-menu">
+          <nav className="menu-modale">
+            <button
+              type="button"
+              className={pageDetail === "details" ? "actif" : ""}
+              onClick={() => setPageDetail("details")}
+            >
+              <span className="icone-menu-modale">📝</span>
+              Détails
+            </button>
+            <button
+              type="button"
+              className={pageDetail === "mouvements" ? "actif" : ""}
+              onClick={() => setPageDetail("mouvements")}
+            >
+              <span className="icone-menu-modale">🔄</span>
+              Mouvements de stock
+              <span className="compteur-menu-modale">{mouvements.length}</span>
+            </button>
+            <button
+              type="button"
+              className={pageDetail === "ventes" ? "actif" : ""}
+              onClick={() => setPageDetail("ventes")}
+            >
+              <span className="icone-menu-modale">🛒</span>
+              Ventes
+              <span className="compteur-menu-modale">{ventesHistorique.length}</span>
+            </button>
+          </nav>
         <div className="modale-corps">
           {!produit ? (
             <p>Chargement…</p>
           ) : (
             <div className="detail-produit-modale-scroll">
-              <div className="barre-onglets">
-                <button
-                  type="button"
-                  className={`onglet ${pageDetail === "details" ? "actif" : ""}`}
-                  onClick={() => setPageDetail("details")}
-                >
-                  Détails
-                </button>
-                <button
-                  type="button"
-                  className={`onglet ${pageDetail === "mouvements" ? "actif" : ""}`}
-                  onClick={() => setPageDetail("mouvements")}
-                >
-                  Historique des mouvements de stock
-                </button>
-                <button
-                  type="button"
-                  className={`onglet ${pageDetail === "ventes" ? "actif" : ""}`}
-                  onClick={() => setPageDetail("ventes")}
-                >
-                  Historique des ventes
-                </button>
-              </div>
               <div className="tuiles-fiche">
                 <div className={`tuile-fiche${stockTotal <= 0 ? " tuile-fiche--alerte" : ""}`}>
                   <span className="sous-info">📦 Stock total</span>
@@ -916,6 +922,7 @@ function DetailProduit({
               )}
             </div>
           )}
+        </div>
         </div>
       </div>
     </div>
