@@ -7459,3 +7459,47 @@ button.tuile-dormance.active {
   margin: 0;
   flex-shrink: 0;
 }
+
+/* Comptabilité : écritures regroupées, sous-totaux, badge « non officiel ». */
+.tableau-catalogue tr.ligne-ecriture td {
+  background: var(--couleur-primaire-clair);
+  padding-top: 0.45rem;
+  padding-bottom: 0.45rem;
+}
+
+.tableau-catalogue tr.ligne-sous-total td {
+  font-weight: 600;
+  font-style: italic;
+}
+
+.tableau-journal td.compte-credit {
+  padding-left: 2rem;
+}
+
+.badge-apercu {
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--avertissement, #d97706);
+  color: var(--avertissement, #d97706);
+  font-size: 0.82rem;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.barre-compta input[type="date"] {
+  width: 150px;
+}
+
+.select-compte {
+  max-width: 360px;
+}
+
+.modale-corps > .disposition-deux-colonnes {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.disposition-deux-colonnes > .zone-tableau-scroll {
+  max-height: none;
+  overflow-y: auto;
+}
