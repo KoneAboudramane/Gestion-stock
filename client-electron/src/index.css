@@ -6507,3 +6507,75 @@ button.tuile-dormance.active {
   min-width: 70px;
   text-align: center;
 }
+
+/* Trésorerie : aperçus avant / après, écart de clôture en direct, montants d'entrée. */
+.montant-entree {
+  color: var(--succes, #16a34a);
+}
+
+.apercu-solde,
+.apercu-transfert {
+  padding: 0.55rem 0.8rem;
+  border: 1px dashed var(--bordure-tableau, var(--gris-300));
+  border-radius: var(--rayon-sm);
+  flex-shrink: 0;
+}
+
+.apercu-solde--alerte {
+  border-color: var(--danger, #dc2626);
+  color: var(--danger, #dc2626);
+}
+
+.apercu-transfert {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.92rem;
+}
+
+.cloture-saisie {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.8rem;
+  flex-shrink: 0;
+}
+
+.cloture-saisie label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  flex: 1;
+  min-width: 200px;
+}
+
+.cloture-theorique strong {
+  font-size: 1.35rem;
+}
+
+.cloture-ecart {
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--rayon-sm);
+  border: 1px solid var(--bordure-tableau, var(--gris-300));
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cloture-ecart--juste {
+  border-color: var(--succes, #16a34a);
+  color: var(--succes, #16a34a);
+}
+
+.cloture-ecart--manque {
+  border-color: var(--danger, #dc2626);
+  color: var(--danger, #dc2626);
+}
+
+.cloture-ecart--exces {
+  border-color: var(--avertissement, #d97706);
+  color: var(--avertissement, #d97706);
+}
+
+.formulaire-mouvement-caisse-modale .entete-section-tableau {
+  flex-shrink: 0;
+}

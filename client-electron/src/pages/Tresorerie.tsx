@@ -13,6 +13,10 @@ import type {
 } from "../api/client";
 import ChampMontant from "../components/ChampMontant";
 import { useDevise } from "../contexts/DeviseContext";
+import BoutonsExport from "../components/BoutonsExport";
+import FiltrePeriodeHistorique from "../components/FiltrePeriodeHistorique";
+import { bornesPeriode, dansPeriode, jourLocal, type PeriodeHistorique } from "../lib/periode";
+import type { ColonneExport } from "../api/client";
 import { formaterMontant } from "../lib/formatage";
 import {
   OPERATEURS_MOBILE_MONEY,
@@ -77,6 +81,21 @@ function SelecteurDepot({
 // (.modale-selection-produits, voir index.css) : leur historique respectif
 // vit désormais dans la modale elle-même, juste sous le formulaire.
 
+/** Date courte des historiques (l'heure complète reste au survol). */
+function dateCourte(iso: string): string {
+  return new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
+}
+
+/** Montant signé d'un mouvement : vert pour une entrée, rouge pour une sortie. */
+function MontantSigne({ sortie, montant, devise }: { sortie: boolean; montant: number; devise: string }) {
+  return (
+    <span className={sortie ? "texte-erreur" : "montant-entree"}>
+      {sortie ? "−" : "+"}
+      {formaterMontant(Math.abs(montant))} {devise}
+    </span>
+  );
+}
+
 type CategorieActionCaisse = "retrait" | "apport" | "ajustement";
 
 const SECTIONS_ACTION_CAISSE: Record<
@@ -113,6 +132,8 @@ function ModaleMouvementCategorie({
   mouvements,
   devise,
   nomUtilisateur,
+  soldeActuel,
+  effet,
   motifRequis = false,
   montantSigne = false,
   onAnnuler,
@@ -124,6 +145,10 @@ function ModaleMouvementCategorie({
   mouvements: MouvementCaisseResume[];
   devise: string;
   nomUtilisateur: (id: string | null) => string;
+  /** Solde de caisse avant l'opération (aperçu « après »). */
+  soldeActuel: number | null;
+  /** -1 : sort de la caisse (retrait), +1 : y entre (mise de fonds), 0 : selon le sens choisi (ajustement). */
+  effet: -1 | 0 | 1;
   motifRequis?: boolean;
   montantSigne?: boolean;
   onAnnuler: () => void;
@@ -134,6 +159,15 @@ function ModaleMouvementCategorie({
   const [motif, setMotif] = useState("");
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  const [periode, setPeriode] = useState<PeriodeHistorique>("tout");
+  const [debutPerso, setDebutPerso] = useState(jourLocal(new Date()));
+  const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
+
+  const signe = effet !== 0 ? effet : negatif ? -1 : 1;
+  const saisi = Number(montant) || 0;
+  const soldeApres = soldeActuel !== null ? soldeActuel + signe * saisi : null;
+  const filtres = mouvements.filter((m) => dansPeriode(m.dateCreation, bornesPeriode(periode, debutPerso, finPerso)));
+  const total = filtres.reduce((t, m) => t + (m.type === "sortie" ? -1 : 1) * Math.abs(m.montant), 0);
 
   async function valider(evenement: React.FormEvent) {
     evenement.preventDefault();
@@ -144,8 +178,7 @@ function ModaleMouvementCategorie({
     }
     setEnCours(true);
     try {
-      const valeur = (Number(montant) || 0) * (montantSigne && negatif ? -1 : 1);
-      const message = await onValider(valeur, motif.trim());
+      const message = await onValider(saisi * (montantSigne && negatif ? -1 : 1), motif.trim());
       if (message) setErreur(message);
     } finally {
       setEnCours(false);
@@ -186,9 +219,45 @@ function ModaleMouvementCategorie({
                 {enCours ? "…" : "Valider"}
               </button>
             </div>
+            <div className={`apercu-solde${soldeApres !== null && soldeApres < 0 ? " apercu-solde--alerte" : ""}`}>
+              Solde de caisse : <strong>{soldeActuel !== null ? `${formaterMontant(soldeActuel)} ${devise}` : "…"}</strong>
+              {saisi > 0 && soldeApres !== null && (
+                <>
+                  {" "}→ après : <strong>{formaterMontant(soldeApres)} {devise}</strong>
+                  {soldeApres < 0 && <span> · la caisse passera en négatif</span>}
+                </>
+              )}
+            </div>
 
-            <h4>{historiqueTitre}</h4>
-            <div className="zone-tableau-scroll">
+            <div className="entete-section-tableau">
+              <h4>{historiqueTitre}</h4>
+              <FiltrePeriodeHistorique
+                periode={periode}
+                setPeriode={setPeriode}
+                debutPerso={debutPerso}
+                setDebutPerso={setDebutPerso}
+                finPerso={finPerso}
+                setFinPerso={setFinPerso}
+              />
+            </div>
+            <div className="tuiles-fiche">
+              <div className="tuile-fiche">
+                <span className="sous-info">🧾 Opérations</span>
+                <strong>{filtres.length}</strong>
+              </div>
+              <div className="tuile-fiche">
+                <span className="sous-info">💰 Total</span>
+                <strong className="nowrap">
+                  {total > 0 ? "+" : ""}
+                  {formaterMontant(total)} {devise}
+                </strong>
+              </div>
+              <div className="tuile-fiche">
+                <span className="sous-info">🕘 Dernière opération</span>
+                <strong>{mouvements[0] ? new Date(mouvements[0].dateCreation).toLocaleDateString("fr-FR") : "—"}</strong>
+              </div>
+            </div>
+            <div className="zone-tableau-scroll zone-commandes-fiche">
               <table className="tableau-catalogue">
                 <thead>
                   <tr>
@@ -199,34 +268,31 @@ function ModaleMouvementCategorie({
                   </tr>
                 </thead>
                 <tbody>
-                  {mouvements.map((m) => (
+                  {filtres.map((m) => (
                     <tr key={m.id}>
-                      <td>{new Date(m.dateCreation).toLocaleString("fr-FR")}</td>
-                      <td>{m.motif}</td>
-                      <td>
-                        {m.type === "sortie" ? "−" : "+"}
-                        {formaterMontant(Math.abs(m.montant))} {devise}
+                      <td title={new Date(m.dateCreation).toLocaleString("fr-FR")}>{dateCourte(m.dateCreation)}</td>
+                      <td>{m.motif || "—"}</td>
+                      <td className="nowrap">
+                        <MontantSigne sortie={m.type === "sortie"} montant={m.montant} devise={devise} />
                       </td>
                       <td>{nomUtilisateur(m.utilisateurId)}</td>
                     </tr>
                   ))}
-                  {mouvements.length === 0 && (
+                  {filtres.length === 0 && (
                     <tr>
                       <td colSpan={4} className="liste-vide-compacte">
-                        {libelleVide}
+                        {mouvements.length === 0 ? libelleVide : "Rien sur cette période."}
                       </td>
                     </tr>
                   )}
-                  {Array.from({ length: Math.max(0, 12 - mouvements.length - (mouvements.length === 0 ? 1 : 0)) }).map(
-                    (_, i) => (
-                      <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                      </tr>
-                    ),
-                  )}
+                  {Array.from({ length: Math.max(0, 10 - Math.max(1, filtres.length)) }).map((_, i) => (
+                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -250,6 +316,43 @@ function ModaleHistoriqueSolde({
   nomUtilisateur: (id: string | null) => string;
   onFermer: () => void;
 }) {
+  const [periode, setPeriode] = useState<PeriodeHistorique>("30j");
+  const [debutPerso, setDebutPerso] = useState(jourLocal(new Date()));
+  const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
+  const [sens, setSens] = useState<"" | "entree" | "sortie">("");
+  const [categorie, setCategorie] = useState("");
+  const [terme, setTerme] = useState("");
+  const categories = [...new Set(mouvements.map((m) => m.categorie))].sort((a, b) =>
+    libelleCategorieMouvementCaisse(a).localeCompare(libelleCategorieMouvementCaisse(b), "fr"),
+  );
+  const cle = terme.trim().toLowerCase();
+  const filtres = mouvements.filter(
+    (m) =>
+      dansPeriode(m.dateCreation, bornesPeriode(periode, debutPerso, finPerso)) &&
+      (!sens || (sens === "sortie") === (m.type === "sortie")) &&
+      (!categorie || m.categorie === categorie) &&
+      (!cle || (m.motif ?? "").toLowerCase().includes(cle)),
+  );
+  const entrees = filtres.filter((m) => m.type !== "sortie").reduce((t, m) => t + Math.abs(m.montant), 0);
+  const sorties = filtres.filter((m) => m.type === "sortie").reduce((t, m) => t + Math.abs(m.montant), 0);
+  const net = entrees - sorties;
+  const colonnesExport: ColonneExport[] = [
+    { cle: "date", libelle: "Date" },
+    { cle: "type", libelle: "Type" },
+    { cle: "categorie", libelle: "Catégorie" },
+    { cle: "motif", libelle: "Motif" },
+    { cle: "montant", libelle: `Montant (${devise})` },
+    { cle: "par", libelle: "Effectué par" },
+  ];
+  const lignesExport = filtres.map((m) => ({
+    date: new Date(m.dateCreation).toLocaleString("fr-FR"),
+    type: libelleTypeMouvementCaisse(m.type),
+    categorie: libelleCategorieMouvementCaisse(m.categorie),
+    motif: m.motif ?? "",
+    montant: (m.type === "sortie" ? -1 : 1) * Math.abs(m.montant),
+    par: nomUtilisateur(m.utilisateurId),
+  }));
+
   return (
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
@@ -260,7 +363,57 @@ function ModaleHistoriqueSolde({
           </button>
         </div>
         <div className="modale-corps">
-          <div className="zone-tableau-scroll">
+          <div className="tuiles-fiche">
+            <div className="tuile-fiche">
+              <span className="sous-info">📥 Entrées</span>
+              <strong className="nowrap montant-entree">
+                +{formaterMontant(entrees)} {devise}
+              </strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">📤 Sorties</span>
+              <strong className="nowrap texte-erreur">
+                −{formaterMontant(sorties)} {devise}
+              </strong>
+            </div>
+            <div className={`tuile-fiche${net < 0 ? " tuile-fiche--alerte" : ""}`}>
+              <span className="sous-info">⚖️ Variation nette</span>
+              <strong className="nowrap">
+                {net > 0 ? "+" : ""}
+                {formaterMontant(net)} {devise}
+              </strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">🧾 Opérations</span>
+              <strong>{filtres.length}</strong>
+            </div>
+          </div>
+          <div className="barre-actions barre-filtres-historique">
+            <FiltrePeriodeHistorique
+              periode={periode}
+              setPeriode={setPeriode}
+              debutPerso={debutPerso}
+              setDebutPerso={setDebutPerso}
+              finPerso={finPerso}
+              setFinPerso={setFinPerso}
+            />
+            <select value={sens} onChange={(e) => setSens(e.target.value as typeof sens)}>
+              <option value="">Entrées et sorties</option>
+              <option value="entree">Entrées</option>
+              <option value="sortie">Sorties</option>
+            </select>
+            <select value={categorie} onChange={(e) => setCategorie(e.target.value)}>
+              <option value="">Toutes les catégories</option>
+              {categories.map((c) => (
+                <option key={c} value={c}>
+                  {libelleCategorieMouvementCaisse(c)}
+                </option>
+              ))}
+            </select>
+            <input type="search" placeholder="Motif…" value={terme} onChange={(e) => setTerme(e.target.value)} />
+            <BoutonsExport titre="Historique du solde de caisse" colonnes={colonnesExport} lignes={lignesExport} compact />
+          </div>
+          <div className="zone-tableau-scroll zone-commandes-fiche">
             <table className="tableau-catalogue">
               <thead>
                 <tr>
@@ -273,45 +426,54 @@ function ModaleHistoriqueSolde({
                 </tr>
               </thead>
               <tbody>
-                {mouvements.map((m) => (
+                {filtres.map((m) => (
                   <tr key={m.id}>
-                    <td>{new Date(m.dateCreation).toLocaleString("fr-FR")}</td>
+                    <td title={new Date(m.dateCreation).toLocaleString("fr-FR")}>{dateCourte(m.dateCreation)}</td>
                     <td>
                       <span className={m.type === "sortie" ? "badge-annulee" : "badge-payee"}>
                         {libelleTypeMouvementCaisse(m.type)}
                       </span>
                     </td>
                     <td>{libelleCategorieMouvementCaisse(m.categorie)}</td>
-                    <td>{m.motif}</td>
-                    <td>
-                      {m.type === "sortie" ? "−" : "+"}
-                      {formaterMontant(Math.abs(m.montant))} {devise}
+                    <td>{m.motif || "—"}</td>
+                    <td className="nowrap">
+                      <MontantSigne sortie={m.type === "sortie"} montant={m.montant} devise={devise} />
                     </td>
                     <td>{nomUtilisateur(m.utilisateurId)}</td>
                   </tr>
                 ))}
-                {mouvements.length === 0 && (
+                {filtres.length === 0 && (
                   <tr>
                     <td colSpan={6} className="liste-vide-compacte">
-                      Aucun mouvement de caisse.
+                      {mouvements.length === 0 ? "Aucun mouvement de caisse." : "Aucun mouvement pour ces filtres."}
                     </td>
                   </tr>
                 )}
-                {Array.from({ length: Math.max(0, 15 - mouvements.length - (mouvements.length === 0 ? 1 : 0)) }).map(
-                  (_, i) => (
-                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                    </tr>
-                  ),
-                )}
+                {Array.from({ length: Math.max(0, 10 - Math.max(1, filtres.length)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
+          {filtres.length > 0 && (
+            <div className="totaux">
+              <div>
+                {filtres.length} opération{filtres.length > 1 ? "s" : ""} · entrées +{formaterMontant(entrees)} · sorties −
+                {formaterMontant(sorties)}
+              </div>
+              <div className="total-net">
+                Variation : {net > 0 ? "+" : ""}
+                {formaterMontant(net)} {devise}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -326,12 +488,15 @@ function ModaleHistoriqueSolde({
 function ModaleTransfertMobileMoney({
   operateur,
   disponible,
+  soldeCaisse,
   devise,
   onAnnuler,
   onValider,
 }: {
   operateur: OperateurMobileMoney;
   disponible: number;
+  /** Solde de caisse avant le transfert (aperçu « après »). */
+  soldeCaisse: number | null;
   devise: string;
   onAnnuler: () => void;
   onValider: (montant: number) => Promise<string | void>;
@@ -386,6 +551,18 @@ function ModaleTransfertMobileMoney({
               <span className="aide-montant-erreur">Montant supérieur au disponible.</span>
             )}
           </label>
+          <div className="apercu-transfert">
+            <span>
+              {libelleOperateurMobileMoney(operateur)} : {formaterMontant(disponible)} →{" "}
+              <strong>{formaterMontant(Math.max(0, disponible - (Number(montant) || 0)))}</strong> {devise}
+            </span>
+            {soldeCaisse !== null && (
+              <span>
+                Caisse : {formaterMontant(soldeCaisse)} → <strong>{formaterMontant(soldeCaisse + (Number(montant) || 0))}</strong>{" "}
+                {devise}
+              </span>
+            )}
+          </div>
           <div className="raccourcis-montant-transfert">
             <button type="button" onClick={() => definirPourcentage(0.25)} disabled={disponible <= 0}>
               25%
@@ -428,6 +605,12 @@ function ModaleHistoriqueTransferts({
   nomUtilisateur: (id: string | null) => string;
   onFermer: () => void;
 }) {
+  const [periode, setPeriode] = useState<PeriodeHistorique>("tout");
+  const [debutPerso, setDebutPerso] = useState(jourLocal(new Date()));
+  const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
+  const filtres = transferts.filter((t) => dansPeriode(t.dateCreation, bornesPeriode(periode, debutPerso, finPerso)));
+  const total = filtres.reduce((s, t) => s + t.montant, 0);
+
   return (
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
@@ -438,7 +621,39 @@ function ModaleHistoriqueTransferts({
           </button>
         </div>
         <div className="modale-corps">
-          <div className="zone-tableau-scroll">
+          <div className="tuiles-fiche">
+            <div className="tuile-fiche">
+              <span className="sous-info">🔁 Transferts</span>
+              <strong>{filtres.length}</strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">💰 Total vers la caisse</span>
+              <strong className="nowrap">
+                {formaterMontant(total)} {devise}
+              </strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">📊 Transfert moyen</span>
+              <strong className="nowrap">
+                {formaterMontant(filtres.length > 0 ? Math.round(total / filtres.length) : 0)} {devise}
+              </strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">🕘 Dernier transfert</span>
+              <strong>{transferts[0] ? new Date(transferts[0].dateCreation).toLocaleDateString("fr-FR") : "—"}</strong>
+            </div>
+          </div>
+          <div className="barre-actions barre-filtres-historique">
+            <FiltrePeriodeHistorique
+              periode={periode}
+              setPeriode={setPeriode}
+              debutPerso={debutPerso}
+              setDebutPerso={setDebutPerso}
+              finPerso={finPerso}
+              setFinPerso={setFinPerso}
+            />
+          </div>
+          <div className="zone-tableau-scroll zone-commandes-fiche">
             <table className="tableau-catalogue">
               <thead>
                 <tr>
@@ -448,34 +663,42 @@ function ModaleHistoriqueTransferts({
                 </tr>
               </thead>
               <tbody>
-                {transferts.map((t) => (
+                {filtres.map((t) => (
                   <tr key={t.id}>
-                    <td>{new Date(t.dateCreation).toLocaleString("fr-FR")}</td>
-                    <td>
-                      {formaterMontant(t.montant)} {devise}
+                    <td title={new Date(t.dateCreation).toLocaleString("fr-FR")}>{dateCourte(t.dateCreation)}</td>
+                    <td className="nowrap montant-entree">
+                      +{formaterMontant(t.montant)} {devise}
                     </td>
                     <td>{nomUtilisateur(t.utilisateurId)}</td>
                   </tr>
                 ))}
-                {transferts.length === 0 && (
+                {filtres.length === 0 && (
                   <tr>
                     <td colSpan={3} className="liste-vide-compacte">
-                      Aucun transfert.
+                      {transferts.length === 0 ? "Aucun transfert." : "Aucun transfert sur cette période."}
                     </td>
                   </tr>
                 )}
-                {Array.from({ length: Math.max(0, 15 - transferts.length - (transferts.length === 0 ? 1 : 0)) }).map(
-                  (_, i) => (
-                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                      <td>&nbsp;</td>
-                    </tr>
-                  ),
-                )}
+                {Array.from({ length: Math.max(0, 10 - Math.max(1, filtres.length)) }).map((_, i) => (
+                  <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
+          {filtres.length > 0 && (
+            <div className="totaux">
+              <div>
+                {filtres.length} transfert{filtres.length > 1 ? "s" : ""}
+              </div>
+              <div className="total-net">
+                Total : {formaterMontant(total)} {devise}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -522,9 +745,9 @@ function OngletHistorique({
   async function rafraichir() {
     if (!depotId) return;
     setSolde(await api.tresorerie.solde(depotId));
-    setMouvements(await api.tresorerie.listerMouvements(depotId, 200));
-    setTransferts(await api.tresorerie.listerTransferts(depotId, 200));
-    setClotures(await api.tresorerie.listerClotures(depotId, 60));
+    setMouvements(await api.tresorerie.listerMouvements(depotId, 2000));
+    setTransferts(await api.tresorerie.listerTransferts(depotId, 1000));
+    setClotures(await api.tresorerie.listerClotures(depotId, 365));
   }
   useEffect(() => {
     rafraichir();
@@ -659,6 +882,7 @@ function OngletHistorique({
         <ModaleTransfertMobileMoney
           operateur={selection}
           disponible={soldesMobileMoney ? soldesMobileMoney[selection] : 0}
+          soldeCaisse={solde}
           devise={devise}
           onAnnuler={() => setModaleOuverte(null)}
           onValider={async (montant) => {
@@ -707,6 +931,8 @@ function OngletHistorique({
           historiqueTitre={SECTIONS_ACTION_CAISSE.retrait.historiqueTitre}
           libelleVide={SECTIONS_ACTION_CAISSE.retrait.vide}
           mouvements={mouvementsParCategorie.retrait}
+          soldeActuel={solde}
+          effet={-1}
           devise={devise}
           nomUtilisateur={nomUtilisateur}
           onAnnuler={() => setModaleOuverte(null)}
@@ -723,6 +949,8 @@ function OngletHistorique({
           historiqueTitre={SECTIONS_ACTION_CAISSE.apport.historiqueTitre}
           libelleVide={SECTIONS_ACTION_CAISSE.apport.vide}
           mouvements={mouvementsParCategorie.apport}
+          soldeActuel={solde}
+          effet={1}
           devise={devise}
           nomUtilisateur={nomUtilisateur}
           onAnnuler={() => setModaleOuverte(null)}
@@ -739,6 +967,8 @@ function OngletHistorique({
           historiqueTitre={SECTIONS_ACTION_CAISSE.ajustement.historiqueTitre}
           libelleVide={SECTIONS_ACTION_CAISSE.ajustement.vide}
           mouvements={mouvementsParCategorie.ajustement}
+          soldeActuel={solde}
+          effet={0}
           devise={devise}
           nomUtilisateur={nomUtilisateur}
           motifRequis
@@ -777,6 +1007,9 @@ function ModaleClotureCaisse({
   const [soldeCompte, setSoldeCompte] = useState("");
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  // Écart en direct : positif = excédent, négatif = manque.
+  const ecartSaisi = soldeCompte !== "" && soldeActuel !== null ? (Number(soldeCompte) || 0) - soldeActuel : null;
+  const ecartCumule = clotures.reduce((t, c) => t + c.ecart, 0);
 
   async function valider(evenement: React.FormEvent) {
     evenement.preventDefault();
@@ -802,21 +1035,54 @@ function ModaleClotureCaisse({
           </div>
           <div className="modale-corps">
             {erreur && <div className="message-erreur">{erreur}</div>}
-            <p className="note-aide">
-              Solde théorique actuel : {soldeActuel !== null ? `${formaterMontant(soldeActuel)} ${devise}` : "…"}
-            </p>
-            <div className="ligne-champs-tresorerie">
+            <div className="cloture-saisie">
+              <div className="tuile-fiche cloture-theorique">
+                <span className="sous-info">Solde théorique</span>
+                <strong className={soldeActuel !== null && soldeActuel < 0 ? "texte-erreur" : undefined}>
+                  {soldeActuel !== null ? `${formaterMontant(soldeActuel)} ${devise}` : "…"}
+                </strong>
+              </div>
               <label>
                 Montant réellement compté
                 <ChampMontant value={soldeCompte} onChange={setSoldeCompte} autoFocus />
               </label>
-              <button type="submit" className="bouton-primaire" disabled={enCours}>
+              <div
+                className={`cloture-ecart${
+                  ecartSaisi === null ? "" : ecartSaisi === 0 ? " cloture-ecart--juste" : ecartSaisi < 0 ? " cloture-ecart--manque" : " cloture-ecart--exces"
+                }`}
+              >
+                {ecartSaisi === null
+                  ? "Saisissez le montant compté"
+                  : ecartSaisi === 0
+                    ? "Caisse juste ✓"
+                    : ecartSaisi < 0
+                      ? `Manque ${formaterMontant(-ecartSaisi)} ${devise}`
+                      : `Excédent ${formaterMontant(ecartSaisi)} ${devise}`}
+              </div>
+              <button type="submit" className="bouton-primaire" disabled={enCours || soldeCompte === ""}>
                 {enCours ? "…" : "Clôturer"}
               </button>
             </div>
 
             <h4>Historique des clôtures</h4>
-            <div className="zone-tableau-scroll">
+            <div className="tuiles-fiche">
+              <div className="tuile-fiche">
+                <span className="sous-info">🔒 Clôtures</span>
+                <strong>{clotures.length}</strong>
+              </div>
+              <div className={`tuile-fiche${ecartCumule < 0 ? " tuile-fiche--alerte" : ""}`}>
+                <span className="sous-info">⚖️ Écart cumulé</span>
+                <strong className="nowrap">
+                  {ecartCumule > 0 ? "+" : ""}
+                  {formaterMontant(ecartCumule)} {devise}
+                </strong>
+              </div>
+              <div className="tuile-fiche">
+                <span className="sous-info">🕘 Dernière clôture</span>
+                <strong>{clotures[0] ? new Date(clotures[0].dateCreation).toLocaleDateString("fr-FR") : "—"}</strong>
+              </div>
+            </div>
+            <div className="zone-tableau-scroll zone-commandes-fiche">
               <table className="tableau-catalogue">
                 <thead>
                   <tr>
@@ -830,16 +1096,17 @@ function ModaleClotureCaisse({
                 <tbody>
                   {clotures.map((c) => (
                     <tr key={c.id}>
-                      <td>{new Date(c.dateCreation).toLocaleString("fr-FR")}</td>
-                      <td>
+                      <td title={new Date(c.dateCreation).toLocaleString("fr-FR")}>{dateCourte(c.dateCreation)}</td>
+                      <td className="nowrap">
                         {formaterMontant(c.soldeTheorique)} {devise}
                       </td>
-                      <td>
+                      <td className="nowrap">
                         {formaterMontant(c.soldeCompte)} {devise}
                       </td>
-                      <td className={c.ecart !== 0 ? "carte-stat-alerte" : undefined}>
-                        {c.ecart > 0 ? "+" : ""}
-                        {formaterMontant(c.ecart)} {devise}
+                      <td className="nowrap">
+                        <strong className={c.ecart < 0 ? "texte-erreur" : c.ecart > 0 ? "texte-avertissement" : "montant-entree"}>
+                          {c.ecart === 0 ? "Juste ✓" : `${c.ecart > 0 ? "+" : ""}${formaterMontant(c.ecart)} ${devise}`}
+                        </strong>
                       </td>
                       <td>{nomUtilisateur(c.utilisateurId)}</td>
                     </tr>
@@ -851,17 +1118,15 @@ function ModaleClotureCaisse({
                       </td>
                     </tr>
                   )}
-                  {Array.from({ length: Math.max(0, 12 - clotures.length - (clotures.length === 0 ? 1 : 0)) }).map(
-                    (_, i) => (
-                      <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                      </tr>
-                    ),
-                  )}
+                  {Array.from({ length: Math.max(0, 10 - Math.max(1, clotures.length)) }).map((_, i) => (
+                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
