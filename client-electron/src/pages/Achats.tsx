@@ -1573,15 +1573,19 @@ function OngletCommandes({
 // --- Onglet Réceptionner : file d'attente des commandes commandées, triées de
 // la plus ancienne à la plus récente (les plus urgentes à réceptionner). ---
 
+/** Au-delà, l'attente d'une livraison s'affiche en rouge. */
+const SEUIL_ATTENTE_JOURS = 7;
+
 function OngletReception({ session }: { session: Session }) {
+  const devise = useDevise();
   const [fournisseurs, setFournisseurs] = useState<FournisseurResume[]>([]);
   const [commandes, setCommandes] = useState<CommandeResume[]>([]);
+  const [fournisseurNom, setFournisseurNom] = useState("");
+  const [terme, setTerme] = useState("");
   const [commandeSelectionneeId, setCommandeSelectionneeId] = useState<string | null>(null);
 
   async function rafraichir() {
-    const liste = await api.commandes.lister(session.boutiqueId, undefined, "commandee");
-    liste.sort((a, b) => new Date(a.dateCreation).getTime() - new Date(b.dateCreation).getTime());
-    setCommandes(liste);
+    setCommandes(await api.commandes.lister(session.boutiqueId, undefined, "commandee"));
   }
   useEffect(() => {
     rafraichir();
@@ -1589,55 +1593,135 @@ function OngletReception({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.boutiqueId]);
 
+  const somme = (valeurs: number[]) => valeurs.reduce((t, v) => t + v, 0);
+  const attente = (c: CommandeResume) =>
+    Math.max(0, Math.floor((Date.now() - new Date(c.dateCreation).getTime()) / 86_400_000));
+  const pourcentageRecu = (c: CommandeResume) =>
+    c.quantiteCommandee > 0 ? Math.min(100, Math.round((c.quantiteRecue / c.quantiteCommandee) * 100)) : 0;
+  const resteValeur = (c: CommandeResume) => Math.max(0, c.total - c.valeurRecue);
+  const nomsFournisseurs = [...new Set(commandes.map((c) => c.fournisseurNom))].sort((a, b) => a.localeCompare(b, "fr"));
+  const cle = terme.trim().toLowerCase();
+  // La plus ancienne attente d'abord.
+  const commandesFiltrees = commandes
+    .filter((c) => (!fournisseurNom || c.fournisseurNom === fournisseurNom) && (!cle || c.numero.toLowerCase().includes(cle)))
+    .sort((a, b) => a.dateCreation.localeCompare(b.dateCreation));
+  const plusAncienne = commandes.length > 0 ? Math.max(...commandes.map(attente)) : 0;
+
   return (
-    <div>
+    <div className="liste-dettes-credits">
+      <div className="tuiles-fiche">
+        <div className="tuile-fiche">
+          <span className="sous-info">📨 Commandes à recevoir</span>
+          <strong>{commandes.length}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">📦 Articles restants</span>
+          <strong>{somme(commandes.map((c) => c.quantiteCommandee - c.quantiteRecue))}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">💰 Valeur restante</span>
+          <strong>
+            {formaterMontant(somme(commandes.map(resteValeur)))} {devise}
+          </strong>
+        </div>
+        <div className={`tuile-fiche${plusAncienne > SEUIL_ATTENTE_JOURS ? " tuile-fiche--alerte" : ""}`}>
+          <span className="sous-info">⏳ Plus ancienne attente</span>
+          <strong>
+            {commandes.length === 0 ? "—" : `${plusAncienne} jour${plusAncienne > 1 ? "s" : ""}`}
+          </strong>
+        </div>
+      </div>
+      <div className="barre-actions barre-filtres-historique">
+        <select value={fournisseurNom} onChange={(e) => setFournisseurNom(e.target.value)}>
+          <option value="">Tous les fournisseurs</option>
+          {nomsFournisseurs.map((nom) => (
+            <option key={nom} value={nom}>
+              {nom}
+            </option>
+          ))}
+        </select>
+        <input type="search" placeholder="N° de commande…" value={terme} onChange={(e) => setTerme(e.target.value)} />
+      </div>
       <div className="zone-tableau-scroll">
         <table className="tableau-catalogue">
           <thead>
             <tr>
+              <th>N°</th>
               <th>Date</th>
               <th>Numéro</th>
               <th>Fournisseur</th>
-              <th>Statut</th>
+              <th>Attente</th>
+              <th>Reçu</th>
               <th>Reste à recevoir</th>
-              <th>Total</th>
+              <th>Statut</th>
+              <th className="colonne-actions-categorie" />
             </tr>
           </thead>
           <tbody>
-            {commandes.map((c) => (
-              <tr key={c.id} onClick={() => setCommandeSelectionneeId(c.id)}>
-                <td>{new Date(c.dateCreation).toLocaleString("fr-FR")}</td>
+            {commandesFiltrees.map((c, index) => (
+              <tr key={c.id} onClick={() => setCommandeSelectionneeId(c.id)} title="Réceptionner cette commande">
+                <td>{index + 1}</td>
+                <td>{new Date(c.dateCreation).toLocaleDateString("fr-FR")}</td>
                 <td>{c.numero}</td>
                 <td>{c.fournisseurNom}</td>
-                <td>
-                  <BadgeStatutCommande statut={c.statut} partiellementRecue={c.partiellementRecue} />
-                </td>
-                <td>
-                  {c.quantiteCommandee - c.quantiteRecue} / {c.quantiteCommandee}
-                </td>
-                <td>{formaterMontant(c.total)}</td>
+                <td><span className={attente(c) > SEUIL_ATTENTE_JOURS ? "texte-erreur nowrap" : "nowrap"}>
+                    {attente(c)} jour{attente(c) > 1 ? "s" : ""}
+                  </span></td>
+                <td><span className="mini-progression" title={`${c.quantiteRecue} / ${c.quantiteCommandee} articles reçus`}>
+                    <span className="barre-progression">
+                      <span style={{ width: `${pourcentageRecu(c)}%` }} />
+                    </span>
+                    <span className="sous-info">{pourcentageRecu(c)} %</span>
+                  </span></td>
+                <td><strong className="nowrap">{c.quantiteCommandee - c.quantiteRecue} art.</strong>
+                  <span className="sous-info nowrap"> · {formaterMontant(resteValeur(c))} {devise}</span></td>
+                <td><span className="nowrap"><BadgeStatutCommande statut={c.statut} partiellementRecue={c.partiellementRecue} /></span></td>
+                <td className="colonne-actions-categorie"><button
+                    type="button"
+                    className="bouton-primaire nowrap"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCommandeSelectionneeId(c.id);
+                    }}
+                  >
+                    📥 Recevoir
+                  </button></td>
               </tr>
             ))}
-            {commandes.length === 0 && (
+            {commandesFiltrees.length === 0 && (
               <tr>
-                <td colSpan={6} className="liste-vide">
-                  Aucune commande en attente de réception.
+                <td colSpan={9} className="liste-vide">
+                  {commandes.length === 0 ? "Aucune commande en attente de réception." : "Aucune commande pour ces filtres."}
                 </td>
               </tr>
             )}
-            {Array.from({ length: Math.max(0, 10 - Math.max(1, commandes.length)) }).map((_, i) => (
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, commandesFiltrees.length)) }).map((_, i) => (
               <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {commandesFiltrees.length > 0 && (
+        <div className="totaux">
+          <div>
+            {commandesFiltrees.length} commande{commandesFiltrees.length > 1 ? "s" : ""} ·{" "}
+            {somme(commandesFiltrees.map((c) => c.quantiteCommandee - c.quantiteRecue))} article(s) restant(s)
+          </div>
+          <div className="total-net">
+            Valeur restante : {formaterMontant(somme(commandesFiltrees.map(resteValeur)))} {devise}
+          </div>
+        </div>
+      )}
 
       {commandeSelectionneeId && (
         <div
