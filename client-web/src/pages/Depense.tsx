@@ -4,6 +4,11 @@ import type { CSSProperties } from "react";
 import type { Session } from "../api";
 import ChampMontant from "../components/ChampMontant";
 import { useDevise } from "../contexts/DeviseContext";
+import BoutonsExport from "../components/BoutonsExport";
+import FiltrePeriodeHistorique from "../components/FiltrePeriodeHistorique";
+import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
+import { bornesPeriode, dansPeriode, jourLocal, type PeriodeHistorique } from "../lib/periode";
+import type { ColonneExport } from "../lib/export";
 import { formaterMontant } from "../lib/formatage";
 import { CATEGORIES_DEPENSE, libelleCategorieDepense } from "../lib/libelles";
 import { listerDepotsDetail, type DepotResume } from "../services/stock";
@@ -11,6 +16,7 @@ import {
   enregistrerDepense,
   ErreurTresorerie,
   listerDepenses,
+  soldeCaisse,
   type CategorieDepense,
   type DepenseResume,
 } from "../services/tresorerie";
@@ -61,58 +67,214 @@ function EnteteModale({ titre, onFermer }: { titre: string; onFermer: () => void
 function ModaleHistoriqueDepenses({
   depenses,
   devise,
+  nomUtilisateur,
   onFermer,
 }: {
   depenses: DepenseResume[];
   devise: string;
+  nomUtilisateur: (id: string | null) => string;
   onFermer: () => void;
 }) {
+  const [periode, setPeriode] = useState<PeriodeHistorique>("30j");
+  const [debutPerso, setDebutPerso] = useState(jourLocal(new Date()));
+  const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
+  const [type, setType] = useState("");
+  const [terme, setTerme] = useState("");
+  const [vue, setVue] = useState<"liste" | "types">("liste");
+  const types = [...new Set(depenses.map((d) => libelleCategorieDepense(d.categorie)))].sort((a, b) => a.localeCompare(b, "fr"));
+  const cle = terme.trim().toLowerCase();
+  const filtrees = depenses.filter(
+    (d) =>
+      dansPeriode(d.dateCreation, bornesPeriode(periode, debutPerso, finPerso)) &&
+      (!type || libelleCategorieDepense(d.categorie) === type) &&
+      (!cle || (d.description ?? "").toLowerCase().includes(cle)),
+  );
+  const total = filtrees.reduce((t, d) => t + d.montant, 0);
+  // Répartition par type sur les dépenses filtrées, la plus coûteuse d'abord.
+  const parType = [
+    ...filtrees
+      .reduce((m, d) => {
+        const libelle = libelleCategorieDepense(d.categorie);
+        const actuel = m.get(libelle) ?? { libelle, total: 0, nombre: 0 };
+        actuel.total += d.montant;
+        actuel.nombre += 1;
+        return m.set(libelle, actuel);
+      }, new Map<string, { libelle: string; total: number; nombre: number }>())
+      .values(),
+  ].sort((a, b) => b.total - a.total);
+  const colonnesExport: ColonneExport[] = [
+    { cle: "date", libelle: "Date" },
+    { cle: "type", libelle: "Type" },
+    { cle: "description", libelle: "Description" },
+    { cle: "montant", libelle: `Montant (${devise})` },
+    { cle: "par", libelle: "Effectué par" },
+  ];
+  const lignesExport = filtrees.map((d) => ({
+    date: new Date(d.dateCreation).toLocaleString("fr-FR"),
+    type: libelleCategorieDepense(d.categorie),
+    description: d.description ?? "",
+    montant: d.montant,
+    par: nomUtilisateur(d.utilisateurId),
+  }));
+
   return (
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <EnteteModale titre="Historique des dépenses" onFermer={onFermer} />
         <div className="modale-corps">
-          <div className="zone-tableau-scroll">
-            <table className="tableau-catalogue carte-mobile">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Type</th>
-                  <th>Description</th>
-                  <th>Montant</th>
-                </tr>
-              </thead>
-              <tbody>
-                {depenses.map((d) => (
-                  <tr key={d.id}>
-                    <td data-label="Date">{new Date(d.dateCreation).toLocaleString("fr-FR")}</td>
-                    <td data-label="Type">{libelleCategorieDepense(d.categorie)}</td>
-                    <td data-label="Description">{d.description}</td>
-                    <td data-label="Montant">
-                      {formaterMontant(d.montant)} {devise}
-                    </td>
-                  </tr>
-                ))}
-                {depenses.length === 0 && (
+          <div className="tuiles-fiche">
+            <div className={`tuile-fiche${total > 0 ? " tuile-fiche--alerte" : ""}`}>
+              <span className="sous-info">💸 Total dépensé</span>
+              <strong className="nowrap">
+                {formaterMontant(total)} {devise}
+              </strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">🧾 Dépenses</span>
+              <strong>{filtrees.length}</strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">📊 Dépense moyenne</span>
+              <strong className="nowrap">
+                {formaterMontant(filtrees.length > 0 ? Math.round(total / filtrees.length) : 0)} {devise}
+              </strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">🏷️ Type le plus coûteux</span>
+              <strong>{parType[0] ? `${parType[0].libelle} (${formaterMontant(parType[0].total)})` : "—"}</strong>
+            </div>
+          </div>
+          <div className="barre-actions barre-filtres-historique">
+            <FiltrePeriodeHistorique
+              periode={periode}
+              setPeriode={setPeriode}
+              debutPerso={debutPerso}
+              setDebutPerso={setDebutPerso}
+              finPerso={finPerso}
+              setFinPerso={setFinPerso}
+            />
+            <select value={type} onChange={(e) => setType(e.target.value)}>
+              <option value="">Tous les types</option>
+              {types.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            <input type="search" placeholder="Description…" value={terme} onChange={(e) => setTerme(e.target.value)} />
+            <BoutonsExport titre="Historique des dépenses" colonnes={colonnesExport} lignes={lignesExport} compact />
+            <div className="bascule-vue" role="group" aria-label="Affichage">
+              <button type="button" className={vue === "liste" ? "actif" : ""} onClick={() => setVue("liste")}>
+                📄 Liste
+              </button>
+              <button type="button" className={vue === "types" ? "actif" : ""} onClick={() => setVue("types")}>
+                🏷️ Par type
+              </button>
+            </div>
+          </div>
+          {vue === "types" ? (
+            <div className="zone-tableau-scroll zone-commandes-fiche">
+              <table className="tableau-catalogue carte-mobile">
+                <thead>
                   <tr>
-                    <td colSpan={4} className="liste-vide-compacte">
-                      Aucune dépense enregistrée.
-                    </td>
+                    <th>Type</th>
+                    <th>Dépenses</th>
+                    <th>Total</th>
+                    <th>Part</th>
                   </tr>
-                )}
-                {Array.from({ length: Math.max(0, 15 - depenses.length - (depenses.length === 0 ? 1 : 0)) }).map(
-                  (_, i) => (
+                </thead>
+                <tbody>
+                  {parType.map((p) => (
+                    <tr key={p.libelle} onClick={() => { setType(p.libelle); setVue("liste"); }} title="Voir ces dépenses">
+                      <td data-label="Type">{p.libelle}</td>
+                      <td data-label="Dépenses">{p.nombre}</td>
+                      <td data-label="Total" className="nowrap texte-erreur">
+                        −{formaterMontant(p.total)} {devise}
+                      </td>
+                      <td data-label="Part">
+                        <span className="mini-progression">
+                          <span className="barre-progression">
+                            <span style={{ width: `${total > 0 ? Math.round((p.total / total) * 100) : 0}%` }} />
+                          </span>
+                          <span className="sous-info">{total > 0 ? Math.round((p.total / total) * 100) : 0} %</span>
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {parType.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="liste-vide-compacte">
+                        Aucune dépense pour ces filtres.
+                      </td>
+                    </tr>
+                  )}
+                  {Array.from({ length: Math.max(0, 10 - Math.max(1, parType.length)) }).map((_, i) => (
                     <tr key={`vide-${i}`} className="ligne-groupe-vide">
                       <td>&nbsp;</td>
                       <td>&nbsp;</td>
                       <td>&nbsp;</td>
                       <td>&nbsp;</td>
                     </tr>
-                  ),
-                )}
-              </tbody>
-            </table>
-          </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="zone-tableau-scroll zone-commandes-fiche">
+              <table className="tableau-catalogue carte-mobile">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                    <th>Montant</th>
+                    <th>Effectué par</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtrees.map((d) => (
+                    <tr key={d.id}>
+                      <td data-label="Date" title={new Date(d.dateCreation).toLocaleString("fr-FR")}>
+                        {new Date(d.dateCreation).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
+                      </td>
+                      <td data-label="Type">{libelleCategorieDepense(d.categorie)}</td>
+                      <td data-label="Description">{d.description || "—"}</td>
+                      <td data-label="Montant" className="nowrap texte-erreur">
+                        −{formaterMontant(d.montant)} {devise}
+                      </td>
+                      <td data-label="Effectué par">{nomUtilisateur(d.utilisateurId)}</td>
+                    </tr>
+                  ))}
+                  {filtrees.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="liste-vide-compacte">
+                        {depenses.length === 0 ? "Aucune dépense enregistrée." : "Aucune dépense pour ces filtres."}
+                      </td>
+                    </tr>
+                  )}
+                  {Array.from({ length: Math.max(0, 10 - Math.max(1, filtrees.length)) }).map((_, i) => (
+                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {filtrees.length > 0 && (
+            <div className="totaux">
+              <div>
+                {filtrees.length} dépense{filtrees.length > 1 ? "s" : ""}
+              </div>
+              <div className="total-net">
+                Total : {formaterMontant(total)} {devise}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -139,6 +301,8 @@ export default function Depense({ session }: { session: Session }) {
   const [lignes, setLignes] = useState<LigneDepenseGroupe[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  const [solde, setSolde] = useState<number | null>(null);
+  const nomUtilisateur = useNomsUtilisateurs(session);
 
   useEffect(() => {
     if (!session.depotId) listerDepotsDetail(session.boutiqueId).then(setDepots);
@@ -147,7 +311,8 @@ export default function Depense({ session }: { session: Session }) {
 
   async function rafraichir() {
     if (!depotId) return;
-    setDepenses(await listerDepenses(depotId, 200));
+    setDepenses(await listerDepenses(depotId, 2000));
+    setSolde(await soldeCaisse(depotId));
   }
   useEffect(() => {
     rafraichir();
@@ -204,6 +369,13 @@ export default function Depense({ session }: { session: Session }) {
     }
   }
 
+  const totalListe = lignes.reduce((t, l) => t + l.montant, 0);
+  const soldeApres = solde !== null ? solde - totalListe : null;
+  const aujourdhui = jourLocal(new Date());
+  const depenseAujourdhui = depenses
+    .filter((d) => jourLocal(new Date(d.dateCreation)) === aujourdhui)
+    .reduce((t, d) => t + d.montant, 0);
+
   // Suggestions du combobox Type de dépense : les 6 types courants + tous
   // les types déjà saisis (y compris personnalisés, historique et lignes en
   // attente) — sert de référence pour retrouver un type déjà utilisé plutôt
@@ -258,31 +430,55 @@ export default function Depense({ session }: { session: Session }) {
           <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
             <EnteteModale titre="Dépenses" onFermer={() => setSectionOuverte(null)} />
             <div className="modale-corps">
-              <div className="barre-actions">
-                {!session.depotId && (
-                  <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
-                    <option value="">Choisir un dépôt…</option>
-                    {depots.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.nom}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                <button
-                  type="button"
-                  className="bouton-primaire"
-                  onClick={validerDepenses}
-                  disabled={enCours || !depotId || lignes.length === 0}
-                >
-                  {enCours ? "Enregistrement…" : `Valider les dépenses (${lignes.length})`}
-                </button>
+              <div className="tuiles-fiche">
+                <div className="tuile-fiche">
+                  <span className="sous-info">📅 Dépensé aujourd'hui</span>
+                  <strong className="nowrap">
+                    {formaterMontant(depenseAujourdhui)} {devise}
+                  </strong>
+                </div>
+                <div className="tuile-fiche">
+                  <span className="sous-info">🧾 Dans la liste</span>
+                  <strong className="nowrap">
+                    {lignes.length} · {formaterMontant(totalListe)} {devise}
+                  </strong>
+                </div>
+                <div className={`tuile-fiche${soldeApres !== null && soldeApres < 0 ? " tuile-fiche--alerte" : ""}`}>
+                  <span className="sous-info">💰 Caisse après validation</span>
+                  <strong className="nowrap">
+                    {soldeApres !== null ? `${formaterMontant(soldeApres)} ${devise}` : "…"}
+                  </strong>
+                </div>
               </div>
-
               {erreur && <div className="message-erreur">{erreur}</div>}
 
-              <form onSubmit={(e) => e.preventDefault()} className="formulaire-catalogue formulaire-tresorerie">
+              <form onSubmit={(e) => e.preventDefault()} className="formulaire-catalogue formulaire-tresorerie formulaire-depenses">
+                <div className="types-rapides">
+                  {CATEGORIES_DEPENSE.map((c) => (
+                    <button
+                      key={c.valeur}
+                      type="button"
+                      className={categorie === c.label ? "actif" : ""}
+                      onClick={() => setCategorie(c.label)}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
                 <div className="ligne-champs-tresorerie">
+                  {!session.depotId && (
+                    <label>
+                      Dépôt
+                      <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
+                        <option value="">Choisir un dépôt…</option>
+                        {depots.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.nom}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   <label>
                     Type de dépense
                     <input
@@ -325,8 +521,8 @@ export default function Depense({ session }: { session: Session }) {
                       {lignes.map((l) => (
                         <tr key={l.id}>
                           <td data-label="Type" className="col-designation-groupe">{libelleCategorieDepense(l.categorie)}</td>
-                          <td data-label="Description">{l.description}</td>
-                          <td data-label="Montant">
+                          <td data-label="Description">{l.description || "—"}</td>
+                          <td data-label="Montant" className="nowrap">
                             {formaterMontant(l.montant)} {devise}
                           </td>
                           <td className="colonne-numero-groupe">
@@ -352,6 +548,22 @@ export default function Depense({ session }: { session: Session }) {
                     </tbody>
                   </table>
                 </div>
+                <div className="totaux">
+                  <div>
+                    {lignes.length} dépense{lignes.length > 1 ? "s" : ""} à valider · total{" "}
+                    <strong>
+                      {formaterMontant(totalListe)} {devise}
+                    </strong>
+                  </div>
+                  <button
+                    type="button"
+                    className="bouton-primaire"
+                    onClick={validerDepenses}
+                    disabled={enCours || !depotId || lignes.length === 0}
+                  >
+                    {enCours ? "Enregistrement…" : `Valider les dépenses (${lignes.length})`}
+                  </button>
+                </div>
               </form>
             </div>
           </div>
@@ -362,6 +574,7 @@ export default function Depense({ session }: { session: Session }) {
         <ModaleHistoriqueDepenses
           depenses={depenses}
           devise={devise}
+          nomUtilisateur={nomUtilisateur}
           onFermer={() => setSectionOuverte(null)}
         />
       )}

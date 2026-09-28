@@ -7397,3 +7397,46 @@ button.tuile-dormance.active {
 .formulaire-mouvement-caisse-modale .entete-section-tableau {
   flex-shrink: 0;
 }
+
+/* Dépenses : types en un clic, bouton Valider sous la liste avec le total. */
+.types-rapides {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+}
+
+.types-rapides button {
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.88rem;
+}
+
+.types-rapides button.actif {
+  background: var(--couleur-primaire-clair);
+  color: var(--couleur-primaire);
+  border-color: var(--couleur-primaire);
+}
+
+.formulaire-depenses .totaux {
+  align-items: center;
+}
+
+/* Dépenses : le formulaire occupe la hauteur de la fenêtre, seules les lignes défilent. */
+.modale-corps > .formulaire-depenses {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.formulaire-depenses > * {
+  flex-shrink: 0;
+}
+
+.formulaire-depenses > .zone-tableau-scroll {
+  flex: 1 1 auto;
+  min-height: 120px;
+  max-height: none;
+  overflow-y: auto;
+}
