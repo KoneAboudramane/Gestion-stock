@@ -1277,25 +1277,25 @@ function OngletCommandes({
   onFormulaireInitialConsomme?: () => void;
 }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
+  const devise = useDevise();
+  const nomUtilisateur = useNomsUtilisateurs(session);
   const [fournisseurs, setFournisseurs] = useState<FournisseurResume[]>([]);
-  const [fournisseurId, setFournisseurId] = useState("");
-  const [statut, setStatut] = useState<StatutCommande | "">("");
+  const [fournisseurNom, setFournisseurNom] = useState("");
+  const [statut, setStatut] = useState<"a_traiter" | StatutCommande | "">("a_traiter");
   const [terme, setTerme] = useState("");
   const [commandes, setCommandes] = useState<CommandeResume[]>([]);
+  const [receptions, setReceptions] = useState<ReceptionHistorique[]>([]);
   const [afficherForm, setAfficherForm] = useState(false);
+  const [erreur, setErreur] = useState<string | null>(null);
   // Ne doit servir que pour l'ouverture qui vient du raccourci rupture — pas
   // être réutilisé si l'utilisateur annule puis ouvre une commande vierge à
   // la main pendant qu'il est encore sur cette page.
   const [apercuGroupeActif, setApercuGroupeActif] = useState(false);
   const [commandeSelectionneeId, setCommandeSelectionneeId] = useState<string | null>(null);
+  // « Réceptionner » depuis la ligne : ouvre directement le formulaire de réception.
+  const [receptionDirecte, setReceptionDirecte] = useState(false);
 
-  useEffect(() => {
-    api.fournisseurs.lister(session.boutiqueId).then(setFournisseurs);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.boutiqueId]);
-
-  // Raccourci "Nouvel achat" du tableau de bord / bouton "Commander" d'une
-  // rupture : ouvre directement l'aperçu de commandes groupées.
+  // Raccourci "Commander" d'une rupture : ouvre directement l'aperçu de commandes groupées.
   useEffect(() => {
     if (ouvrirFormulaireInitial) {
       setApercuGroupeActif(true);
@@ -1305,14 +1305,25 @@ function OngletCommandes({
   }, [ouvrirFormulaireInitial]);
 
   async function rafraichir() {
-    setCommandes(
-      await api.commandes.lister(session.boutiqueId, fournisseurId || undefined, statut || undefined, terme),
-    );
+    const [liste, h] = await Promise.all([api.fournisseurs.lister(session.boutiqueId), api.commandes.historique(session.boutiqueId)]);
+    setFournisseurs(liste);
+    setCommandes(h.commandes);
+    setReceptions(h.receptions);
   }
   useEffect(() => {
     rafraichir();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fournisseurId, statut, terme]);
+  }, []);
+
+  async function passerEnCommandee(c: CommandeResume) {
+    const resultat = await api.commandes.modifier(c.id, { statut: "commandee", utilisateurId: session.utilisateurId });
+    if (resultat.succes) {
+      setErreur(null);
+      rafraichir();
+    } else {
+      setErreur(resultat.message);
+    }
+  }
 
   if (apercuGroupeActif) {
     return (
@@ -1329,8 +1340,31 @@ function OngletCommandes({
     );
   }
 
+  const somme = (valeurs: number[]) => valeurs.reduce((t, v) => t + v, 0);
+  const pourcentageRecu = (c: CommandeResume) =>
+    c.quantiteCommandee > 0 ? Math.min(100, Math.round((c.quantiteRecue / c.quantiteCommandee) * 100)) : 0;
+  const brouillons = commandes.filter((c) => c.statut === "brouillon");
+  const aRecevoir = commandes.filter((c) => c.statut === "commandee");
+  const debutMois = new Date();
+  debutMois.setDate(1);
+  debutMois.setHours(0, 0, 0, 0);
+  const recuMois = somme(
+    receptions.filter((r) => !r.annulee && r.dateCreation >= debutMois.toISOString()).map((r) => r.valeurRecue),
+  );
+  const nomsFournisseurs = [...new Set(commandes.map((c) => c.fournisseurNom))].sort((a, b) => a.localeCompare(b, "fr"));
+  const cle = terme.trim().toLowerCase();
+  const rang = (c: CommandeResume) => (c.statut === "commandee" ? 0 : c.statut === "brouillon" ? 1 : 2);
+  const commandesFiltrees = commandes
+    .filter(
+      (c) =>
+        (statut === "a_traiter" ? c.statut === "brouillon" || c.statut === "commandee" : !statut || c.statut === statut) &&
+        (!fournisseurNom || c.fournisseurNom === fournisseurNom) &&
+        (!cle || c.numero.toLowerCase().includes(cle)),
+    )
+    .sort((a, b) => rang(a) - rang(b) || b.dateCreation.localeCompare(a.dateCreation));
+
   return (
-    <div>
+    <div className="liste-dettes-credits">
       {afficherForm && (
         <div className="fond-modale" onClick={() => setAfficherForm(false)}>
           <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
@@ -1346,86 +1380,169 @@ function OngletCommandes({
           </div>
         </div>
       )}
-      <div className="barre-actions barre-actions-avec-onglets">
-        <select value={fournisseurId} onChange={(e) => setFournisseurId(e.target.value)}>
+      <div className="tuiles-fiche">
+        <div className="tuile-fiche">
+          <span className="sous-info">📝 Brouillons</span>
+          <strong>{brouillons.length}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">📨 À recevoir</span>
+          <strong>
+            {aRecevoir.length} · {somme(aRecevoir.map((c) => c.quantiteCommandee - c.quantiteRecue))} article(s)
+          </strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">📥 Reçu ce mois</span>
+          <strong>
+            {formaterMontant(recuMois)} {devise}
+          </strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">💰 Engagé (pas encore reçu)</span>
+          <strong>
+            {formaterMontant(somme(aRecevoir.map((c) => Math.max(0, c.total - c.valeurRecue))))} {devise}
+          </strong>
+        </div>
+      </div>
+      <div className="barre-actions barre-filtres-historique">
+        <select value={statut} onChange={(e) => setStatut(e.target.value as typeof statut)}>
+          <option value="a_traiter">À traiter</option>
+          <option value="brouillon">Brouillons</option>
+          <option value="commandee">Commandées</option>
+          <option value="recue">Reçues</option>
+          <option value="annulee">Annulées</option>
+          <option value="">Toutes</option>
+        </select>
+        <select value={fournisseurNom} onChange={(e) => setFournisseurNom(e.target.value)}>
           <option value="">Tous les fournisseurs</option>
-          {fournisseurs.map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.nom}
+          {nomsFournisseurs.map((nom) => (
+            <option key={nom} value={nom}>
+              {nom}
             </option>
           ))}
         </select>
-        <select value={statut} onChange={(e) => setStatut(e.target.value as StatutCommande | "")}>
-          <option value="">Tous les statuts</option>
-          <option value="brouillon">Brouillon</option>
-          <option value="commandee">Commandée</option>
-          <option value="recue">Reçue</option>
-          <option value="annulee">Annulée</option>
-        </select>
-        <input
-          className="champ-recherche"
-          placeholder="Rechercher par numéro…"
-          value={terme}
-          onChange={(e) => setTerme(e.target.value)}
-        />
+        <input type="search" placeholder="N° de commande…" value={terme} onChange={(e) => setTerme(e.target.value)} />
         {peutGerer && (
-          <span className="actions-ligne">
-            <button
-              type="button"
-              className="bouton-ajouter-variante"
-              onClick={() => setAfficherForm(true)}
-              disabled={fournisseurs.length === 0}
-            >
-              + Nouvelle commande
-            </button>
-          </span>
+          <button
+            type="button"
+            className="bouton-ajouter-variante"
+            onClick={() => setAfficherForm(true)}
+            disabled={fournisseurs.length === 0}
+          >
+            + Nouvelle commande
+          </button>
         )}
       </div>
       {peutGerer && fournisseurs.length === 0 && (
         <p className="note-aide">Créez d'abord un fournisseur dans l'onglet « Fournisseurs ».</p>
       )}
+      {erreur && <div className="message-erreur">{erreur}</div>}
       <div className="zone-tableau-scroll">
-      <table className="tableau-catalogue">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Numéro</th>
-            <th>Fournisseur</th>
-            <th>Statut</th>
-            <th>Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {commandes.map((c) => (
-            <tr key={c.id} onClick={() => setCommandeSelectionneeId(c.id)}>
-              <td>{new Date(c.dateCreation).toLocaleString("fr-FR")}</td>
-              <td>{c.numero}</td>
-              <td>{c.fournisseurNom}</td>
-              <td>
-                <BadgeStatutCommande statut={c.statut} partiellementRecue={c.partiellementRecue} />
-              </td>
-              <td>{formaterMontant(c.total)}</td>
-            </tr>
-          ))}
-          {commandes.length === 0 && (
+        <table className="tableau-catalogue">
+          <thead>
             <tr>
-              <td colSpan={5} className="liste-vide">
-                Aucune commande.
-              </td>
+              <th>N°</th>
+              <th>Date</th>
+              <th>Numéro</th>
+              <th>Fournisseur</th>
+              <th>Articles</th>
+              <th>Total</th>
+              <th>Reçu</th>
+              <th>Statut</th>
+              <th>Fait par</th>
+              <th className="colonne-actions-categorie" />
             </tr>
-          )}
-          {Array.from({ length: Math.max(0, 10 - Math.max(1, commandes.length)) }).map((_, i) => (
-            <tr key={`vide-${i}`} className="ligne-groupe-vide">
+          </thead>
+          <tbody>
+            {commandesFiltrees.map((c, index) => (
+              <tr
+                key={c.id}
+                onClick={() => {
+                  setReceptionDirecte(false);
+                  setCommandeSelectionneeId(c.id);
+                }}
+                title="Voir la commande"
+              >
+                <td>{index + 1}</td>
+                <td>{new Date(c.dateCreation).toLocaleDateString("fr-FR")}</td>
+                <td>{c.numero}</td>
+                <td>{c.fournisseurNom}</td>
+                <td>{c.quantiteCommandee}</td>
+                <td><span className="nowrap">{formaterMontant(c.total)} {devise}</span></td>
+                <td><span className="mini-progression" title={`${c.quantiteRecue} / ${c.quantiteCommandee} articles reçus`}>
+                    <span className="barre-progression">
+                      <span style={{ width: `${pourcentageRecu(c)}%` }} />
+                    </span>
+                    <span className="sous-info">{pourcentageRecu(c)} %</span>
+                  </span></td>
+                <td><span className="nowrap"><BadgeStatutCommande statut={c.statut} partiellementRecue={c.partiellementRecue} /></span></td>
+                <td>{nomUtilisateur(c.utilisateurId)}</td>
+                <td className="colonne-actions-categorie">{peutGerer && c.statut === "brouillon" && (
+                    <button
+                      type="button"
+                      className="nowrap"
+                      title="Passer en commandée (envoyée au fournisseur)"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        passerEnCommandee(c);
+                      }}
+                    >
+                      📨 Commander
+                    </button>
+                  )}
+                  {peutGerer && c.statut === "commandee" && (
+                    <button
+                      type="button"
+                      className="bouton-primaire nowrap"
+                      title="Réceptionner la marchandise"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setReceptionDirecte(true);
+                        setCommandeSelectionneeId(c.id);
+                      }}
+                    >
+                      📥 Recevoir
+                    </button>
+                  )}</td>
+              </tr>
+            ))}
+            {commandesFiltrees.length === 0 && (
+              <tr>
+                <td colSpan={10} className="liste-vide">
+                  Aucune commande pour ces filtres.
+                </td>
+              </tr>
+            )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, commandesFiltrees.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
               <td>&nbsp;</td>
               <td>&nbsp;</td>
               <td>&nbsp;</td>
               <td>&nbsp;</td>
               <td>&nbsp;</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
+      {commandesFiltrees.length > 0 && (
+        <div className="totaux">
+          <div>
+            {commandesFiltrees.length} commande{commandesFiltrees.length > 1 ? "s" : ""} · Reçu :{" "}
+            {formaterMontant(somme(commandesFiltrees.filter((c) => c.statut !== "annulee").map((c) => c.valeurRecue)))}{" "}
+            {devise}
+          </div>
+          <div className="total-net">
+            Total : {formaterMontant(somme(commandesFiltrees.filter((c) => c.statut !== "annulee").map((c) => c.total)))}{" "}
+            {devise}
+          </div>
+        </div>
+      )}
 
       {commandeSelectionneeId && (
         <div
@@ -1440,6 +1557,7 @@ function OngletCommandes({
               commandeId={commandeSelectionneeId}
               session={session}
               fournisseurs={fournisseurs}
+              ouvrirReceptionInitial={receptionDirecte}
               onRetour={() => {
                 setCommandeSelectionneeId(null);
                 rafraichir();
