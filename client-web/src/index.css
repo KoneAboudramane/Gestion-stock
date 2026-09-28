@@ -7244,3 +7244,9 @@ button.tuile-dormance.active {
   flex: 1;
   min-width: 200px;
 }
+
+/* Fiche client : le tableau Informations garde sa hauteur, la liste prend le reste. */
+.modale-avec-menu .modale-corps > .zone-infos-client {
+  flex: 0 0 auto;
+  min-height: 0;
+}

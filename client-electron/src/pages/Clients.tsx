@@ -506,10 +506,31 @@ function DetailClient({
           ← Retour
         </button>
       </div>
+      <div className="modale-avec-menu">
+        <nav className="menu-modale">
+          <button
+            type="button"
+            className={pageClient === "achats" ? "actif" : ""}
+            onClick={() => setPageClient("achats")}
+          >
+            <span className="icone-menu-modale">🛒</span>
+            Historique des achats
+            <span className="compteur-menu-modale">{ventes.length}</span>
+          </button>
+          <button
+            type="button"
+            className={pageClient === "credits" ? "actif" : ""}
+            onClick={() => setPageClient("credits")}
+          >
+            <span className="icone-menu-modale">💳</span>
+            Crédits
+            <span className="compteur-menu-modale">{credits.length}</span>
+          </button>
+        </nav>
       <div className="modale-corps">
       <h4>Informations</h4>
       {erreurInfos && <div className="message-erreur">{erreurInfos}</div>}
-      <div className="zone-tableau-scroll">
+      <div className="zone-tableau-scroll zone-infos-client">
       <table className="tableau-catalogue">
         <thead>
           <tr>
@@ -565,22 +586,6 @@ function DetailClient({
       </table>
       </div>
 
-      <div className="barre-onglets">
-        <button
-          type="button"
-          className={`onglet ${pageClient === "achats" ? "actif" : ""}`}
-          onClick={() => setPageClient("achats")}
-        >
-          Historique des achats
-        </button>
-        <button
-          type="button"
-          className={`onglet ${pageClient === "credits" ? "actif" : ""}`}
-          onClick={() => setPageClient("credits")}
-        >
-          Crédits
-        </button>
-      </div>
 
       {pageClient === "achats" && (
       <div className="zone-tableau-scroll zone-tableau-scroll-client">
@@ -679,6 +684,7 @@ function DetailClient({
       </table>
       </div>
       )}
+      </div>
       </div>
     </>
   );

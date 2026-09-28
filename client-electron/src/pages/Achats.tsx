@@ -2368,6 +2368,27 @@ function ModaleFicheFournisseur({
             </div>
           </div>
         )}
+        <div className="modale-avec-menu">
+          <nav className="menu-modale">
+            <button
+              type="button"
+              className={ongletFiche === "commandes" ? "actif" : ""}
+              onClick={() => setOngletFiche("commandes")}
+            >
+              <span className="icone-menu-modale">🧾</span>
+              Commandes
+              <span className="compteur-menu-modale">{triees.length}</span>
+            </button>
+            <button
+              type="button"
+              className={ongletFiche === "dettes" ? "actif" : ""}
+              onClick={() => setOngletFiche("dettes")}
+            >
+              <span className="icone-menu-modale">💰</span>
+              Dettes en cours
+              <span className="compteur-menu-modale">{dettesEnCours.length}</span>
+            </button>
+          </nav>
         <div className="modale-corps">
           <div className="cartes-fiche">
             <section className="carte-fiche">
@@ -2415,22 +2436,6 @@ function ModaleFicheFournisseur({
             </div>
           </div>
 
-          <div className="barre-onglets">
-            <button
-              type="button"
-              className={`onglet ${ongletFiche === "commandes" ? "actif" : ""}`}
-              onClick={() => setOngletFiche("commandes")}
-            >
-              🧾 Commandes ({triees.length})
-            </button>
-            <button
-              type="button"
-              className={`onglet ${ongletFiche === "dettes" ? "actif" : ""}`}
-              onClick={() => setOngletFiche("dettes")}
-            >
-              💰 Dettes en cours ({dettesEnCours.length})
-            </button>
-          </div>
           {ongletFiche === "dettes" ? (
             <div className="zone-tableau-scroll zone-commandes-fiche">
               <table className="tableau-catalogue">
@@ -2521,6 +2526,7 @@ function ModaleFicheFournisseur({
               </table>
             </div>
           )}
+        </div>
         </div>
       </div>
     </div>
