@@ -3118,10 +3118,13 @@ type SectionHistorique = "mouvements" | "pertes" | "destockages" | "transferts" 
 function ModaleHistoriqueStock({
   session,
   sectionInitiale = "mouvements",
+  mouvementsSeuls = false,
   onFermer,
 }: {
   session: Session;
   sectionInitiale?: SectionHistorique;
+  /** Carte « Mouvements » : sa propre fenêtre, sans le menu des autres rubriques. */
+  mouvementsSeuls?: boolean;
   onFermer: () => void;
 }) {
   const nomUtilisateur = useNomsUtilisateurs(session);
@@ -3139,7 +3142,7 @@ function ModaleHistoriqueStock({
   const [transferts, setTransferts] = useState<TransfertResume[]>([]);
   const [depots, setDepots] = useState<DepotResume[]>([]);
 
-  const [periode, setPeriode] = useState<PeriodeHistorique>("tout");
+  const [periode, setPeriode] = useState<PeriodeHistorique>(mouvementsSeuls ? "30j" : "tout");
   const [debutPerso, setDebutPerso] = useState(jourLocal(new Date()));
   const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
   const [motif, setMotif] = useState("");
@@ -3275,7 +3278,7 @@ function ModaleHistoriqueStock({
   return (
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
-        <EnteteModale titre="Historique" onFermer={onFermer} />
+        <EnteteModale titre={mouvementsSeuls ? "Mouvements" : "Historique"} onFermer={onFermer} />
         {formMouvement && (
           <div className="fond-modale" onClick={() => setFormMouvement(false)}>
             <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
@@ -3303,64 +3306,66 @@ function ModaleHistoriqueStock({
           </div>
         )}
         <div className="modale-avec-menu">
-          <nav className="menu-modale">
-            <button
-              type="button"
-              className={section === "mouvements" ? "actif" : ""}
-              onClick={() => setSection("mouvements")}
-            >
-              <span className="icone-menu-modale">🔄</span>
-              Tous les mouvements
-              <span className="compteur-menu-modale">{mouvementsFiltres.length}</span>
-            </button>
-            <button
-              type="button"
-              className={section === "pertes" ? "actif" : ""}
-              onClick={() => setSection("pertes")}
-            >
-              <span className="icone-menu-modale">🗑️</span>
-              Pertes
-              <span className="compteur-menu-modale">{pertesFiltrees.length}</span>
-            </button>
-            <button
-              type="button"
-              className={section === "destockages" ? "actif" : ""}
-              onClick={() => setSection("destockages")}
-            >
-              <span className="icone-menu-modale">🏷️</span>
-              Déstockages
-              <span className="compteur-menu-modale">{destockagesFiltres.length}</span>
-            </button>
-            <button
-              type="button"
-              className={section === "transferts" ? "actif" : ""}
-              onClick={() => setSection("transferts")}
-            >
-              <span className="icone-menu-modale">🔁</span>
-              Transferts
-              <span className="compteur-menu-modale">{transfertsFiltres.length}</span>
-            </button>
-            <button
-              type="button"
-              className={section === "inventaires" ? "actif" : ""}
-              onClick={() => setSection("inventaires")}
-            >
-              <span className="icone-menu-modale">📋</span>
-              Inventaires
-              <span className="compteur-menu-modale">{inventairesFiltres.length}</span>
-            </button>
-            {peutVoirDormants && (
+          {!mouvementsSeuls && (
+            <nav className="menu-modale">
               <button
                 type="button"
-                className={section === "dormants" ? "actif" : ""}
-                onClick={() => setSection("dormants")}
+                className={section === "mouvements" ? "actif" : ""}
+                onClick={() => setSection("mouvements")}
               >
-                <span className="icone-menu-modale">😴</span>
-                Dormants
-                <span className="compteur-menu-modale">{sortiesFiltrees.length}</span>
+                <span className="icone-menu-modale">🔄</span>
+                Tous les mouvements
+                <span className="compteur-menu-modale">{mouvementsFiltres.length}</span>
               </button>
-            )}
-          </nav>
+              <button
+                type="button"
+                className={section === "pertes" ? "actif" : ""}
+                onClick={() => setSection("pertes")}
+              >
+                <span className="icone-menu-modale">🗑️</span>
+                Pertes
+                <span className="compteur-menu-modale">{pertesFiltrees.length}</span>
+              </button>
+              <button
+                type="button"
+                className={section === "destockages" ? "actif" : ""}
+                onClick={() => setSection("destockages")}
+              >
+                <span className="icone-menu-modale">🏷️</span>
+                Déstockages
+                <span className="compteur-menu-modale">{destockagesFiltres.length}</span>
+              </button>
+              <button
+                type="button"
+                className={section === "transferts" ? "actif" : ""}
+                onClick={() => setSection("transferts")}
+              >
+                <span className="icone-menu-modale">🔁</span>
+                Transferts
+                <span className="compteur-menu-modale">{transfertsFiltres.length}</span>
+              </button>
+              <button
+                type="button"
+                className={section === "inventaires" ? "actif" : ""}
+                onClick={() => setSection("inventaires")}
+              >
+                <span className="icone-menu-modale">📋</span>
+                Inventaires
+                <span className="compteur-menu-modale">{inventairesFiltres.length}</span>
+              </button>
+              {peutVoirDormants && (
+                <button
+                  type="button"
+                  className={section === "dormants" ? "actif" : ""}
+                  onClick={() => setSection("dormants")}
+                >
+                  <span className="icone-menu-modale">😴</span>
+                  Dormants
+                  <span className="compteur-menu-modale">{sortiesFiltrees.length}</span>
+                </button>
+              )}
+            </nav>
+          )}
           <div className="modale-corps">
             {section === "mouvements" ? (
               <>
@@ -3404,6 +3409,27 @@ function ModaleHistoriqueStock({
                     </button>
                   )}
                 </div>
+                <div className="tuiles-fiche">
+                  <div className="tuile-fiche">
+                    <span className="sous-info">🔄 Mouvements</span>
+                    <strong>{mouvementsFiltres.length}</strong>
+                  </div>
+                  <div className="tuile-fiche">
+                    <span className="sous-info">📥 Entrées</span>
+                    <strong>{formaterMontant(totalEntrees)}</strong>
+                  </div>
+                  <div className="tuile-fiche">
+                    <span className="sous-info">📤 Sorties</span>
+                    <strong>{formaterMontant(totalSorties)}</strong>
+                  </div>
+                  <div className={`tuile-fiche${totalEntrees - totalSorties + totalAjustements < 0 ? " tuile-fiche--alerte" : ""}`}>
+                    <span className="sous-info">⚖️ Solde{totalAjustements !== 0 ? " (ajustements compris)" : ""}</span>
+                    <strong>
+                      {totalEntrees - totalSorties + totalAjustements > 0 ? "+" : ""}
+                      {formaterMontant(totalEntrees - totalSorties + totalAjustements)}
+                    </strong>
+                  </div>
+                </div>
                 <div className="zone-tableau-scroll">
                   <table className="tableau-catalogue carte-mobile">
                     <thead>
@@ -3421,7 +3447,7 @@ function ModaleHistoriqueStock({
                     <tbody>
                       {mouvementsFiltres.map((m) => (
                         <tr key={m.id}>
-                          <td data-label="Date">{new Date(m.dateCreation).toLocaleString("fr-FR")}</td>
+                          <td data-label="Date" title={new Date(m.dateCreation).toLocaleString("fr-FR")}>{new Date(m.dateCreation).toLocaleDateString("fr-FR")}</td>
                           <td data-label="Désignation">{m.produitNom} {m.reference && <span className="sous-info">({m.reference})</span>}</td>
                           <td data-label="Dépôt">{m.depotNom}</td>
                           <td data-label="Type">{libelleTypeMouvement(m.type)}</td>
@@ -4093,6 +4119,7 @@ export default function Stock({
         <ModaleHistoriqueStock
           session={session}
           sectionInitiale="mouvements"
+          mouvementsSeuls
           onFermer={() => setSectionOuverte(null)}
         />
       )}
