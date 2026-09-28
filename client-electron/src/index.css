@@ -6499,3 +6499,11 @@ button.tuile-dormance.active {
     font-size: 1rem;
   }
 }
+
+/* Crédits : colonne du bouton de relance WhatsApp, assez large pour cliquer facilement. */
+.tableau-catalogue th.colonne-relance,
+.tableau-catalogue td.colonne-relance {
+  width: 70px;
+  min-width: 70px;
+  text-align: center;
+}

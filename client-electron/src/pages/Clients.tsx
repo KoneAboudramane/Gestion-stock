@@ -1468,7 +1468,7 @@ function OngletCredits({
               <th>Reste</th>
               <th>Prochaine échéance</th>
               <th>Statut</th>
-              <th />
+              <th className="colonne-relance" />
             </tr>
           </thead>
           <tbody>
@@ -1513,7 +1513,7 @@ function OngletCredits({
                   <td><span className={`nowrap ${c.statut === "solde" ? "badge-payee" : "badge-credit"}`}>
                     {libelleStatutCredit(c.statut)}
                   </span></td>
-                  <td>{c.statut === "en_cours" && (
+                  <td className="colonne-relance">{c.statut === "en_cours" && (
                     <button
                       type="button"
                       className="lien-icone"

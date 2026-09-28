@@ -1476,7 +1476,7 @@ function OngletCredits({ session }: { session: Session }) {
               <th>Reste</th>
               <th>Prochaine échéance</th>
               <th>Statut</th>
-              <th />
+              <th className="colonne-relance" />
             </tr>
           </thead>
           <tbody>
@@ -1521,7 +1521,7 @@ function OngletCredits({ session }: { session: Session }) {
                   <td data-label="Statut"><span className={`nowrap ${c.statut === "solde" ? "badge-payee" : "badge-credit"}`}>
                     {libelleStatutCredit(c.statut)}
                   </span></td>
-                  <td data-label="Relance">{c.statut === "en_cours" && (
+                  <td data-label="Relance" className="colonne-relance">{c.statut === "en_cours" && (
                     <button
                       type="button"
                       className="lien-icone"
