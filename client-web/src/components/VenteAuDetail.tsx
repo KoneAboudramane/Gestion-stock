@@ -15,7 +15,14 @@ import {
   type GrosDisponible,
   type TypeDetaillage,
 } from "../services/stock";
-import { creerArticleDetail, definirArticleDetail, infoDetailVariante, listerUnites, type InfoDetail } from "../services/produits";
+import {
+  creerArticleDetail,
+  definirArticleDetail,
+  infoDetailVariante,
+  listerUnites,
+  modifierVariante,
+  type InfoDetail,
+} from "../services/produits";
 
 const donnees = {
   infoDetail: (varianteId: string): Promise<InfoDetail> => infoDetailVariante(varianteId),
@@ -23,6 +30,7 @@ const donnees = {
   historique: (boutiqueId: string): Promise<DetaillageResume[]> => listerDetaillages(boutiqueId),
   depots: async (boutiqueId: string): Promise<{ id: string; nom: string }[]> => listerDepotsDetail(boutiqueId),
   variantes: (boutiqueId: string): Promise<{ id: string; nom: string }[]> => listerVariantesSimples(boutiqueId),
+  prixVente: (varianteId: string, prix: number): Promise<void> => modifierVariante(varianteId, { prixVente: prix }),
   unites: async (boutiqueId: string): Promise<{ id: string; nom: string }[]> => listerUnites(boutiqueId),
   operer: async (p: { varianteGrosId: string; depotId: string; nombre: number; type: TypeDetaillage; utilisateurId: string | null }): Promise<void> => {
     await detaillerOuRegrouper(p);
@@ -788,25 +796,13 @@ export function PanneauVenteAuDetail({
       {erreur && !edition && <div className="message-erreur">{erreur}</div>}
 
       {operation && (
-        <div className="fond-modale" onClick={() => setOperation(null)}>
-          <div className="modale-confirmation modale-confirmation-large" onClick={(e) => e.stopPropagation()}>
-            <h3>
-              {operation === "detailler" ? `📦 ${libelleOuvrir(uniteArticle)}` : "🔁 Regrouper"} — {nomArticle}
-            </h3>
-            <FormulaireDetailler
-              session={session}
-              varianteGrosIdInitial={varianteId}
-              typeInitial={operation}
-              articleFixe
-              onTermine={() => onModifie?.()}
-            />
-            <div className="actions-formulaire">
-              <button type="button" className="lien" onClick={() => setOperation(null)}>
-                Fermer
-              </button>
-            </div>
-          </div>
-        </div>
+        <ModaleOuvrir
+          session={session}
+          varianteGrosId={varianteId}
+          typeInitial={operation}
+          onFermer={() => setOperation(null)}
+          onTermine={() => onModifie?.()}
+        />
       )}
     </div>
   );
@@ -875,37 +871,252 @@ export function ModaleDetaillerEnCaisse({
   );
 }
 
-// --- Fenêtre « Ouvrir » depuis une ligne du stock ---
+
+// --- Fenêtre « Ouvrir » : avant → après, quantité, prix de vente au détail ---
 
 export function ModaleOuvrir({
   session,
   varianteGrosId,
-  depotId,
-  titre,
+  depotId: depotIdImpose,
+  typeInitial = "detailler",
   onFermer,
   onTermine,
 }: {
   session: Session;
   varianteGrosId: string;
-  depotId: string;
-  titre: string;
+  /** Dépôt de la ligne du stock ; sinon celui du vendeur (ou choix si plusieurs). */
+  depotId?: string;
+  typeInitial?: TypeDetaillage;
   onFermer: () => void;
-  onTermine: () => void;
+  onTermine?: () => void;
 }) {
+  const devise = useDevise();
+  const peutVoirCout = !!session.permissions.voir_benefices_achat;
+  const peutModifierPrix = !!session.permissions.modifier_prix;
+  const [depots, setDepots] = useState<{ id: string; nom: string }[]>([]);
+  const [depotId, setDepotId] = useState(depotIdImpose ?? session.depotId ?? "");
+  const [article, setArticle] = useState<ArticleDetaillable | null>(null);
+  const [type, setType] = useState<TypeDetaillage>(typeInitial);
+  const [quantite, setQuantite] = useState(1);
+  const [prix, setPrix] = useState("");
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [succes, setSucces] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState(false);
+
+  useEffect(() => {
+    donnees.depots(session.boutiqueId).then((liste) => {
+      setDepots(liste);
+      if (!depotId && liste[0]) setDepotId(liste[0].id);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId]);
+
+  async function charger(garderPrix = false) {
+    if (!depotId) return;
+    const a = (await donnees.articles(session.boutiqueId, depotId)).find((x) => x.varianteGrosId === varianteGrosId) ?? null;
+    setArticle(a);
+    if (a && !garderPrix) setPrix(String(a.prixVenteDetail));
+  }
+  useEffect(() => {
+    charger();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depotId, varianteGrosId]);
+
+  const detailler = type === "detailler";
+  const n = Math.max(0, Math.floor(quantite));
+  const maximum = article ? (detailler ? article.stockGros : Math.floor(article.stockDetail / article.quantite)) : 0;
+  const obtenus = article ? n * article.quantite : 0;
+  const coutDetail = article ? article.prixAchatGros / article.quantite : 0;
+  const prixNombre = Number(prix) || 0;
+  const marge = prixNombre - coutDetail;
+  const taux = prixNombre > 0 ? Math.round((marge / prixNombre) * 100) : 0;
+  const prixModifie = !!article && prixNombre !== article.prixVenteDetail;
+  const sousLeCout = detailler && prixNombre < Math.round(coutDetail);
+  const depotNom = depots.find((d) => d.id === depotId)?.nom ?? "";
+
+  async function confirmer() {
+    if (!article || n <= 0 || n > maximum) return;
+    setEnCours(true);
+    setErreur(null);
+    setSucces(null);
+    try {
+      if (detailler && prixModifie) {
+        if (sousLeCout) throw new Error(`Le prix de vente ne peut pas être inférieur au coût (${formaterMontant(Math.round(coutDetail))} ${devise}).`);
+        await donnees.prixVente(article.varianteDetailId, prixNombre);
+      }
+      await donnees.operer({ varianteGrosId, depotId, nombre: n, type, utilisateurId: session.utilisateurId });
+      setSucces(
+        detailler
+          ? `${quantiteUnite(n, article.uniteGros)} ouvert(s) : ${quantiteUnite(obtenus, article.uniteDetail)} de plus en stock${prixModifie ? `, vendu(e)s ${formaterMontant(prixNombre)} ${devise}` : ""}.`
+          : `${quantiteUnite(obtenus, article.uniteDetail)} regroupé(e)s en ${quantiteUnite(n, article.uniteGros)}.`,
+      );
+      setQuantite(1);
+      await charger(true);
+      onTermine?.();
+    } catch (e) {
+      setErreur(messageDe(e));
+    } finally {
+      setEnCours(false);
+    }
+  }
+
+  const uniteGros = article?.uniteGros ?? "";
+  const uniteDetail = article?.uniteDetail ?? "";
+  const unDetail = uniteDetail.toLowerCase() || "unité";
+
   return (
     <div className="fond-modale" onClick={onFermer}>
-      <div className="modale-confirmation modale-confirmation-large" onClick={(e) => e.stopPropagation()}>
-        <h3>{titre}</h3>
-        <FormulaireDetailler
-          session={session}
-          varianteGrosIdInitial={varianteGrosId}
-          depotIdInitial={depotId}
-          articleFixe
-          onTermine={onTermine}
-        />
-        <div className="actions-formulaire">
+      <div className="modale-confirmation modale-ouvrir" onClick={(e) => e.stopPropagation()}>
+        <div className="entete-ouvrir">
+          <div>
+            <h3>{detailler ? "📦 Ouvrir" : "🔁 Regrouper"}{article ? ` — ${article.grosNom}` : ""}</h3>
+            {article && (
+              <span className="sous-info">
+                1 {uniteGros.toLowerCase() || "unité"} = {quantiteUnite(article.quantite, uniteDetail)} ({article.detailNom})
+                {depotNom && ` · ${depotNom}`}
+              </span>
+            )}
+          </div>
+          <div className="bascule-vue" role="group" aria-label="Opération">
+            <button type="button" className={detailler ? "actif" : ""} onClick={() => setType("detailler")}>
+              📦 Ouvrir
+            </button>
+            <button type="button" className={!detailler ? "actif" : ""} onClick={() => setType("regrouper")}>
+              🔁 Regrouper
+            </button>
+          </div>
+        </div>
+
+        {!depotIdImpose && depots.length > 1 && (
+          <label className="champ-formulaire champ-depot-ouvrir">
+            Dépôt
+            <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
+              {depots.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.nom}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {!article ? (
+          <p className="note-aide">Chargement…</p>
+        ) : (
+          <>
+            <div className={`flux-ouvrir${detailler ? "" : " flux-ouvrir--inverse"}`}>
+              <div className="carte-flux">
+                <span className="sous-info">{article.grosNom}</span>
+                <strong>
+                  {nombre(article.stockGros)} <span className="fleche-flux">→</span>{" "}
+                  <span className={detailler ? "texte-erreur" : "montant-entree"}>
+                    {nombre(detailler ? article.stockGros - n : article.stockGros + n)}
+                  </span>
+                </strong>
+                <span className="sous-info">{pluriel(uniteGros || "unité")}</span>
+              </div>
+              <div className="operation-flux">
+                <span>{detailler ? "→" : "←"}</span>
+                <span className="sous-info">× {nombre(article.quantite)}</span>
+              </div>
+              <div className="carte-flux">
+                <span className="sous-info">{article.detailNom}</span>
+                <strong>
+                  {nombre(article.stockDetail)} <span className="fleche-flux">→</span>{" "}
+                  <span className={detailler ? "montant-entree" : "texte-erreur"}>
+                    {nombre(detailler ? article.stockDetail + obtenus : article.stockDetail - obtenus)}
+                  </span>
+                </strong>
+                <span className="sous-info">{pluriel(uniteDetail || "unité")}</span>
+              </div>
+            </div>
+
+            <div className="ligne-quantite-ouvrir">
+              <span className="libelle-quantite-ouvrir">
+                {detailler ? `Combien de ${pluriel(uniteGros || "unité")} ouvrir ?` : `Combien de ${pluriel(uniteGros || "unité")} refaire ?`}
+              </span>
+              <span className="compteur-quantite">
+                <button type="button" onClick={() => setQuantite((q) => Math.max(1, q - 1))} aria-label="Moins">
+                  −
+                </button>
+                <input type="number" min={1} step={1} value={quantite} onChange={(e) => setQuantite(Number(e.target.value) || 0)} />
+                <button type="button" onClick={() => setQuantite((q) => q + 1)} aria-label="Plus">
+                  +
+                </button>
+              </span>
+              <span className="raccourcis-quantite">
+                {[1, 2, 5].map((v) => (
+                  <button key={v} type="button" className={n === v ? "actif" : ""} disabled={v > maximum} onClick={() => setQuantite(v)}>
+                    {v}
+                  </button>
+                ))}
+                <button type="button" className={n === maximum && maximum > 0 ? "actif" : ""} disabled={maximum <= 0} onClick={() => setQuantite(maximum)}>
+                  Tout ({nombre(maximum)})
+                </button>
+              </span>
+            </div>
+            {n > maximum && (
+              <div className="message-erreur">
+                Pas assez en stock : {quantiteUnite(maximum, uniteGros)} au maximum.
+              </div>
+            )}
+
+            {detailler && (
+              <div className="bloc-prix-ouvrir">
+                <label className="champ-formulaire">
+                  Prix de vente par {unDetail} ({devise})
+                  <ChampMontant
+                    className={sousLeCout ? "champ-invalide" : undefined}
+                    value={prix}
+                    disabled={!peutModifierPrix}
+                    title={peutModifierPrix ? undefined : "Votre rôle ne permet pas de modifier les prix."}
+                    onChange={setPrix}
+                  />
+                </label>
+                {peutVoirCout && (
+                  <div className="marge-ouvrir">
+                    <span>
+                      Coût : <strong>{formaterMontant(Math.round(coutDetail))}</strong>
+                    </span>
+                    <span className={marge < 0 ? "texte-erreur" : "montant-entree"}>
+                      Marge : <strong>{formaterMontant(Math.round(marge))} {devise}</strong> ({taux} %)
+                    </span>
+                    <span>
+                      Sur ce lot : <strong>{formaterMontant(Math.round(marge * obtenus))} {devise}</strong>
+                    </span>
+                  </div>
+                )}
+                {prixModifie && (
+                  <span className="note-aide">
+                    Ancien prix {formaterMontant(article.prixVenteDetail)} {devise} : le nouveau prix sera enregistré à la
+                    confirmation.
+                  </span>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {erreur && <div className="message-erreur">{erreur}</div>}
+        {succes && <div className="message-succes">✓ {succes}</div>}
+
+        <div className="actions-formulaire actions-ouvrir">
           <button type="button" className="lien" onClick={onFermer}>
             Fermer
+          </button>
+          <button
+            type="button"
+            className="bouton-valider bouton-ouvrir-confirmer"
+            disabled={enCours || !article || n <= 0 || n > maximum || sousLeCout}
+            onClick={confirmer}
+          >
+            {enCours
+              ? "…"
+              : !article
+                ? "Ouvrir"
+                : detailler
+                  ? `📦 Ouvrir ${quantiteUnite(n, uniteGros)} → ${quantiteUnite(obtenus, uniteDetail)}`
+                  : `🔁 Regrouper ${quantiteUnite(obtenus, uniteDetail)} → ${quantiteUnite(n, uniteGros)}`}
           </button>
         </div>
       </div>

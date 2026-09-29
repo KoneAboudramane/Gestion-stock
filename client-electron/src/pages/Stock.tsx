@@ -389,7 +389,6 @@ function OngletStockNiveau({
           session={session}
           varianteGrosId={ouverture.varianteGrosId}
           depotId={ouverture.depotId}
-          titre={ouverture.titre}
           onFermer={() => setOuverture(null)}
           onTermine={rechargerLignes}
         />
