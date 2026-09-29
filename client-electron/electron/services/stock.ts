@@ -1336,3 +1336,251 @@ export function validerInventaire(id: string, utilisateurId: string | null): voi
 
   sauvegarder();
 }
+
+// --- Détailler / regrouper (miroir de stock/services.py::detailler_ou_regrouper) ---
+
+export type TypeDetaillage = "detailler" | "regrouper";
+
+export interface ParametresDetaillage {
+  /** L'article de gros (ex. le carton), porteur du lien vers son article de détail. */
+  varianteGrosId: string;
+  depotId: string;
+  /** Nombre d'articles de gros à détailler, ou à reconstituer. */
+  nombre: number;
+  type: TypeDetaillage;
+  utilisateurId: string | null;
+}
+
+function stockTotalVariante(varianteId: string): number {
+  return Number(
+    unResultat<{ total: number }>("SELECT COALESCE(SUM(quantite), 0) as total FROM stocks WHERE variante_id = ?", [varianteId])
+      ?.total ?? 0,
+  );
+}
+
+function stockVarianteDepot(varianteId: string, depotId: string): number {
+  return Number(
+    unResultat<{ quantite: number }>("SELECT quantite FROM stocks WHERE variante_id = ? AND depot_id = ?", [varianteId, depotId])
+      ?.quantite ?? 0,
+  );
+}
+
+/** Coût moyen pondéré après l'entrée de `quantite` au coût `cout`. */
+function cumpApresEntree(varianteId: string, prixAchat: number, quantite: number, cout: number): number {
+  const total = stockTotalVariante(varianteId);
+  return total > 0 ? Math.round((total * prixAchat + quantite * cout) / (total + quantite)) : Math.round(cout);
+}
+
+/** Coût moyen pondéré après le retrait de `quantite` entrée au coût `cout`. */
+function cumpApresSortie(varianteId: string, prixAchat: number, quantite: number, cout: number): number {
+  const reste = stockTotalVariante(varianteId) - quantite;
+  if (reste > 0) {
+    const nouveau = Math.round((stockTotalVariante(varianteId) * prixAchat - quantite * cout) / reste);
+    if (nouveau > 0) return nouveau;
+  }
+  return prixAchat;
+}
+
+interface VarianteCout {
+  id: string;
+  nom: string;
+  prix_achat: number;
+  prix_vente: number;
+  variante_detail_id: string | null;
+  quantite_detail: number | null;
+}
+
+function varianteCout(id: string): VarianteCout | undefined {
+  return unResultat<VarianteCout>(
+    `SELECT v.id as id, p.nom as nom, v.prix_achat as prix_achat, v.prix_vente as prix_vente,
+            v.variante_detail_id as variante_detail_id, v.quantite_detail as quantite_detail
+     FROM variantes v JOIN produits p ON p.id = v.produit_id WHERE v.id = ?`,
+    [id],
+  );
+}
+
+function majPrixAchat(varianteId: string, prixAchat: number): void {
+  executer("UPDATE variantes SET prix_achat = ?, synchronise = 0, date_modification = ? WHERE id = ?", [
+    prixAchat,
+    new Date().toISOString(),
+    varianteId,
+  ]);
+}
+
+/**
+ * « Détailler » `nombre` cartons en paquets, ou « regrouper » des paquets en
+ * `nombre` cartons, dans un même dépôt. Une sortie et une entrée de stock ; le
+ * coût suit (carton à 9 600 → paquets à 400), si bien que la marge reste
+ * juste. Ni vente ni perte : aucune écriture comptable.
+ */
+export function detaillerOuRegrouper(params: ParametresDetaillage): string {
+  const { varianteGrosId, depotId, nombre, type, utilisateurId } = params;
+  const gros = varianteCout(varianteGrosId);
+  if (!gros) throw new ErreurStock("Article introuvable.");
+  const parGros = Number(gros.quantite_detail ?? 0);
+  const detail = gros.variante_detail_id ? varianteCout(gros.variante_detail_id) : undefined;
+  if (!detail || !(parGros > 0)) throw new ErreurStock("Cet article n'a pas d'article de détail.");
+  if (!Number.isInteger(nombre) || nombre <= 0) throw new ErreurStock("Indiquez un nombre entier supérieur à zéro.");
+
+  const detailler = type === "detailler";
+  const source = detailler ? gros : detail;
+  const cible = detailler ? detail : gros;
+  const quantiteSource = detailler ? nombre : nombre * parGros;
+  const quantiteCible = detailler ? nombre * parGros : nombre;
+  const coutCible = detailler ? Number(gros.prix_achat) / parGros : Number(detail.prix_achat) * parGros;
+
+  const disponible = stockVarianteDepot(source.id, depotId);
+  if (disponible < quantiteSource) {
+    throw new ErreurStock(
+      `Pas assez de « ${source.nom} » dans ce dépôt : ${formaterNombreStock(disponible)} disponible(s), ${formaterNombreStock(quantiteSource)} nécessaire(s).`,
+    );
+  }
+  const nouveauCump = cumpApresEntree(cible.id, Number(cible.prix_achat), quantiteCible, coutCible);
+  if (Number(cible.prix_vente) < nouveauCump) {
+    throw new ErreurStock(
+      `Le prix de vente de « ${cible.nom} » (${formaterNombreStock(Number(cible.prix_vente))}) est inférieur à son coût (${formaterNombreStock(nouveauCump)}) : corrigez le prix avant.`,
+    );
+  }
+
+  const id = dansUneTransaction(() => {
+    const operationId = randomUUID();
+    const maintenant = new Date().toISOString();
+    executer(
+      `INSERT INTO detaillages
+         (id, depot_id, type, variante_source_id, variante_cible_id, quantite_source, quantite_cible,
+          cout_unitaire_cible, utilisateur_id, date_creation, date_modification)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        operationId,
+        depotId,
+        type,
+        source.id,
+        cible.id,
+        quantiteSource,
+        quantiteCible,
+        Math.round(coutCible * 100) / 100,
+        utilisateurId,
+        maintenant,
+        maintenant,
+      ],
+    );
+    const motif = `${detailler ? "Détaillage" : "Regroupement"} : ${formaterNombreStock(quantiteSource)} ${source.nom} → ${formaterNombreStock(quantiteCible)} ${cible.nom}`;
+    appliquerMouvement({
+      varianteId: source.id,
+      depotId,
+      type: "sortie",
+      quantite: quantiteSource,
+      motif,
+      utilisateurId,
+      referenceType: "stock.Detaillage",
+      referenceId: operationId,
+    });
+    majPrixAchat(cible.id, nouveauCump);
+    appliquerMouvement({
+      varianteId: cible.id,
+      depotId,
+      type: "entree",
+      quantite: quantiteCible,
+      motif,
+      utilisateurId,
+      referenceType: "stock.Detaillage",
+      referenceId: operationId,
+    });
+    terminerDestockageSiEpuise(source.id);
+    return operationId;
+  });
+  sauvegarder();
+  return id;
+}
+
+/** Remet les choses comme avant, tant que ce qui a été obtenu est encore en stock. */
+export function annulerDetaillage(id: string, utilisateurId: string | null): void {
+  const operation = unResultat<{
+    depot_id: string;
+    type: TypeDetaillage;
+    variante_source_id: string;
+    variante_cible_id: string;
+    quantite_source: number;
+    quantite_cible: number;
+    cout_unitaire_cible: number;
+    annulee: number;
+  }>("SELECT * FROM detaillages WHERE id = ?", [id]);
+  if (!operation) throw new ErreurStock("Opération introuvable.");
+  if (Number(operation.annulee)) throw new ErreurStock("Cette opération est déjà annulée.");
+  const source = varianteCout(operation.variante_source_id);
+  const cible = varianteCout(operation.variante_cible_id);
+  if (!source || !cible) throw new ErreurStock("Article introuvable.");
+  const quantiteSource = Number(operation.quantite_source);
+  const quantiteCible = Number(operation.quantite_cible);
+  if (stockVarianteDepot(cible.id, operation.depot_id) < quantiteCible) {
+    throw new ErreurStock(
+      `Les ${formaterNombreStock(quantiteCible)} « ${cible.nom} » obtenus ne sont plus tous en stock : annulation impossible.`,
+    );
+  }
+  const coutCible = Number(operation.cout_unitaire_cible);
+  const coutSource = (coutCible * quantiteCible) / quantiteSource;
+  dansUneTransaction(() => {
+    const maintenant = new Date().toISOString();
+    majPrixAchat(cible.id, cumpApresSortie(cible.id, Number(cible.prix_achat), quantiteCible, coutCible));
+    majPrixAchat(source.id, cumpApresEntree(source.id, Number(source.prix_achat), quantiteSource, coutSource));
+    const motif = `Annulation ${operation.type === "detailler" ? "détaillage" : "regroupement"}`;
+    appliquerMouvement({
+      varianteId: cible.id,
+      depotId: operation.depot_id,
+      type: "sortie",
+      quantite: quantiteCible,
+      motif,
+      utilisateurId,
+      referenceType: "stock.Detaillage",
+      referenceId: id,
+    });
+    appliquerMouvement({
+      varianteId: source.id,
+      depotId: operation.depot_id,
+      type: "entree",
+      quantite: quantiteSource,
+      motif,
+      utilisateurId,
+      referenceType: "stock.Detaillage",
+      referenceId: id,
+    });
+    executer(
+      "UPDATE detaillages SET annulee = 1, date_annulation = ?, synchronise = 0, date_modification = ? WHERE id = ?",
+      [maintenant, maintenant, id],
+    );
+  });
+  sauvegarder();
+}
+
+export interface DetaillageResume {
+  id: string;
+  dateCreation: string;
+  type: TypeDetaillage;
+  depotNom: string;
+  sourceNom: string;
+  cibleNom: string;
+  quantiteSource: number;
+  quantiteCible: number;
+  coutUnitaireCible: number;
+  utilisateurId: string | null;
+  annulee: boolean;
+}
+
+/** Détaillages et regroupements de la boutique, les plus récents d'abord. */
+export function listerDetaillages(boutiqueId: string): DetaillageResume[] {
+  return tousLesResultats<DetaillageResume>(
+    `SELECT dt.id as id, dt.date_creation as dateCreation, dt.type as type, d.nom as depotNom,
+            ps.nom as sourceNom, pc.nom as cibleNom, dt.quantite_source as quantiteSource,
+            dt.quantite_cible as quantiteCible, dt.cout_unitaire_cible as coutUnitaireCible,
+            dt.utilisateur_id as utilisateurId, COALESCE(dt.annulee, 0) as annulee
+     FROM detaillages dt
+     JOIN depots d ON d.id = dt.depot_id
+     JOIN variantes vs ON vs.id = dt.variante_source_id
+     JOIN produits ps ON ps.id = vs.produit_id
+     JOIN variantes vc ON vc.id = dt.variante_cible_id
+     JOIN produits pc ON pc.id = vc.produit_id
+     WHERE d.boutique_id = ? AND dt.supprime = 0
+     ORDER BY dt.date_creation DESC`,
+    [boutiqueId],
+  ).map((o) => ({ ...o, annulee: Boolean(o.annulee) }));
+}

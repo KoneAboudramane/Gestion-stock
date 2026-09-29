@@ -859,6 +859,48 @@ export interface RemboursementClient {
   utilisateurId: string | null;
 }
 
+export type TypeDetaillage = "detailler" | "regrouper";
+
+export interface ParametresDetaillage {
+  varianteGrosId: string;
+  depotId: string;
+  nombre: number;
+  type: TypeDetaillage;
+  utilisateurId: string | null;
+}
+
+export interface DetaillageResume {
+  id: string;
+  dateCreation: string;
+  type: TypeDetaillage;
+  depotNom: string;
+  sourceNom: string;
+  cibleNom: string;
+  quantiteSource: number;
+  quantiteCible: number;
+  coutUnitaireCible: number;
+  utilisateurId: string | null;
+  annulee: boolean;
+}
+
+export interface LienDetail {
+  varianteId: string;
+  nom: string;
+  quantite: number;
+}
+
+export interface InfoDetail {
+  detail: LienDetail | null;
+  gros: LienDetail | null;
+}
+
+export interface ParametresArticleDetail {
+  varianteGrosId: string;
+  nom: string;
+  prixVente: number;
+  quantite: number;
+}
+
 export interface PaiementCreditDetail {
   id: string;
   montant: number;
@@ -1401,6 +1443,14 @@ export interface WindowApi {
     modifier(id: string, champs: { prixDestockage?: number; dateFin?: string | null }): Promise<ResultatEcriture<void>>;
     demarrerOperation(params: ParametresOperationDestockage): Promise<ResultatEcriture<string>>;
     arreterOperation(id: string): Promise<ResultatEcriture<void>>;
+  };
+  detaillages: {
+    operer(params: ParametresDetaillage): Promise<ResultatEcriture<string>>;
+    annuler(id: string, utilisateurId: string | null): Promise<ResultatEcriture<void>>;
+    lister(boutiqueId: string): Promise<DetaillageResume[]>;
+    infoDetail(varianteId: string): Promise<InfoDetail>;
+    definirDetail(varianteGrosId: string, varianteDetailId: string | null, quantite: number | null): Promise<ResultatEcriture<void>>;
+    creerDetail(params: ParametresArticleDetail): Promise<ResultatEcriture<string>>;
   };
   pertes: {
     declarer(params: ParametresPerte): Promise<ResultatEcriture<string>>;

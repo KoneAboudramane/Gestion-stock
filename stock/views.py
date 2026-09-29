@@ -6,8 +6,9 @@ from rest_framework.response import Response
 from comptes.models import Boutique
 from core.permissions import EstMembreBoutique, FiltreBoutiqueMixin, a_la_permission
 
-from .models import Depot, Destockage, Inventaire, OperationDestockage, LigneInventaire, MouvementStock, PerteStock, Stock, TransfertStock
+from .models import Depot, Destockage, Detaillage, Inventaire, OperationDestockage, LigneInventaire, MouvementStock, PerteStock, Stock, TransfertStock
 from .serializers import (
+    DetaillageSerializer,
     DepotSerializer,
     DestockageSerializer,
     InventaireSerializer,
@@ -19,6 +20,7 @@ from .serializers import (
     TransfertStockSerializer,
 )
 from .services import (
+    annuler_detaillage,
     ajouter_ligne_inventaire,
     annuler_perte,
     arreter_destockage,
@@ -135,6 +137,20 @@ class PerteStockViewSet(
     def annuler(self, request, pk=None):
         perte = annuler_perte(self.get_object(), utilisateur=request.user)
         return Response(PerteStockSerializer(perte).data)
+
+
+class DetaillageViewSet(
+    _LectureStockMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin, viewsets.GenericViewSet,
+):
+    serializer_class = DetaillageSerializer
+    queryset = Detaillage.objects.select_related("depot", "variante_source", "variante_cible", "utilisateur")
+    chemin_boutique = "depot__boutique"
+
+    @action(detail=True, methods=["post"])
+    def annuler(self, request, pk=None):
+        operation = annuler_detaillage(self.get_object(), utilisateur=request.user)
+        return Response(DetaillageSerializer(operation).data)
 
 
 class DestockageViewSet(

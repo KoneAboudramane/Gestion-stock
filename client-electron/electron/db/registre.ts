@@ -49,7 +49,7 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
   {
     table: "catalogue.Variante",
     tableLocale: "variantes",
-    champsFK: ["produit"],
+    champsFK: ["produit", "variante_detail"],
     clauseBoutique: "produit_id IN (SELECT id FROM produits WHERE boutique_id = ?)",
   },
   {
@@ -156,6 +156,12 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
     table: "stock.PerteStock",
     tableLocale: "pertes_stock",
     champsFK: ["variante", "depot", "utilisateur"],
+    clauseBoutique: "depot_id IN (SELECT id FROM depots WHERE boutique_id = ?)",
+  },
+  {
+    table: "stock.Detaillage",
+    tableLocale: "detaillages",
+    champsFK: ["depot", "variante_source", "variante_cible", "utilisateur"],
     clauseBoutique: "depot_id IN (SELECT id FROM depots WHERE boutique_id = ?)",
   },
   {

@@ -638,3 +638,95 @@ export async function usagesCatalogue(boutiqueId: string): Promise<UsagesCatalog
   for (const [id, ensemble] of parAttribut) attributs[id] = ensemble.size;
   return { unites, attributs };
 }
+
+// --- Vente au détail : lien article de gros (carton) → article de détail (paquet) ---
+
+export interface LienDetail {
+  varianteId: string;
+  nom: string;
+  quantite: number;
+}
+
+export interface InfoDetail {
+  detail: LienDetail | null;
+  gros: LienDetail | null;
+}
+
+async function nomDuProduitDeVariante(varianteId: string): Promise<string> {
+  const variante = await obtenirLigne("variantes", varianteId);
+  const produit = variante ? await obtenirLigne("produits", variante.produit_id) : undefined;
+  return produit?.nom ?? "";
+}
+
+export async function infoDetailVariante(varianteId: string): Promise<InfoDetail> {
+  const variante = await obtenirLigne("variantes", varianteId);
+  let detail: LienDetail | null = null;
+  if (variante?.variante_detail_id) {
+    const cible = await obtenirLigne("variantes", variante.variante_detail_id);
+    if (cible && !cible.supprime) {
+      detail = { varianteId: cible.id, nom: await nomDuProduitDeVariante(cible.id), quantite: Number(variante.quantite_detail ?? 0) };
+    }
+  }
+  const candidats = (await listerTout("variantes"))
+    .filter((v) => v.variante_detail_id === varianteId && !v.supprime)
+    .sort((a, b) => a.date_creation.localeCompare(b.date_creation));
+  let gros: LienDetail | null = null;
+  for (const v of candidats) {
+    const produit = await obtenirLigne("produits", v.produit_id);
+    if (produit && !produit.supprime) {
+      gros = { varianteId: v.id, nom: produit.nom, quantite: Number(v.quantite_detail ?? 0) };
+      break;
+    }
+  }
+  return { detail, gros };
+}
+
+export async function definirArticleDetail(
+  varianteGrosId: string,
+  varianteDetailId: string | null,
+  quantite: number | null,
+): Promise<void> {
+  if (varianteDetailId) {
+    if (varianteDetailId === varianteGrosId) throw new ErreurProduit("Un article ne peut pas être son propre détail.");
+    if (!(quantite !== null && quantite > 1)) {
+      throw new ErreurProduit("Indiquez combien d'unités de détail contient un article (au moins 2).");
+    }
+    let courant: string | null = varianteDetailId;
+    for (let i = 0; courant && i < 20; i++) {
+      if (courant === varianteGrosId) throw new ErreurProduit("Ce lien créerait une boucle entre les articles.");
+      courant = (await obtenirLigne("variantes", courant))?.variante_detail_id ?? null;
+    }
+  }
+  const gros = await obtenirLigne("variantes", varianteGrosId);
+  if (!gros) throw new ErreurProduit("Article introuvable.");
+  await ecrireLigne("variantes", {
+    ...gros,
+    variante_detail_id: varianteDetailId,
+    quantite_detail: varianteDetailId ? quantite : null,
+    date_modification: maintenant(),
+    synchronise: 0,
+  });
+}
+
+export interface ParametresArticleDetail {
+  varianteGrosId: string;
+  nom: string;
+  prixVente: number;
+  quantite: number;
+}
+
+export async function creerArticleDetail(params: ParametresArticleDetail): Promise<string> {
+  const gros = await obtenirLigne("variantes", params.varianteGrosId);
+  const produitGros = gros ? await obtenirLigne("produits", gros.produit_id) : undefined;
+  if (!gros || !produitGros) throw new ErreurProduit("Article introuvable.");
+  if (!(params.quantite > 1)) throw new ErreurProduit("Indiquez combien d'unités de détail contient un article (au moins 2).");
+  const { varianteId } = await creerProduit({
+    boutiqueId: produitGros.boutique_id,
+    nom: params.nom.trim(),
+    categorieId: produitGros.categorie_id,
+    prixAchat: Math.round(Number(gros.prix_achat) / params.quantite),
+    prixVente: params.prixVente,
+  });
+  await definirArticleDetail(params.varianteGrosId, varianteId, params.quantite);
+  return varianteId;
+}

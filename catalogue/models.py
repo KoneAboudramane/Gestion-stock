@@ -95,6 +95,13 @@ class Variante(ModeleBase):
     seuil_alerte = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     photo = models.ImageField(upload_to="variantes/", null=True, blank=True)
     actif = models.BooleanField(default=True)
+    # Vente au détail : cet article (ex. carton) peut être « détaillé » en
+    # `quantite_detail` unités de `variante_detail` (ex. 24 paquets), et
+    # l'inverse (« regrouper »). Voir stock.Detaillage.
+    variante_detail = models.ForeignKey(
+        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="variantes_gros"
+    )
+    quantite_detail = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
 
     def __str__(self):
         details = ", ".join(v.valeur_attribut.valeur for v in self.valeurs.all())

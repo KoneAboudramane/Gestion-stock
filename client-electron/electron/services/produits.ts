@@ -656,3 +656,89 @@ export function usagesCatalogue(boutiqueId: string): UsagesCatalogue {
   }
   return { unites, attributs };
 }
+
+// --- Vente au détail : lien entre un article de gros (carton) et son article de détail (paquet) ---
+
+export interface LienDetail {
+  varianteId: string;
+  nom: string;
+  /** Combien d'unités de détail contient un article de gros. */
+  quantite: number;
+}
+
+export interface InfoDetail {
+  /** Article de détail de cet article (s'il se détaille). */
+  detail: LienDetail | null;
+  /** Article de gros dont cet article est le détail (s'il y en a un). */
+  gros: LienDetail | null;
+}
+
+export function infoDetailVariante(varianteId: string): InfoDetail {
+  const detail = unResultat<LienDetail>(
+    `SELECT d.id as varianteId, p.nom as nom, v.quantite_detail as quantite
+     FROM variantes v JOIN variantes d ON d.id = v.variante_detail_id JOIN produits p ON p.id = d.produit_id
+     WHERE v.id = ? AND d.supprime = 0`,
+    [varianteId],
+  );
+  const gros = unResultat<LienDetail>(
+    `SELECT v.id as varianteId, p.nom as nom, v.quantite_detail as quantite
+     FROM variantes v JOIN produits p ON p.id = v.produit_id
+     WHERE v.variante_detail_id = ? AND v.supprime = 0 AND p.supprime = 0
+     ORDER BY v.date_creation LIMIT 1`,
+    [varianteId],
+  );
+  return {
+    detail: detail ? { ...detail, quantite: Number(detail.quantite) } : null,
+    gros: gros ? { ...gros, quantite: Number(gros.quantite) } : null,
+  };
+}
+
+/** Relie (ou délie, avec null) un article de gros à son article de détail. */
+export function definirArticleDetail(varianteGrosId: string, varianteDetailId: string | null, quantite: number | null): void {
+  if (varianteDetailId) {
+    if (varianteDetailId === varianteGrosId) throw new ErreurProduit("Un article ne peut pas être son propre détail.");
+    if (!(quantite !== null && quantite > 1)) {
+      throw new ErreurProduit("Indiquez combien d'unités de détail contient un article (au moins 2).");
+    }
+    // Pas de boucle : en suivant la chaîne des détails depuis le nouvel article, on ne doit jamais retomber sur celui-ci.
+    let courant: string | null = varianteDetailId;
+    for (let i = 0; courant && i < 20; i++) {
+      if (courant === varianteGrosId) throw new ErreurProduit("Ce lien créerait une boucle entre les articles.");
+      courant =
+        unResultat<{ suivant: string | null }>("SELECT variante_detail_id as suivant FROM variantes WHERE id = ?", [courant])
+          ?.suivant ?? null;
+    }
+  }
+  executer(
+    "UPDATE variantes SET variante_detail_id = ?, quantite_detail = ?, synchronise = 0, date_modification = ? WHERE id = ?",
+    [varianteDetailId, varianteDetailId ? quantite : null, new Date().toISOString(), varianteGrosId],
+  );
+  sauvegarder();
+}
+
+export interface ParametresArticleDetail {
+  varianteGrosId: string;
+  nom: string;
+  prixVente: number;
+  quantite: number;
+}
+
+/** Crée l'article de détail (même catégorie que l'article de gros) et le relie. */
+export function creerArticleDetail(params: ParametresArticleDetail): string {
+  const gros = unResultat<{ boutique_id: string; categorie_id: string | null; prix_achat: number }>(
+    `SELECT p.boutique_id as boutique_id, p.categorie_id as categorie_id, v.prix_achat as prix_achat
+     FROM variantes v JOIN produits p ON p.id = v.produit_id WHERE v.id = ?`,
+    [params.varianteGrosId],
+  );
+  if (!gros) throw new ErreurProduit("Article introuvable.");
+  if (!(params.quantite > 1)) throw new ErreurProduit("Indiquez combien d'unités de détail contient un article (au moins 2).");
+  const { varianteId } = creerProduit({
+    boutiqueId: gros.boutique_id,
+    nom: params.nom.trim(),
+    categorieId: gros.categorie_id,
+    prixAchat: Math.round(Number(gros.prix_achat) / params.quantite),
+    prixVente: params.prixVente,
+  });
+  definirArticleDetail(params.varianteGrosId, varianteId, params.quantite);
+  return varianteId;
+}

@@ -59,6 +59,7 @@ class VarianteSerializer(serializers.ModelSerializer):
         fields = [
             "id", "produit", "reference", "code_barres", "prix_achat",
             "prix_vente", "seuil_alerte", "photo", "actif", "valeur_attribut_ids",
+            "variante_detail", "quantite_detail",
         ]
         read_only_fields = ["id"]
 

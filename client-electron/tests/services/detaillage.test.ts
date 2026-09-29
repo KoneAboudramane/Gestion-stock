@@ -1,0 +1,110 @@
+import { randomUUID } from "node:crypto";
+import { beforeEach, describe, expect, it } from "vitest";
+
+import { executer, unResultat } from "../../electron/db/helpers";
+import { creerArticleDetail, definirArticleDetail, infoDetailVariante } from "../../electron/services/produits";
+import {
+  ErreurStock,
+  annulerDetaillage,
+  appliquerMouvement,
+  detaillerOuRegrouper,
+  listerDetaillages,
+} from "../../electron/services/stock";
+import { creerBaseDeTest } from "../setup";
+
+const BOUTIQUE_ID = "b1";
+
+function creerArticle(nom: string, prixAchat: number, prixVente: number): string {
+  const produitId = randomUUID();
+  const varianteId = randomUUID();
+  executer("INSERT INTO produits (id, boutique_id, nom) VALUES (?, ?, ?)", [produitId, BOUTIQUE_ID, nom]);
+  executer("INSERT INTO variantes (id, produit_id, prix_achat, prix_vente) VALUES (?, ?, ?, ?)", [
+    varianteId,
+    produitId,
+    prixAchat,
+    prixVente,
+  ]);
+  return varianteId;
+}
+
+function stock(varianteId: string, depotId: string): number {
+  return Number(
+    unResultat<{ quantite: number }>("SELECT quantite FROM stocks WHERE variante_id = ? AND depot_id = ?", [varianteId, depotId])
+      ?.quantite ?? 0,
+  );
+}
+
+function prixAchat(varianteId: string): number {
+  return Number(unResultat<{ prix_achat: number }>("SELECT prix_achat FROM variantes WHERE id = ?", [varianteId])!.prix_achat);
+}
+
+describe("détailler / regrouper (carton ↔ paquets)", () => {
+  const depotId = "d1";
+  let carton: string;
+  let paquet: string;
+
+  beforeEach(async () => {
+    await creerBaseDeTest();
+    executer("INSERT INTO depots (id, boutique_id, nom) VALUES (?, ?, ?)", [depotId, BOUTIQUE_ID, "Magasin"]);
+    carton = creerArticle("Biscuit carton", 9600, 12000);
+    paquet = creerArticle("Biscuit paquet", 0, 600);
+    definirArticleDetail(carton, paquet, 24);
+    appliquerMouvement({ varianteId: carton, depotId, type: "entree", quantite: 5 });
+  });
+
+  it("détaille : sort les cartons, entre les paquets au bon coût", () => {
+    detaillerOuRegrouper({ varianteGrosId: carton, depotId, nombre: 2, type: "detailler", utilisateurId: null });
+    expect(stock(carton, depotId)).toBe(3);
+    expect(stock(paquet, depotId)).toBe(48);
+    expect(prixAchat(paquet)).toBe(400);
+    const operations = listerDetaillages(BOUTIQUE_ID);
+    expect(operations).toHaveLength(1);
+    expect(operations[0]).toMatchObject({ type: "detailler", quantiteSource: 2, quantiteCible: 48, annulee: false });
+  });
+
+  it("regroupe des paquets en un carton, au coût des paquets", () => {
+    detaillerOuRegrouper({ varianteGrosId: carton, depotId, nombre: 1, type: "detailler", utilisateurId: null });
+    detaillerOuRegrouper({ varianteGrosId: carton, depotId, nombre: 1, type: "regrouper", utilisateurId: null });
+    expect(stock(carton, depotId)).toBe(5);
+    expect(stock(paquet, depotId)).toBe(0);
+    expect(prixAchat(carton)).toBe(9600);
+  });
+
+  it("refuse sans assez de stock, un nombre non entier, ou un prix de détail sous le coût", () => {
+    expect(() =>
+      detaillerOuRegrouper({ varianteGrosId: carton, depotId, nombre: 1, type: "regrouper", utilisateurId: null }),
+    ).toThrow(ErreurStock);
+    expect(() =>
+      detaillerOuRegrouper({ varianteGrosId: carton, depotId, nombre: 1.5, type: "detailler", utilisateurId: null }),
+    ).toThrow(ErreurStock);
+    executer("UPDATE variantes SET prix_vente = 300 WHERE id = ?", [paquet]);
+    expect(() =>
+      detaillerOuRegrouper({ varianteGrosId: carton, depotId, nombre: 1, type: "detailler", utilisateurId: null }),
+    ).toThrow(/inférieur à son coût/);
+  });
+
+  it("annule tant que les paquets sont en stock, puis refuse une fois vendus", () => {
+    const premier = detaillerOuRegrouper({ varianteGrosId: carton, depotId, nombre: 1, type: "detailler", utilisateurId: null });
+    annulerDetaillage(premier, null);
+    expect(stock(carton, depotId)).toBe(5);
+    expect(stock(paquet, depotId)).toBe(0);
+    expect(prixAchat(carton)).toBe(9600);
+    expect(() => annulerDetaillage(premier, null)).toThrow(/déjà annulée/);
+
+    const second = detaillerOuRegrouper({ varianteGrosId: carton, depotId, nombre: 1, type: "detailler", utilisateurId: null });
+    appliquerMouvement({ varianteId: paquet, depotId, type: "sortie", quantite: 1 });
+    expect(() => annulerDetaillage(second, null)).toThrow(/plus tous en stock/);
+  });
+
+  it("lien de détail : info dans les deux sens, pas de boucle, création sur place", () => {
+    expect(infoDetailVariante(carton).detail).toMatchObject({ varianteId: paquet, quantite: 24 });
+    expect(infoDetailVariante(paquet).gros).toMatchObject({ varianteId: carton, quantite: 24 });
+    expect(() => definirArticleDetail(paquet, carton, 24)).toThrow(/boucle/);
+    expect(() => definirArticleDetail(carton, carton, 24)).toThrow();
+
+    const sac = creerArticle("Riz sac 50 kg", 25000, 30000);
+    const kilo = creerArticleDetail({ varianteGrosId: sac, nom: "Riz au kilo", prixVente: 700, quantite: 50 });
+    expect(infoDetailVariante(sac).detail).toMatchObject({ varianteId: kilo, nom: "Riz au kilo", quantite: 50 });
+    expect(prixAchat(kilo)).toBe(500);
+  });
+});

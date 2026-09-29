@@ -65,6 +65,7 @@ REGISTRE = [
     EntreeRegistre("stock", "MouvementStock", "depot__boutique", ajout_seul=True),
     EntreeRegistre("stock", "TransfertStock", "depot_source__boutique", ajout_seul=True),
     EntreeRegistre("stock", "PerteStock", "depot__boutique"),
+    EntreeRegistre("stock", "Detaillage", "depot__boutique"),
     EntreeRegistre("stock", "ReleveDormants", "boutique", ajout_seul=True),
     EntreeRegistre("stock", "Inventaire", "boutique"),
     EntreeRegistre("stock", "LigneInventaire", "inventaire__boutique"),

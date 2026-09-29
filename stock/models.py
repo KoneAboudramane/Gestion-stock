@@ -113,6 +113,39 @@ class PerteStock(ModeleBase):
         return f"Perte {self.quantite} {self.variante} ({self.get_motif_display()})"
 
 
+class Detaillage(ModeleBase):
+    """« Détailler » un article de gros (ex. 2 cartons → 48 paquets) ou, à
+    l'inverse, « regrouper » (48 paquets → 2 cartons), dans un même dépôt. Une
+    sortie sur `variante_source` et une entrée sur `variante_cible` ; le coût
+    suit (`cout_unitaire_cible`), si bien que la marge reste juste. Ni vente ni
+    perte : aucune écriture comptable. Annulable tant que ce qui a été obtenu
+    est encore en stock."""
+
+    class Type(models.TextChoices):
+        DETAILLER = "detailler", "Détailler"
+        REGROUPER = "regrouper", "Regrouper"
+
+    depot = models.ForeignKey(Depot, on_delete=models.PROTECT, related_name="detaillages")
+    type = models.CharField(max_length=20, choices=Type.choices)
+    variante_source = models.ForeignKey(
+        "catalogue.Variante", on_delete=models.PROTECT, related_name="detaillages_source"
+    )
+    variante_cible = models.ForeignKey(
+        "catalogue.Variante", on_delete=models.PROTECT, related_name="detaillages_cible"
+    )
+    quantite_source = models.DecimalField(max_digits=12, decimal_places=2)
+    quantite_cible = models.DecimalField(max_digits=12, decimal_places=2)
+    cout_unitaire_cible = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    utilisateur = models.ForeignKey(
+        "comptes.Utilisateur", on_delete=models.SET_NULL, null=True, blank=True
+    )
+    annulee = models.BooleanField(default=False)
+    date_annulation = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.get_type_display()} {self.quantite_source} {self.variante_source} → {self.quantite_cible} {self.variante_cible}"
+
+
 class OperationDestockage(ModeleBase):
     """Groupe nommé de déstockages lancés ensemble (ex. « Liquidation fin
     d'année ») : bilan commun dans les rapports et arrêt en un clic. Chaque

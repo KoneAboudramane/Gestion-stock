@@ -387,6 +387,24 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("pertes:lister", (_evt, boutiqueId: string, debut?: string, fin?: string) =>
     stock.listerPertes(boutiqueId, debut, fin),
   );
+  ipcMain.handle("detaillages:operer", (_evt, params: stock.ParametresDetaillage) => {
+    const resultat = executerEnSecurite(() => stock.detaillerOuRegrouper(params));
+    if (resultat.succes) signalerRuptureEnSecurite(params.depotId);
+    return resultat;
+  });
+  ipcMain.handle("detaillages:annuler", (_evt, id: string, utilisateurId: string | null) =>
+    executerEnSecurite(() => stock.annulerDetaillage(id, utilisateurId)),
+  );
+  ipcMain.handle("detaillages:lister", (_evt, boutiqueId: string) => stock.listerDetaillages(boutiqueId));
+  ipcMain.handle("variantes:infoDetail", (_evt, varianteId: string) => produits.infoDetailVariante(varianteId));
+  ipcMain.handle(
+    "variantes:definirDetail",
+    (_evt, varianteGrosId: string, varianteDetailId: string | null, quantite: number | null) =>
+      executerEnSecurite(() => produits.definirArticleDetail(varianteGrosId, varianteDetailId, quantite)),
+  );
+  ipcMain.handle("variantes:creerDetail", (_evt, params: produits.ParametresArticleDetail) =>
+    executerEnSecurite(() => produits.creerArticleDetail(params)),
+  );
 
   ipcMain.handle("destockages:lister", (_evt, boutiqueId: string) => stock.listerDestockages(boutiqueId));
   ipcMain.handle("destockages:demarrer", (_evt, params: stock.ParametresDestockage) =>

@@ -41,8 +41,8 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
   {
     table: "catalogue.Variante",
     store: "variantes",
-    champsFK: ["produit"],
-    champsNumeriques: ["prix_achat", "prix_vente", "seuil_alerte"],
+    champsFK: ["produit", "variante_detail"],
+    champsNumeriques: ["prix_achat", "prix_vente", "seuil_alerte", "quantite_detail"],
   },
   { table: "catalogue.VarianteValeur", store: "variante_valeurs", champsFK: ["variante", "valeur_attribut"] },
   { table: "stock.Depot", store: "depots", champsFK: ["boutique"] },
@@ -134,6 +134,12 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
     store: "pertes_stock",
     champsFK: ["variante", "depot", "utilisateur"],
     champsNumeriques: ["quantite", "valeur"],
+  },
+  {
+    table: "stock.Detaillage",
+    store: "detaillages",
+    champsFK: ["depot", "variante_source", "variante_cible", "utilisateur"],
+    champsNumeriques: ["quantite_source", "quantite_cible", "cout_unitaire_cible"],
   },
   {
     table: "stock.ReleveDormants",

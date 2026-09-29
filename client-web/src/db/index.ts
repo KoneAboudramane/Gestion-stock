@@ -215,6 +215,13 @@ export function ouvrirBaseDeDonnees(): Promise<IDBPDatabase<GestionStockDB>> {
           echeancesCredit.createIndex("credit_id", "credit_id");
           echeancesCredit.createIndex("synchronise", "synchronise");
         }
+
+        // v12 : détailler / regrouper (carton ↔ paquets).
+        if (oldVersion < 12) {
+          const detaillages = db.createObjectStore("detaillages", { keyPath: "id" });
+          detaillages.createIndex("depot_id", "depot_id");
+          detaillages.createIndex("synchronise", "synchronise");
+        }
       },
     });
   }

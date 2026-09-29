@@ -82,6 +82,8 @@ CREATE TABLE IF NOT EXISTS variantes (
   prix_vente REAL DEFAULT 0,
   seuil_alerte REAL DEFAULT 0,
   actif INTEGER DEFAULT 1,
+  variante_detail_id TEXT,
+  quantite_detail REAL,
   ${SUIVI_SYNC}
 );
 
@@ -241,6 +243,24 @@ CREATE TABLE IF NOT EXISTS pertes_stock (
   motif TEXT NOT NULL,
   detail TEXT DEFAULT '',
   valeur REAL DEFAULT 0,
+  utilisateur_id TEXT,
+  annulee INTEGER DEFAULT 0,
+  date_annulation TEXT,
+  ${SUIVI_SYNC}
+);
+
+-- detaillages : « détailler » un article de gros (carton → paquets) ou
+-- « regrouper » (paquets → carton) dans un dépôt ; le coût suit (voir
+-- services/stock.ts::detaillerOuRegrouper).
+CREATE TABLE IF NOT EXISTS detaillages (
+  id TEXT PRIMARY KEY,
+  depot_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  variante_source_id TEXT NOT NULL,
+  variante_cible_id TEXT NOT NULL,
+  quantite_source REAL NOT NULL,
+  quantite_cible REAL NOT NULL,
+  cout_unitaire_cible REAL DEFAULT 0,
   utilisateur_id TEXT,
   annulee INTEGER DEFAULT 0,
   date_annulation TEXT,

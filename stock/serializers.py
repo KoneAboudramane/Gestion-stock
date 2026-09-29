@@ -3,8 +3,9 @@ from rest_framework import serializers
 from catalogue.models import Variante
 from configuration.services import MESSAGE_ENTREE_RESERVEE_FABRICATION, fabrication_propre_active
 
-from .models import Depot, Destockage, Inventaire, OperationDestockage, LigneInventaire, MouvementStock, PerteStock, Stock, TransfertStock
+from .models import Depot, Destockage, Detaillage, Inventaire, OperationDestockage, LigneInventaire, MouvementStock, PerteStock, Stock, TransfertStock
 from .services import (
+    detailler_ou_regrouper,
     appliquer_mouvement,
     declarer_perte,
     demarrer_destockage,
@@ -245,4 +246,31 @@ class InventaireSerializer(_RestreintABoutiqueMixin, serializers.ModelSerializer
             depot=validated_data["depot"],
             utilisateur=request.user,
             a_zero=validated_data.get("a_zero", False),
+        )
+
+
+class DetaillageSerializer(_RestreintABoutiqueMixin, serializers.ModelSerializer):
+    """Création : `variante` = l'article de gros (carton), `nombre` = cartons à
+    détailler ou à reconstituer."""
+
+    champs_boutique = {"depot": "boutique", "variante": "produit__boutique"}
+    variante = serializers.PrimaryKeyRelatedField(queryset=Variante.objects.all(), write_only=True)
+    nombre = serializers.DecimalField(max_digits=12, decimal_places=2, write_only=True)
+
+    class Meta:
+        model = Detaillage
+        fields = [
+            "id", "type", "depot", "variante", "nombre", "variante_source", "variante_cible",
+            "quantite_source", "quantite_cible", "cout_unitaire_cible", "utilisateur",
+            "date_creation", "annulee", "date_annulation",
+        ]
+        read_only_fields = [
+            "id", "variante_source", "variante_cible", "quantite_source", "quantite_cible",
+            "cout_unitaire_cible", "utilisateur", "date_creation", "annulee", "date_annulation",
+        ]
+
+    def create(self, validated_data):
+        return detailler_ou_regrouper(
+            validated_data["variante"], validated_data["depot"], validated_data["nombre"],
+            validated_data["type"], utilisateur=self.context["request"].user,
         )

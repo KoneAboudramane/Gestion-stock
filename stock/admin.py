@@ -8,6 +8,7 @@ from .models import (
     LigneInventaire,
     MouvementStock,
     PerteStock,
+    Detaillage,
     ReleveDormants,
     Stock,
     TransfertStock,
@@ -45,6 +46,12 @@ class TransfertStockAdmin(admin.ModelAdmin):
 class PerteStockAdmin(admin.ModelAdmin):
     list_display = ("variante", "depot", "quantite", "motif", "valeur", "utilisateur", "date_creation")
     list_filter = ("motif", "depot")
+
+
+@admin.register(Detaillage)
+class DetaillageAdmin(admin.ModelAdmin):
+    list_display = ("type", "variante_source", "quantite_source", "variante_cible", "quantite_cible", "depot", "annulee", "date_creation")
+    list_filter = ("type", "depot", "annulee")
 
 
 @admin.register(ReleveDormants)

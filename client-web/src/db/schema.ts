@@ -81,6 +81,9 @@ export interface VarianteLocale extends SuiviSync {
   prix_vente: number;
   seuil_alerte: number;
   actif: 0 | 1;
+  /** Vente au détail : article de détail et combien il en contient (voir stock.Detaillage). */
+  variante_detail_id?: string | null;
+  quantite_detail?: number | null;
 }
 
 export interface VarianteValeurLocale extends SuiviSync {
@@ -281,6 +284,20 @@ export interface PerteStockLocal extends SuiviSync {
   motif: string;
   detail: string;
   valeur: number;
+  utilisateur_id: string | null;
+  annulee?: boolean | number;
+  date_annulation?: string | null;
+}
+
+export interface DetaillageLocal extends SuiviSync {
+  id: string;
+  depot_id: string;
+  type: "detailler" | "regrouper";
+  variante_source_id: string;
+  variante_cible_id: string;
+  quantite_source: number;
+  quantite_cible: number;
+  cout_unitaire_cible: number;
   utilisateur_id: string | null;
   annulee?: boolean | number;
   date_annulation?: string | null;
@@ -611,6 +628,11 @@ export interface GestionStockDB extends DBSchema {
     value: PerteStockLocal;
     indexes: { depot_id: string; synchronise: number };
   };
+  detaillages: {
+    key: string;
+    value: DetaillageLocal;
+    indexes: { depot_id: string; synchronise: number };
+  };
   inventaires: {
     key: string;
     value: InventaireLocal;
@@ -645,4 +667,4 @@ export interface GestionStockDB extends DBSchema {
 }
 
 export const NOM_BASE = "gestion-stock";
-export const VERSION_BASE = 11;
+export const VERSION_BASE = 12;

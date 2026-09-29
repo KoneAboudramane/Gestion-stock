@@ -9,7 +9,7 @@ from django.db.models import Sum
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from .models import Destockage, Inventaire, OperationDestockage, MouvementStock, PerteStock, Stock, TransfertStock
+from .models import Destockage, Detaillage, Inventaire, OperationDestockage, MouvementStock, PerteStock, Stock, TransfertStock
 
 
 def _delta_pour(type_mouvement, quantite):
@@ -292,3 +292,114 @@ def valider_inventaire(inventaire):
     inventaire.statut = Inventaire.Statut.VALIDE
     inventaire.save(update_fields=["statut", "date_modification"])
     return inventaire
+
+
+# --- Détailler / regrouper (même logique que client-electron/electron/services/stock.ts) ---
+
+
+def _stock_total(variante):
+    return Stock.objects.filter(variante=variante).aggregate(total=Sum("quantite"))["total"] or 0
+
+
+def _cump_apres_entree(variante, quantite, cout_unitaire):
+    """Coût moyen pondéré après l'entrée de `quantite` au coût `cout_unitaire`."""
+    stock_total = _stock_total(variante)
+    if stock_total > 0:
+        return round((stock_total * variante.prix_achat + quantite * cout_unitaire) / (stock_total + quantite))
+    return round(cout_unitaire)
+
+
+def _cump_apres_sortie(variante, quantite, cout_unitaire):
+    """Coût moyen pondéré après le retrait de `quantite` entrée au coût `cout_unitaire`."""
+    stock_total = _stock_total(variante)
+    reste = stock_total - quantite
+    if reste > 0:
+        nouveau = round((stock_total * variante.prix_achat - quantite * cout_unitaire) / reste)
+        if nouveau > 0:
+            return nouveau
+    return variante.prix_achat
+
+
+def _nom(variante):
+    return variante.produit.nom
+
+
+@transaction.atomic
+def detailler_ou_regrouper(variante_gros, depot, nombre, type_operation, utilisateur=None):
+    """`nombre` d'articles de gros (cartons) à détailler, ou à reconstituer en
+    regroupant les articles de détail."""
+    detail = variante_gros.variante_detail
+    par_gros = variante_gros.quantite_detail
+    if detail is None or not par_gros or par_gros <= 0:
+        raise ValidationError("Cet article n'a pas d'article de détail.")
+    if nombre <= 0 or nombre != int(nombre):
+        raise ValidationError("Indiquez un nombre entier supérieur à zéro.")
+
+    if type_operation == Detaillage.Type.DETAILLER:
+        source, cible = variante_gros, detail
+        quantite_source, quantite_cible = nombre, nombre * par_gros
+        cout_cible = variante_gros.prix_achat / par_gros
+    elif type_operation == Detaillage.Type.REGROUPER:
+        source, cible = detail, variante_gros
+        quantite_source, quantite_cible = nombre * par_gros, nombre
+        cout_cible = detail.prix_achat * par_gros
+    else:
+        raise ValidationError("Opération inconnue.")
+
+    nouveau_cump = _cump_apres_entree(cible, quantite_cible, cout_cible)
+    if cible.prix_vente < nouveau_cump:
+        raise ValidationError(
+            f"Le prix de vente de « {_nom(cible)} » ({cible.prix_vente}) est inférieur à son coût ({nouveau_cump}) : "
+            "corrigez le prix avant."
+        )
+
+    operation = Detaillage.objects.create(
+        depot=depot, type=type_operation, variante_source=source, variante_cible=cible,
+        quantite_source=quantite_source, quantite_cible=quantite_cible,
+        cout_unitaire_cible=round(cout_cible, 2), utilisateur=utilisateur,
+    )
+    libelle = "Détaillage" if type_operation == Detaillage.Type.DETAILLER else "Regroupement"
+    motif = f"{libelle} : {quantite_source:g} {_nom(source)} → {quantite_cible:g} {_nom(cible)}"
+    appliquer_mouvement(
+        source, depot, MouvementStock.Type.SORTIE, quantite_source, motif=motif, utilisateur=utilisateur,
+        reference_type="stock.Detaillage", reference_id=operation.id,
+    )
+    cible.prix_achat = nouveau_cump
+    cible.save(update_fields=["prix_achat", "date_modification"])
+    appliquer_mouvement(
+        cible, depot, MouvementStock.Type.ENTREE, quantite_cible, motif=motif, utilisateur=utilisateur,
+        reference_type="stock.Detaillage", reference_id=operation.id,
+    )
+    terminer_destockage_si_epuise(source)
+    return operation
+
+
+@transaction.atomic
+def annuler_detaillage(operation, utilisateur=None):
+    """Remet les choses comme avant, tant que ce qui a été obtenu est encore en stock."""
+    if operation.annulee:
+        raise ValidationError("Cette opération est déjà annulée.")
+    cible, source = operation.variante_cible, operation.variante_source
+    en_stock = Stock.objects.filter(variante=cible, depot=operation.depot).values_list("quantite", flat=True).first() or 0
+    if en_stock < operation.quantite_cible:
+        raise ValidationError(
+            f"Les {operation.quantite_cible:g} « {_nom(cible)} » obtenus ne sont plus tous en stock : annulation impossible."
+        )
+    cout_source = operation.cout_unitaire_cible * operation.quantite_cible / operation.quantite_source
+    cible.prix_achat = _cump_apres_sortie(cible, operation.quantite_cible, operation.cout_unitaire_cible)
+    cible.save(update_fields=["prix_achat", "date_modification"])
+    source.prix_achat = _cump_apres_entree(source, operation.quantite_source, cout_source)
+    source.save(update_fields=["prix_achat", "date_modification"])
+    motif = f"Annulation {operation.get_type_display().lower()}"
+    appliquer_mouvement(
+        cible, operation.depot, MouvementStock.Type.SORTIE, operation.quantite_cible, motif=motif,
+        utilisateur=utilisateur, reference_type="stock.Detaillage", reference_id=operation.id,
+    )
+    appliquer_mouvement(
+        source, operation.depot, MouvementStock.Type.ENTREE, operation.quantite_source, motif=motif,
+        utilisateur=utilisateur, reference_type="stock.Detaillage", reference_id=operation.id,
+    )
+    operation.annulee = True
+    operation.date_annulation = timezone.now()
+    operation.save(update_fields=["annulee", "date_annulation", "date_modification"])
+    return operation

@@ -416,3 +416,86 @@ class InventaireComptageAZeroEtAjoutTests(APITestCase):
         )
         self.assertEqual(ajout.status_code, status.HTTP_200_OK, ajout.data)
         self.assertEqual(float(ajout.data["ecart"]), 3.0)
+
+
+class DetaillageTests(APITestCase):
+    """Détailler un carton en paquets, regrouper, annuler : le coût suit."""
+
+    def setUp(self):
+        from .services import detailler_ou_regrouper  # noqa: F401
+
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique D"}, {"username": "patronD", "password": "UnMotDePasseSolide123"}
+        )
+        self.depot = Depot.objects.create(boutique=self.boutique, nom="Magasin")
+        self.paquet = Variante.objects.create(
+            produit=Produit.objects.create(boutique=self.boutique, nom="Biscuit paquet"), prix_achat=0, prix_vente=600,
+        )
+        self.carton = Variante.objects.create(
+            produit=Produit.objects.create(boutique=self.boutique, nom="Biscuit carton"),
+            prix_achat=9600, prix_vente=12000, variante_detail=self.paquet, quantite_detail=24,
+        )
+        appliquer_mouvement(self.carton, self.depot, MouvementStock.Type.ENTREE, 5)
+        self.client.force_authenticate(user=self.patron)
+
+    def _stock(self, variante):
+        return Stock.objects.get(variante=variante, depot=self.depot).quantite
+
+    def _operer(self, type_operation, nombre="2"):
+        return self.client.post(
+            reverse("detaillage-list"),
+            {"type": type_operation, "depot": str(self.depot.id), "variante": str(self.carton.id), "nombre": nombre},
+            format="json",
+        )
+
+    def test_detailler_sort_les_cartons_et_entre_les_paquets_au_bon_cout(self):
+        reponse = self._operer("detailler")
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+        self.assertEqual(self._stock(self.carton), 3)
+        self.assertEqual(self._stock(self.paquet), 48)
+        self.paquet.refresh_from_db()
+        self.assertEqual(self.paquet.prix_achat, 400)
+        self.assertEqual(MouvementStock.objects.filter(reference_type="stock.Detaillage").count(), 2)
+
+    def test_regrouper_reconstitue_un_carton(self):
+        from .models import Detaillage
+        from .services import detailler_ou_regrouper
+
+        detailler_ou_regrouper(self.carton, self.depot, 1, Detaillage.Type.DETAILLER)
+        reponse = self._operer("regrouper", "1")
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+        self.assertEqual(self._stock(self.carton), 5)
+        self.assertEqual(self._stock(self.paquet), 0)
+        self.carton.refresh_from_db()
+        self.assertEqual(self.carton.prix_achat, 9600)
+
+    def test_regrouper_refuse_sans_assez_de_paquets(self):
+        self.assertEqual(self._operer("regrouper", "1").status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_refuse_un_nombre_non_entier_ou_plus_que_le_stock(self):
+        self.assertEqual(self._operer("detailler", "1.5").status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self._operer("detailler", "6").status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_refuse_si_prix_de_vente_du_detail_sous_le_cout(self):
+        self.paquet.prix_vente = 300
+        self.paquet.save()
+        self.assertEqual(self._operer("detailler").status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_annuler_tant_que_les_paquets_sont_en_stock(self):
+        from .models import Detaillage
+
+        operation = Detaillage.objects.get(id=self._operer("detailler").data["id"])
+        reponse = self.client.post(reverse("detaillage-annuler", args=[operation.id]))
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK, reponse.data)
+        self.assertEqual(self._stock(self.carton), 5)
+        self.assertEqual(self._stock(self.paquet), 0)
+        self.carton.refresh_from_db()
+        self.assertEqual(self.carton.prix_achat, 9600)
+
+    def test_annulation_refusee_si_paquets_vendus(self):
+        from .models import Detaillage
+
+        operation = Detaillage.objects.get(id=self._operer("detailler").data["id"])
+        appliquer_mouvement(self.paquet, self.depot, MouvementStock.Type.SORTIE, 1)
+        reponse = self.client.post(reverse("detaillage-annuler", args=[operation.id]))
+        self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)

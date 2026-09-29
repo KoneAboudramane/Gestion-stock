@@ -1,6 +1,7 @@
 import { ouvrirBaseDeDonnees } from "../db";
 import { listerParIndex, maintenant, obtenirLigne, ecrireLigne, suiviSyncNeuf } from "../db/helpers";
 import type {
+  DetaillageLocal,
   DepotLocal,
   DestockageLocal,
   OperationDestockageLocale,
@@ -1342,4 +1343,220 @@ export async function validerInventaire(id: string, utilisateurId: string | null
     date_modification: maintenant(),
     synchronise: 0,
   });
+}
+
+// --- Détailler / regrouper (miroir de client-electron/electron/services/stock.ts) ---
+
+export type TypeDetaillage = "detailler" | "regrouper";
+
+export interface ParametresDetaillage {
+  varianteGrosId: string;
+  depotId: string;
+  nombre: number;
+  type: TypeDetaillage;
+  utilisateurId: string | null;
+}
+
+async function stockTotalVariante(varianteId: string): Promise<number> {
+  const db = await ouvrirBaseDeDonnees();
+  const lignes = await db.getAllFromIndex(
+    "stocks",
+    "variante_depot",
+    IDBKeyRange.bound([varianteId, ""], [varianteId, "\uffff"]),
+  );
+  return lignes.reduce((t, l) => t + Number(l.quantite), 0);
+}
+
+async function stockVarianteDepot(varianteId: string, depotId: string): Promise<number> {
+  const db = await ouvrirBaseDeDonnees();
+  return Number((await db.getFromIndex("stocks", "variante_depot", [varianteId, depotId]))?.quantite ?? 0);
+}
+
+async function cumpApresEntree(varianteId: string, prixAchat: number, quantite: number, cout: number): Promise<number> {
+  const total = await stockTotalVariante(varianteId);
+  return total > 0 ? Math.round((total * prixAchat + quantite * cout) / (total + quantite)) : Math.round(cout);
+}
+
+async function cumpApresSortie(varianteId: string, prixAchat: number, quantite: number, cout: number): Promise<number> {
+  const total = await stockTotalVariante(varianteId);
+  const reste = total - quantite;
+  if (reste > 0) {
+    const nouveau = Math.round((total * prixAchat - quantite * cout) / reste);
+    if (nouveau > 0) return nouveau;
+  }
+  return prixAchat;
+}
+
+async function nomVariante(varianteId: string): Promise<string> {
+  const variante = await obtenirLigne("variantes", varianteId);
+  const produit = variante ? await obtenirLigne("produits", variante.produit_id) : undefined;
+  return produit?.nom ?? "Article";
+}
+
+async function majPrixAchat(varianteId: string, prixAchat: number): Promise<void> {
+  const variante = await obtenirLigne("variantes", varianteId);
+  if (!variante) return;
+  await ecrireLigne("variantes", { ...variante, prix_achat: prixAchat, date_modification: maintenant(), synchronise: 0 });
+}
+
+/** « Détailler » des cartons en paquets, ou « regrouper » des paquets en cartons ; le coût suit. */
+export async function detaillerOuRegrouper(params: ParametresDetaillage): Promise<string> {
+  const { varianteGrosId, depotId, nombre, type, utilisateurId } = params;
+  const gros = await obtenirLigne("variantes", varianteGrosId);
+  if (!gros) throw new ErreurStock("Article introuvable.");
+  const parGros = Number(gros.quantite_detail ?? 0);
+  const detail = gros.variante_detail_id ? await obtenirLigne("variantes", gros.variante_detail_id) : undefined;
+  if (!detail || !(parGros > 0)) throw new ErreurStock("Cet article n'a pas d'article de détail.");
+  if (!Number.isInteger(nombre) || nombre <= 0) throw new ErreurStock("Indiquez un nombre entier supérieur à zéro.");
+
+  const detailler = type === "detailler";
+  const source = detailler ? gros : detail;
+  const cible = detailler ? detail : gros;
+  const nomSource = await nomVariante(source.id);
+  const nomCible = await nomVariante(cible.id);
+  const quantiteSource = detailler ? nombre : nombre * parGros;
+  const quantiteCible = detailler ? nombre * parGros : nombre;
+  const coutCible = detailler ? Number(gros.prix_achat) / parGros : Number(detail.prix_achat) * parGros;
+
+  const disponible = await stockVarianteDepot(source.id, depotId);
+  if (disponible < quantiteSource) {
+    throw new ErreurStock(
+      `Pas assez de « ${nomSource} » dans ce dépôt : ${formaterNombreStock(disponible)} disponible(s), ${formaterNombreStock(quantiteSource)} nécessaire(s).`,
+    );
+  }
+  const nouveauCump = await cumpApresEntree(cible.id, Number(cible.prix_achat), quantiteCible, coutCible);
+  if (Number(cible.prix_vente) < nouveauCump) {
+    throw new ErreurStock(
+      `Le prix de vente de « ${nomCible} » (${formaterNombreStock(Number(cible.prix_vente))}) est inférieur à son coût (${formaterNombreStock(nouveauCump)}) : corrigez le prix avant.`,
+    );
+  }
+
+  const id = crypto.randomUUID();
+  const operation: DetaillageLocal = {
+    id,
+    depot_id: depotId,
+    type,
+    variante_source_id: source.id,
+    variante_cible_id: cible.id,
+    quantite_source: quantiteSource,
+    quantite_cible: quantiteCible,
+    cout_unitaire_cible: Math.round(coutCible * 100) / 100,
+    utilisateur_id: utilisateurId,
+    annulee: 0,
+    date_annulation: null,
+    ...suiviSyncNeuf(),
+  };
+  await ecrireLigne("detaillages", operation);
+  const motif = `${detailler ? "Détaillage" : "Regroupement"} : ${formaterNombreStock(quantiteSource)} ${nomSource} → ${formaterNombreStock(quantiteCible)} ${nomCible}`;
+  await appliquerMouvement({
+    varianteId: source.id,
+    depotId,
+    type: "sortie",
+    quantite: quantiteSource,
+    motif,
+    utilisateurId,
+    referenceType: "stock.Detaillage",
+    referenceId: id,
+  });
+  await majPrixAchat(cible.id, nouveauCump);
+  await appliquerMouvement({
+    varianteId: cible.id,
+    depotId,
+    type: "entree",
+    quantite: quantiteCible,
+    motif,
+    utilisateurId,
+    referenceType: "stock.Detaillage",
+    referenceId: id,
+  });
+  await terminerDestockageSiEpuise(source.id);
+  return id;
+}
+
+/** Remet les choses comme avant, tant que ce qui a été obtenu est encore en stock. */
+export async function annulerDetaillage(id: string, utilisateurId: string | null): Promise<void> {
+  const operation = await obtenirLigne("detaillages", id);
+  if (!operation) throw new ErreurStock("Opération introuvable.");
+  if (operation.annulee) throw new ErreurStock("Cette opération est déjà annulée.");
+  const source = await obtenirLigne("variantes", operation.variante_source_id);
+  const cible = await obtenirLigne("variantes", operation.variante_cible_id);
+  if (!source || !cible) throw new ErreurStock("Article introuvable.");
+  const quantiteSource = Number(operation.quantite_source);
+  const quantiteCible = Number(operation.quantite_cible);
+  if ((await stockVarianteDepot(cible.id, operation.depot_id)) < quantiteCible) {
+    throw new ErreurStock(
+      `Les ${formaterNombreStock(quantiteCible)} « ${await nomVariante(cible.id)} » obtenus ne sont plus tous en stock : annulation impossible.`,
+    );
+  }
+  const coutCible = Number(operation.cout_unitaire_cible);
+  const coutSource = (coutCible * quantiteCible) / quantiteSource;
+  await majPrixAchat(cible.id, await cumpApresSortie(cible.id, Number(cible.prix_achat), quantiteCible, coutCible));
+  await majPrixAchat(source.id, await cumpApresEntree(source.id, Number(source.prix_achat), quantiteSource, coutSource));
+  const motif = `Annulation ${operation.type === "detailler" ? "détaillage" : "regroupement"}`;
+  await appliquerMouvement({
+    varianteId: cible.id,
+    depotId: operation.depot_id,
+    type: "sortie",
+    quantite: quantiteCible,
+    motif,
+    utilisateurId,
+    referenceType: "stock.Detaillage",
+    referenceId: id,
+  });
+  await appliquerMouvement({
+    varianteId: source.id,
+    depotId: operation.depot_id,
+    type: "entree",
+    quantite: quantiteSource,
+    motif,
+    utilisateurId,
+    referenceType: "stock.Detaillage",
+    referenceId: id,
+  });
+  await ecrireLigne("detaillages", {
+    ...operation,
+    annulee: true,
+    date_annulation: maintenant(),
+    date_modification: maintenant(),
+    synchronise: 0,
+  });
+}
+
+export interface DetaillageResume {
+  id: string;
+  dateCreation: string;
+  type: TypeDetaillage;
+  depotNom: string;
+  sourceNom: string;
+  cibleNom: string;
+  quantiteSource: number;
+  quantiteCible: number;
+  coutUnitaireCible: number;
+  utilisateurId: string | null;
+  annulee: boolean;
+}
+
+/** Détaillages et regroupements de la boutique, les plus récents d'abord. */
+export async function listerDetaillages(boutiqueId: string): Promise<DetaillageResume[]> {
+  const depots = await listerParIndex("depots", "boutique_id", boutiqueId);
+  const resultat: DetaillageResume[] = [];
+  for (const depot of depots) {
+    for (const o of await listerParIndex("detaillages", "depot_id", depot.id)) {
+      if (o.supprime) continue;
+      resultat.push({
+        id: o.id,
+        dateCreation: o.date_creation,
+        type: o.type,
+        depotNom: depot.nom,
+        sourceNom: await nomVariante(o.variante_source_id),
+        cibleNom: await nomVariante(o.variante_cible_id),
+        quantiteSource: Number(o.quantite_source),
+        quantiteCible: Number(o.quantite_cible),
+        coutUnitaireCible: Number(o.cout_unitaire_cible),
+        utilisateurId: o.utilisateur_id != null ? String(o.utilisateur_id) : null,
+        annulee: Boolean(o.annulee),
+      });
+    }
+  }
+  return resultat.sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));
 }

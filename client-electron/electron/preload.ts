@@ -153,6 +153,15 @@ contextBridge.exposeInMainWorld("api", {
     demarrerOperation: (params: unknown) => ipcRenderer.invoke("destockages:demarrerOperation", params),
     arreterOperation: (id: string) => ipcRenderer.invoke("destockages:arreterOperation", id),
   },
+  detaillages: {
+    operer: (params: unknown) => ipcRenderer.invoke("detaillages:operer", params),
+    annuler: (id: string, utilisateurId: string | null) => ipcRenderer.invoke("detaillages:annuler", id, utilisateurId),
+    lister: (boutiqueId: string) => ipcRenderer.invoke("detaillages:lister", boutiqueId),
+    infoDetail: (varianteId: string) => ipcRenderer.invoke("variantes:infoDetail", varianteId),
+    definirDetail: (varianteGrosId: string, varianteDetailId: string | null, quantite: number | null) =>
+      ipcRenderer.invoke("variantes:definirDetail", varianteGrosId, varianteDetailId, quantite),
+    creerDetail: (params: unknown) => ipcRenderer.invoke("variantes:creerDetail", params),
+  },
   pertes: {
     declarer: (params: unknown) => ipcRenderer.invoke("pertes:declarer", params),
     annuler: (id: string, utilisateurId: string | null) => ipcRenderer.invoke("pertes:annuler", id, utilisateurId),

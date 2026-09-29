@@ -322,5 +322,6 @@ def supprimer_boutique_definitivement(boutique):
     apps.get_model("comptabilite", "EcritureComptable").objects.filter(boutique=boutique).delete()
     # Pertes et déstockages protègent aussi Variante/Depot (PROTECT).
     apps.get_model("stock", "PerteStock").objects.filter(depot__boutique=boutique).delete()
+    apps.get_model("stock", "Detaillage").objects.filter(depot__boutique=boutique).delete()
     apps.get_model("stock", "Destockage").objects.filter(variante__produit__boutique=boutique).delete()
     boutique.delete()
