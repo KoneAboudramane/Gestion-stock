@@ -412,11 +412,19 @@ export function annulerVente(venteId: string, utilisateurId: string | null): voi
       });
     }
 
-    const paiementsEspeces = tousLesResultats<{ montant: number }>(
-      "SELECT montant FROM paiements WHERE vente_id = ? AND mode = 'especes' AND supprime = 0",
+    const paiementsEspeces = tousLesResultats<{ id: string; montant: number }>(
+      "SELECT id, montant FROM paiements WHERE vente_id = ? AND mode = 'especes' AND supprime = 0",
       [venteId],
     );
     for (const paiement of paiementsEspeces) {
+      // Seul l'argent réellement entré en caisse en ressort : une vente
+      // antérieure à la Trésorerie n'a pas d'entrée, rien à retirer.
+      const entreeEnCaisse = unResultat<{ n: number }>(
+        `SELECT COUNT(*) as n FROM mouvements_caisse
+         WHERE type = 'entree' AND reference_type = 'ventes.Paiement' AND reference_id = ? AND supprime = 0`,
+        [paiement.id],
+      );
+      if (!Number(entreeEnCaisse?.n ?? 0)) continue;
       enregistrerMouvement({
         depotId: vente.depot_id,
         type: "sortie",

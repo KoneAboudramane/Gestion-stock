@@ -99,6 +99,37 @@ class VenteSimpleTests(APITestCase):
         stock.refresh_from_db()
         self.assertEqual(stock.quantite, 30)
 
+    def test_annulation_ne_retire_de_la_caisse_que_l_argent_entre(self):
+        from tresorerie.models import MouvementCaisse
+        from tresorerie.services import solde_caisse
+
+        def vendre():
+            return self.client.post(
+                reverse("vente-list"),
+                {
+                    "depot": str(self.depot.id),
+                    "statut": "payee",
+                    "lignes_saisie": [{"variante": str(self.variante.id), "quantite": "1"}],
+                    "paiements_saisie": [{"mode": "especes", "montant": "350"}],
+                },
+                format="json",
+            ).data["id"]
+
+        # Vente normale : l'argent entre puis ressort à l'annulation.
+        self.client.post(reverse("vente-annuler", args=[vendre()]))
+        self.assertEqual(solde_caisse(self.depot), 0)
+        # Vente « d'avant la Trésorerie » : pas d'entrée, donc rien à retirer.
+        ancienne = vendre()
+        from .models import Paiement
+
+        MouvementCaisse.objects.filter(
+            reference_type="ventes.Paiement",
+            reference_id__in=Paiement.objects.filter(vente_id=ancienne).values_list("id", flat=True),
+        ).delete()
+        self.assertEqual(solde_caisse(self.depot), 0)
+        self.client.post(reverse("vente-annuler", args=[ancienne]))
+        self.assertEqual(solde_caisse(self.depot), 0)
+
 
 class VenteCreditTests(APITestCase):
     def setUp(self):

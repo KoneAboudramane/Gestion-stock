@@ -221,4 +221,21 @@ describe("tresorerie (miroir de tresorerie/services.py)", () => {
     expect(j.parCaissier.find((c) => c.utilisateurId === autreCaissier)).toMatchObject({ mobileMoney: 350, total: 350 });
   });
 
+
+  it("annuler une vente dont l'argent n'est jamais entré en caisse ne retire rien", () => {
+    const vente = creerVente({
+      boutiqueId,
+      depotId,
+      utilisateurId,
+      statut: "payee",
+      lignes: [{ varianteId, quantite: 1 }],
+      paiements: [{ mode: "especes", montant: 350 }],
+    });
+    // Vente antérieure à la Trésorerie : aucune entrée de caisse.
+    executer("DELETE FROM mouvements_caisse");
+    annulerVente(vente.id, utilisateurId);
+    expect(soldeCaisse(depotId)).toBe(0);
+    expect(listerMouvements(depotId)).toHaveLength(0);
+  });
+
 });

@@ -115,6 +115,13 @@ def annuler_vente(vente, utilisateur):
         )
 
     for paiement in vente.paiements.filter(mode=Paiement.Mode.ESPECES):
+        # Seul l'argent réellement entré en caisse en ressort : une vente
+        # antérieure à la Trésorerie n'a pas d'entrée, rien à retirer.
+        if not MouvementCaisse.objects.filter(
+            type=MouvementCaisse.Type.ENTREE, reference_type="ventes.Paiement", reference_id=paiement.id,
+            supprime=False,
+        ).exists():
+            continue
         enregistrer_mouvement(
             vente.depot, MouvementCaisse.Type.SORTIE, MouvementCaisse.Categorie.VENTE_ESPECES,
             paiement.montant, motif=f"Annulation vente {vente.numero}", utilisateur=utilisateur,

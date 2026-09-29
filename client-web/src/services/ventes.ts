@@ -338,7 +338,13 @@ export async function annulerVente(venteId: string, utilisateurId: string | null
   const paiementsEspeces = (await db.getAllFromIndex("paiements", "vente_id", venteId)).filter(
     (p) => !p.supprime && p.mode === "especes",
   );
+  // Seul l'argent réellement entré en caisse en ressort : une vente
+  // antérieure à la Trésorerie n'a pas d'entrée, rien à retirer.
+  const entreesCaisse = (await db.getAllFromIndex("mouvements_caisse", "depot_id", vente.depot_id)).filter(
+    (m) => !m.supprime && m.type === "entree" && m.reference_type === "ventes.Paiement",
+  );
   for (const paiement of paiementsEspeces) {
+    if (!entreesCaisse.some((m) => m.reference_id === paiement.id)) continue;
     await enregistrerMouvement({
       depotId: vente.depot_id,
       type: "sortie",
