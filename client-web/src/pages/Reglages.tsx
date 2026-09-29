@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ModaleAttributsCourants, ModaleUnitesCourantes } from "../components/CatalogueCourant";
 import type { CSSProperties } from "react";
 
 import { api } from "../api";
@@ -1209,6 +1210,7 @@ function OngletUnites({ session }: { session: Session }) {
   const [nomEdition, setNomEdition] = useState("");
   const [abreviationEdition, setAbreviationEdition] = useState("");
   const [confirmationSuppressionId, setConfirmationSuppressionId] = useState<string | null>(null);
+  const [courantesOuvert, setCourantesOuvert] = useState(false);
   const [usages, setUsages] = useState<UsagesCatalogue | null>(null);
   useEffect(() => {
     usagesCatalogue(session.boutiqueId).then(setUsages);
@@ -1272,7 +1274,18 @@ function OngletUnites({ session }: { session: Session }) {
           <input placeholder="Nouvelle unité" value={nom} onChange={(e) => setNom(e.target.value)} />
           <input placeholder="Abréviation" value={abreviation} onChange={(e) => setAbreviation(e.target.value)} style={{ width: "100px" }} />
           <button type="submit">Ajouter</button>
+          <button type="button" className="bouton-courants" onClick={() => setCourantesOuvert(true)}>
+            ➕ Unités courantes
+          </button>
         </form>
+      )}
+      {courantesOuvert && (
+        <ModaleUnitesCourantes
+          session={session}
+          existantes={unites.map((u) => u.nom)}
+          onFermer={() => setCourantesOuvert(false)}
+          onAjoute={rafraichir}
+        />
       )}
       {erreur && <div className="message-erreur">{erreur}</div>}
       <div className="zone-tableau-scroll zone-commandes-fiche">
@@ -1370,6 +1383,7 @@ function OngletAttributs({ session }: { session: Session }) {
   const [enEditionId, setEnEditionId] = useState<string | null>(null);
   const [nomEdition, setNomEdition] = useState("");
   const [confirmationSuppressionId, setConfirmationSuppressionId] = useState<string | null>(null);
+  const [courantsOuvert, setCourantsOuvert] = useState(false);
   const [valeurs, setValeurs] = useState<Record<string, { id: string; valeur: string }[]>>({});
   const [nouvelleValeur, setNouvelleValeur] = useState<Record<string, string>>({});
   const [valeurEdition, setValeurEdition] = useState<{ id: string; texte: string } | null>(null);
@@ -1490,7 +1504,19 @@ function OngletAttributs({ session }: { session: Session }) {
         <form onSubmit={ajouter} className="formulaire-inline barre-actions-fixe">
           <input placeholder="Nouvel attribut (ex. Couleur)" value={nom} onChange={(e) => setNom(e.target.value)} />
           <button type="submit">Ajouter</button>
+          <button type="button" className="bouton-courants" onClick={() => setCourantsOuvert(true)}>
+            ➕ Attributs courants
+          </button>
         </form>
+      )}
+      {courantsOuvert && (
+        <ModaleAttributsCourants
+          session={session}
+          attributs={attributs}
+          valeurs={valeurs}
+          onFermer={() => setCourantsOuvert(false)}
+          onAjoute={rafraichir}
+        />
       )}
       {erreur && <div className="message-erreur">{erreur}</div>}
       <p className="note-aide">Les valeurs de chaque attribut (ex. Rouge, Bleu pour Couleur) se créent directement lors de l'ajout d'une variante.</p>

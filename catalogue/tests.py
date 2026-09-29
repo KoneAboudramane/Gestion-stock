@@ -131,3 +131,18 @@ class PermissionsCatalogueTests(APITestCase):
             format="json",
         )
         self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class CatalogueParDefautTests(APITestCase):
+    def test_inscription_cree_unites_et_attributs_courants_sans_doublon(self):
+        from comptes.services import inscrire_boutique
+
+        from .catalogue_par_defaut import ATTRIBUTS_PAR_DEFAUT, UNITES_PAR_DEFAUT, creer_catalogue_par_defaut
+        from .models import Attribut, Unite, ValeurAttribut
+
+        boutique, _ = inscrire_boutique({"nom": "Boutique U"}, {"username": "patronU", "password": "UnMotDePasseSolide123"})
+        self.assertEqual(Unite.objects.filter(boutique=boutique).count(), len(UNITES_PAR_DEFAUT))
+        self.assertEqual(Attribut.objects.filter(boutique=boutique).count(), len(ATTRIBUTS_PAR_DEFAUT))
+        self.assertTrue(ValeurAttribut.objects.filter(attribut__boutique=boutique, valeur="XL").exists())
+        creer_catalogue_par_defaut(boutique)  # une seconde fois : rien de plus
+        self.assertEqual(Unite.objects.filter(boutique=boutique).count(), len(UNITES_PAR_DEFAUT))

@@ -93,6 +93,11 @@ def inscrire_boutique(donnees_boutique, donnees_utilisateur, mot_de_passe_deja_h
         for nom, permissions in ROLES_PAR_DEFAUT.items()
     }
 
+    # Unités et attributs courants (carton, kilo, taille…), modifiables ensuite.
+    from catalogue.catalogue_par_defaut import creer_catalogue_par_defaut
+
+    creer_catalogue_par_defaut(boutique)
+
     mot_de_passe = donnees_utilisateur.pop("password")
     utilisateur = Utilisateur(
         boutique=boutique,

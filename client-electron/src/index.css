@@ -7432,3 +7432,42 @@ tr.ligne-cliquable {
 .case-annulees input {
   width: auto;
 }
+
+/* Paramètres : unités et attributs courants. */
+.bouton-courants {
+  background: var(--couleur-primaire-clair);
+  border: 1px solid var(--couleur-primaire);
+  color: var(--couleur-primaire);
+  box-shadow: none;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.grille-choix-courants {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem 1rem;
+}
+
+.liste-choix-courants {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.choix-courant {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.choix-courant input {
+  width: auto;
+}
+
+@media (max-width: 720px) {
+  .grille-choix-courants {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
