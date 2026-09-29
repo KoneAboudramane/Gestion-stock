@@ -7142,3 +7142,24 @@ tr.ligne-annulee td {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Bouton « Vente au détail » bien visible (même hauteur que « Ajouter à la liste »). */
+.ajout-produit-groupe .bouton-detail-groupe {
+  background: var(--couleur-primaire-clair);
+  border: 2px solid var(--couleur-primaire);
+  color: var(--couleur-primaire);
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  padding: 0.55rem 1rem;
+}
+
+.ajout-produit-groupe .bouton-detail-groupe:hover {
+  background: var(--couleur-primaire);
+  color: #fff;
+}
+
+.ajout-produit-groupe .bouton-detail-groupe.actif {
+  background: var(--couleur-primaire);
+  border-color: var(--couleur-primaire);
+  color: #fff;
+}
