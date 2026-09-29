@@ -584,6 +584,32 @@ export async function creerValeurAttribut(attributId: string, valeur: string): P
   return id;
 }
 
+export async function modifierValeurAttribut(id: string, valeur: string): Promise<void> {
+  if (!valeur.trim()) throw new ErreurProduit("La valeur est requise.");
+  const ligne = await obtenirLigne("valeurs_attribut", id);
+  if (!ligne) throw new ErreurProduit("Valeur introuvable.");
+  await ecrireLigne("valeurs_attribut", { ...ligne, valeur: valeur.trim(), synchronise: 0, date_modification: new Date().toISOString() });
+}
+
+/** Une valeur portée par des variantes d'articles ne se supprime pas (elle disparaîtrait des fiches). */
+export async function supprimerValeurAttribut(id: string): Promise<void> {
+  const db = await ouvrirBaseDeDonnees();
+  const produits = new Set<string>();
+  for (const vv of await db.getAll("variante_valeurs")) {
+    if (vv.supprime || vv.valeur_attribut_id !== id) continue;
+    const variante = await db.get("variantes", vv.variante_id);
+    if (!variante || variante.supprime) continue;
+    const produit = await db.get("produits", variante.produit_id);
+    if (produit && !produit.supprime) produits.add(produit.id);
+  }
+  if (produits.size > 0) {
+    throw new ErreurProduit(`Cette valeur est utilisée par ${produits.size} article(s) : modifiez d'abord leurs variantes.`);
+  }
+  const ligne = await obtenirLigne("valeurs_attribut", id);
+  if (!ligne) return;
+  await ecrireLigne("valeurs_attribut", { ...ligne, supprime: 1, synchronise: 0, date_modification: new Date().toISOString() });
+}
+
 /** Nombre d'articles qui utilisent chaque unité / chaque attribut (Réglages → Paramètres). */
 export interface UsagesCatalogue {
   unites: Record<string, number>;

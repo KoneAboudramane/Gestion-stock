@@ -317,6 +317,10 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("attributs:listerValeurs", (_evt, attributId: string) =>
     produits.listerValeursAttribut(attributId),
   );
+  ipcMain.handle("attributs:modifierValeur", (_evt, id: string, valeur: string) =>
+    executerEnSecurite(() => produits.modifierValeurAttribut(id, valeur)),
+  );
+  ipcMain.handle("attributs:supprimerValeur", (_evt, id: string) => executerEnSecurite(() => produits.supprimerValeurAttribut(id)));
   ipcMain.handle("attributs:creerValeur", (_evt, attributId: string, valeur: string) =>
     executerEnSecurite(() => produits.creerValeurAttribut(attributId, valeur)),
   );
@@ -329,6 +333,10 @@ export function enregistrerLesHandlers(): void {
     executerEnSecurite(() => stock.modifierDepot(id, champs)),
   );
   ipcMain.handle("depots:supprimer", (_evt, id: string) => executerEnSecurite(() => stock.supprimerDepot(id)));
+  ipcMain.handle("depots:transfererTout", (_evt, sourceId: string, destinationId: string, utilisateurId: string | null) =>
+    executerEnSecurite(() => stock.transfererToutLeStock(sourceId, destinationId, utilisateurId)),
+  );
+  ipcMain.handle("depots:supprimesAvecStock", (_evt, boutiqueId: string) => stock.depotsSupprimesAvecStock(boutiqueId));
 
   ipcMain.handle("stock:lister", (_evt, boutiqueId: string, depotId?: string, terme?: string) =>
     stock.listerStock(boutiqueId, depotId, terme),

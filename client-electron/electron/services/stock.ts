@@ -306,13 +306,67 @@ export function modifierDepot(id: string, champs: Partial<{ nom: string; adresse
   sauvegarder();
 }
 
+function formaterNombreStock(valeur: number): string {
+  return Math.round(Number(valeur) || 0)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+}
+
+/** Un dépôt qui contient encore de la marchandise ne se supprime pas : on transfère d'abord. */
 export function supprimerDepot(id: string): void {
+  const reste = unResultat<{ n: number; valeur: number; devise: string | null }>(
+    `SELECT COUNT(*) as n, COALESCE(SUM(s.quantite * COALESCE(v.prix_achat, 0)), 0) as valeur,
+            (SELECT b.devise FROM depots d JOIN boutiques b ON b.id = d.boutique_id WHERE d.id = ?) as devise
+     FROM stocks s LEFT JOIN variantes v ON v.id = s.variante_id
+     WHERE s.depot_id = ? AND s.quantite > 0`,
+    [id, id],
+  );
+  if (reste && Number(reste.n) > 0) {
+    throw new ErreurStock(
+      `${reste.n} article(s) sont encore dans ce dépôt (${formaterNombreStock(reste.valeur)} ${reste.devise || "FCFA"}) : ` +
+        "transférez-les d'abord vers un autre dépôt.",
+    );
+  }
   const maintenant = new Date().toISOString();
   executer("UPDATE depots SET supprime = 1, synchronise = 0, date_modification = ? WHERE id = ?", [
     maintenant,
     id,
   ]);
   sauvegarder();
+}
+
+
+/** Dépôt supprimé qui contient encore du stock (à rapatrier). */
+export interface DepotSupprimeAvecStock {
+  id: string;
+  nom: string;
+  articles: number;
+  valeur: number;
+}
+
+/** Transfère tout le stock d'un dépôt vers un autre (fermeture d'un dépôt, rapatriement). */
+export function transfererToutLeStock(depotSourceId: string, depotDestinationId: string, utilisateurId: string | null): number {
+  const lignes = tousLesResultats<{ variante_id: string; quantite: number }>(
+    "SELECT variante_id, quantite FROM stocks WHERE depot_id = ? AND quantite > 0",
+    [depotSourceId],
+  );
+  if (lignes.length === 0) throw new ErreurStock("Ce dépôt ne contient plus de marchandise.");
+  for (const l of lignes) {
+    transfererStock({ varianteId: l.variante_id, depotSourceId, depotDestinationId, quantite: Number(l.quantite), utilisateurId });
+  }
+  return lignes.length;
+}
+
+export function depotsSupprimesAvecStock(boutiqueId: string): DepotSupprimeAvecStock[] {
+  return tousLesResultats<DepotSupprimeAvecStock>(
+    `SELECT d.id as id, d.nom as nom, COUNT(*) as articles, COALESCE(SUM(s.quantite * COALESCE(v.prix_achat, 0)), 0) as valeur
+     FROM depots d
+     JOIN stocks s ON s.depot_id = d.id AND s.quantite > 0
+     LEFT JOIN variantes v ON v.id = s.variante_id
+     WHERE d.boutique_id = ? AND d.supprime = 1
+     GROUP BY d.id, d.nom`,
+    [boutiqueId],
+  ).map((d) => ({ ...d, articles: Number(d.articles), valeur: Number(d.valeur) }));
 }
 
 // --- Consultation du stock et des mouvements ---

@@ -119,6 +119,8 @@ contextBridge.exposeInMainWorld("api", {
     listerValeurs: (attributId: string) => ipcRenderer.invoke("attributs:listerValeurs", attributId),
     creerValeur: (attributId: string, valeur: string) =>
       ipcRenderer.invoke("attributs:creerValeur", attributId, valeur),
+    modifierValeur: (id: string, valeur: string) => ipcRenderer.invoke("attributs:modifierValeur", id, valeur),
+    supprimerValeur: (id: string) => ipcRenderer.invoke("attributs:supprimerValeur", id),
   },
   depots: {
     lister: (boutiqueId: string) => ipcRenderer.invoke("depots:lister", boutiqueId),
@@ -126,6 +128,9 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("depots:creer", boutiqueId, nom, adresse),
     modifier: (id: string, champs: unknown) => ipcRenderer.invoke("depots:modifier", id, champs),
     supprimer: (id: string) => ipcRenderer.invoke("depots:supprimer", id),
+    transfererTout: (sourceId: string, destinationId: string, utilisateurId: string | null) =>
+      ipcRenderer.invoke("depots:transfererTout", sourceId, destinationId, utilisateurId),
+    supprimesAvecStock: (boutiqueId: string) => ipcRenderer.invoke("depots:supprimesAvecStock", boutiqueId),
   },
   stock: {
     lister: (boutiqueId: string, depotId?: string, terme?: string) =>

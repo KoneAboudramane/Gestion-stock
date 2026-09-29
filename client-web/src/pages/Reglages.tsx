@@ -28,7 +28,11 @@ import {
   creerAttribut,
   creerUnite,
   ErreurProduit,
+  creerValeurAttribut,
   listerAttributs,
+  listerValeursAttribut,
+  modifierValeurAttribut,
+  supprimerValeurAttribut,
   listerUnites,
   modifierAttribut,
   modifierUnite,
@@ -50,7 +54,7 @@ import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant } from "../lib/formatage";
 import { listerClientsDetail } from "../services/clients";
 import { listerArticlesBoutique, usagesCatalogue, type UsagesCatalogue } from "../services/produits";
-import { listerStock } from "../services/stock";
+import { depotsSupprimesAvecStock, listerStock, transfererToutLeStock, type DepotSupprimeAvecStock } from "../services/stock";
 import { compterEnAttente } from "../sync";
 import { CLE_PARAMETRE_FABRICATION_PROPRE } from "../hooks/useFabricationPropre";
 import { fabricationPropreActive } from "../services/stock";
@@ -1071,7 +1075,14 @@ function OngletParametresGeneral({ session }: { session: Session }) {
   const [enregistrementFabrication, setEnregistrementFabrication] = useState(false);
   const [erreurFabrication, setErreurFabrication] = useState<string | null>(null);
 
+  const [enregistre, setEnregistre] = useState(false);
+  function signalerEnregistre() {
+    setEnregistre(true);
+    window.setTimeout(() => setEnregistre(false), 2000);
+  }
+
   function changerTheme(nouveauTheme: Theme) {
+    signalerEnregistre();
     appliquerTheme(nouveauTheme);
     setTheme(nouveauTheme);
   }
@@ -1081,6 +1092,7 @@ function OngletParametresGeneral({ session }: { session: Session }) {
     try {
       await definirParametre(session.boutiqueId, CLE_PARAMETRE_DELAI_VERROUILLAGE, valeur);
       rafraichirDelaiVerrouillage();
+      signalerEnregistre();
     } finally {
       setEnregistrementDelai(false);
     }
@@ -1096,6 +1108,7 @@ function OngletParametresGeneral({ session }: { session: Session }) {
     try {
       await definirParametre(session.boutiqueId, CLE_PARAMETRE_FABRICATION_PROPRE, active ? "1" : "0");
       setFabricationPropre(active);
+      signalerEnregistre();
     } catch (e) {
       setErreurFabrication(e instanceof ErreurConfiguration ? e.message : "Erreur inattendue.");
     } finally {
@@ -1105,6 +1118,7 @@ function OngletParametresGeneral({ session }: { session: Session }) {
 
   return (
     <div className="reglage-catalogue">
+      {enregistre && <div className="toast-enregistre">Enregistré ✓</div>}
       {peutGerer && (
         <div className="bloc-apparence">
           <h3>Approvisionnement</h3>
@@ -1133,76 +1147,55 @@ function OngletParametresGeneral({ session }: { session: Session }) {
           <p className="note-aide">
             Verrouille l'application après une période d'inactivité, pour protéger l'accès si un poste reste ouvert.
           </p>
-          <select
-            value={String(delaiVerrouillage)}
-            disabled={enregistrementDelai}
-            onChange={(e) => changerDelaiVerrouillage(e.target.value)}
-          >
+          <div className="bascule-vue bascule-delai" role="group" aria-label="Délai de verrouillage">
             {OPTIONS_DELAI_VERROUILLAGE.map((o) => (
-              <option key={o.valeur} value={o.valeur}>
+              <button
+                key={o.valeur}
+                type="button"
+                className={String(delaiVerrouillage) === o.valeur ? "actif" : ""}
+                disabled={enregistrementDelai}
+                onClick={() => changerDelaiVerrouillage(o.valeur)}
+              >
                 {o.label}
-              </option>
+              </button>
             ))}
-          </select>
+          </div>
         </div>
       )}
       <div className="bloc-apparence">
         <h3>Thème</h3>
         <div className="groupe-theme">
-          <button
-            type="button"
-            className={`bouton-theme ${theme === "clair" ? "actif" : ""}`}
-            onClick={() => changerTheme("clair")}
-          >
-            ☀️ Clair
-          </button>
-          <button
-            type="button"
-            className={`bouton-theme ${theme === "sombre" ? "actif" : ""}`}
-            onClick={() => changerTheme("sombre")}
-          >
-            🌙 Sombre
-          </button>
-          <button
-            type="button"
-            className={`bouton-theme ${theme === "nuit" ? "actif" : ""}`}
-            onClick={() => changerTheme("nuit")}
-          >
-            🕯️ Nuit
-          </button>
-          <button
-            type="button"
-            className={`bouton-theme ${theme === "orange" ? "actif" : ""}`}
-            onClick={() => changerTheme("orange")}
-          >
-            🟠 Orange
-          </button>
-          <button
-            type="button"
-            className={`bouton-theme ${theme === "vert" ? "actif" : ""}`}
-            onClick={() => changerTheme("vert")}
-          >
-            🟢 Vert
-          </button>
-          <button
-            type="button"
-            className={`bouton-theme ${theme === "bleu" ? "actif" : ""}`}
-            onClick={() => changerTheme("bleu")}
-          >
-            🔵 Bleu
-          </button>
-          <button
-            type="button"
-            className={`bouton-theme ${theme === "gris" ? "actif" : ""}`}
-            onClick={() => changerTheme("gris")}
-          >
-            ⚪ Gris
-          </button>
+          {THEMES_DISPONIBLES.map((t) => (
+            <button
+              key={t.valeur}
+              type="button"
+              className={`bouton-theme ${theme === t.valeur ? "actif" : ""}`}
+              onClick={() => changerTheme(t.valeur)}
+            >
+              <span className="apercu-theme" aria-hidden="true">
+                {t.couleurs.map((c) => (
+                  <i key={c} style={{ background: c }} />
+                ))}
+              </span>
+              {t.label}
+            </button>
+          ))}
         </div>
       </div>
     </div>
   );
 }
+
+/** Thèmes proposés, avec un aperçu de leurs trois couleurs (fond, accent, surface). */
+const THEMES_DISPONIBLES: { valeur: Theme; label: string; couleurs: string[] }[] = [
+  { valeur: "clair", label: "Clair", couleurs: ["#ffffff", "#2563eb", "#e2e8f0"] },
+  { valeur: "sombre", label: "Sombre", couleurs: ["#0f172a", "#3b82f6", "#1e293b"] },
+  { valeur: "nuit", label: "Nuit", couleurs: ["#050505", "#f59e0b", "#1a1a1a"] },
+  { valeur: "orange", label: "Orange", couleurs: ["#fff7ed", "#ea580c", "#fdba74"] },
+  { valeur: "vert", label: "Vert", couleurs: ["#f0fdf4", "#16a34a", "#86efac"] },
+  { valeur: "bleu", label: "Bleu", couleurs: ["#eff6ff", "#1d4ed8", "#93c5fd"] },
+  { valeur: "gris", label: "Gris", couleurs: ["#f8fafc", "#475569", "#cbd5e1"] },
+];
 
 // --- Onglet Paramètres > Unités ---
 
@@ -1352,6 +1345,11 @@ function OngletUnites({ session }: { session: Session }) {
       {confirmationSuppressionId && (
         <ModaleConfirmation
           titre="Supprimer cette unité ?"
+          description={
+            (usages?.unites[confirmationSuppressionId] ?? 0) > 0
+              ? `Attention : ${usages?.unites[confirmationSuppressionId]} article(s) utilisent cette unité ; ils n'en auront plus.`
+              : "Aucun article n'utilise cette unité."
+          }
           labelConfirmer="Supprimer"
           dangereux
           onAnnuler={() => setConfirmationSuppressionId(null)}
@@ -1372,6 +1370,66 @@ function OngletAttributs({ session }: { session: Session }) {
   const [enEditionId, setEnEditionId] = useState<string | null>(null);
   const [nomEdition, setNomEdition] = useState("");
   const [confirmationSuppressionId, setConfirmationSuppressionId] = useState<string | null>(null);
+  const [valeurs, setValeurs] = useState<Record<string, { id: string; valeur: string }[]>>({});
+  const [nouvelleValeur, setNouvelleValeur] = useState<Record<string, string>>({});
+  const [valeurEdition, setValeurEdition] = useState<{ id: string; texte: string } | null>(null);
+  async function chargerValeurs(liste: { id: string }[]) {
+    const parAttribut: Record<string, { id: string; valeur: string }[]> = {};
+    for (const a of liste) parAttribut[a.id] = await listerValeursAttribut(a.id);
+    setValeurs(parAttribut);
+  }
+  useEffect(() => {
+    chargerValeurs(attributs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attributs]);
+
+  async function ajouterValeur(attributId: string) {
+    const texte = (nouvelleValeur[attributId] ?? "").trim();
+    if (!texte) return;
+    const message = await (async () => {
+      try {
+        await creerValeurAttribut(attributId, texte);
+        return null;
+      } catch (e) {
+        return e instanceof ErreurProduit ? e.message : "Erreur inattendue.";
+      }
+    })();
+    if (message) setErreur(message);
+    else {
+      setNouvelleValeur({ ...nouvelleValeur, [attributId]: "" });
+      chargerValeurs(attributs);
+    }
+  }
+
+  async function renommerValeur() {
+    if (!valeurEdition || !valeurEdition.texte.trim()) return;
+    const message = await (async () => {
+      try {
+        await modifierValeurAttribut(valeurEdition.id, valeurEdition.texte.trim());
+        return null;
+      } catch (e) {
+        return e instanceof ErreurProduit ? e.message : "Erreur inattendue.";
+      }
+    })();
+    if (message) setErreur(message);
+    else {
+      setValeurEdition(null);
+      chargerValeurs(attributs);
+    }
+  }
+
+  async function retirerValeur(id: string) {
+    const message = await (async () => {
+      try {
+        await supprimerValeurAttribut(id);
+        return null;
+      } catch (e) {
+        return e instanceof ErreurProduit ? e.message : "Erreur inattendue.";
+      }
+    })();
+    if (message) setErreur(message);
+    else chargerValeurs(attributs);
+  }
   const [usages, setUsages] = useState<UsagesCatalogue | null>(null);
   useEffect(() => {
     usagesCatalogue(session.boutiqueId).then(setUsages);
@@ -1441,6 +1499,7 @@ function OngletAttributs({ session }: { session: Session }) {
           <thead>
             <tr>
               <th>Attribut</th>
+              <th>Valeurs</th>
               <th>Articles qui l'utilisent</th>
               {peutGerer && <th>Actions</th>}
             </tr>
@@ -1452,6 +1511,7 @@ function OngletAttributs({ session }: { session: Session }) {
                   <td>
                     <input value={nomEdition} onChange={(e) => setNomEdition(e.target.value)} autoFocus />
                   </td>
+                  <td>{(valeurs[a.id] ?? []).map((v) => v.valeur).join(", ") || "—"}</td>
                   <td>{usages?.attributs[a.id] ?? 0}</td>
                   <td>
                     <span className="actions-ligne">
@@ -1467,6 +1527,51 @@ function OngletAttributs({ session }: { session: Session }) {
               ) : (
                 <tr key={a.id}>
                   <td>{a.nom}</td>
+                  <td>
+                    <span className="pastilles-valeurs">
+                      {(valeurs[a.id] ?? []).map((v) =>
+                        valeurEdition?.id === v.id ? (
+                          <input
+                            key={v.id}
+                            className="pastille-edition"
+                            value={valeurEdition.texte}
+                            autoFocus
+                            onChange={(e) => setValeurEdition({ id: v.id, texte: e.target.value })}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") renommerValeur();
+                              if (e.key === "Escape") setValeurEdition(null);
+                            }}
+                            onBlur={() => setValeurEdition(null)}
+                          />
+                        ) : (
+                          <span key={v.id} className="pastille-valeur">
+                            <span
+                              title={peutGerer ? "Cliquer pour renommer" : undefined}
+                              onClick={() => peutGerer && setValeurEdition({ id: v.id, texte: v.valeur })}
+                            >
+                              {v.valeur}
+                            </span>
+                            {peutGerer && (
+                              <button type="button" title="Retirer cette valeur" onClick={() => retirerValeur(v.id)}>
+                                ×
+                              </button>
+                            )}
+                          </span>
+                        ),
+                      )}
+                      {peutGerer && (
+                        <input
+                          className="pastille-ajout"
+                          placeholder="+ valeur"
+                          value={nouvelleValeur[a.id] ?? ""}
+                          onChange={(e) => setNouvelleValeur({ ...nouvelleValeur, [a.id]: e.target.value })}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") ajouterValeur(a.id);
+                          }}
+                        />
+                      )}
+                    </span>
+                  </td>
                   <td>{usages ? (usages.attributs[a.id] ?? 0) : "…"}</td>
                   {peutGerer && (
                     <td>
@@ -1490,7 +1595,7 @@ function OngletAttributs({ session }: { session: Session }) {
             )}
             {attributs.length === 0 && (
               <tr>
-                <td colSpan={3} className="liste-vide">
+                <td colSpan={4} className="liste-vide">
                   Aucun attribut.
                 </td>
               </tr>
@@ -1501,6 +1606,11 @@ function OngletAttributs({ session }: { session: Session }) {
       {confirmationSuppressionId && (
         <ModaleConfirmation
           titre="Supprimer cet attribut ?"
+          description={
+            (usages?.attributs[confirmationSuppressionId] ?? 0) > 0
+              ? `Attention : ${usages?.attributs[confirmationSuppressionId]} article(s) utilisent cet attribut dans leurs variantes.`
+              : "Aucun article n'utilise cet attribut."
+          }
           labelConfirmer="Supprimer"
           dangereux
           onAnnuler={() => setConfirmationSuppressionId(null)}
@@ -1523,6 +1633,34 @@ function OngletDepots({ session }: { session: Session }) {
   const [nomEdition, setNomEdition] = useState("");
   const [adresseEdition, setAdresseEdition] = useState("");
   const [confirmationSuppressionId, setConfirmationSuppressionId] = useState<string | null>(null);
+  const [transfert, setTransfert] = useState<{ source: { id: string; nom: string }; destinationId: string } | null>(null);
+  const [enCoursTransfert, setEnCoursTransfert] = useState(false);
+  const [supprimes, setSupprimes] = useState<DepotSupprimeAvecStock[]>([]);
+  useEffect(() => {
+    depotsSupprimesAvecStock(session.boutiqueId).then(setSupprimes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depots]);
+
+  async function confirmerTransfert() {
+    if (!transfert || !transfert.destinationId) return;
+    setEnCoursTransfert(true);
+    const message = await (async () => {
+      try {
+        await transfererToutLeStock(transfert.source.id, transfert.destinationId, session.utilisateurId);
+        return null;
+      } catch (e) {
+        return e instanceof ErreurStock ? e.message : "Erreur inattendue.";
+      }
+    })();
+    setEnCoursTransfert(false);
+    if (message) {
+      setErreur(message);
+      return;
+    }
+    setTransfert(null);
+    setErreur(null);
+    rafraichir();
+  }
 
   async function rafraichir() {
     const tous = await listerDepotsDetail(session.boutiqueId);
@@ -1611,6 +1749,26 @@ function OngletDepots({ session }: { session: Session }) {
         </form>
       )}
       {erreur && <div className="message-erreur">{erreur}</div>}
+      {supprimes.length > 0 && peutGerer && (
+        <div className="bloc-hors-ligne bloc-depots-supprimes">
+          <span>
+            ⚠️ Du stock est resté dans {supprimes.length > 1 ? "des dépôts supprimés" : "un dépôt supprimé"} :
+            {supprimes.map((d) => (
+              <span key={d.id} className="ligne-depot-supprime">
+                <br />
+                <strong>{d.nom}</strong> · {d.articles} article(s) · {formaterMontant(d.valeur)} {devise}{" "}
+                <button
+                  type="button"
+                  onClick={() => setTransfert({ source: d, destinationId: depots[0]?.id ?? "" })}
+                  disabled={depots.length === 0}
+                >
+                  Rapatrier…
+                </button>
+              </span>
+            ))}
+          </span>
+        </div>
+      )}
       <div className="zone-tableau-scroll zone-commandes-fiche">
         <table className="tableau-catalogue">
           <thead>
@@ -1662,6 +1820,16 @@ function OngletDepots({ session }: { session: Session }) {
                         <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(d)}>
                           ✎
                         </button>
+                        {(statsDepots[d.id]?.articles ?? 0) > 0 && depots.length > 1 && (
+                          <button
+                            type="button"
+                            className="lien-icone"
+                            title="Transférer tout le stock vers un autre dépôt"
+                            onClick={() => setTransfert({ source: d, destinationId: depots.find((x) => x.id !== d.id)?.id ?? "" })}
+                          >
+                            ⇄
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="lien-icone lien-icone-danger"
@@ -1686,9 +1854,37 @@ function OngletDepots({ session }: { session: Session }) {
           </tbody>
         </table>
       </div>
+      {transfert && (
+        <ModaleConfirmation
+          titre={`Transférer tout le stock de « ${transfert.source.nom} »`}
+          description="Chaque article part vers le dépôt choisi (un transfert par article, visible dans Stock → Transferts)."
+          labelConfirmer={enCoursTransfert ? "Transfert…" : "Tout transférer"}
+          enCours={enCoursTransfert}
+          onAnnuler={() => setTransfert(null)}
+          onConfirmer={confirmerTransfert}
+        >
+          <label className="champ-formulaire">
+            Vers le dépôt
+            <select value={transfert.destinationId} onChange={(e) => setTransfert({ ...transfert, destinationId: e.target.value })}>
+              {depots
+                .filter((d) => d.id !== transfert.source.id)
+                .map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.nom}
+                  </option>
+                ))}
+            </select>
+          </label>
+        </ModaleConfirmation>
+      )}
       {confirmationSuppressionId && (
         <ModaleConfirmation
           titre="Supprimer ce dépôt ?"
+          description={
+            (statsDepots[confirmationSuppressionId]?.articles ?? 0) > 0
+              ? `Ce dépôt contient encore ${statsDepots[confirmationSuppressionId].articles} article(s) : la suppression sera refusée. Utilisez d'abord ⇄ pour tout transférer.`
+              : "Le dépôt est vide : il peut être supprimé."
+          }
           labelConfirmer="Supprimer"
           dangereux
           onAnnuler={() => setConfirmationSuppressionId(null)}

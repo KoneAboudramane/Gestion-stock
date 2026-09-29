@@ -11,6 +11,8 @@ import {
   creerEntreeProduction,
   creerMouvementManuel,
   declarerPerte,
+  depotsSupprimesAvecStock,
+  transfererToutLeStock,
   listerPertes,
   listerInventaires,
   listerMouvements,
@@ -41,6 +43,36 @@ describe("stock.supprimerDepot", () => {
     );
     expect(Number(depot!.supprime)).toBe(1);
     expect(Number(depot!.synchronise)).toBe(0);
+  });
+});
+
+describe("stock : dépôt qui contient encore du stock", () => {
+  const varianteId = randomUUID();
+
+  beforeEach(async () => {
+    await creerBaseDeTest();
+  });
+
+  it("refuse la suppression, puis l'accepte une fois tout le stock transféré", () => {
+    const source = creerDepot(BOUTIQUE_ID, "Magasin");
+    const destination = randomUUID();
+    executer("INSERT INTO depots (id, boutique_id, nom) VALUES (?, ?, ?)", [destination, BOUTIQUE_ID, "Entrepôt"]);
+    appliquerMouvement({ varianteId, depotId: source, type: "entree", quantite: 4 });
+
+    expect(() => supprimerDepot(source)).toThrow(ErreurStock);
+    expect(transfererToutLeStock(source, destination, null)).toBe(1);
+    const restant = unResultat<{ quantite: number }>("SELECT quantite FROM stocks WHERE depot_id = ?", [source]);
+    expect(Number(restant!.quantite)).toBe(0);
+    expect(() => supprimerDepot(source)).not.toThrow();
+  });
+
+  it("liste les dépôts supprimés qui gardent du stock", () => {
+    const orphelin = randomUUID();
+    executer("INSERT INTO depots (id, boutique_id, nom, supprime) VALUES (?, ?, ?, 1)", [orphelin, BOUTIQUE_ID, "Ancien"]);
+    appliquerMouvement({ varianteId, depotId: orphelin, type: "entree", quantite: 3 });
+    const liste = depotsSupprimesAvecStock(BOUTIQUE_ID);
+    expect(liste.map((d) => d.nom)).toEqual(["Ancien"]);
+    expect(liste[0].articles).toBe(1);
   });
 });
 

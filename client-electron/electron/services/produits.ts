@@ -598,6 +598,34 @@ export function creerValeurAttribut(attributId: string, valeur: string): string 
   return id;
 }
 
+export function modifierValeurAttribut(id: string, valeur: string): void {
+  if (!valeur.trim()) throw new ErreurProduit("La valeur est requise.");
+  const maintenant = new Date().toISOString();
+  executer("UPDATE valeurs_attribut SET valeur = ?, synchronise = 0, date_modification = ? WHERE id = ?", [
+    valeur.trim(),
+    maintenant,
+    id,
+  ]);
+  sauvegarder();
+}
+
+/** Une valeur portée par des variantes d'articles ne se supprime pas (elle disparaîtrait des fiches). */
+export function supprimerValeurAttribut(id: string): void {
+  const usage = unResultat<{ n: number }>(
+    `SELECT COUNT(DISTINCT v.produit_id) as n FROM variante_valeurs vv
+     JOIN variantes v ON v.id = vv.variante_id AND v.supprime = 0
+     JOIN produits p ON p.id = v.produit_id AND p.supprime = 0
+     WHERE vv.valeur_attribut_id = ? AND vv.supprime = 0`,
+    [id],
+  );
+  if (usage && Number(usage.n) > 0) {
+    throw new ErreurProduit(`Cette valeur est utilisée par ${usage.n} article(s) : modifiez d'abord leurs variantes.`);
+  }
+  const maintenant = new Date().toISOString();
+  executer("UPDATE valeurs_attribut SET supprime = 1, synchronise = 0, date_modification = ? WHERE id = ?", [maintenant, id]);
+  sauvegarder();
+}
+
 /** Nombre d'articles qui utilisent chaque unité / chaque attribut (Réglages → Paramètres). */
 export interface UsagesCatalogue {
   unites: Record<string, number>;

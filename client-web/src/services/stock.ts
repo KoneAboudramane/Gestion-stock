@@ -254,10 +254,72 @@ export async function modifierDepot(id: string, champs: Partial<{ nom: string; a
   });
 }
 
+function formaterNombreStock(valeur: number): string {
+  return Math.round(Number(valeur) || 0)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+}
+
+/** Lignes de stock encore positives d'un dépôt, avec leur valeur au prix d'achat. */
+async function stockRestantDepot(depotId: string): Promise<{ varianteId: string; quantite: number; valeur: number }[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const resultat: { varianteId: string; quantite: number; valeur: number }[] = [];
+  for (const s of await db.getAll("stocks")) {
+    if (s.depot_id !== depotId || Number(s.quantite) <= 0) continue;
+    const variante = await db.get("variantes", s.variante_id);
+    resultat.push({ varianteId: s.variante_id, quantite: Number(s.quantite), valeur: Number(s.quantite) * Number(variante?.prix_achat ?? 0) });
+  }
+  return resultat;
+}
+
+/** Un dépôt qui contient encore de la marchandise ne se supprime pas : on transfère d'abord. */
 export async function supprimerDepot(id: string): Promise<void> {
   const depot = await obtenirLigne("depots", id);
   if (!depot) return;
+  const reste = await stockRestantDepot(id);
+  if (reste.length > 0) {
+    const devise = (await obtenirLigne("boutiques", depot.boutique_id))?.devise || "FCFA";
+    const valeur = reste.reduce((t, l) => t + l.valeur, 0);
+    throw new ErreurStock(
+      `${reste.length} article(s) sont encore dans ce dépôt (${formaterNombreStock(valeur)} ${devise}) : ` +
+        "transférez-les d'abord vers un autre dépôt.",
+    );
+  }
   await ecrireLigne("depots", { ...depot, supprime: 1, synchronise: 0, date_modification: maintenant() });
+}
+
+
+/** Dépôt supprimé qui contient encore du stock (à rapatrier). */
+export interface DepotSupprimeAvecStock {
+  id: string;
+  nom: string;
+  articles: number;
+  valeur: number;
+}
+
+/** Transfère tout le stock d'un dépôt vers un autre (fermeture d'un dépôt, rapatriement). */
+export async function transfererToutLeStock(
+  depotSourceId: string,
+  depotDestinationId: string,
+  utilisateurId: string | null,
+): Promise<number> {
+  const lignes = await stockRestantDepot(depotSourceId);
+  if (lignes.length === 0) throw new ErreurStock("Ce dépôt ne contient plus de marchandise.");
+  for (const l of lignes) {
+    await transfererStock({ varianteId: l.varianteId, depotSourceId, depotDestinationId, quantite: l.quantite, utilisateurId });
+  }
+  return lignes.length;
+}
+
+export async function depotsSupprimesAvecStock(boutiqueId: string): Promise<DepotSupprimeAvecStock[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const resultat: DepotSupprimeAvecStock[] = [];
+  for (const d of await db.getAllFromIndex("depots", "boutique_id", boutiqueId)) {
+    if (!d.supprime) continue;
+    const reste = await stockRestantDepot(d.id);
+    if (reste.length > 0) resultat.push({ id: d.id, nom: d.nom, articles: reste.length, valeur: reste.reduce((t, l) => t + l.valeur, 0) });
+  }
+  return resultat;
 }
 
 // --- Consultation du stock ---

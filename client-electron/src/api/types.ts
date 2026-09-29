@@ -1035,6 +1035,14 @@ export interface EnAttenteSynchro {
   nombre: number;
 }
 
+/** Dépôt supprimé qui contient encore du stock (à rapatrier). */
+export interface DepotSupprimeAvecStock {
+  id: string;
+  nom: string;
+  articles: number;
+  valeur: number;
+}
+
 export interface ChampsBoutique {
   nom?: string;
   adresse?: string;
@@ -1348,8 +1356,12 @@ export interface WindowApi {
     supprimer(id: string): Promise<ResultatEcriture<void>>;
     listerValeurs(attributId: string): Promise<ValeurAttributResume[]>;
     creerValeur(attributId: string, valeur: string): Promise<ResultatEcriture<string>>;
+    modifierValeur(id: string, valeur: string): Promise<ResultatEcriture<void>>;
+    supprimerValeur(id: string): Promise<ResultatEcriture<void>>;
   };
   depots: {
+    transfererTout(sourceId: string, destinationId: string, utilisateurId: string | null): Promise<ResultatEcriture<number>>;
+    supprimesAvecStock(boutiqueId: string): Promise<DepotSupprimeAvecStock[]>;
     lister(boutiqueId: string): Promise<DepotResume[]>;
     creer(boutiqueId: string, nom: string, adresse?: string): Promise<ResultatEcriture<string>>;
     modifier(id: string, champs: ChampsDepot): Promise<ResultatEcriture<void>>;

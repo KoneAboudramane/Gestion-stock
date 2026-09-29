@@ -7669,3 +7669,83 @@ button.tuile-dormance.active {
   max-width: none;
   width: 100%;
 }
+
+/* Paramètres : délai en boutons, aperçu des thèmes, valeurs d'attributs en pastilles. */
+.bascule-delai {
+  margin-left: 0;
+  flex-wrap: wrap;
+}
+
+.apercu-theme {
+  display: inline-flex;
+  margin-right: 0.35rem;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(127, 127, 127, 0.4);
+  vertical-align: middle;
+}
+
+.apercu-theme i {
+  display: block;
+  width: 10px;
+  height: 14px;
+}
+
+.toast-enregistre {
+  position: sticky;
+  top: 0;
+  align-self: flex-end;
+  margin-left: auto;
+  width: fit-content;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  background: var(--succes, #16a34a);
+  color: #fff;
+  font-weight: 600;
+  z-index: 2;
+}
+
+.pastilles-valeurs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.pastille-valeur {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.15rem 0.3rem 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: var(--couleur-primaire-clair);
+  color: var(--couleur-primaire);
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.pastille-valeur button {
+  padding: 0 0.3rem;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.pastille-edition,
+.pastille-ajout {
+  width: 110px;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.88rem;
+}
+
+.bloc-depots-supprimes {
+  border-color: var(--danger, #dc2626);
+}
+
+.ligne-depot-supprime button {
+  margin-left: 0.4rem;
+  padding: 0.2rem 0.6rem;
+}

@@ -62,6 +62,15 @@ class DepotViewSet(FiltreBoutiqueMixin, viewsets.ModelViewSet):
             )
         super().perform_create(serializer)
 
+    def perform_destroy(self, instance):
+        # Même règle que les clients : on ne supprime pas un dépôt qui contient
+        # encore de la marchandise (le stock deviendrait orphelin).
+        if Stock.objects.filter(depot=instance, quantite__gt=0).exists():
+            raise serializers.ValidationError(
+                {"detail": "Ce dépôt contient encore du stock : transférez-le d'abord vers un autre dépôt."}
+            )
+        super().perform_destroy(instance)
+
 
 class _LectureStockMixin(FiltreBoutiqueMixin):
     def get_permissions(self):
