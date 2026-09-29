@@ -20,8 +20,17 @@ import {
   libelleStatutVente,
   type FournisseurMobileMoney,
 } from "../lib/libelles";
-import { bornesPeriode, dansPeriode, jourLocal, type PeriodeHistorique } from "../lib/periode";
-import { initierPaiementMobileMoney, obtenirTransactionPourPaiement, type TransactionResume } from "../services/paiements";
+import {
+  bornesPeriode,
+  dansPeriode,
+  jourLocal,
+  type PeriodeHistorique,
+} from "../lib/periode";
+import {
+  initierPaiementMobileMoney,
+  obtenirTransactionPourPaiement,
+  type TransactionResume,
+} from "../services/paiements";
 import { listerDepots, type DepotResume } from "../services/catalogue";
 import {
   annulerVente,
@@ -51,9 +60,12 @@ const STATUTS: { valeur: StatutVente | ""; label: string }[] = [
 // --- Paiement mobile money (simulation locale) ---
 
 function PaiementMobileMoney({ paiement }: { paiement: PaiementDetail }) {
-  const [transaction, setTransaction] = useState<TransactionResume | null | undefined>(undefined);
+  const [transaction, setTransaction] = useState<
+    TransactionResume | null | undefined
+  >(undefined);
   const [afficherForm, setAfficherForm] = useState(false);
-  const [fournisseur, setFournisseur] = useState<FournisseurMobileMoney>("wave");
+  const [fournisseur, setFournisseur] =
+    useState<FournisseurMobileMoney>("wave");
   const [numeroTelephone, setNumeroTelephone] = useState("");
   const [enCours, setEnCours] = useState(false);
 
@@ -69,7 +81,12 @@ function PaiementMobileMoney({ paiement }: { paiement: PaiementDetail }) {
     evenement.preventDefault();
     setEnCours(true);
     try {
-      await initierPaiementMobileMoney({ paiementId: paiement.id, fournisseur, numeroTelephone, montant: paiement.montant });
+      await initierPaiementMobileMoney({
+        paiementId: paiement.id,
+        fournisseur,
+        numeroTelephone,
+        montant: paiement.montant,
+      });
       setAfficherForm(false);
       rafraichir();
     } finally {
@@ -82,26 +99,44 @@ function PaiementMobileMoney({ paiement }: { paiement: PaiementDetail }) {
   return (
     <div>
       {transaction ? (
-        <span className={transaction.statut === "reussie" ? "badge-payee" : "badge-credit"}>
-          {libelleFournisseurMobileMoney(transaction.fournisseur)} · {libelleStatutTransactionMobileMoney(transaction.statut)} (
+        <span
+          className={
+            transaction.statut === "reussie" ? "badge-payee" : "badge-credit"
+          }
+        >
+          {libelleFournisseurMobileMoney(transaction.fournisseur)} ·{" "}
+          {libelleStatutTransactionMobileMoney(transaction.statut)} (
           {transaction.referenceExterne})
         </span>
       ) : afficherForm ? (
         <form onSubmit={initier} className="formulaire-inline">
-          <select value={fournisseur} onChange={(e) => setFournisseur(e.target.value as FournisseurMobileMoney)}>
+          <select
+            value={fournisseur}
+            onChange={(e) =>
+              setFournisseur(e.target.value as FournisseurMobileMoney)
+            }
+          >
             {FOURNISSEURS_MOBILE_MONEY.map((f) => (
               <option key={f.valeur} value={f.valeur}>
                 {f.label}
               </option>
             ))}
           </select>
-          <input placeholder="Numéro de téléphone" value={numeroTelephone} onChange={(e) => setNumeroTelephone(e.target.value)} />
+          <input
+            placeholder="Numéro de téléphone"
+            value={numeroTelephone}
+            onChange={(e) => setNumeroTelephone(e.target.value)}
+          />
           <button type="submit" disabled={enCours}>
             {enCours ? "…" : "Initier"}
           </button>
         </form>
       ) : (
-        <button type="button" className="bouton-primaire" onClick={() => setAfficherForm(true)}>
+        <button
+          type="button"
+          className="bouton-primaire"
+          onClick={() => setAfficherForm(true)}
+        >
           Initier le paiement mobile money
         </button>
       )}
@@ -109,7 +144,15 @@ function PaiementMobileMoney({ paiement }: { paiement: PaiementDetail }) {
   );
 }
 
-export function DetailVente({ venteId, session, onRetour }: { venteId: string; session: Session; onRetour: () => void }) {
+export function DetailVente({
+  venteId,
+  session,
+  onRetour,
+}: {
+  venteId: string;
+  session: Session;
+  onRetour: () => void;
+}) {
   const peutAnnuler = !!session.permissions.annuler_vente;
   const devise = useDevise();
   const nomUtilisateur = useNomsUtilisateurs(session);
@@ -143,13 +186,24 @@ export function DetailVente({ venteId, session, onRetour }: { venteId: string; s
   }
 
   if (afficherFacture) {
-    return <FactureVente venteId={venteId} session={session} labelRetour="← Retour à la vente" onRetour={() => setAfficherFacture(false)} />;
+    return (
+      <FactureVente
+        venteId={venteId}
+        session={session}
+        labelRetour="← Retour à la vente"
+        onRetour={() => setAfficherFacture(false)}
+      />
+    );
   }
 
   if (!vente) return <p>Chargement…</p>;
   const estAnnulee = vente.statut === "annulee";
-  const montantCredit = vente.paiements.filter((p) => p.mode === "credit").reduce((t, p) => t + p.montant, 0);
-  const montantComptant = vente.paiements.filter((p) => p.mode !== "credit").reduce((t, p) => t + p.montant, 0);
+  const montantCredit = vente.paiements
+    .filter((p) => p.mode === "credit")
+    .reduce((t, p) => t + p.montant, 0);
+  const montantComptant = vente.paiements
+    .filter((p) => p.mode !== "credit")
+    .reduce((t, p) => t + p.montant, 0);
   const quantiteTotale = vente.lignes.reduce((t, l) => t + l.quantite, 0);
   const consequences = [
     `${formaterQuantite(quantiteTotale)} article(s) retournent dans le stock du dépôt « ${vente.depotNom} ».`,
@@ -165,31 +219,56 @@ export function DetailVente({ venteId, session, onRetour }: { venteId: string; s
     <>
       <div className="modale-entete">
         <h3>
-          Vente {vente.numero} <span className={`badge-${vente.statut}`}>{libelleStatutVente(vente.statut)}</span>
+          Vente {vente.numero}{" "}
+          <span className={`badge-${vente.statut}`}>
+            {libelleStatutVente(vente.statut)}
+          </span>
         </h3>
         <div className="actions-formulaire">
-          <button type="button" className="bouton-primaire" onClick={() => setAfficherFacture(true)}>
+          <button
+            type="button"
+            className="bouton-primaire"
+            onClick={() => setAfficherFacture(true)}
+          >
             Voir la facture
           </button>
-          <button type="button" className="lien bouton-retour" onClick={onRetour}>
+          <button
+            type="button"
+            className="lien bouton-retour"
+            onClick={onRetour}
+          >
             ← Retour
           </button>
         </div>
       </div>
       <div className="modale-avec-menu">
         <nav className="menu-modale">
-          <button type="button" className={page === "articles" ? "actif" : ""} onClick={() => setPage("articles")}>
+          <button
+            type="button"
+            className={page === "articles" ? "actif" : ""}
+            onClick={() => setPage("articles")}
+          >
             <span className="icone-menu-modale">🧾</span>
             Articles
             <span className="compteur-menu-modale">{vente.lignes.length}</span>
           </button>
-          <button type="button" className={page === "paiements" ? "actif" : ""} onClick={() => setPage("paiements")}>
+          <button
+            type="button"
+            className={page === "paiements" ? "actif" : ""}
+            onClick={() => setPage("paiements")}
+          >
             <span className="icone-menu-modale">💳</span>
             Paiements
-            <span className="compteur-menu-modale">{vente.paiements.length}</span>
+            <span className="compteur-menu-modale">
+              {vente.paiements.length}
+            </span>
           </button>
           {!estAnnulee && peutAnnuler && (
-            <button type="button" className="bouton-menu-danger" onClick={() => setConfirmation(true)}>
+            <button
+              type="button"
+              className="bouton-menu-danger"
+              onClick={() => setConfirmation(true)}
+            >
               <span className="icone-menu-modale">✕</span>
               Annuler la vente
             </button>
@@ -215,7 +294,9 @@ export function DetailVente({ venteId, session, onRetour }: { venteId: string; s
                 {formaterMontant(montantComptant)} {devise}
               </strong>
             </div>
-            <div className={`tuile-fiche${montantCredit > 0 && !estAnnulee ? " tuile-fiche--attention" : ""}`}>
+            <div
+              className={`tuile-fiche${montantCredit > 0 && !estAnnulee ? " tuile-fiche--attention" : ""}`}
+            >
               <span className="sous-info">💳 Reste en crédit</span>
               <strong className="nowrap">
                 {formaterMontant(montantCredit)} {devise}
@@ -225,7 +306,9 @@ export function DetailVente({ venteId, session, onRetour }: { venteId: string; s
           <div className="fiche-infos-produit">
             <div>
               <span className="sous-info">Date</span>
-              <strong>{new Date(vente.dateCreation).toLocaleString("fr-FR")}</strong>
+              <strong>
+                {new Date(vente.dateCreation).toLocaleString("fr-FR")}
+              </strong>
             </div>
             <div>
               <span className="sous-info">Dépôt</span>
@@ -265,7 +348,10 @@ export function DetailVente({ venteId, session, onRetour }: { venteId: string; s
                       <td data-label="Désignation">
                         {l.produitNom}{" "}
                         {l.prixNormal !== null && (
-                          <span className="badge-destockage" title={`Prix normal : ${formaterMontant(l.prixNormal)} ${devise}`}>
+                          <span
+                            className="badge-destockage"
+                            title={`Prix normal : ${formaterMontant(l.prixNormal)} ${devise}`}
+                          >
                             Déstockage
                           </span>
                         )}
@@ -280,7 +366,9 @@ export function DetailVente({ venteId, session, onRetour }: { venteId: string; s
                       </td>
                     </tr>
                   ))}
-                  {Array.from({ length: Math.max(0, 10 - vente.lignes.length) }).map((_, i) => (
+                  {Array.from({
+                    length: Math.max(0, 10 - vente.lignes.length),
+                  }).map((_, i) => (
                     <tr key={`vide-${i}`} className="ligne-groupe-vide">
                       <td>&nbsp;</td>
                       <td>&nbsp;</td>
@@ -308,11 +396,19 @@ export function DetailVente({ venteId, session, onRetour }: { venteId: string; s
                   {vente.paiements.map((p) => (
                     <tr key={p.id}>
                       <td data-label="Mode">{libelleModePaiement(p.mode)}</td>
-                      <td data-label="Opérateur">{p.operateur ? libelleOperateurMobileMoney(p.operateur) : ""}</td>
+                      <td data-label="Opérateur">
+                        {p.operateur
+                          ? libelleOperateurMobileMoney(p.operateur)
+                          : ""}
+                      </td>
                       <td data-label="Montant" className="nowrap">
                         {formaterMontant(p.montant)} {devise}
                       </td>
-                      <td data-label="Suivi">{p.mode === "mobile_money" && <PaiementMobileMoney paiement={p} />}</td>
+                      <td data-label="Suivi">
+                        {p.mode === "mobile_money" && (
+                          <PaiementMobileMoney paiement={p} />
+                        )}
+                      </td>
                     </tr>
                   ))}
                   {vente.paiements.length === 0 && (
@@ -350,16 +446,86 @@ function formaterQuantite(quantite: number): string {
 }
 
 const CERCLES_FOND = [
-  { taille: 90, couleur: "var(--cercle-1)", duree: 26, delai: -4, depart: ["-15vw", "10vh"], arrivee: ["115vw", "60vh"] },
-  { taille: 60, couleur: "var(--cercle-2)", duree: 22, delai: -15, depart: ["115vw", "70vh"], arrivee: ["-15vw", "15vh"] },
-  { taille: 120, couleur: "var(--cercle-3)", duree: 32, delai: -9, depart: ["20vw", "115vh"], arrivee: ["75vw", "-20vh"] },
-  { taille: 50, couleur: "var(--cercle-4)", duree: 24, delai: -2, depart: ["70vw", "-15vh"], arrivee: ["15vw", "115vh"] },
-  { taille: 75, couleur: "var(--cercle-5)", duree: 28, delai: -20, depart: ["-15vw", "90vh"], arrivee: ["110vw", "20vh"] },
-  { taille: 100, couleur: "var(--cercle-6)", duree: 30, delai: -12, depart: ["110vw", "25vh"], arrivee: ["-15vw", "85vh"] },
-  { taille: 40, couleur: "var(--cercle-1)", duree: 20, delai: -7, depart: ["40vw", "-15vh"], arrivee: ["85vw", "115vh"] },
-  { taille: 65, couleur: "var(--cercle-3)", duree: 25, delai: -16, depart: ["105vw", "45vh"], arrivee: ["-10vw", "55vh"] },
-  { taille: 85, couleur: "var(--cercle-4)", duree: 34, delai: -5, depart: ["85vw", "110vh"], arrivee: ["10vw", "-15vh"] },
-  { taille: 55, couleur: "var(--cercle-6)", duree: 23, delai: -10, depart: ["-10vw", "35vh"], arrivee: ["105vw", "90vh"] },
+  {
+    taille: 90,
+    couleur: "var(--cercle-1)",
+    duree: 26,
+    delai: -4,
+    depart: ["-15vw", "10vh"],
+    arrivee: ["115vw", "60vh"],
+  },
+  {
+    taille: 60,
+    couleur: "var(--cercle-2)",
+    duree: 22,
+    delai: -15,
+    depart: ["115vw", "70vh"],
+    arrivee: ["-15vw", "15vh"],
+  },
+  {
+    taille: 120,
+    couleur: "var(--cercle-3)",
+    duree: 32,
+    delai: -9,
+    depart: ["20vw", "115vh"],
+    arrivee: ["75vw", "-20vh"],
+  },
+  {
+    taille: 50,
+    couleur: "var(--cercle-4)",
+    duree: 24,
+    delai: -2,
+    depart: ["70vw", "-15vh"],
+    arrivee: ["15vw", "115vh"],
+  },
+  {
+    taille: 75,
+    couleur: "var(--cercle-5)",
+    duree: 28,
+    delai: -20,
+    depart: ["-15vw", "90vh"],
+    arrivee: ["110vw", "20vh"],
+  },
+  {
+    taille: 100,
+    couleur: "var(--cercle-6)",
+    duree: 30,
+    delai: -12,
+    depart: ["110vw", "25vh"],
+    arrivee: ["-15vw", "85vh"],
+  },
+  {
+    taille: 40,
+    couleur: "var(--cercle-1)",
+    duree: 20,
+    delai: -7,
+    depart: ["40vw", "-15vh"],
+    arrivee: ["85vw", "115vh"],
+  },
+  {
+    taille: 65,
+    couleur: "var(--cercle-3)",
+    duree: 25,
+    delai: -16,
+    depart: ["105vw", "45vh"],
+    arrivee: ["-10vw", "55vh"],
+  },
+  {
+    taille: 85,
+    couleur: "var(--cercle-4)",
+    duree: 34,
+    delai: -5,
+    depart: ["85vw", "110vh"],
+    arrivee: ["10vw", "-15vh"],
+  },
+  {
+    taille: 55,
+    couleur: "var(--cercle-6)",
+    duree: 23,
+    delai: -10,
+    depart: ["-10vw", "35vh"],
+    arrivee: ["105vw", "90vh"],
+  },
 ] as const;
 
 export default function Ventes({ session }: { session: Session }) {
@@ -368,14 +534,24 @@ export default function Ventes({ session }: { session: Session }) {
   const nomUtilisateur = useNomsUtilisateurs(session);
   const { etat: etatSynchro } = useSynchro();
   const [depots, setDepots] = useState<DepotResume[]>([]);
-  const [depotId, setDepotId] = useState(peutGerer ? "" : (session.depotId ?? ""));
+  const [depotId, setDepotId] = useState(
+    peutGerer ? "" : (session.depotId ?? ""),
+  );
   const [statut, setStatut] = useState<StatutVente | "">("");
   const [terme, setTerme] = useState("");
   const [periode, setPeriode] = useState<PeriodeHistorique>("mois");
   const [debutPerso, setDebutPerso] = useState(jourLocal(new Date()));
   const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
   const [ventes, setVentes] = useState<VenteResumeLocale[]>([]);
-  const [venteSelectionneeId, setVenteSelectionneeId] = useState<string | null>(null);
+  const [venteSelectionneeId, setVenteSelectionneeId] = useState<string | null>(
+    null,
+  );
+  const [historiqueOuvert, setHistoriqueOuvert] = useState(false);
+
+  function fermerHistorique() {
+    setHistoriqueOuvert(false);
+    setVenteSelectionneeId(null);
+  }
 
   useEffect(() => {
     if (peutGerer) listerDepots(session.boutiqueId).then(setDepots);
@@ -383,7 +559,14 @@ export default function Ventes({ session }: { session: Session }) {
   }, [session.boutiqueId, peutGerer]);
 
   async function rafraichir() {
-    setVentes(await listerVentesLocales(session.boutiqueId, depotId || undefined, statut || undefined, terme));
+    setVentes(
+      await listerVentesLocales(
+        session.boutiqueId,
+        depotId || undefined,
+        statut || undefined,
+        terme,
+      ),
+    );
   }
   useEffect(() => {
     rafraichir();
@@ -396,12 +579,15 @@ export default function Ventes({ session }: { session: Session }) {
   }, [depotId, statut, terme, etatSynchro?.derniereSynchro]);
 
   const bornes = bornesPeriode(periode, debutPerso, finPerso);
-  const ventesPeriode = ventes.filter((v) => dansPeriode(v.dateCreation, bornes));
+  const ventesPeriode = ventes.filter((v) =>
+    dansPeriode(v.dateCreation, bornes),
+  );
   // Les ventes annulées restent listées mais ne comptent pas dans les tuiles.
   const valides = ventesPeriode.filter((v) => v.statut !== "annulee");
   const chiffreAffaires = valides.reduce((t, v) => t + v.totalNet, 0);
   const venduACredit = valides.reduce((t, v) => t + (v.montantCredit ?? 0), 0);
-  const panierMoyen = valides.length > 0 ? Math.round(chiffreAffaires / valides.length) : 0;
+  const panierMoyen =
+    valides.length > 0 ? Math.round(chiffreAffaires / valides.length) : 0;
 
   const colonnesExport: ColonneExport[] = [
     { cle: "date", libelle: "Date" },
@@ -448,139 +634,210 @@ export default function Ventes({ session }: { session: Session }) {
           }
         />
       ))}
-      {venteSelectionneeId && (
-        <div className="fond-modale" onClick={() => setVenteSelectionneeId(null)}>
-          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
-            <DetailVente
-              venteId={venteSelectionneeId}
-              session={session}
-              onRetour={() => {
-                setVenteSelectionneeId(null);
-                rafraichir();
-              }}
-            />
+      <div className="grille-documents-comptables">
+        <button
+          type="button"
+          className="carte-document-comptable"
+          onClick={() => setHistoriqueOuvert(true)}
+        >
+          <span className="icone-document-comptable">📜</span>
+          Historique des ventes
+        </button>
+      </div>
+
+      {historiqueOuvert && (
+        <div className="fond-modale" onClick={fermerHistorique}>
+          <div
+            className="modale-selection-produits"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {venteSelectionneeId ? (
+              <DetailVente
+                venteId={venteSelectionneeId}
+                session={session}
+                onRetour={() => {
+                  setVenteSelectionneeId(null);
+                  rafraichir();
+                }}
+              />
+            ) : (
+              <>
+                <div className="modale-entete">
+                  <h3>Historique des ventes</h3>
+                  <button
+                    type="button"
+                    className="lien bouton-retour"
+                    onClick={fermerHistorique}
+                  >
+                    ← Retour
+                  </button>
+                </div>
+                <div className="modale-corps">
+                  <div className="tuiles-fiche">
+                    <div className="tuile-fiche">
+                      <span className="sous-info">🧾 Ventes</span>
+                      <strong>{valides.length}</strong>
+                    </div>
+                    <div className="tuile-fiche">
+                      <span className="sous-info">💰 Chiffre d'affaires</span>
+                      <strong className="nowrap">
+                        {formaterMontant(chiffreAffaires)} {devise}
+                      </strong>
+                    </div>
+                    <div
+                      className={`tuile-fiche${venduACredit > 0 ? " tuile-fiche--attention" : ""}`}
+                    >
+                      <span className="sous-info">💳 Vendu à crédit</span>
+                      <strong className="nowrap">
+                        {formaterMontant(venduACredit)} {devise}
+                      </strong>
+                    </div>
+                    <div className="tuile-fiche">
+                      <span className="sous-info">🧺 Panier moyen</span>
+                      <strong className="nowrap">
+                        {formaterMontant(panierMoyen)} {devise}
+                      </strong>
+                    </div>
+                  </div>
+                  <div className="barre-actions barre-filtres-historique">
+                    <FiltrePeriodeHistorique
+                      periode={periode}
+                      setPeriode={setPeriode}
+                      debutPerso={debutPerso}
+                      setDebutPerso={setDebutPerso}
+                      finPerso={finPerso}
+                      setFinPerso={setFinPerso}
+                    />
+                    {peutGerer ? (
+                      <select
+                        value={depotId}
+                        onChange={(e) => setDepotId(e.target.value)}
+                      >
+                        <option value="">Tous les dépôts</option>
+                        {depots.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.nom}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      session.depotNom && (
+                        <span className="depot-fixe">{session.depotNom}</span>
+                      )
+                    )}
+                    <select
+                      value={statut}
+                      onChange={(e) =>
+                        setStatut(e.target.value as StatutVente | "")
+                      }
+                    >
+                      {STATUTS.map((s) => (
+                        <option key={s.valeur} value={s.valeur}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      className="champ-recherche champ-recherche-ventes"
+                      placeholder="Rechercher par numéro ou client…"
+                      value={terme}
+                      onChange={(e) => setTerme(e.target.value)}
+                    />
+                    <BoutonsExport
+                      titre="Historique des ventes"
+                      colonnes={colonnesExport}
+                      lignes={lignesExport}
+                      compact
+                    />
+                  </div>
+                  <div className="zone-tableau-scroll zone-commandes-fiche">
+                    <table className="tableau-catalogue carte-mobile">
+                      <thead>
+                        <tr>
+                          <th>N°</th>
+                          <th>Date</th>
+                          <th>Numéro</th>
+                          <th>Dépôt</th>
+                          <th>Client</th>
+                          <th>Vendeur</th>
+                          <th>Articles</th>
+                          <th>Statut</th>
+                          <th>Total net</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ventesPeriode.map((v, index) => (
+                          <tr
+                            key={v.id}
+                            onClick={() => setVenteSelectionneeId(v.id)}
+                          >
+                            <td data-label="N°">{index + 1}</td>
+                            <td data-label="Date">
+                              {new Date(v.dateCreation).toLocaleString("fr-FR")}
+                            </td>
+                            <td data-label="Numéro">{v.numero}</td>
+                            <td data-label="Dépôt">{v.depotNom}</td>
+                            <td data-label="Client">{v.clientNom ?? ""}</td>
+                            <td data-label="Vendeur">
+                              {nomUtilisateur(v.utilisateurId)}
+                            </td>
+                            <td data-label="Articles">
+                              {formaterQuantite(v.nombreArticles)}
+                            </td>
+                            <td data-label="Statut">
+                              <span className={`badge-${v.statut}`}>
+                                {libelleStatutVente(v.statut)}
+                              </span>
+                            </td>
+                            <td data-label="Total net" className="nowrap">
+                              {formaterMontant(v.totalNet)} {devise}
+                              {v.montantCredit > 0 &&
+                                v.statut !== "annulee" && (
+                                  <span className="sous-info">
+                                    {" "}
+                                    · dont {formaterMontant(v.montantCredit)} à
+                                    crédit
+                                  </span>
+                                )}
+                            </td>
+                          </tr>
+                        ))}
+                        {ventesPeriode.length === 0 && (
+                          <tr>
+                            <td colSpan={9} className="liste-vide">
+                              {ventes.length === 0
+                                ? "Aucune vente."
+                                : "Aucune vente sur cette période."}
+                            </td>
+                          </tr>
+                        )}
+                        {Array.from({
+                          length: Math.max(
+                            0,
+                            10 - Math.max(1, ventesPeriode.length),
+                          ),
+                        }).map((_, i) => (
+                          <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                            <td>&nbsp;</td>
+                            <td>&nbsp;</td>
+                            <td>&nbsp;</td>
+                            <td>&nbsp;</td>
+                            <td>&nbsp;</td>
+                            <td>&nbsp;</td>
+                            <td>&nbsp;</td>
+                            <td>&nbsp;</td>
+                            <td>&nbsp;</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
-      <div className="tuiles-fiche">
-        <div className="tuile-fiche">
-          <span className="sous-info">🧾 Ventes</span>
-          <strong>{valides.length}</strong>
-        </div>
-        <div className="tuile-fiche">
-          <span className="sous-info">💰 Chiffre d'affaires</span>
-          <strong className="nowrap">
-            {formaterMontant(chiffreAffaires)} {devise}
-          </strong>
-        </div>
-        <div className={`tuile-fiche${venduACredit > 0 ? " tuile-fiche--attention" : ""}`}>
-          <span className="sous-info">💳 Vendu à crédit</span>
-          <strong className="nowrap">
-            {formaterMontant(venduACredit)} {devise}
-          </strong>
-        </div>
-        <div className="tuile-fiche">
-          <span className="sous-info">🧺 Panier moyen</span>
-          <strong className="nowrap">
-            {formaterMontant(panierMoyen)} {devise}
-          </strong>
-        </div>
-      </div>
-      <div className="barre-actions barre-filtres-historique">
-        <FiltrePeriodeHistorique
-          periode={periode}
-          setPeriode={setPeriode}
-          debutPerso={debutPerso}
-          setDebutPerso={setDebutPerso}
-          finPerso={finPerso}
-          setFinPerso={setFinPerso}
-        />
-        {peutGerer ? (
-          <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
-            <option value="">Tous les dépôts</option>
-            {depots.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.nom}
-              </option>
-            ))}
-          </select>
-        ) : (
-          session.depotNom && <span className="depot-fixe">{session.depotNom}</span>
-        )}
-        <select value={statut} onChange={(e) => setStatut(e.target.value as StatutVente | "")}>
-          {STATUTS.map((s) => (
-            <option key={s.valeur} value={s.valeur}>
-              {s.label}
-            </option>
-          ))}
-        </select>
-        <input
-          className="champ-recherche champ-recherche-ventes"
-          placeholder="Rechercher par numéro ou client…"
-          value={terme}
-          onChange={(e) => setTerme(e.target.value)}
-        />
-        <BoutonsExport titre="Historique des ventes" colonnes={colonnesExport} lignes={lignesExport} compact />
-      </div>
-      <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue carte-mobile">
-          <thead>
-            <tr>
-              <th>N°</th>
-              <th>Date</th>
-              <th>Numéro</th>
-              <th>Dépôt</th>
-              <th>Client</th>
-              <th>Vendeur</th>
-              <th>Articles</th>
-              <th>Statut</th>
-              <th>Total net</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ventesPeriode.map((v, index) => (
-              <tr key={v.id} onClick={() => setVenteSelectionneeId(v.id)}>
-                <td data-label="N°">{index + 1}</td>
-                <td data-label="Date">{new Date(v.dateCreation).toLocaleString("fr-FR")}</td>
-                <td data-label="Numéro">{v.numero}</td>
-                <td data-label="Dépôt">{v.depotNom}</td>
-                <td data-label="Client">{v.clientNom ?? ""}</td>
-                <td data-label="Vendeur">{nomUtilisateur(v.utilisateurId)}</td>
-                <td data-label="Articles">{formaterQuantite(v.nombreArticles)}</td>
-                <td data-label="Statut">
-                  <span className={`badge-${v.statut}`}>{libelleStatutVente(v.statut)}</span>
-                </td>
-                <td data-label="Total net" className="nowrap">
-                  {formaterMontant(v.totalNet)} {devise}
-                  {v.montantCredit > 0 && v.statut !== "annulee" && (
-                    <span className="sous-info"> · dont {formaterMontant(v.montantCredit)} à crédit</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {ventesPeriode.length === 0 && (
-              <tr>
-                <td colSpan={9} className="liste-vide">
-                  {ventes.length === 0 ? "Aucune vente." : "Aucune vente sur cette période."}
-                </td>
-              </tr>
-            )}
-            {Array.from({ length: Math.max(0, 10 - Math.max(1, ventesPeriode.length)) }).map((_, i) => (
-              <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }

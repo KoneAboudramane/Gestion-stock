@@ -4848,22 +4848,22 @@ input.champ-invalide:focus {
 
   .catalogue-clients-reguliers .tableau-catalogue th:nth-child(1),
   .catalogue-clients-reguliers .tableau-catalogue td:nth-child(1) {
-    width: 5%;
+    width: 7%;
   }
 
   .catalogue-clients-reguliers .tableau-catalogue th:nth-child(2),
   .catalogue-clients-reguliers .tableau-catalogue td:nth-child(2) {
-    width: 25%;
+    width: 24%;
   }
 
   .catalogue-clients-reguliers .tableau-catalogue th:nth-child(3),
   .catalogue-clients-reguliers .tableau-catalogue td:nth-child(3) {
-    width: 16%;
+    width: 18%;
   }
 
   .catalogue-clients-reguliers .tableau-catalogue th:nth-child(4),
   .catalogue-clients-reguliers .tableau-catalogue td:nth-child(4) {
-    width: 22%;
+    width: 19%;
   }
 
   .catalogue-clients-reguliers .tableau-catalogue th:nth-child(5),
@@ -7838,4 +7838,10 @@ button.tuile-dormance.active {
   font-weight: 600;
   padding: 0.15rem 0.5rem;
   border-radius: 999px;
+}
+
+.catalogue-clients-reguliers .tableau-catalogue th:nth-child(1),
+.catalogue-clients-reguliers .tableau-catalogue td:nth-child(1) {
+  padding-left: 0.4rem;
+  padding-right: 0.4rem;
 }
