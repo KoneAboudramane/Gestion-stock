@@ -1617,6 +1617,8 @@ export interface ArticleDetaillable {
   prixAchatGros: number;
   prixAchatDetail: number;
   prixVenteDetail: number;
+  /** Seuil d'alerte de l'article de détail (« à déballer » en dessous). */
+  seuilDetail: number;
 }
 
 export interface GrosDisponible {
@@ -1658,6 +1660,7 @@ export async function listerArticlesDetaillables(boutiqueId: string, depotId?: s
       prixAchatGros: Number(v.prix_achat),
       prixAchatDetail: Number(detail.prix_achat),
       prixVenteDetail: Number(detail.prix_vente),
+      seuilDetail: Number(detail.seuil_alerte),
     });
   }
   return resultat.sort((a, b) => a.grosNom.localeCompare(b.grosNom, "fr"));

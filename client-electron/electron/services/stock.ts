@@ -1627,6 +1627,8 @@ export interface ArticleDetaillable {
   prixAchatGros: number;
   prixAchatDetail: number;
   prixVenteDetail: number;
+  /** Seuil d'alerte de l'article de détail (« à déballer » en dessous). */
+  seuilDetail: number;
 }
 
 export interface GrosDisponible {
@@ -1645,7 +1647,7 @@ export function listerArticlesDetaillables(boutiqueId: string, depotId?: string)
   return tousLesResultats<ArticleDetaillable>(
     `SELECT v.id as varianteGrosId, p.nom as grosNom, d.id as varianteDetailId, pd.nom as detailNom,
             v.quantite_detail as quantite, COALESCE(u.nom, '') as uniteGros, COALESCE(ud.nom, '') as uniteDetail,
-            v.prix_achat as prixAchatGros, d.prix_achat as prixAchatDetail, d.prix_vente as prixVenteDetail,
+            v.prix_achat as prixAchatGros, d.prix_achat as prixAchatDetail, d.prix_vente as prixVenteDetail, d.seuil_alerte as seuilDetail,
             COALESCE((SELECT SUM(quantite) FROM stocks WHERE variante_id = v.id${filtreDepot}), 0) as stockGros,
             COALESCE((SELECT SUM(quantite) FROM stocks WHERE variante_id = d.id${filtreDepot}), 0) as stockDetail
      FROM variantes v
@@ -1665,6 +1667,7 @@ export function listerArticlesDetaillables(boutiqueId: string, depotId?: string)
     prixAchatGros: Number(a.prixAchatGros),
     prixAchatDetail: Number(a.prixAchatDetail),
     prixVenteDetail: Number(a.prixVenteDetail),
+    seuilDetail: Number(a.seuilDetail),
   }));
 }
 

@@ -912,6 +912,8 @@ export interface ArticleDetaillable {
   prixAchatGros: number;
   prixAchatDetail: number;
   prixVenteDetail: number;
+  /** Seuil d'alerte de l'article de détail (« à déballer » en dessous). */
+  seuilDetail: number;
 }
 
 export interface GrosDisponible {

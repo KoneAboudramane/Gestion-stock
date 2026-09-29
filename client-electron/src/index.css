@@ -7359,3 +7359,44 @@ button.badge-cliquable:hover {
   gap: 0.35rem;
   min-width: 260px;
 }
+
+/* Articles à déballer : choix de l'article à relier. */
+.liste-choix-lien {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+.liste-choix-lien button {
+  text-align: left;
+  background: transparent;
+  border: 1px solid var(--bordure-tableau);
+  color: inherit;
+  box-shadow: none;
+  padding: 0.5rem 0.8rem;
+}
+
+.liste-choix-lien button:hover {
+  border-color: var(--couleur-primaire);
+  color: var(--couleur-primaire);
+}
+
+tr.ligne-cliquable {
+  cursor: pointer;
+}
+
+.recherche-articles-deballer {
+  flex: 1 1 240px;
+  min-width: 200px;
+}
+
+.ligne-detail-article {
+  display: block;
+  margin-top: 0.15rem;
+}
+
+.bouton-ouvrir-stock {
+  white-space: nowrap;
+}

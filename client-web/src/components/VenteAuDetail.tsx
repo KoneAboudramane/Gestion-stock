@@ -540,118 +540,290 @@ export function HistoriqueDetaillages({
 
 // --- Articles reliés (réglage fait aussi depuis le Stock) ---
 
-function ArticlesADetailler({
-  session,
-  onOuvrir,
-}: {
-  session: Session;
-  onOuvrir: (varianteGrosId: string) => void;
-}) {
+function ArticlesADetailler({ session }: { session: Session }) {
+  const devise = useDevise();
+  const peutGerer = !!session.permissions.gerer_produits_stock_achats;
+  const peutVoirCout = !!session.permissions.voir_benefices_achat;
+  const [depots, setDepots] = useState<{ id: string; nom: string }[]>([]);
+  const [depotId, setDepotId] = useState("");
   const [articles, setArticles] = useState<ArticleDetaillable[]>([]);
   const [variantes, setVariantes] = useState<{ id: string; nom: string }[]>([]);
+  const [terme, setTerme] = useState("");
+  const [seulementADeballer, setSeulementADeballer] = useState(false);
+  const [choixLien, setChoixLien] = useState(false);
+  const [rechercheLien, setRechercheLien] = useState("");
   const [enEdition, setEnEdition] = useState<{ id: string; nom: string } | null>(null);
-  const [choix, setChoix] = useState("");
+  const [aRetirer, setARetirer] = useState<ArticleDetaillable | null>(null);
+  const [articleOuvert, setArticleOuvert] = useState<string | null>(null);
+  const [erreur, setErreur] = useState<string | null>(null);
 
   async function rafraichir() {
-    setArticles(await donnees.articles(session.boutiqueId));
+    setArticles(await donnees.articles(session.boutiqueId, depotId || undefined));
   }
   useEffect(() => {
-    rafraichir();
+    donnees.depots(session.boutiqueId).then(setDepots);
     donnees.variantes(session.boutiqueId).then(setVariantes);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.boutiqueId]);
+  useEffect(() => {
+    rafraichir();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depotId]);
 
-  if (enEdition) {
-    return (
-      <>
-        <div className="barre-actions">
-          <button type="button" className="lien" onClick={() => setEnEdition(null)}>
-            ← Retour à la liste
-          </button>
-          <strong>{enEdition.nom}</strong>
-        </div>
-        <PanneauVenteAuDetail
-          session={session}
-          varianteId={enEdition.id}
-          nomArticle={enEdition.nom}
-          onModifie={rafraichir}
-        />
-      </>
-    );
+  const aDeballer = (a: ArticleDetaillable) => a.stockGros > 0 && a.stockDetail <= a.seuilDetail;
+  const cle = terme.trim().toLowerCase();
+  const affiches = articles.filter(
+    (a) =>
+      (!cle || a.grosNom.toLowerCase().includes(cle) || a.detailNom.toLowerCase().includes(cle)) &&
+      (!seulementADeballer || aDeballer(a)),
+  );
+  const nombreADeballer = articles.filter(aDeballer).length;
+  const stockGrosTotal = articles.reduce((t, a) => t + a.stockGros, 0);
+  const valeurAuDetail = articles.reduce((t, a) => t + a.stockGros * a.quantite * a.prixVenteDetail, 0);
+
+  // Relier : ni un article déjà relié, ni un article qui est déjà le détail d'un autre.
+  const relies = new Set(articles.flatMap((a) => [a.varianteGrosId, a.varianteDetailId]));
+  const cleLien = rechercheLien.trim().toLowerCase();
+  const candidats = variantes.filter((v) => !relies.has(v.id) && (!cleLien || v.nom.toLowerCase().includes(cleLien)));
+
+  async function retirerLien() {
+    if (!aRetirer) return;
+    try {
+      await donnees.definir(aRetirer.varianteGrosId, null, null);
+      setARetirer(null);
+      setErreur(null);
+      rafraichir();
+    } catch (e) {
+      setARetirer(null);
+      setErreur(messageDe(e));
+    }
   }
 
-  const dejaRelies = new Set(articles.map((a) => a.varianteGrosId));
   return (
     <>
-      <div className="barre-actions">
-        <select value={choix} onChange={(e) => setChoix(e.target.value)}>
-          <option value="">Relier un autre article (carton, sac…)</option>
-          {variantes
-            .filter((v) => !dejaRelies.has(v.id))
-            .map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.nom}
+      <div className="tuiles-fiche">
+        <div className="tuile-fiche">
+          <span className="sous-info">🔗 Articles reliés</span>
+          <strong>{articles.length}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">📦 En stock (gros)</span>
+          <strong>{nombre(stockGrosTotal)}</strong>
+        </div>
+        <div className={`tuile-fiche${nombreADeballer > 0 ? " tuile-fiche--attention" : ""}`}>
+          <span className="sous-info">⚠️ À déballer</span>
+          <strong>{nombreADeballer}</strong>
+        </div>
+        {peutVoirCout && (
+          <div className="tuile-fiche">
+            <span className="sous-info">💰 Valeur au détail</span>
+            <strong className="nowrap">
+              {formaterMontant(Math.round(valeurAuDetail))} {devise}
+            </strong>
+          </div>
+        )}
+      </div>
+
+      <div className="barre-actions barre-filtres-historique">
+        <input
+          type="search"
+          className="recherche-articles-deballer"
+          placeholder="Rechercher un article…"
+          value={terme}
+          onChange={(e) => setTerme(e.target.value)}
+        />
+        {depots.length > 1 && (
+          <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
+            <option value="">Tous les dépôts</option>
+            {depots.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.nom}
               </option>
             ))}
-        </select>
-        <button
-          type="button"
-          className="bouton-primaire"
-          disabled={!choix}
-          onClick={() => {
-            const v = variantes.find((x) => x.id === choix);
-            if (v) setEnEdition(v);
-            setChoix("");
-          }}
-        >
-          🔗 Relier
-        </button>
+          </select>
+        )}
+        <div className="bascule-vue" role="group" aria-label="Filtre">
+          <button type="button" className={!seulementADeballer ? "actif" : ""} onClick={() => setSeulementADeballer(false)}>
+            Tous
+          </button>
+          <button type="button" className={seulementADeballer ? "actif" : ""} onClick={() => setSeulementADeballer(true)}>
+            ⚠️ À déballer ({nombreADeballer})
+          </button>
+        </div>
+        {peutGerer && (
+          <button
+            type="button"
+            className="bouton-primaire"
+            onClick={() => {
+              setRechercheLien("");
+              setChoixLien(true);
+            }}
+          >
+            🔗 Relier un article
+          </button>
+        )}
       </div>
+      {erreur && <div className="message-erreur">{erreur}</div>}
+
       <div className="zone-tableau-scroll zone-commandes-fiche">
         <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
-              <th>Article de gros</th>
-              <th>Contient</th>
-              <th>Article de détail</th>
-              <th>En stock</th>
-              <th />
+              <th>Article</th>
+              <th>Stock gros</th>
+              <th>Stock détail</th>
+              <th>Prix au détail</th>
+              {peutGerer && <th>Actions</th>}
             </tr>
           </thead>
           <tbody>
-            {articles.map((a) => (
-              <tr key={a.varianteGrosId}>
-                <td data-label="Article de gros">
-                  {a.grosNom}
-                  {a.uniteGros && <span className="sous-info"> · {a.uniteGros.toLowerCase()}</span>}
-                </td>
-                <td data-label="Contient">{quantiteUnite(a.quantite, a.uniteDetail)}</td>
-                <td data-label="Article de détail">{a.detailNom}</td>
-                <td data-label="En stock">
-                  {quantiteUnite(a.stockGros, a.uniteGros)} · {quantiteUnite(a.stockDetail, a.uniteDetail)}
-                </td>
-                <td>
-                  <span className="actions-ligne">
-                    <button type="button" className="bouton-primaire" onClick={() => onOuvrir(a.varianteGrosId)}>
-                      📦 {libelleOuvrir(a.uniteGros)}
-                    </button>
-                    <button type="button" className="lien" onClick={() => setEnEdition({ id: a.varianteGrosId, nom: a.grosNom })}>
-                      ✎ Modifier
-                    </button>
-                  </span>
-                </td>
-              </tr>
-            ))}
-            {articles.length === 0 && (
+            {affiches.map((a) => {
+              const marge = a.prixVenteDetail - a.prixAchatGros / a.quantite;
+              return (
+                <tr key={a.varianteGrosId} className="ligne-cliquable" onClick={() => setArticleOuvert(a.varianteGrosId)}>
+                  <td data-label="Article">
+                    <strong>{a.grosNom}</strong>
+                    <span className="sous-info ligne-detail-article">
+                      1 {a.uniteGros.toLowerCase() || "unité"} = {quantiteUnite(a.quantite, a.uniteDetail)} · {a.detailNom}
+                    </span>
+                  </td>
+                  <td data-label="Stock gros" className="nowrap">
+                    <strong>{quantiteUnite(a.stockGros, a.uniteGros)}</strong>
+                  </td>
+                  <td data-label="Stock détail" className="nowrap">
+                    {quantiteUnite(a.stockDetail, a.uniteDetail)}
+                    {aDeballer(a) && <span className="badge-a-detailler"> À déballer</span>}
+                  </td>
+                  <td data-label="Prix au détail" className="nowrap">
+                    {formaterMontant(a.prixVenteDetail)} {devise}
+                    {peutVoirCout && (
+                      <span className={`sous-info${marge < 0 ? " texte-erreur" : ""}`}> · marge {formaterMontant(Math.round(marge))}</span>
+                    )}
+                  </td>
+                  {peutGerer && (
+                    <td data-label="Actions" onClick={(e) => e.stopPropagation()}>
+                      <span className="actions-ligne">
+                        <button
+                          type="button"
+                          className="bouton-ouvrir-stock"
+                          disabled={a.stockGros <= 0}
+                          title={a.stockGros <= 0 ? "Plus rien à déballer dans ce dépôt" : undefined}
+                          onClick={() => setArticleOuvert(a.varianteGrosId)}
+                        >
+                          📦 Déballer
+                        </button>
+                        <button
+                          type="button"
+                          className="lien-icone"
+                          title="Modifier le lien"
+                          onClick={() => setEnEdition({ id: a.varianteGrosId, nom: a.grosNom })}
+                        >
+                          ✎
+                        </button>
+                        <button type="button" className="lien-icone lien-icone-danger" title="Retirer le lien" onClick={() => setARetirer(a)}>
+                          🗑
+                        </button>
+                      </span>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+            {affiches.length === 0 && (
               <tr>
-                <td colSpan={5} className="liste-vide">
-                  Aucun article relié. Choisissez un carton, un sac… ci-dessus et indiquez ce qu'il contient.
+                <td colSpan={peutGerer ? 5 : 4} className="liste-vide">
+                  {articles.length === 0
+                    ? "Aucun article relié. Utilisez « 🔗 Relier un article » pour indiquer ce que contient un carton, un sac…"
+                    : seulementADeballer
+                      ? "Rien à déballer : tous les articles de détail ont du stock."
+                      : "Aucun article ne correspond."}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {choixLien && (
+        <div className="fond-modale" onClick={() => setChoixLien(false)}>
+          <div className="modale-confirmation modale-confirmation-large" onClick={(e) => e.stopPropagation()}>
+            <h3>🔗 Relier un article</h3>
+            <p className="note-aide">Choisissez l'article de gros (carton, sac, boîte…) à vendre aussi au détail.</p>
+            <input
+              type="search"
+              className="champ-recherche"
+              placeholder="Rechercher un article…"
+              value={rechercheLien}
+              onChange={(e) => setRechercheLien(e.target.value)}
+              autoFocus
+            />
+            <div className="liste-choix-lien">
+              {candidats.slice(0, 50).map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => {
+                    setChoixLien(false);
+                    setEnEdition(v);
+                  }}
+                >
+                  {v.nom}
+                </button>
+              ))}
+              {candidats.length === 0 && <p className="note-aide">Aucun article ne correspond.</p>}
+            </div>
+            <div className="actions-formulaire">
+              <button type="button" className="lien" onClick={() => setChoixLien(false)}>
+                Annuler
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {enEdition && (
+        <div className="fond-modale" onClick={() => setEnEdition(null)}>
+          <div className="modale-confirmation modale-confirmation-large" onClick={(e) => e.stopPropagation()}>
+            <h3>🔗 {enEdition.nom}</h3>
+            <PanneauVenteAuDetail session={session} varianteId={enEdition.id} nomArticle={enEdition.nom} onModifie={rafraichir} />
+            <div className="actions-formulaire">
+              <button type="button" className="lien" onClick={() => setEnEdition(null)}>
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {aRetirer && (
+        <div className="fond-modale" onClick={() => setARetirer(null)}>
+          <div className="modale-confirmation" onClick={(e) => e.stopPropagation()}>
+            <h3>Retirer le lien ?</h3>
+            <p className="note-aide">
+              « {aRetirer.grosNom} » ne se déballera plus en « {aRetirer.detailNom} ». Les deux articles et leur stock restent ;
+              seul le lien disparaît. Vous pourrez le refaire plus tard.
+            </p>
+            <div className="actions-formulaire">
+              <button type="button" className="lien" onClick={() => setARetirer(null)}>
+                Annuler
+              </button>
+              <button type="button" className="bouton-danger" onClick={retirerLien}>
+                Retirer le lien
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {articleOuvert && (
+        <ModaleOuvrir
+          session={session}
+          varianteGrosId={articleOuvert}
+          depotId={depotId || undefined}
+          onFermer={() => setArticleOuvert(null)}
+          onTermine={rafraichir}
+        />
+      )}
     </>
   );
 }
@@ -703,13 +875,7 @@ export function ModaleDetaillerRegrouper({ session, onFermer }: { session: Sessi
               </>
             )}
             {page === "articles" && (
-              <ArticlesADetailler
-                session={session}
-                onOuvrir={(id) => {
-                  setGrosChoisi(id);
-                  setPage("operer");
-                }}
-              />
+              <ArticlesADetailler session={session} />
             )}
             {page === "historique" && <HistoriqueDetaillages session={session} actualisation={actualisation} />}
           </div>
