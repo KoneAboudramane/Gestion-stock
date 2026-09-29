@@ -7552,3 +7552,29 @@ tr.ligne-cliquable {
   font-weight: 600;
   box-shadow: none;
 }
+
+/* Journée → Par caissier. */
+.barre-part {
+  display: inline-block;
+  width: 70px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bordure-tableau);
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.barre-part-remplie {
+  display: block;
+  height: 100%;
+  background: var(--couleur-primaire);
+}
+
+.montant-a-remettre {
+  color: var(--succes, #16a34a);
+}
+
+tr.ligne-total-tableau td {
+  font-weight: 700;
+  border-top: 2px solid var(--bordure-tableau);
+}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import type { Session } from "../api";
+import type { ColonneExport } from "../lib/export";
 import { listerDepotsDetail } from "../services/stock";
 import { journeeCaisse, type JourneeCaisse } from "../services/tresorerie";
 
@@ -10,7 +11,9 @@ const donnees = {
   depots: async (boutiqueId: string): Promise<{ id: string; nom: string }[]> => listerDepotsDetail(boutiqueId),
 };
 
+import BoutonsExport from "./BoutonsExport";
 import { useDevise } from "../contexts/DeviseContext";
+import { DetailVente } from "../pages/Ventes";
 import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
 import { formaterMontant } from "../lib/formatage";
 import { libelleCategorieMouvementCaisse, libelleOperateurMobileMoney } from "../lib/libelles";
@@ -45,6 +48,262 @@ function Evolution({ actuel, precedent }: { actuel: number; precedent: number })
       {taux > 0 ? "+" : ""}
       {taux} % vs hier
     </span>
+  );
+}
+
+function heure(iso: string | null): string {
+  return iso ? new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "—";
+}
+
+const LIBELLES_MODE: Record<string, string> = {
+  especes: "Espèces",
+  mobile_money: "Mobile Money",
+  credit: "Crédit",
+  carte: "Carte",
+};
+
+/** Fenêtre « Par caissier » de la Journée : qui a vendu quoi, et ce que chacun doit avoir remis. */
+function FenetreParCaissier({
+  session,
+  journee,
+  titreJour,
+  onFermer,
+}: {
+  session: Session;
+  journee: JourneeCaisse;
+  titreJour: string;
+  onFermer: () => void;
+}) {
+  const devise = useDevise();
+  const nomUtilisateur = useNomsUtilisateurs(session);
+  const [caissierOuvert, setCaissierOuvert] = useState<string | null | undefined>(undefined);
+  const [venteOuverte, setVenteOuverte] = useState<string | null>(null);
+  const caissiers = journee.parCaissier;
+  const total = caissiers.reduce((t, c) => t + c.total, 0);
+  const meilleur = caissiers[0];
+  const somme = (cle: "nombreVentes" | "especes" | "mobileMoney" | "credit" | "total" | "aRemettre") =>
+    caissiers.reduce((t, c) => t + c[cle], 0);
+
+  const colonnesExport: ColonneExport[] = [
+    { cle: "caissier", libelle: "Caissier" },
+    { cle: "ventes", libelle: "Ventes" },
+    { cle: "part", libelle: "Part du jour (%)" },
+    { cle: "especes", libelle: `Espèces (${devise})` },
+    { cle: "mobileMoney", libelle: `Mobile Money (${devise})` },
+    { cle: "credit", libelle: `Crédit (${devise})` },
+    { cle: "total", libelle: `Total vendu (${devise})` },
+    { cle: "aRemettre", libelle: `À remettre (${devise})` },
+    { cle: "horaires", libelle: "Horaires" },
+  ];
+  const lignesExport = caissiers.map((c) => ({
+    caissier: nomUtilisateur(c.utilisateurId),
+    ventes: c.nombreVentes,
+    part: total ? Math.round((c.total / total) * 100) : 0,
+    especes: c.especes,
+    mobileMoney: c.mobileMoney,
+    credit: c.credit,
+    total: c.total,
+    aRemettre: c.aRemettre,
+    horaires: `${heure(c.premiereVente)} → ${heure(c.derniereVente)}`,
+  }));
+
+  const ventesCaissier =
+    caissierOuvert === undefined ? [] : journee.ventes.filter((v) => (v.utilisateurId ?? null) === caissierOuvert);
+
+  return (
+    <div
+      className="fond-modale"
+      onClick={(e) => {
+        e.stopPropagation();
+        onFermer();
+      }}
+    >
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        {venteOuverte ? (
+          <DetailVente venteId={venteOuverte} session={session} onRetour={() => setVenteOuverte(null)} />
+        ) : caissierOuvert !== undefined ? (
+          <>
+            <div className="modale-entete">
+              <h3>
+                🧾 Ventes de {nomUtilisateur(caissierOuvert)} — {titreJour}
+              </h3>
+              <button type="button" className="lien bouton-retour" onClick={() => setCaissierOuvert(undefined)}>
+                ← Retour
+              </button>
+            </div>
+            <div className="modale-corps">
+              <div className="zone-tableau-scroll zone-commandes-fiche">
+                <table className="tableau-catalogue carte-mobile">
+                  <thead>
+                    <tr>
+                      <th>Heure</th>
+                      <th>Numéro</th>
+                      <th>Client</th>
+                      <th>Paiement</th>
+                      <th>Montant</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ventesCaissier.map((v) => (
+                      <tr key={v.id} className="ligne-cliquable" onClick={() => setVenteOuverte(v.id)} title="Voir la vente">
+                        <td data-label="Heure">{heure(v.dateCreation)}</td>
+                        <td data-label="Numéro">{v.numero}</td>
+                        <td data-label="Client">{v.clientNom ?? ""}</td>
+                        <td data-label="Paiement">{v.modes.map((m) => LIBELLES_MODE[m] ?? m).join(" + ")}</td>
+                        <td data-label="Montant" className="nowrap">
+                          <strong>
+                            {formaterMontant(v.totalNet)} {devise}
+                          </strong>
+                        </td>
+                      </tr>
+                    ))}
+                    {ventesCaissier.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="liste-vide">
+                          Aucune vente.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="modale-entete">
+              <h3>👥 Par caissier — {titreJour}</h3>
+              <button type="button" className="lien bouton-retour" onClick={onFermer}>
+                ← Retour
+              </button>
+            </div>
+            <div className="modale-corps">
+              <div className="tuiles-fiche">
+                <div className="tuile-fiche">
+                  <span className="sous-info">👥 Caissiers actifs</span>
+                  <strong>{caissiers.length}</strong>
+                </div>
+                <div className="tuile-fiche">
+                  <span className="sous-info">🏆 Meilleur vendeur</span>
+                  <strong>{meilleur ? nomUtilisateur(meilleur.utilisateurId) : "—"}</strong>
+                  {meilleur && (
+                    <span className="sous-info">
+                      {formaterMontant(meilleur.total)} {devise}
+                    </span>
+                  )}
+                </div>
+                <div className="tuile-fiche">
+                  <span className="sous-info">💰 Total vendu</span>
+                  <strong className="nowrap">
+                    {formaterMontant(total)} {devise}
+                  </strong>
+                </div>
+                <div className="tuile-fiche">
+                  <span className="sous-info">🧺 Panier moyen</span>
+                  <strong className="nowrap">
+                    {formaterMontant(somme("nombreVentes") ? Math.round(total / somme("nombreVentes")) : 0)} {devise}
+                  </strong>
+                </div>
+              </div>
+              <div className="barre-actions barre-filtres-historique">
+                <span className="sous-info">Cliquez sur un caissier pour voir ses ventes.</span>
+                <BoutonsExport titre={`Par caissier — ${titreJour}`} colonnes={colonnesExport} lignes={lignesExport} compact />
+              </div>
+              <div className="zone-tableau-scroll zone-commandes-fiche">
+                <table className="tableau-catalogue carte-mobile">
+                  <thead>
+                    <tr>
+                      <th>Caissier</th>
+                      <th>Ventes</th>
+                      <th>Part du jour</th>
+                      <th>Espèces</th>
+                      <th>Mobile Money</th>
+                      <th>Crédit</th>
+                      <th>Total vendu</th>
+                      <th title="Espèces encaissées (ventes et crédits remboursés) : ce que le caissier doit avoir remis à la caisse">
+                        À remettre
+                      </th>
+                      <th>Horaires</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {caissiers.map((c) => {
+                      const part = total ? Math.round((c.total / total) * 100) : 0;
+                      return (
+                        <tr
+                          key={c.utilisateurId ?? "inconnu"}
+                          className="ligne-cliquable"
+                          onClick={() => setCaissierOuvert(c.utilisateurId ?? null)}
+                          title="Voir ses ventes"
+                        >
+                          <td data-label="Caissier">
+                            <strong>{nomUtilisateur(c.utilisateurId)}</strong>
+                          </td>
+                          <td data-label="Ventes">{c.nombreVentes}</td>
+                          <td data-label="Part du jour">
+                            <span className="barre-part">
+                              <span className="barre-part-remplie" style={{ width: `${part}%` }} />
+                            </span>{" "}
+                            {part} %
+                          </td>
+                          <td data-label="Espèces" className="nowrap">
+                            {formaterMontant(c.especes)}
+                          </td>
+                          <td data-label="Mobile Money" className="nowrap">
+                            {formaterMontant(c.mobileMoney)}
+                          </td>
+                          <td data-label="Crédit" className="nowrap">
+                            {formaterMontant(c.credit)}
+                          </td>
+                          <td data-label="Total vendu" className="nowrap">
+                            <strong>
+                              {formaterMontant(c.total)} {devise}
+                            </strong>
+                          </td>
+                          <td data-label="À remettre" className="nowrap">
+                            <strong className="montant-a-remettre">{formaterMontant(c.aRemettre)}</strong>
+                            {c.remboursements > 0 && (
+                              <span className="sous-info ligne-detail-article">dont {formaterMontant(c.remboursements)} de crédits</span>
+                            )}
+                          </td>
+                          <td data-label="Horaires" className="nowrap">
+                            {heure(c.premiereVente)} → {heure(c.derniereVente)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {caissiers.length === 0 && (
+                      <tr>
+                        <td colSpan={9} className="liste-vide">
+                          Aucune vente ce jour-là.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                  {caissiers.length > 1 && (
+                    <tfoot>
+                      <tr className="ligne-total-tableau">
+                        <td>Total</td>
+                        <td>{somme("nombreVentes")}</td>
+                        <td>100 %</td>
+                        <td className="nowrap">{formaterMontant(somme("especes"))}</td>
+                        <td className="nowrap">{formaterMontant(somme("mobileMoney"))}</td>
+                        <td className="nowrap">{formaterMontant(somme("credit"))}</td>
+                        <td className="nowrap">
+                          {formaterMontant(somme("total"))} {devise}
+                        </td>
+                        <td className="nowrap">{formaterMontant(somme("aRemettre"))}</td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -280,73 +539,7 @@ export default function ModaleJournee({
         </div>
       </div>
       {parCaissierOuvert && journee && (
-        <div
-          className="fond-modale"
-          onClick={(e) => {
-            e.stopPropagation();
-            setParCaissierOuvert(false);
-          }}
-        >
-          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
-            <div className="modale-entete">
-              <h3>👥 Par caissier — {titreJour}</h3>
-              <button type="button" className="lien bouton-retour" onClick={() => setParCaissierOuvert(false)}>
-                ← Retour
-              </button>
-            </div>
-            <div className="modale-corps">
-                  <div className="zone-tableau-scroll zone-commandes-fiche">
-                    <table className="tableau-catalogue carte-mobile">
-                      <thead>
-                        <tr>
-                          <th>Caissier</th>
-                          <th>Ventes</th>
-                          <th>Espèces</th>
-                          <th>Mobile Money</th>
-                          <th>Crédit</th>
-                          <th>Total vendu</th>
-                          <th>Crédits encaissés</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {journee.parCaissier.map((c) => (
-                          <tr key={c.utilisateurId ?? "inconnu"}>
-                            <td data-label="Caissier">
-                              <strong>{nomUtilisateur(c.utilisateurId)}</strong>
-                            </td>
-                            <td data-label="Ventes">{c.nombreVentes}</td>
-                            <td data-label="Espèces" className="nowrap">
-                              {formaterMontant(c.especes)}
-                            </td>
-                            <td data-label="Mobile Money" className="nowrap">
-                              {formaterMontant(c.mobileMoney)}
-                            </td>
-                            <td data-label="Crédit" className="nowrap">
-                              {formaterMontant(c.credit)}
-                            </td>
-                            <td data-label="Total vendu" className="nowrap">
-                              <strong>
-                                {formaterMontant(c.total)} {devise}
-                              </strong>
-                            </td>
-                            <td data-label="Crédits encaissés" className="nowrap">
-                              {formaterMontant(c.remboursements)}
-                            </td>
-                          </tr>
-                        ))}
-                        {journee.parCaissier.length === 0 && (
-                          <tr>
-                            <td colSpan={7} className="liste-vide">
-                              Aucune vente ce jour-là.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-            </div>
-          </div>
-        </div>
+        <FenetreParCaissier session={session} journee={journee} titreJour={titreJour} onFermer={() => setParCaissierOuvert(false)} />
       )}
     </div>
   );

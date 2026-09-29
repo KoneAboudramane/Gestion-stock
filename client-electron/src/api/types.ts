@@ -971,6 +971,21 @@ export interface CaissierJournee {
   total: number;
   /** Remboursements de crédit encaissés en espèces par cette personne. */
   remboursements: number;
+  /** Espèces encaissées (ventes + crédits remboursés) : ce qu'elle doit avoir remis à la caisse. */
+  aRemettre: number;
+  premiereVente: string | null;
+  derniereVente: string | null;
+}
+
+export interface VenteJournee {
+  id: string;
+  numero: string;
+  dateCreation: string;
+  clientNom: string | null;
+  utilisateurId: string | null;
+  totalNet: number;
+  /** Modes de paiement, ex. ["especes", "mobile_money"]. */
+  modes: string[];
 }
 
 /** Résumé d'une journée de caisse (un dépôt, ou tous si depotId est null). */
@@ -987,6 +1002,7 @@ export interface JourneeCaisse {
   autres: number;
   mobileMoney: { operateur: string; montant: number }[];
   parCaissier: CaissierJournee[];
+  ventes: VenteJournee[];
   clotures: (ClotureCaisseResume & { depotId: string })[];
 }
 

@@ -389,6 +389,21 @@ export interface CaissierJournee {
   total: number;
   /** Remboursements de crédit encaissés en espèces par cette personne. */
   remboursements: number;
+  /** Espèces encaissées (ventes + crédits remboursés) : ce qu'elle doit avoir remis à la caisse. */
+  aRemettre: number;
+  premiereVente: string | null;
+  derniereVente: string | null;
+}
+
+export interface VenteJournee {
+  id: string;
+  numero: string;
+  dateCreation: string;
+  clientNom: string | null;
+  utilisateurId: string | null;
+  totalNet: number;
+  /** Modes de paiement, ex. ["especes", "mobile_money"]. */
+  modes: string[];
 }
 
 /** Résumé d'une journée de caisse (un dépôt, ou tous si depotId est null). */
@@ -405,6 +420,7 @@ export interface JourneeCaisse {
   autres: number;
   mobileMoney: { operateur: string; montant: number }[];
   parCaissier: CaissierJournee[];
+  ventes: VenteJournee[];
   clotures: (ClotureCaisseResume & { depotId: string })[];
 }
 
@@ -422,7 +438,7 @@ function regrouper(lignes: { categorie: string; montant: number }[]): LigneJourn
 function assemblerJournee(
   fondOuverture: number,
   mouvements: { type: string; categorie: string; montant: number; utilisateurId: string | null }[],
-  ventes: { id: string; utilisateurId: string | null; totalNet: number }[],
+  ventes: { id: string; numero: string; dateCreation: string; clientNom: string | null; utilisateurId: string | null; totalNet: number }[],
   paiements: { venteId: string; mode: string; operateur: string; montant: number }[],
   clotures: (ClotureCaisseResume & { depotId: string })[],
 ): JourneeCaisse {
@@ -438,7 +454,19 @@ function assemblerJournee(
     const cle = id ?? "";
     let c = caissiers.get(cle);
     if (!c) {
-      c = { utilisateurId: id, nombreVentes: 0, especes: 0, mobileMoney: 0, credit: 0, autres: 0, total: 0, remboursements: 0 };
+      c = {
+        utilisateurId: id,
+        nombreVentes: 0,
+        especes: 0,
+        mobileMoney: 0,
+        credit: 0,
+        autres: 0,
+        total: 0,
+        remboursements: 0,
+        aRemettre: 0,
+        premiereVente: null,
+        derniereVente: null,
+      };
       caissiers.set(cle, c);
     }
     return c;
@@ -447,6 +475,13 @@ function assemblerJournee(
     const c = caissier(v.utilisateurId);
     c.nombreVentes += 1;
     c.total += v.totalNet;
+    if (!c.premiereVente || v.dateCreation < c.premiereVente) c.premiereVente = v.dateCreation;
+    if (!c.derniereVente || v.dateCreation > c.derniereVente) c.derniereVente = v.dateCreation;
+  }
+  const modesParVente = new Map<string, Set<string>>();
+  for (const p of paiements) {
+    if (!modesParVente.has(p.venteId)) modesParVente.set(p.venteId, new Set());
+    modesParVente.get(p.venteId)!.add(p.mode);
   }
   let especes = 0;
   let credit = 0;
@@ -471,6 +506,7 @@ function assemblerJournee(
   for (const m of mouvements) {
     if (m.type === "entree" && m.categorie === "remboursement_credit") caissier(m.utilisateurId).remboursements += m.montant;
   }
+  for (const c of caissiers.values()) c.aRemettre = c.especes + c.remboursements;
   return {
     fondOuverture,
     entrees,
@@ -484,6 +520,9 @@ function assemblerJournee(
     autres,
     mobileMoney: [...parOperateur.entries()].map(([operateur, montant]) => ({ operateur, montant })).sort((a, b) => b.montant - a.montant),
     parCaissier: [...caissiers.values()].sort((a, b) => b.total - a.total),
+    ventes: ventes
+      .map((v) => ({ ...v, modes: [...(modesParVente.get(v.id) ?? [])] }))
+      .sort((a, b) => a.dateCreation.localeCompare(b.dateCreation)),
     clotures,
   };
 }
@@ -501,9 +540,18 @@ export function journeeCaisse(boutiqueId: string, depotId: string | null, debut:
      WHERE depot_id IN (${marques}) AND supprime = 0 AND date_creation >= ? AND date_creation < ?`,
     [...depots, debut, fin],
   ).map((m) => ({ ...m, montant: Number(m.montant) }));
-  const ventes = tousLesResultats<{ id: string; utilisateurId: string | null; totalNet: number }>(
-    `SELECT id, utilisateur_id as utilisateurId, total_net as totalNet FROM ventes
-     WHERE depot_id IN (${marques}) AND supprime = 0 AND statut != 'annulee' AND date_creation >= ? AND date_creation < ?`,
+  const ventes = tousLesResultats<{
+    id: string;
+    numero: string;
+    dateCreation: string;
+    clientNom: string | null;
+    utilisateurId: string | null;
+    totalNet: number;
+  }>(
+    `SELECT v.id as id, v.numero as numero, v.date_creation as dateCreation, c.nom as clientNom,
+            v.utilisateur_id as utilisateurId, v.total_net as totalNet
+     FROM ventes v LEFT JOIN clients c ON c.id = v.client_id
+     WHERE v.depot_id IN (${marques}) AND v.supprime = 0 AND v.statut != 'annulee' AND v.date_creation >= ? AND v.date_creation < ?`,
     [...depots, debut, fin],
   ).map((v) => ({ ...v, totalNet: Number(v.totalNet) }));
   const paiements = tousLesResultats<{ venteId: string; mode: string; operateur: string; montant: number }>(
