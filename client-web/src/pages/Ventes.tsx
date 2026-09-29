@@ -481,7 +481,7 @@ const CARTES_HISTORIQUE: {
   { cle: "mouvements", label: "Mouvements de stock", icone: "📦" },
   { cle: "transferts", label: "Transferts de stock", icone: "🔁" },
   { cle: "pertes", label: "Pertes", icone: "🗑️" },
-  { cle: "deballages", label: "Historique des déballages", icone: "📦" },
+  { cle: "deballages", label: "Historique des déballages / remballages", icone: "📦" },
   { cle: "depenses", label: "Historique des dépenses", icone: "💸" },
   { cle: "caisse", label: "Historique de la caisse", icone: "💰" },
   { cle: "mobileMoney", label: "Transferts Mobile Money", icone: "📱" },

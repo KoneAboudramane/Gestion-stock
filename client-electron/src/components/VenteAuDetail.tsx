@@ -562,7 +562,7 @@ export function HistoriqueDetaillages({
           <input type="checkbox" checked={avecAnnulees} onChange={(e) => setAvecAnnulees(e.target.checked)} />
           Afficher les annulées{annulees > 0 ? ` (${annulees})` : ""}
         </label>
-        <BoutonsExport titre="Historique des déballages" colonnes={colonnesExport} lignes={lignesExport} compact />
+        <BoutonsExport titre="Historique des déballages et remballages" colonnes={colonnesExport} lignes={lignesExport} compact />
       </div>
       {erreur && <div className="message-erreur">{erreur}</div>}
 
@@ -1439,7 +1439,7 @@ export function ModaleHistoriqueDeballages({ session, onFermer }: { session: Ses
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <div className="modale-entete">
-          <h3>Historique des déballages</h3>
+          <h3>Historique des déballages / remballages</h3>
           <button type="button" className="lien bouton-retour" onClick={onFermer}>
             ← Retour
           </button>
