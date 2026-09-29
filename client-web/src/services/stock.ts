@@ -1563,6 +1563,8 @@ export interface DetaillageResume {
   dateCreation: string;
   type: TypeDetaillage;
   depotNom: string;
+  varianteSourceId: string;
+  varianteCibleId: string;
   sourceNom: string;
   cibleNom: string;
   quantiteSource: number;
@@ -1583,6 +1585,8 @@ export async function listerDetaillages(boutiqueId: string): Promise<DetaillageR
         id: o.id,
         dateCreation: o.date_creation,
         type: o.type,
+        varianteSourceId: o.variante_source_id,
+        varianteCibleId: o.variante_cible_id,
         depotNom: depot.nom,
         sourceNom: await nomVariante(o.variante_source_id),
         cibleNom: await nomVariante(o.variante_cible_id),

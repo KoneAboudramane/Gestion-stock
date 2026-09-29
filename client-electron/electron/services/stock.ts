@@ -1580,6 +1580,8 @@ export interface DetaillageResume {
   dateCreation: string;
   type: TypeDetaillage;
   depotNom: string;
+  varianteSourceId: string;
+  varianteCibleId: string;
   sourceNom: string;
   cibleNom: string;
   quantiteSource: number;
@@ -1593,6 +1595,7 @@ export interface DetaillageResume {
 export function listerDetaillages(boutiqueId: string): DetaillageResume[] {
   return tousLesResultats<DetaillageResume>(
     `SELECT dt.id as id, dt.date_creation as dateCreation, dt.type as type, d.nom as depotNom,
+            dt.variante_source_id as varianteSourceId, dt.variante_cible_id as varianteCibleId,
             ps.nom as sourceNom, pc.nom as cibleNom, dt.quantite_source as quantiteSource,
             dt.quantite_cible as quantiteCible, dt.cout_unitaire_cible as coutUnitaireCible,
             dt.utilisateur_id as utilisateurId, COALESCE(dt.annulee, 0) as annulee

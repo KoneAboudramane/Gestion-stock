@@ -885,6 +885,8 @@ export interface DetaillageResume {
   dateCreation: string;
   type: TypeDetaillage;
   depotNom: string;
+  varianteSourceId: string;
+  varianteCibleId: string;
   sourceNom: string;
   cibleNom: string;
   quantiteSource: number;

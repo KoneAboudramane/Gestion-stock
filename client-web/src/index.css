@@ -8222,3 +8222,15 @@ button.badge-cliquable:hover {
     transform: rotate(90deg);
   }
 }
+
+.sous-titre-entete {
+  font-weight: 400;
+  font-size: 0.9rem;
+  color: var(--gris-500);
+}
+
+.page-ouvrir {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}

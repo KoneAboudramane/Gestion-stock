@@ -271,7 +271,18 @@ export function FormulaireDetailler({
 
 // --- Historique des ouvertures / regroupements ---
 
-export function HistoriqueDetaillages({ session, actualisation = 0 }: { session: Session; actualisation?: number }) {
+export function HistoriqueDetaillages({
+  session,
+  actualisation = 0,
+  varianteId,
+  onModifie,
+}: {
+  session: Session;
+  actualisation?: number;
+  /** Seulement les opérations de cet article (fenêtre « Ouvrir »). */
+  varianteId?: string;
+  onModifie?: () => void;
+}) {
   const nomUtilisateur = useNomsUtilisateurs(session);
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [operations, setOperations] = useState<DetaillageResume[]>([]);
@@ -289,7 +300,11 @@ export function HistoriqueDetaillages({ session, actualisation = 0 }: { session:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.boutiqueId, actualisation]);
 
-  const filtrees = operations.filter((o) => dansPeriode(o.dateCreation, bornesPeriode(periode, debutPerso, finPerso)));
+  const filtrees = operations.filter(
+    (o) =>
+      dansPeriode(o.dateCreation, bornesPeriode(periode, debutPerso, finPerso)) &&
+      (!varianteId || o.varianteSourceId === varianteId || o.varianteCibleId === varianteId),
+  );
 
   async function confirmerAnnulation() {
     if (!aAnnuler) return;
@@ -298,6 +313,7 @@ export function HistoriqueDetaillages({ session, actualisation = 0 }: { session:
       setAAnnuler(null);
       setErreur(null);
       rafraichir();
+      onModifie?.();
     } catch (e) {
       setAAnnuler(null);
       setErreur(messageDe(e));
@@ -872,7 +888,8 @@ export function ModaleDetaillerEnCaisse({
 }
 
 
-// --- Fenêtre « Ouvrir » : avant → après, quantité, prix de vente au détail ---
+
+// --- Fenêtre « Ouvrir » : barre latérale Ouvrir / Regrouper / Historique ---
 
 export function ModaleOuvrir({
   session,
@@ -896,9 +913,12 @@ export function ModaleOuvrir({
   const [depots, setDepots] = useState<{ id: string; nom: string }[]>([]);
   const [depotId, setDepotId] = useState(depotIdImpose ?? session.depotId ?? "");
   const [article, setArticle] = useState<ArticleDetaillable | null>(null);
+  const [page, setPage] = useState<"operer" | "historique">("operer");
   const [type, setType] = useState<TypeDetaillage>(typeInitial);
   const [quantite, setQuantite] = useState(1);
   const [prix, setPrix] = useState("");
+  const [nombreOperations, setNombreOperations] = useState(0);
+  const [actualisation, setActualisation] = useState(0);
   const [erreur, setErreur] = useState<string | null>(null);
   const [succes, setSucces] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
@@ -922,6 +942,24 @@ export function ModaleOuvrir({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [depotId, varianteGrosId]);
 
+  useEffect(() => {
+    donnees
+      .historique(session.boutiqueId)
+      .then((liste) =>
+        setNombreOperations(
+          liste.filter((o) => o.varianteSourceId === varianteGrosId || o.varianteCibleId === varianteGrosId).length,
+        ),
+      );
+  }, [session.boutiqueId, varianteGrosId, actualisation]);
+
+  function choisir(nouveauType: TypeDetaillage) {
+    setType(nouveauType);
+    setPage("operer");
+    setQuantite(1);
+    setErreur(null);
+    setSucces(null);
+  }
+
   const detailler = type === "detailler";
   const n = Math.max(0, Math.floor(quantite));
   const maximum = article ? (detailler ? article.stockGros : Math.floor(article.stockDetail / article.quantite)) : 0;
@@ -932,7 +970,11 @@ export function ModaleOuvrir({
   const taux = prixNombre > 0 ? Math.round((marge / prixNombre) * 100) : 0;
   const prixModifie = !!article && prixNombre !== article.prixVenteDetail;
   const sousLeCout = detailler && prixNombre < Math.round(coutDetail);
+  const faisable = n > 0 && n <= maximum;
   const depotNom = depots.find((d) => d.id === depotId)?.nom ?? "";
+  const uniteGros = article?.uniteGros ?? "";
+  const uniteDetail = article?.uniteDetail ?? "";
+  const unDetail = uniteDetail.toLowerCase() || "unité";
 
   async function confirmer() {
     if (!article || n <= 0 || n > maximum) return;
@@ -941,17 +983,20 @@ export function ModaleOuvrir({
     setSucces(null);
     try {
       if (detailler && prixModifie) {
-        if (sousLeCout) throw new Error(`Le prix de vente ne peut pas être inférieur au coût (${formaterMontant(Math.round(coutDetail))} ${devise}).`);
+        if (sousLeCout) {
+          throw new Error(`Le prix de vente ne peut pas être inférieur au coût (${formaterMontant(Math.round(coutDetail))} ${devise}).`);
+        }
         await donnees.prixVente(article.varianteDetailId, prixNombre);
       }
       await donnees.operer({ varianteGrosId, depotId, nombre: n, type, utilisateurId: session.utilisateurId });
       setSucces(
         detailler
-          ? `${quantiteUnite(n, article.uniteGros)} ouvert(s) : ${quantiteUnite(obtenus, article.uniteDetail)} de plus en stock${prixModifie ? `, vendu(e)s ${formaterMontant(prixNombre)} ${devise}` : ""}.`
-          : `${quantiteUnite(obtenus, article.uniteDetail)} regroupé(e)s en ${quantiteUnite(n, article.uniteGros)}.`,
+          ? `${quantiteUnite(n, uniteGros)} ouvert(s) : ${quantiteUnite(obtenus, uniteDetail)} de plus en stock${prixModifie ? `, au prix de ${formaterMontant(prixNombre)} ${devise}` : ""}.`
+          : `${quantiteUnite(obtenus, uniteDetail)} regroupé(e)s en ${quantiteUnite(n, uniteGros)}.`,
       );
       setQuantite(1);
       await charger(true);
+      setActualisation((a) => a + 1);
       onTermine?.();
     } catch (e) {
       setErreur(messageDe(e));
@@ -960,164 +1005,202 @@ export function ModaleOuvrir({
     }
   }
 
-  const uniteGros = article?.uniteGros ?? "";
-  const uniteDetail = article?.uniteDetail ?? "";
-  const unDetail = uniteDetail.toLowerCase() || "unité";
-
   return (
     <div className="fond-modale" onClick={onFermer}>
-      <div className="modale-confirmation modale-ouvrir" onClick={(e) => e.stopPropagation()}>
-        <div className="entete-ouvrir">
-          <div>
-            <h3>{detailler ? "📦 Ouvrir" : "🔁 Regrouper"}{article ? ` — ${article.grosNom}` : ""}</h3>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <div className="modale-entete">
+          <h3>
+            📦 {article?.grosNom ?? "Ouvrir"}
             {article && (
-              <span className="sous-info">
-                1 {uniteGros.toLowerCase() || "unité"} = {quantiteUnite(article.quantite, uniteDetail)} ({article.detailNom})
+              <span className="sous-titre-entete">
+                {" "}
+                · 1 {uniteGros.toLowerCase() || "unité"} = {quantiteUnite(article.quantite, uniteDetail)}
                 {depotNom && ` · ${depotNom}`}
               </span>
             )}
-          </div>
-          <div className="bascule-vue" role="group" aria-label="Opération">
-            <button type="button" className={detailler ? "actif" : ""} onClick={() => setType("detailler")}>
-              📦 Ouvrir
-            </button>
-            <button type="button" className={!detailler ? "actif" : ""} onClick={() => setType("regrouper")}>
-              🔁 Regrouper
-            </button>
-          </div>
+          </h3>
+          <button type="button" className="lien bouton-retour" onClick={onFermer}>
+            ← Retour
+          </button>
         </div>
+        <div className="modale-avec-menu">
+          <nav className="menu-modale">
+            <button type="button" className={page === "operer" && detailler ? "actif" : ""} onClick={() => choisir("detailler")}>
+              <span className="icone-menu-modale">📦</span>
+              Ouvrir
+            </button>
+            <button type="button" className={page === "operer" && !detailler ? "actif" : ""} onClick={() => choisir("regrouper")}>
+              <span className="icone-menu-modale">🔁</span>
+              Regrouper
+            </button>
+            <button type="button" className={page === "historique" ? "actif" : ""} onClick={() => setPage("historique")}>
+              <span className="icone-menu-modale">🕘</span>
+              Historique
+              <span className="compteur-menu-modale">{nombreOperations}</span>
+            </button>
+          </nav>
+          <div className="modale-corps">
+            {page === "historique" ? (
+              <HistoriqueDetaillages
+                session={session}
+                actualisation={actualisation}
+                varianteId={varianteGrosId}
+                onModifie={() => {
+                  setActualisation((a) => a + 1);
+                  charger(true);
+                  onTermine?.();
+                }}
+              />
+            ) : (
+              <div className="page-ouvrir">
+                {!depotIdImpose && depots.length > 1 && (
+                  <label className="champ-formulaire champ-depot-ouvrir">
+                    Dépôt
+                    <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
+                      {depots.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.nom}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
 
-        {!depotIdImpose && depots.length > 1 && (
-          <label className="champ-formulaire champ-depot-ouvrir">
-            Dépôt
-            <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
-              {depots.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.nom}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+                {!article ? (
+                  <p className="note-aide">Chargement…</p>
+                ) : (
+                  <>
+                    <div className="flux-ouvrir">
+                      <div className="carte-flux">
+                        <span className="sous-info">{detailler ? article.grosNom : article.detailNom}</span>
+                        <strong>
+                          {nombre(detailler ? article.stockGros : article.stockDetail)} <span className="fleche-flux">→</span>{" "}
+                          <span className="texte-erreur">
+                            {faisable ? nombre(detailler ? article.stockGros - n : article.stockDetail - obtenus) : "—"}
+                          </span>
+                        </strong>
+                        <span className="sous-info">{pluriel((detailler ? uniteGros : uniteDetail) || "unité")}</span>
+                      </div>
+                      <div className="operation-flux">
+                        <span>→</span>
+                        <span className="sous-info">{detailler ? `× ${nombre(article.quantite)}` : `÷ ${nombre(article.quantite)}`}</span>
+                      </div>
+                      <div className="carte-flux">
+                        <span className="sous-info">{detailler ? article.detailNom : article.grosNom}</span>
+                        <strong>
+                          {nombre(detailler ? article.stockDetail : article.stockGros)} <span className="fleche-flux">→</span>{" "}
+                          <span className="montant-entree">
+                            {faisable ? nombre(detailler ? article.stockDetail + obtenus : article.stockGros + n) : "—"}
+                          </span>
+                        </strong>
+                        <span className="sous-info">{pluriel((detailler ? uniteDetail : uniteGros) || "unité")}</span>
+                      </div>
+                    </div>
 
-        {!article ? (
-          <p className="note-aide">Chargement…</p>
-        ) : (
-          <>
-            <div className={`flux-ouvrir${detailler ? "" : " flux-ouvrir--inverse"}`}>
-              <div className="carte-flux">
-                <span className="sous-info">{article.grosNom}</span>
-                <strong>
-                  {nombre(article.stockGros)} <span className="fleche-flux">→</span>{" "}
-                  <span className={detailler ? "texte-erreur" : "montant-entree"}>
-                    {nombre(detailler ? article.stockGros - n : article.stockGros + n)}
-                  </span>
-                </strong>
-                <span className="sous-info">{pluriel(uniteGros || "unité")}</span>
-              </div>
-              <div className="operation-flux">
-                <span>{detailler ? "→" : "←"}</span>
-                <span className="sous-info">× {nombre(article.quantite)}</span>
-              </div>
-              <div className="carte-flux">
-                <span className="sous-info">{article.detailNom}</span>
-                <strong>
-                  {nombre(article.stockDetail)} <span className="fleche-flux">→</span>{" "}
-                  <span className={detailler ? "montant-entree" : "texte-erreur"}>
-                    {nombre(detailler ? article.stockDetail + obtenus : article.stockDetail - obtenus)}
-                  </span>
-                </strong>
-                <span className="sous-info">{pluriel(uniteDetail || "unité")}</span>
-              </div>
-            </div>
+                    <div className="ligne-quantite-ouvrir">
+                      <span className="libelle-quantite-ouvrir">
+                        {detailler
+                          ? `Combien de ${pluriel(uniteGros || "unité")} ouvrir ?`
+                          : `Combien de ${pluriel(uniteGros || "unité")} refaire ?`}
+                      </span>
+                      <span className="compteur-quantite">
+                        <button type="button" onClick={() => setQuantite((q) => Math.max(1, q - 1))} aria-label="Moins">
+                          −
+                        </button>
+                        <input type="number" min={1} step={1} value={quantite} onChange={(e) => setQuantite(Number(e.target.value) || 0)} />
+                        <button type="button" onClick={() => setQuantite((q) => q + 1)} aria-label="Plus">
+                          +
+                        </button>
+                      </span>
+                      <span className="raccourcis-quantite">
+                        {[1, 2, 5].map((v) => (
+                          <button key={v} type="button" className={n === v ? "actif" : ""} disabled={v > maximum} onClick={() => setQuantite(v)}>
+                            {v}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          className={n === maximum && maximum > 0 ? "actif" : ""}
+                          disabled={maximum <= 0}
+                          onClick={() => setQuantite(maximum)}
+                        >
+                          Tout ({nombre(maximum)})
+                        </button>
+                      </span>
+                    </div>
+                    {n > maximum && (
+                      <div className="message-erreur">
+                        {maximum > 0
+                          ? `Pas assez en stock : ${quantiteUnite(maximum, uniteGros)} au maximum.`
+                          : detailler
+                            ? `Plus aucun(e) ${(uniteGros || "unité").toLowerCase()} à ouvrir dans ce dépôt.`
+                            : `Pas assez de ${pluriel(unDetail)} pour refaire un(e) ${(uniteGros || "unité").toLowerCase()} (il en faut ${nombre(article.quantite)}).`}
+                      </div>
+                    )}
 
-            <div className="ligne-quantite-ouvrir">
-              <span className="libelle-quantite-ouvrir">
-                {detailler ? `Combien de ${pluriel(uniteGros || "unité")} ouvrir ?` : `Combien de ${pluriel(uniteGros || "unité")} refaire ?`}
-              </span>
-              <span className="compteur-quantite">
-                <button type="button" onClick={() => setQuantite((q) => Math.max(1, q - 1))} aria-label="Moins">
-                  −
-                </button>
-                <input type="number" min={1} step={1} value={quantite} onChange={(e) => setQuantite(Number(e.target.value) || 0)} />
-                <button type="button" onClick={() => setQuantite((q) => q + 1)} aria-label="Plus">
-                  +
-                </button>
-              </span>
-              <span className="raccourcis-quantite">
-                {[1, 2, 5].map((v) => (
-                  <button key={v} type="button" className={n === v ? "actif" : ""} disabled={v > maximum} onClick={() => setQuantite(v)}>
-                    {v}
+                    {detailler && (
+                      <div className="bloc-prix-ouvrir">
+                        <label className="champ-formulaire">
+                          Prix de vente par {unDetail} ({devise})
+                          <ChampMontant
+                            className={sousLeCout ? "champ-invalide" : undefined}
+                            value={prix}
+                            disabled={!peutModifierPrix}
+                            title={peutModifierPrix ? undefined : "Votre rôle ne permet pas de modifier les prix."}
+                            onChange={setPrix}
+                          />
+                        </label>
+                        {peutVoirCout && (
+                          <div className="marge-ouvrir">
+                            <span>
+                              Coût : <strong>{formaterMontant(Math.round(coutDetail))}</strong>
+                            </span>
+                            <span className={marge < 0 ? "texte-erreur" : "montant-entree"}>
+                              Marge : <strong>
+                                {formaterMontant(Math.round(marge))} {devise}
+                              </strong>{" "}
+                              ({taux} %)
+                            </span>
+                            <span>
+                              Sur ce lot : <strong>
+                                {formaterMontant(Math.round(marge * obtenus))} {devise}
+                              </strong>
+                            </span>
+                          </div>
+                        )}
+                        {prixModifie && (
+                          <span className="note-aide">
+                            Ancien prix {formaterMontant(article.prixVenteDetail)} {devise} : le nouveau prix sera enregistré à
+                            la confirmation.
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {erreur && <div className="message-erreur">{erreur}</div>}
+                {succes && <div className="message-succes">✓ {succes}</div>}
+
+                <div className="actions-formulaire actions-ouvrir">
+                  <button
+                    type="button"
+                    className="bouton-valider bouton-ouvrir-confirmer"
+                    disabled={enCours || !article || n <= 0 || n > maximum || sousLeCout}
+                    onClick={confirmer}
+                  >
+                    {enCours
+                      ? "…"
+                      : !article
+                        ? "Ouvrir"
+                        : detailler
+                          ? `📦 Ouvrir ${quantiteUnite(n, uniteGros)} → ${quantiteUnite(obtenus, uniteDetail)}`
+                          : `🔁 Regrouper ${quantiteUnite(obtenus, uniteDetail)} → ${quantiteUnite(n, uniteGros)}`}
                   </button>
-                ))}
-                <button type="button" className={n === maximum && maximum > 0 ? "actif" : ""} disabled={maximum <= 0} onClick={() => setQuantite(maximum)}>
-                  Tout ({nombre(maximum)})
-                </button>
-              </span>
-            </div>
-            {n > maximum && (
-              <div className="message-erreur">
-                Pas assez en stock : {quantiteUnite(maximum, uniteGros)} au maximum.
+                </div>
               </div>
             )}
-
-            {detailler && (
-              <div className="bloc-prix-ouvrir">
-                <label className="champ-formulaire">
-                  Prix de vente par {unDetail} ({devise})
-                  <ChampMontant
-                    className={sousLeCout ? "champ-invalide" : undefined}
-                    value={prix}
-                    disabled={!peutModifierPrix}
-                    title={peutModifierPrix ? undefined : "Votre rôle ne permet pas de modifier les prix."}
-                    onChange={setPrix}
-                  />
-                </label>
-                {peutVoirCout && (
-                  <div className="marge-ouvrir">
-                    <span>
-                      Coût : <strong>{formaterMontant(Math.round(coutDetail))}</strong>
-                    </span>
-                    <span className={marge < 0 ? "texte-erreur" : "montant-entree"}>
-                      Marge : <strong>{formaterMontant(Math.round(marge))} {devise}</strong> ({taux} %)
-                    </span>
-                    <span>
-                      Sur ce lot : <strong>{formaterMontant(Math.round(marge * obtenus))} {devise}</strong>
-                    </span>
-                  </div>
-                )}
-                {prixModifie && (
-                  <span className="note-aide">
-                    Ancien prix {formaterMontant(article.prixVenteDetail)} {devise} : le nouveau prix sera enregistré à la
-                    confirmation.
-                  </span>
-                )}
-              </div>
-            )}
-          </>
-        )}
-
-        {erreur && <div className="message-erreur">{erreur}</div>}
-        {succes && <div className="message-succes">✓ {succes}</div>}
-
-        <div className="actions-formulaire actions-ouvrir">
-          <button type="button" className="lien" onClick={onFermer}>
-            Fermer
-          </button>
-          <button
-            type="button"
-            className="bouton-valider bouton-ouvrir-confirmer"
-            disabled={enCours || !article || n <= 0 || n > maximum || sousLeCout}
-            onClick={confirmer}
-          >
-            {enCours
-              ? "…"
-              : !article
-                ? "Ouvrir"
-                : detailler
-                  ? `📦 Ouvrir ${quantiteUnite(n, uniteGros)} → ${quantiteUnite(obtenus, uniteDetail)}`
-                  : `🔁 Regrouper ${quantiteUnite(obtenus, uniteDetail)} → ${quantiteUnite(n, uniteGros)}`}
-          </button>
+          </div>
         </div>
       </div>
     </div>
