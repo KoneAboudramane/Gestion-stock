@@ -362,6 +362,33 @@ export function echeancesCreditsEnCours(boutiqueId: string): EcheanceCreditEnCou
   return resultat;
 }
 
+export interface RemboursementClient {
+  id: string;
+  creditId: string;
+  clientNom: string;
+  venteNumero: string | null;
+  montant: number;
+  mode: string;
+  dateCreation: string;
+  utilisateurId: string | null;
+}
+
+/** Tous les remboursements reçus sur les crédits clients de la boutique, du plus récent au plus ancien. */
+export function listerRemboursementsClients(boutiqueId: string): RemboursementClient[] {
+  return tousLesResultats<RemboursementClient>(
+    `SELECT p.id as id, p.credit_id as creditId, cl.nom as clientNom, v.numero as venteNumero,
+            p.montant as montant, p.mode as mode, p.date_creation as dateCreation,
+            p.utilisateur_id as utilisateurId
+     FROM paiements_credit p
+     JOIN credits cr ON cr.id = p.credit_id
+     JOIN clients cl ON cl.id = cr.client_id
+     LEFT JOIN ventes v ON v.id = cr.vente_id
+     WHERE cl.boutique_id = ? AND p.supprime = 0
+     ORDER BY p.date_creation DESC`,
+    [boutiqueId],
+  );
+}
+
 /** Total des règlements de crédits clients depuis une date ISO. */
 export function montantRegleCreditsDepuis(boutiqueId: string, depuis: string): number {
   return Number(

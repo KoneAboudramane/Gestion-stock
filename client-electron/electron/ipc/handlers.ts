@@ -516,6 +516,7 @@ export function enregistrerLesHandlers(): void {
       clients.listerCredits(boutiqueId, clientId, statut),
   );
   ipcMain.handle("credits:obtenir", (_evt, id: string) => clients.obtenirCredit(id));
+  ipcMain.handle("credits:remboursements", (_evt, boutiqueId: string) => clients.listerRemboursementsClients(boutiqueId));
   ipcMain.handle("credits:echeancier", (_evt, creditId: string) => clients.echeancierCredit(creditId));
   ipcMain.handle("credits:planifier", (_evt, creditId: string, tranches: { dateEcheance: string; montant: number }[]) =>
     executerEnSecurite(() => clients.planifierEcheancierCredit(creditId, tranches)),

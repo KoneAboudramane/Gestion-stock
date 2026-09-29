@@ -288,6 +288,17 @@ interface LigneDepenseGroupe {
   description: string;
 }
 
+/** Page Historique : historique des dépenses d'un dépôt, chargé à l'ouverture. */
+export function HistoriqueDepensesDepot({ session, depotId, onFermer }: { session: Session; depotId: string; onFermer: () => void }) {
+  const devise = useDevise();
+  const nomUtilisateur = useNomsUtilisateurs(session);
+  const [depenses, setDepenses] = useState<DepenseResume[]>([]);
+  useEffect(() => {
+    if (depotId) listerDepenses(depotId, 2000).then(setDepenses);
+  }, [depotId]);
+  return <ModaleHistoriqueDepenses depenses={depenses} devise={devise} nomUtilisateur={nomUtilisateur} onFermer={onFermer} />;
+}
+
 export default function Depense({ session }: { session: Session }) {
   const devise = useDevise();
   const [depots, setDepots] = useState<DepotResume[]>([]);

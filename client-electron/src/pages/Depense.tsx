@@ -273,6 +273,17 @@ const CERCLES_FOND = [
   { taille: 55, couleur: "var(--cercle-6)", duree: 23, delai: -10, depart: ["-10vw", "35vh"], arrivee: ["105vw", "90vh"] },
 ] as const;
 
+/** Page Historique : historique des dépenses d'un dépôt, chargé à l'ouverture. */
+export function HistoriqueDepensesDepot({ session, depotId, onFermer }: { session: Session; depotId: string; onFermer: () => void }) {
+  const devise = useDevise();
+  const nomUtilisateur = useNomsUtilisateurs(session);
+  const [depenses, setDepenses] = useState<DepenseResume[]>([]);
+  useEffect(() => {
+    if (depotId) api.tresorerie.listerDepenses(depotId, 2000).then(setDepenses);
+  }, [depotId]);
+  return <ModaleHistoriqueDepenses depenses={depenses} devise={devise} nomUtilisateur={nomUtilisateur} onFermer={onFermer} />;
+}
+
 export default function Depense({ session }: { session: Session }) {
   const devise = useDevise();
   const [depots, setDepots] = useState<DepotResume[]>([]);

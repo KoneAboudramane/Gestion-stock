@@ -15,10 +15,19 @@ import type {
 } from "../api/client";
 import BoutonsExport from "../components/BoutonsExport";
 import FactureVente from "../components/FactureVente";
+import ModaleRemboursementsClients from "../components/ModaleRemboursementsClients";
 import FiltrePeriodeHistorique from "../components/FiltrePeriodeHistorique";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import { useDevise } from "../contexts/DeviseContext";
 import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
+import { ModaleHistoriqueAchats } from "./Achats";
+import { HistoriqueDepensesDepot } from "./Depense";
+import { ModaleMessages } from "./Messages";
+import { ModaleHistoriqueStock } from "./Stock";
+import {
+  HistoriqueCaisseDepot,
+  TransfertsMobileMoneyDepot,
+} from "./Tresorerie";
 import { formaterMontant } from "../lib/formatage";
 import {
   FOURNISSEURS_MOBILE_MONEY,
@@ -441,6 +450,48 @@ function formaterQuantite(quantite: number): string {
   return quantite.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
+type CarteHistorique =
+  | "ventes"
+  | "achats"
+  | "mouvements"
+  | "transferts"
+  | "pertes"
+  | "depenses"
+  | "caisse"
+  | "mobileMoney"
+  | "remboursementsClients"
+  | "remboursementsFournisseurs"
+  | "messages";
+
+/** Cartes de la page Historique ; « gestion » : réservée à qui gère stock et achats. */
+const CARTES_HISTORIQUE: {
+  cle: CarteHistorique;
+  label: string;
+  icone: string;
+  gestion?: boolean;
+}[] = [
+  { cle: "ventes", label: "Historique des ventes", icone: "🧾" },
+  { cle: "achats", label: "Historique des achats", icone: "🚚", gestion: true },
+  { cle: "mouvements", label: "Mouvements de stock", icone: "📦" },
+  { cle: "transferts", label: "Transferts de stock", icone: "🔁" },
+  { cle: "pertes", label: "Pertes", icone: "🗑️" },
+  { cle: "depenses", label: "Historique des dépenses", icone: "💸" },
+  { cle: "caisse", label: "Historique de la caisse", icone: "💰" },
+  { cle: "mobileMoney", label: "Transferts Mobile Money", icone: "📱" },
+  {
+    cle: "remboursementsClients",
+    label: "Remboursements clients",
+    icone: "💳",
+  },
+  {
+    cle: "remboursementsFournisseurs",
+    label: "Remboursements fournisseurs",
+    icone: "🏦",
+    gestion: true,
+  },
+  { cle: "messages", label: "Historique des messages", icone: "💬" },
+];
+
 const CERCLES_FOND = [
   {
     taille: 90,
@@ -542,6 +593,27 @@ export default function Ventes({ session }: { session: Session }) {
     null,
   );
   const [historiqueOuvert, setHistoriqueOuvert] = useState(false);
+  const [carteOuverte, setCarteOuverte] = useState<CarteHistorique | null>(
+    null,
+  );
+  // Caisse, dépenses et Mobile Money se suivent par dépôt : celui du vendeur, sinon
+  // le premier de la boutique (modifiable quand il y en a plusieurs).
+  const [depotsCaisse, setDepotsCaisse] = useState<
+    { id: string; nom: string }[]
+  >([]);
+  const [depotCaisseId, setDepotCaisseId] = useState(session.depotId ?? "");
+  useEffect(() => {
+    if (session.depotId && !peutGerer) return;
+    api.catalogue.listerDepots(session.boutiqueId).then((liste) => {
+      setDepotsCaisse(liste);
+      if (!session.depotId && liste[0]) setDepotCaisseId(liste[0].id);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId, session.depotId, peutGerer]);
+
+  function fermerCarte() {
+    setCarteOuverte(null);
+  }
 
   function fermerHistorique() {
     setHistoriqueOuvert(false);
@@ -626,16 +698,93 @@ export default function Ventes({ session }: { session: Session }) {
           }
         />
       ))}
+      {depotsCaisse.length > 1 && (
+        <div className="barre-actions">
+          <label className="sous-info" htmlFor="depot-historique">
+            Caisse et dépenses du dépôt
+          </label>
+          <select
+            id="depot-historique"
+            value={depotCaisseId}
+            onChange={(e) => setDepotCaisseId(e.target.value)}
+          >
+            {depotsCaisse.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.nom}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div className="grille-documents-comptables">
-        <button
-          type="button"
-          className="carte-document-comptable"
-          onClick={() => setHistoriqueOuvert(true)}
-        >
-          <span className="icone-document-comptable">📜</span>
-          Historique des ventes
-        </button>
+        {CARTES_HISTORIQUE.filter((c) => !c.gestion || peutGerer).map((c) => (
+          <button
+            key={c.cle}
+            type="button"
+            className="carte-document-comptable"
+            onClick={() =>
+              c.cle === "ventes"
+                ? setHistoriqueOuvert(true)
+                : setCarteOuverte(c.cle)
+            }
+          >
+            <span className="icone-document-comptable">{c.icone}</span>
+            {c.label}
+          </button>
+        ))}
       </div>
+
+      {carteOuverte === "achats" && (
+        <ModaleHistoriqueAchats session={session} onFermer={fermerCarte} />
+      )}
+      {carteOuverte === "remboursementsFournisseurs" && (
+        <ModaleHistoriqueAchats
+          session={session}
+          sectionInitiale="paiements"
+          onFermer={fermerCarte}
+        />
+      )}
+      {(carteOuverte === "mouvements" ||
+        carteOuverte === "transferts" ||
+        carteOuverte === "pertes") && (
+        <ModaleHistoriqueStock
+          session={session}
+          sectionInitiale={carteOuverte}
+          onFermer={fermerCarte}
+        />
+      )}
+      {carteOuverte === "depenses" && (
+        <HistoriqueDepensesDepot
+          session={session}
+          depotId={depotCaisseId}
+          onFermer={fermerCarte}
+        />
+      )}
+      {carteOuverte === "caisse" && (
+        <HistoriqueCaisseDepot
+          session={session}
+          depotId={depotCaisseId}
+          onFermer={fermerCarte}
+        />
+      )}
+      {carteOuverte === "mobileMoney" && (
+        <TransfertsMobileMoneyDepot
+          session={session}
+          depotId={depotCaisseId}
+          onFermer={fermerCarte}
+        />
+      )}
+      {carteOuverte === "remboursementsClients" && (
+        <ModaleRemboursementsClients session={session} onFermer={fermerCarte} />
+      )}
+      {carteOuverte === "messages" && (
+        <ModaleMessages
+          session={session}
+          statut="historique"
+          titre="Historique des messages"
+          onFermer={fermerCarte}
+        />
+      )}
 
       {historiqueOuvert && (
         <div className="fond-modale" onClick={fermerHistorique}>

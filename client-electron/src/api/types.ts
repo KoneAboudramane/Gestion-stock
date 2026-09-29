@@ -848,6 +848,17 @@ export interface CreditResume {
   prochaineEcheance: { date: string; reste: number; enRetard: boolean } | null;
 }
 
+export interface RemboursementClient {
+  id: string;
+  creditId: string;
+  clientNom: string;
+  venteNumero: string | null;
+  montant: number;
+  mode: string;
+  dateCreation: string;
+  utilisateurId: string | null;
+}
+
 export interface PaiementCreditDetail {
   id: string;
   montant: number;
@@ -1480,6 +1491,7 @@ export interface WindowApi {
   credits: {
     lister(boutiqueId: string, clientId?: string, statut?: StatutCredit): Promise<CreditResume[]>;
     obtenir(id: string): Promise<CreditDetail | undefined>;
+    remboursements(boutiqueId: string): Promise<RemboursementClient[]>;
     echeancier(creditId: string): Promise<EcheanceDetail[]>;
     regleDepuis(boutiqueId: string, depuis: string): Promise<number>;
     planifier(creditId: string, tranches: { dateEcheance: string; montant: number }[]): Promise<ResultatEcriture<void>>;

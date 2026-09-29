@@ -3748,10 +3748,18 @@ type SectionHistoriqueAchats = "commandes" | "receptions" | "paiements" | "dette
 
 /** Carte « Historique » : tout ce qui s'est passé côté achats, filtrable par
  * période, fournisseur et numéro de commande (sans limite de nombre). */
-function ModaleHistoriqueAchats({ session, onFermer }: { session: Session; onFermer: () => void }) {
+export function ModaleHistoriqueAchats({
+  session,
+  sectionInitiale = "commandes",
+  onFermer,
+}: {
+  session: Session;
+  sectionInitiale?: SectionHistoriqueAchats;
+  onFermer: () => void;
+}) {
   const devise = useDevise();
   const nomUtilisateur = useNomsUtilisateurs(session);
-  const [section, setSection] = useState<SectionHistoriqueAchats>("commandes");
+  const [section, setSection] = useState<SectionHistoriqueAchats>(sectionInitiale);
   const [historique, setHistorique] = useState<HistoriqueAchats>({
     commandes: [],
     receptions: [],

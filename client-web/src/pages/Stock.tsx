@@ -3115,7 +3115,7 @@ function motifCourt(motif: string): string {
 
 type SectionHistorique = "mouvements" | "pertes" | "destockages" | "transferts" | "inventaires" | "dormants";
 
-function ModaleHistoriqueStock({
+export function ModaleHistoriqueStock({
   session,
   sectionInitiale = "mouvements",
   mouvementsSeuls = false,

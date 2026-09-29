@@ -5,6 +5,7 @@ import { api } from "../api";
 import type { Session, UtilisateurResume } from "../api";
 import ChampMontant from "../components/ChampMontant";
 import { useDevise } from "../contexts/DeviseContext";
+import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
 import BoutonsExport from "../components/BoutonsExport";
 import FiltrePeriodeHistorique from "../components/FiltrePeriodeHistorique";
 import { bornesPeriode, dansPeriode, jourLocal, type PeriodeHistorique } from "../lib/periode";
@@ -611,7 +612,8 @@ function ModaleHistoriqueTransferts({
   nomUtilisateur,
   onFermer,
 }: {
-  operateur: OperateurMobileMoney;
+  /** null : tous les opérateurs (page Historique), avec une colonne Opérateur. */
+  operateur: OperateurMobileMoney | null;
   transferts: TransfertCaisseResume[];
   devise: string;
   nomUtilisateur: (id: string | null) => string;
@@ -627,7 +629,7 @@ function ModaleHistoriqueTransferts({
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <div className="modale-entete">
-          <h3>Historique des transferts {libelleOperateurMobileMoney(operateur)}</h3>
+          <h3>{operateur ? `Historique des transferts ${libelleOperateurMobileMoney(operateur)}` : "Transferts Mobile Money"}</h3>
           <button type="button" className="lien bouton-retour" onClick={onFermer}>
             ← Retour
           </button>
@@ -670,6 +672,7 @@ function ModaleHistoriqueTransferts({
               <thead>
                 <tr>
                   <th>Date</th>
+                  {!operateur && <th>Opérateur</th>}
                   <th>Montant</th>
                   <th>Effectué par</th>
                 </tr>
@@ -678,6 +681,7 @@ function ModaleHistoriqueTransferts({
                 {filtres.map((t) => (
                   <tr key={t.id}>
                     <td data-label="Date" title={new Date(t.dateCreation).toLocaleString("fr-FR")}>{dateCourte(t.dateCreation)}</td>
+                    {!operateur && <td data-label="Opérateur">{libelleOperateurMobileMoney(t.operateur)}</td>}
                     <td data-label="Montant" className="nowrap montant-entree">
                       +{formaterMontant(t.montant)} {devise}
                     </td>
@@ -686,7 +690,7 @@ function ModaleHistoriqueTransferts({
                 ))}
                 {filtres.length === 0 && (
                   <tr>
-                    <td colSpan={3} className="liste-vide-compacte">
+                    <td colSpan={operateur ? 3 : 4} className="liste-vide-compacte">
                       {transferts.length === 0 ? "Aucun transfert." : "Aucun transfert sur cette période."}
                     </td>
                   </tr>
@@ -694,6 +698,7 @@ function ModaleHistoriqueTransferts({
                 {Array.from({ length: Math.max(0, 10 - Math.max(1, filtres.length)) }).map((_, i) => (
                   <tr key={`vide-${i}`} className="ligne-groupe-vide">
                     <td>&nbsp;</td>
+                    {!operateur && <td>&nbsp;</td>}
                     <td>&nbsp;</td>
                     <td>&nbsp;</td>
                   </tr>
@@ -1145,6 +1150,36 @@ const CERCLES_FOND = [
   { taille: 85, couleur: "var(--cercle-4)", duree: 34, delai: -5, depart: ["85vw", "110vh"], arrivee: ["10vw", "-15vh"] },
   { taille: 55, couleur: "var(--cercle-6)", duree: 23, delai: -10, depart: ["-10vw", "35vh"], arrivee: ["105vw", "90vh"] },
 ] as const;
+
+/** Page Historique : mouvements du solde de caisse d'un dépôt. */
+export function HistoriqueCaisseDepot({ session, depotId, onFermer }: { session: Session; depotId: string; onFermer: () => void }) {
+  const devise = useDevise();
+  const nomUtilisateur = useNomsUtilisateurs(session);
+  const [mouvements, setMouvements] = useState<MouvementCaisseResume[]>([]);
+  useEffect(() => {
+    if (depotId) listerMouvements(depotId, 2000).then(setMouvements);
+  }, [depotId]);
+  return <ModaleHistoriqueSolde mouvements={mouvements} devise={devise} nomUtilisateur={nomUtilisateur} onFermer={onFermer} />;
+}
+
+/** Page Historique : transferts Mobile Money vers la caisse d'un dépôt, tous opérateurs. */
+export function TransfertsMobileMoneyDepot({ session, depotId, onFermer }: { session: Session; depotId: string; onFermer: () => void }) {
+  const devise = useDevise();
+  const nomUtilisateur = useNomsUtilisateurs(session);
+  const [transferts, setTransferts] = useState<TransfertCaisseResume[]>([]);
+  useEffect(() => {
+    if (depotId) listerTransferts(depotId, 1000).then(setTransferts);
+  }, [depotId]);
+  return (
+    <ModaleHistoriqueTransferts
+      operateur={null}
+      transferts={transferts}
+      devise={devise}
+      nomUtilisateur={nomUtilisateur}
+      onFermer={onFermer}
+    />
+  );
+}
 
 export default function Tresorerie({ session }: { session: Session }) {
   const peutGererTresorerie = !!session.permissions.gerer_tresorerie;

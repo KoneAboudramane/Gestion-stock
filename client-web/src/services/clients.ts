@@ -371,6 +371,39 @@ export async function echeancesCreditsEnCours(boutiqueId: string): Promise<Echea
 }
 
 /** Total des règlements de crédits clients depuis une date ISO. */
+export interface RemboursementClient {
+  id: string;
+  creditId: string;
+  clientNom: string;
+  venteNumero: string | null;
+  montant: number;
+  mode: string;
+  dateCreation: string;
+  utilisateurId: string | null;
+}
+
+/** Tous les remboursements reçus sur les crédits clients de la boutique, du plus récent au plus ancien. */
+export async function listerRemboursementsClients(boutiqueId: string): Promise<RemboursementClient[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const resultat: RemboursementClient[] = [];
+  for (const c of await listerCredits(boutiqueId)) {
+    for (const p of await db.getAllFromIndex("paiements_credit", "credit_id", c.id)) {
+      if (p.supprime) continue;
+      resultat.push({
+        id: p.id,
+        creditId: c.id,
+        clientNom: c.clientNom,
+        venteNumero: c.venteNumero,
+        montant: Number(p.montant),
+        mode: p.mode,
+        dateCreation: p.date_creation,
+        utilisateurId: p.utilisateur_id != null ? String(p.utilisateur_id) : null,
+      });
+    }
+  }
+  return resultat.sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));
+}
+
 export async function montantRegleCreditsDepuis(boutiqueId: string, depuis: string): Promise<number> {
   const db = await ouvrirBaseDeDonnees();
   let total = 0;

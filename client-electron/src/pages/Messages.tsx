@@ -242,7 +242,7 @@ function EnteteModale({ titre, onFermer }: { titre: string; onFermer: () => void
 
 // --- Modale (En attente / Historique) ---
 
-function ModaleMessages({
+export function ModaleMessages({
   session, statut, titre, onNaviguer, onFermer,
 }: {
   session: Session;
