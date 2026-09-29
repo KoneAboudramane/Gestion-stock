@@ -7542,3 +7542,13 @@ tr.ligne-cliquable {
     grid-template-columns: 1fr;
   }
 }
+
+.bouton-par-caissier {
+  align-self: flex-start;
+  margin-top: 1rem;
+  background: var(--couleur-primaire-clair);
+  border: 1px solid var(--couleur-primaire);
+  color: var(--couleur-primaire);
+  font-weight: 600;
+  box-shadow: none;
+}

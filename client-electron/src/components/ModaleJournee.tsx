@@ -70,6 +70,7 @@ export default function ModaleJournee({
   const [jour, setJour] = useState(debutDuJour(new Date()));
   const [journee, setJournee] = useState<JourneeCaisse | null>(null);
   const [veille, setVeille] = useState<JourneeCaisse | null>(null);
+  const [parCaissierOuvert, setParCaissierOuvert] = useState(false);
 
   useEffect(() => {
     if (peutGerer || !session.depotId) donnees.depots(session.boutiqueId).then(setDepots);
@@ -270,60 +271,82 @@ export default function ModaleJournee({
                 </div>
               </div>
 
-              <h4 className="titre-section-journee">👥 Par caissier</h4>
-              <div className="zone-tableau-scroll">
-                <table className="tableau-catalogue carte-mobile">
-                  <thead>
-                    <tr>
-                      <th>Caissier</th>
-                      <th>Ventes</th>
-                      <th>Espèces</th>
-                      <th>Mobile Money</th>
-                      <th>Crédit</th>
-                      <th>Total vendu</th>
-                      <th>Crédits encaissés</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {journee.parCaissier.map((c) => (
-                      <tr key={c.utilisateurId ?? "inconnu"}>
-                        <td data-label="Caissier">
-                          <strong>{nomUtilisateur(c.utilisateurId)}</strong>
-                        </td>
-                        <td data-label="Ventes">{c.nombreVentes}</td>
-                        <td data-label="Espèces" className="nowrap">
-                          {formaterMontant(c.especes)}
-                        </td>
-                        <td data-label="Mobile Money" className="nowrap">
-                          {formaterMontant(c.mobileMoney)}
-                        </td>
-                        <td data-label="Crédit" className="nowrap">
-                          {formaterMontant(c.credit)}
-                        </td>
-                        <td data-label="Total vendu" className="nowrap">
-                          <strong>
-                            {formaterMontant(c.total)} {devise}
-                          </strong>
-                        </td>
-                        <td data-label="Crédits encaissés" className="nowrap">
-                          {formaterMontant(c.remboursements)}
-                        </td>
-                      </tr>
-                    ))}
-                    {journee.parCaissier.length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="liste-vide">
-                          Aucune vente ce jour-là.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <button type="button" className="bouton-par-caissier" onClick={() => setParCaissierOuvert(true)}>
+                👥 Voir par caissier ({journee.parCaissier.length})
+              </button>
             </>
           )}
         </div>
       </div>
+      {parCaissierOuvert && journee && (
+        <div
+          className="fond-modale"
+          onClick={(e) => {
+            e.stopPropagation();
+            setParCaissierOuvert(false);
+          }}
+        >
+          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+            <div className="modale-entete">
+              <h3>👥 Par caissier — {titreJour}</h3>
+              <button type="button" className="lien bouton-retour" onClick={() => setParCaissierOuvert(false)}>
+                ← Retour
+              </button>
+            </div>
+            <div className="modale-corps">
+                  <div className="zone-tableau-scroll zone-commandes-fiche">
+                    <table className="tableau-catalogue carte-mobile">
+                      <thead>
+                        <tr>
+                          <th>Caissier</th>
+                          <th>Ventes</th>
+                          <th>Espèces</th>
+                          <th>Mobile Money</th>
+                          <th>Crédit</th>
+                          <th>Total vendu</th>
+                          <th>Crédits encaissés</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {journee.parCaissier.map((c) => (
+                          <tr key={c.utilisateurId ?? "inconnu"}>
+                            <td data-label="Caissier">
+                              <strong>{nomUtilisateur(c.utilisateurId)}</strong>
+                            </td>
+                            <td data-label="Ventes">{c.nombreVentes}</td>
+                            <td data-label="Espèces" className="nowrap">
+                              {formaterMontant(c.especes)}
+                            </td>
+                            <td data-label="Mobile Money" className="nowrap">
+                              {formaterMontant(c.mobileMoney)}
+                            </td>
+                            <td data-label="Crédit" className="nowrap">
+                              {formaterMontant(c.credit)}
+                            </td>
+                            <td data-label="Total vendu" className="nowrap">
+                              <strong>
+                                {formaterMontant(c.total)} {devise}
+                              </strong>
+                            </td>
+                            <td data-label="Crédits encaissés" className="nowrap">
+                              {formaterMontant(c.remboursements)}
+                            </td>
+                          </tr>
+                        ))}
+                        {journee.parCaissier.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="liste-vide">
+                              Aucune vente ce jour-là.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
