@@ -1483,7 +1483,7 @@ export async function detaillerOuRegrouper(params: ParametresDetaillage): Promis
     ...suiviSyncNeuf(),
   };
   await ecrireLigne("detaillages", operation);
-  const motif = `${detailler ? "Détaillage" : "Regroupement"} : ${formaterNombreStock(quantiteSource)} ${nomSource} → ${formaterNombreStock(quantiteCible)} ${nomCible}`;
+  const motif = `${detailler ? "Déballage" : "Remballage"} : ${formaterNombreStock(quantiteSource)} ${nomSource} → ${formaterNombreStock(quantiteCible)} ${nomCible}`;
   await appliquerMouvement({
     varianteId: source.id,
     depotId,
@@ -1528,7 +1528,7 @@ export async function annulerDetaillage(id: string, utilisateurId: string | null
   const coutSource = (coutCible * quantiteCible) / quantiteSource;
   await majPrixAchat(cible.id, await cumpApresSortie(cible.id, Number(cible.prix_achat), quantiteCible, coutCible));
   await majPrixAchat(source.id, await cumpApresEntree(source.id, Number(source.prix_achat), quantiteSource, coutSource));
-  const motif = `Annulation ${operation.type === "detailler" ? "détaillage" : "regroupement"}`;
+  const motif = `Annulation ${operation.type === "detailler" ? "déballage" : "remballage"}`;
   await appliquerMouvement({
     varianteId: cible.id,
     depotId: operation.depot_id,

@@ -517,4 +517,4 @@ class AlerteRuptureDetailTests(APITestCase):
         appliquer_mouvement(carton, depot, MouvementStock.Type.ENTREE, 3)
         appliquer_mouvement(paquet, depot, MouvementStock.Type.ENTREE, 2)
         messages = [n.message for n in generer_alertes_rupture(boutique)]
-        self.assertTrue(any("détaillez-en un" in m and "Carton" in m for m in messages), messages)
+        self.assertTrue(any("déballez-en un" in m and "Carton" in m for m in messages), messages)

@@ -1487,7 +1487,7 @@ export function detaillerOuRegrouper(params: ParametresDetaillage): string {
         maintenant,
       ],
     );
-    const motif = `${detailler ? "Détaillage" : "Regroupement"} : ${formaterNombreStock(quantiteSource)} ${source.nom} → ${formaterNombreStock(quantiteCible)} ${cible.nom}`;
+    const motif = `${detailler ? "Déballage" : "Remballage"} : ${formaterNombreStock(quantiteSource)} ${source.nom} → ${formaterNombreStock(quantiteCible)} ${cible.nom}`;
     appliquerMouvement({
       varianteId: source.id,
       depotId,
@@ -1546,7 +1546,7 @@ export function annulerDetaillage(id: string, utilisateurId: string | null): voi
     const maintenant = new Date().toISOString();
     majPrixAchat(cible.id, cumpApresSortie(cible.id, Number(cible.prix_achat), quantiteCible, coutCible));
     majPrixAchat(source.id, cumpApresEntree(source.id, Number(source.prix_achat), quantiteSource, coutSource));
-    const motif = `Annulation ${operation.type === "detailler" ? "détaillage" : "regroupement"}`;
+    const motif = `Annulation ${operation.type === "detailler" ? "déballage" : "remballage"}`;
     appliquerMouvement({
       varianteId: cible.id,
       depotId: operation.depot_id,

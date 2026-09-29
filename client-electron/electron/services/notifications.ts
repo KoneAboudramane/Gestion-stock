@@ -66,7 +66,7 @@ export function genererAlertesRupture(boutiqueId: string): string[] {
     const message =
       `Rupture de stock : ${stock.produitNom} (${stock.depotNom}), ${stock.quantite} restant(s)` +
       (stock.grosNom && Number(stock.grosStock) > 0
-        ? ` — il reste ${Number(stock.grosStock)} « ${stock.grosNom} » : détaillez-en un plutôt que de commander.`
+        ? ` — il reste ${Number(stock.grosStock)} « ${stock.grosNom} » : déballez-en un plutôt que de commander.`
         : "");
     const id = randomUUID();
     executer(

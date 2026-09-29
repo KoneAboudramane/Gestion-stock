@@ -62,7 +62,7 @@ const SECTIONS = [
   { cle: "mouvements", label: "Mouvements", icone: "🔄" },
   { cle: "transferts", label: "Transferts", icone: "🚚" },
   { cle: "pertes", label: "Pertes", icone: "🗑️" },
-  { cle: "detailler", label: "Détailler / Regrouper", icone: "✂️" },
+  { cle: "detailler", label: "Déballage / Remballage", icone: "📦" },
   { cle: "dormants", label: "Produits dormants", icone: "😴" },
   { cle: "destockage", label: "Déstockage", icone: "🏷️" },
   { cle: "historique", label: "Historique", icone: "🗂️" },
@@ -96,7 +96,7 @@ function complementGrosDetail(l: LigneStock) {
     return (
       <span className="sous-info">
         {" "}
-        · {l.grosUnite ? quantiteUnite(l.grosStock ?? 0, l.grosUnite) : `${formaterMontant(l.grosStock ?? 0)} × ${l.grosNom}`} à ouvrir
+        · {l.grosUnite ? quantiteUnite(l.grosStock ?? 0, l.grosUnite) : `${formaterMontant(l.grosStock ?? 0)} × ${l.grosNom}`} à déballer
       </span>
     );
   }
@@ -170,7 +170,7 @@ function OngletStockNiveau({
     quantite: l.quantite,
     seuil: l.seuilAlerte,
     valeur: valeurLigne(l),
-    statut: aDetailler(l) ? "À ouvrir" : l.enRupture ? "Rupture" : "",
+    statut: aDetailler(l) ? "À déballer" : l.enRupture ? "Rupture" : "",
   }));
 
   function basculerSelection(id: string) {
@@ -296,20 +296,20 @@ function OngletStockNiveau({
                     <button
                       type="button"
                       className="badge-a-detailler badge-cliquable"
-                      title={`Ouvrir ${l.grosNom ?? ""} pour réapprovisionner cet article`}
+                      title={`Déballer ${l.grosNom ?? ""} pour réapprovisionner cet article`}
                       onClick={() =>
                         setOuverture({
                           varianteGrosId: l.grosVarianteId as string,
                           depotId: l.depotId,
-                          titre: `📦 Ouvrir — ${l.grosNom ?? ""} (${l.depotNom})`,
+                          titre: `📦 Déballer — ${l.grosNom ?? ""} (${l.depotNom})`,
                         })
                       }
                     >
-                      📦 À ouvrir
+                      📦 À déballer
                     </button>
                   ) : (
-                    <span className="badge-a-detailler" title="Il reste des cartons (ou sacs…) à ouvrir dans ce dépôt">
-                      À ouvrir
+                    <span className="badge-a-detailler" title="Il reste des cartons (ou sacs…) à déballer dans ce dépôt">
+                      À déballer
                     </span>
                   )
                 ) : l.enRupture ? (
@@ -321,12 +321,12 @@ function OngletStockNiveau({
                   <button
                     type="button"
                     className="bouton-ouvrir-stock"
-                    title={`Ouvrir pour vendre au détail (${l.detailNom})`}
+                    title={`Déballer pour vendre au détail (${l.detailNom})`}
                     onClick={() =>
-                      setOuverture({ varianteGrosId: l.varianteId, depotId: l.depotId, titre: `📦 Ouvrir — ${l.produitNom} (${l.depotNom})` })
+                      setOuverture({ varianteGrosId: l.varianteId, depotId: l.depotId, titre: `📦 Déballer — ${l.produitNom} (${l.depotNom})` })
                     }
                   >
-                    📦 Ouvrir
+                    📦 Déballer
                   </button>
                 )}
                 {!!l.enRupture && (

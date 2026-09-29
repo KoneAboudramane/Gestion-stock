@@ -114,7 +114,7 @@ class PerteStock(ModeleBase):
 
 
 class Detaillage(ModeleBase):
-    """« Détailler » un article de gros (ex. 2 cartons → 48 paquets) ou, à
+    """« Déballer » un article de gros (ex. 2 cartons → 48 paquets) ou, à
     l'inverse, « regrouper » (48 paquets → 2 cartons), dans un même dépôt. Une
     sortie sur `variante_source` et une entrée sur `variante_cible` ; le coût
     suit (`cout_unitaire_cible`), si bien que la marge reste juste. Ni vente ni
@@ -122,8 +122,8 @@ class Detaillage(ModeleBase):
     est encore en stock."""
 
     class Type(models.TextChoices):
-        DETAILLER = "detailler", "Détailler"
-        REGROUPER = "regrouper", "Regrouper"
+        DETAILLER = "detailler", "Déballer"
+        REGROUPER = "regrouper", "Remballer"
 
     depot = models.ForeignKey(Depot, on_delete=models.PROTECT, related_name="detaillages")
     type = models.CharField(max_length=20, choices=Type.choices)

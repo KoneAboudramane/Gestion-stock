@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
                 ('synchronise', models.BooleanField(default=False)),
                 ('supprime', models.BooleanField(default=False)),
                 ('date_synchronisation', models.DateTimeField(blank=True, null=True)),
-                ('type', models.CharField(choices=[('detailler', 'Détailler'), ('regrouper', 'Regrouper')], max_length=20)),
+                ('type', models.CharField(choices=[('detailler', 'Déballer'), ('regrouper', 'Remballer')], max_length=20)),
                 ('quantite_source', models.DecimalField(decimal_places=2, max_digits=12)),
                 ('quantite_cible', models.DecimalField(decimal_places=2, max_digits=12)),
                 ('cout_unitaire_cible', models.DecimalField(decimal_places=2, default=0, max_digits=12)),

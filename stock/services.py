@@ -358,7 +358,7 @@ def detailler_ou_regrouper(variante_gros, depot, nombre, type_operation, utilisa
         quantite_source=quantite_source, quantite_cible=quantite_cible,
         cout_unitaire_cible=round(cout_cible, 2), utilisateur=utilisateur,
     )
-    libelle = "Détaillage" if type_operation == Detaillage.Type.DETAILLER else "Regroupement"
+    libelle = "Déballage" if type_operation == Detaillage.Type.DETAILLER else "Remballage"
     motif = f"{libelle} : {quantite_source:g} {_nom(source)} → {quantite_cible:g} {_nom(cible)}"
     appliquer_mouvement(
         source, depot, MouvementStock.Type.SORTIE, quantite_source, motif=motif, utilisateur=utilisateur,

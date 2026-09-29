@@ -43,7 +43,7 @@ const donnees = {
   },
 };
 
-/** Caisse : article de gros à ouvrir quand le détail est en rupture. */
+/** Caisse : article de gros à déballer quand le détail est en rupture. */
 export const grosDisponible = grosDisponiblePourDetail;
 
 /** Nouvel article : crée et relie l'article de détail. */
@@ -79,9 +79,9 @@ export function quantiteUnite(n: number, unite: string): string {
   return `${nombre(n)} ${n >= 2 ? pluriel(u) : u}`;
 }
 
-/** Bouton : « Ouvrir des cartons », « Ouvrir des sacs »… ou « Ouvrir » sans unité. */
+/** Bouton : « Déballer des cartons », « Déballer des sacs »… ou « Déballer » sans unité. */
 export function libelleOuvrir(uniteGros: string): string {
-  return uniteGros.trim() ? `Ouvrir des ${pluriel(uniteGros)}` : "Ouvrir";
+  return uniteGros.trim() ? `Déballer des ${pluriel(uniteGros)}` : "Déballer";
 }
 
 // --- Formulaire « Ouvrir / Regrouper » (pré-rempli, avec coût et marge) ---
@@ -148,7 +148,7 @@ export function FormulaireDetailler({
       await donnees.operer({ varianteGrosId: article.varianteGrosId, depotId, nombre: n, type, utilisateurId: session.utilisateurId });
       const gros = quantiteUnite(n, article.uniteGros);
       const detail = quantiteUnite(n * article.quantite, article.uniteDetail);
-      setSucces(detailler ? `${gros} ouvert(s) : ${detail} de plus en stock.` : `${detail} regroupé(s) en ${gros}.`);
+      setSucces(detailler ? `${gros} déballé(s) : ${detail} de plus en stock.` : `${detail} remballé(s) en ${gros}.`);
       setQuantite(1);
       await chargerArticles();
       onTermine?.();
@@ -164,7 +164,7 @@ export function FormulaireDetailler({
       <div className="bloc-hors-ligne">
         <span>
           Aucun article ne se vend encore au détail. Reliez un carton, un sac… à son article de détail dans « 🔗 Articles à
-          détailler », ou dans la fiche de l'article (rubrique « Vente au détail »).
+          déballer », ou dans la fiche de l'article (rubrique « Vente au détail »).
         </span>
       </div>
     );
@@ -177,10 +177,10 @@ export function FormulaireDetailler({
     <div className="formulaire-detailler">
       <div className="bascule-vue" role="group" aria-label="Opération">
         <button type="button" className={detailler ? "actif" : ""} onClick={() => setType("detailler")}>
-          📦 {article ? libelleOuvrir(article.uniteGros) : "Ouvrir"}
+          📦 {article ? libelleOuvrir(article.uniteGros) : "Déballer"}
         </button>
         <button type="button" className={!detailler ? "actif" : ""} onClick={() => setType("regrouper")}>
-          🔁 Regrouper
+          🔁 Remballer
         </button>
       </div>
       <div className="champs-detailler">
@@ -211,8 +211,8 @@ export function FormulaireDetailler({
         <label className="champ-formulaire">
           {article
             ? detailler
-              ? `Combien de ${pluriel(article.uniteGros || "unité")} ouvrir ?`
-              : `Combien de ${pluriel(article.uniteGros || "unité")} refaire ?`
+              ? `Combien de ${pluriel(article.uniteGros || "unité")} déballer ?`
+              : `Combien de ${pluriel(article.uniteGros || "unité")} remballer ?`
             : "Combien ?"}
           <span className="compteur-quantite">
             <button type="button" onClick={() => setQuantite((q) => Math.max(1, q - 1))} aria-label="Moins">
@@ -262,7 +262,7 @@ export function FormulaireDetailler({
       {succes && <div className="message-succes">✓ {succes}</div>}
       <div className="actions-formulaire">
         <button type="button" className="bouton-valider" disabled={enCours || !article || n <= 0 || n > maximum} onClick={confirmer}>
-          {enCours ? "…" : detailler ? `📦 ${article ? libelleOuvrir(article.uniteGros) : "Ouvrir"}` : "🔁 Regrouper"}
+          {enCours ? "…" : detailler ? `📦 ${article ? libelleOuvrir(article.uniteGros) : "Déballer"}` : "🔁 Remballer"}
         </button>
       </div>
     </div>
@@ -351,7 +351,7 @@ export function HistoriqueDetaillages({
               <tr key={o.id} className={o.annulee ? "ligne-annulee" : undefined}>
                 <td data-label="Date">{new Date(o.dateCreation).toLocaleString("fr-FR")}</td>
                 <td data-label="Opération">
-                  {o.type === "detailler" ? "📦 Ouvert" : "🔁 Regroupé"}
+                  {o.type === "detailler" ? "📦 Déballé" : "🔁 Remballé"}
                   {o.annulee && <span className="badge-annulee"> Annulé</span>}
                 </td>
                 <td data-label="De">
@@ -533,7 +533,7 @@ export function ModaleDetaillerRegrouper({ session, onFermer }: { session: Sessi
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <div className="modale-entete">
-          <h3>Détailler / Regrouper</h3>
+          <h3>Déballage / Remballage</h3>
           <button type="button" className="lien bouton-retour" onClick={onFermer}>
             ← Retour
           </button>
@@ -542,11 +542,11 @@ export function ModaleDetaillerRegrouper({ session, onFermer }: { session: Sessi
           <nav className="menu-modale">
             <button type="button" className={page === "operer" ? "actif" : ""} onClick={() => setPage("operer")}>
               <span className="icone-menu-modale">📦</span>
-              Ouvrir / regrouper
+              Déballer / remballer
             </button>
             <button type="button" className={page === "articles" ? "actif" : ""} onClick={() => setPage("articles")}>
               <span className="icone-menu-modale">🔗</span>
-              Articles à détailler
+              Articles à déballer
             </button>
             <button type="button" className={page === "historique" ? "actif" : ""} onClick={() => setPage("historique")}>
               <span className="icone-menu-modale">🕘</span>
@@ -557,8 +557,8 @@ export function ModaleDetaillerRegrouper({ session, onFermer }: { session: Sessi
             {page === "operer" && (
               <>
                 <p className="note-aide">
-                  <strong>Ouvrir</strong> un carton, un sac… pour le vendre au détail (1 carton → 24 paquets).{" "}
-                  <strong>Regrouper</strong> : l'inverse, pour refaire des cartons complets. Le coût suit, la marge reste juste.
+                  <strong>Déballer</strong> un carton, un sac… pour le vendre au détail (1 carton → 24 paquets).{" "}
+                  <strong>Remballer</strong> : l'inverse, pour refaire des cartons complets. Le coût suit, la marge reste juste.
                 </p>
                 <FormulaireDetailler
                   key={grosChoisi ?? "tous"}
@@ -711,7 +711,7 @@ export function PanneauVenteAuDetail({
                 📦 {libelleOuvrir(uniteArticle)}
               </button>
               <button type="button" onClick={() => setOperation("regrouper")}>
-                🔁 Regrouper
+                🔁 Remballer
               </button>
               <button type="button" className="lien" onClick={ouvrirEdition}>
                 ✎ Modifier le lien
@@ -869,7 +869,7 @@ export function ModaleDetaillerEnCaisse({
       <div className="modale-confirmation" onClick={(e) => e.stopPropagation()}>
         <h3>Plus de « {detailNom} » en stock</h3>
         <p className="note-aide">
-          Il reste {quantiteUnite(gros.stockGros, gros.uniteGros)} de « {gros.grosNom} ». Ouvrir 1 {uniteGros} donne{" "}
+          Il reste {quantiteUnite(gros.stockGros, gros.uniteGros)} de « {gros.grosNom} ». Déballer 1 {uniteGros} donne{" "}
           {quantiteUnite(gros.quantite, gros.uniteDetail)}, puis l'article est ajouté à la vente. L'opération est enregistrée à
           votre nom.
         </p>
@@ -879,7 +879,7 @@ export function ModaleDetaillerEnCaisse({
             Annuler
           </button>
           <button type="button" className="bouton-valider" disabled={enCours} onClick={ouvrir}>
-            {enCours ? "…" : `📦 Ouvrir 1 ${uniteGros} et vendre`}
+            {enCours ? "…" : `📦 Déballer 1 ${uniteGros} et vendre`}
           </button>
         </div>
       </div>
@@ -991,8 +991,8 @@ export function ModaleOuvrir({
       await donnees.operer({ varianteGrosId, depotId, nombre: n, type, utilisateurId: session.utilisateurId });
       setSucces(
         detailler
-          ? `${quantiteUnite(n, uniteGros)} ouvert(s) : ${quantiteUnite(obtenus, uniteDetail)} de plus en stock${prixModifie ? `, au prix de ${formaterMontant(prixNombre)} ${devise}` : ""}.`
-          : `${quantiteUnite(obtenus, uniteDetail)} regroupé(e)s en ${quantiteUnite(n, uniteGros)}.`,
+          ? `${quantiteUnite(n, uniteGros)} déballé(s) : ${quantiteUnite(obtenus, uniteDetail)} de plus en stock${prixModifie ? `, au prix de ${formaterMontant(prixNombre)} ${devise}` : ""}.`
+          : `${quantiteUnite(obtenus, uniteDetail)} remballé(e)s en ${quantiteUnite(n, uniteGros)}.`,
       );
       setQuantite(1);
       await charger(true);
@@ -1010,7 +1010,7 @@ export function ModaleOuvrir({
       <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <div className="modale-entete">
           <h3>
-            📦 {article?.grosNom ?? "Ouvrir"}
+            📦 {article?.grosNom ?? "Déballage"}
             {article && (
               <span className="sous-titre-entete">
                 {" "}
@@ -1027,11 +1027,11 @@ export function ModaleOuvrir({
           <nav className="menu-modale">
             <button type="button" className={page === "operer" && detailler ? "actif" : ""} onClick={() => choisir("detailler")}>
               <span className="icone-menu-modale">📦</span>
-              Ouvrir
+              Déballer
             </button>
             <button type="button" className={page === "operer" && !detailler ? "actif" : ""} onClick={() => choisir("regrouper")}>
               <span className="icone-menu-modale">🔁</span>
-              Regrouper
+              Remballer
             </button>
             <button type="button" className={page === "historique" ? "actif" : ""} onClick={() => setPage("historique")}>
               <span className="icone-menu-modale">🕘</span>
@@ -1100,8 +1100,8 @@ export function ModaleOuvrir({
                     <div className="ligne-quantite-ouvrir">
                       <span className="libelle-quantite-ouvrir">
                         {detailler
-                          ? `Combien de ${pluriel(uniteGros || "unité")} ouvrir ?`
-                          : `Combien de ${pluriel(uniteGros || "unité")} refaire ?`}
+                          ? `Combien de ${pluriel(uniteGros || "unité")} déballer ?`
+                          : `Combien de ${pluriel(uniteGros || "unité")} remballer ?`}
                       </span>
                       <span className="compteur-quantite">
                         <button type="button" onClick={() => setQuantite((q) => Math.max(1, q - 1))} aria-label="Moins">
@@ -1133,7 +1133,7 @@ export function ModaleOuvrir({
                         {maximum > 0
                           ? `Pas assez en stock : ${quantiteUnite(maximum, uniteGros)} au maximum.`
                           : detailler
-                            ? `Plus aucun(e) ${(uniteGros || "unité").toLowerCase()} à ouvrir dans ce dépôt.`
+                            ? `Plus aucun(e) ${(uniteGros || "unité").toLowerCase()} à déballer dans ce dépôt.`
                             : `Pas assez de ${pluriel(unDetail)} pour refaire un(e) ${(uniteGros || "unité").toLowerCase()} (il en faut ${nombre(article.quantite)}).`}
                       </div>
                     )}
@@ -1192,10 +1192,10 @@ export function ModaleOuvrir({
                     {enCours
                       ? "…"
                       : !article
-                        ? "Ouvrir"
+                        ? "Déballer"
                         : detailler
-                          ? `📦 Ouvrir ${quantiteUnite(n, uniteGros)} → ${quantiteUnite(obtenus, uniteDetail)}`
-                          : `🔁 Regrouper ${quantiteUnite(obtenus, uniteDetail)} → ${quantiteUnite(n, uniteGros)}`}
+                          ? `📦 Déballer ${quantiteUnite(n, uniteGros)} → ${quantiteUnite(obtenus, uniteDetail)}`
+                          : `🔁 Remballer ${quantiteUnite(obtenus, uniteDetail)} → ${quantiteUnite(n, uniteGros)}`}
                   </button>
                 </div>
               </div>

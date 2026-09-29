@@ -188,7 +188,7 @@ export const ORIGINES_MOUVEMENT: { valeur: OrigineMouvement; label: string }[] =
   { valeur: "retour", label: "Retour fournisseur" },
   { valeur: "perte", label: "Perte" },
   { valeur: "transfert", label: "Transfert" },
-  { valeur: "detaillage", label: "Détailler / regrouper" },
+  { valeur: "detaillage", label: "Déballage / remballage" },
   { valeur: "inventaire", label: "Inventaire" },
   { valeur: "manuel", label: "Saisie manuelle" },
 ];

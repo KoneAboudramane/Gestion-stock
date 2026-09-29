@@ -46,7 +46,7 @@ def generer_alertes_rupture(boutique):
         if stock_gros:
             message += (
                 f" — il reste {stock_gros.quantite:g} « {stock_gros.variante.produit.nom} » : "
-                "détaillez-en un plutôt que de commander."
+                "déballez-en un plutôt que de commander."
             )
         notifications_creees.append(
             Notification.objects.create(

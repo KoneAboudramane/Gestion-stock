@@ -53,7 +53,7 @@ async function genererAlertesRuptureImpl(boutiqueId: string): Promise<string[]> 
       const stockGros = Number((await db.getFromIndex("stocks", "variante_depot", [g.id, depot.id]))?.quantite ?? 0);
       if (stockGros > 0) {
         const produitGros = await db.get("produits", g.produit_id);
-        suggestion = ` — il reste ${stockGros} « ${produitGros?.nom ?? ""} » : détaillez-en un plutôt que de commander.`;
+        suggestion = ` — il reste ${stockGros} « ${produitGros?.nom ?? ""} » : déballez-en un plutôt que de commander.`;
         break;
       }
     }
