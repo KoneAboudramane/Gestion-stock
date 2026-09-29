@@ -381,6 +381,9 @@ export interface LigneStock {
   /** Article de détail : son article de gros et le stock de gros dans ce dépôt. */
   grosNom?: string | null;
   grosStock?: number | null;
+  /** Unités (carton, paquet…) pour « 12 cartons (= 288 paquets) ». */
+  detailUnite?: string | null;
+  grosUnite?: string | null;
 }
 
 export interface MouvementResume {
@@ -899,6 +902,12 @@ export interface ArticleDetaillable {
   /** Stock (du dépôt demandé, sinon tous dépôts). */
   stockGros: number;
   stockDetail: number;
+  /** Unités (Paramètres → Unités) : « carton », « paquet »… vides si non renseignées. */
+  uniteGros: string;
+  uniteDetail: string;
+  prixAchatGros: number;
+  prixAchatDetail: number;
+  prixVenteDetail: number;
 }
 
 export interface GrosDisponible {
@@ -906,17 +915,23 @@ export interface GrosDisponible {
   grosNom: string;
   quantite: number;
   stockGros: number;
+  uniteGros: string;
+  uniteDetail: string;
 }
 
 export interface LienDetail {
   varianteId: string;
   nom: string;
+  /** Unité de cet article lié (« paquet », « carton »…), vide si non renseignée. */
+  unite: string;
   quantite: number;
 }
 
 export interface InfoDetail {
   detail: LienDetail | null;
   gros: LienDetail | null;
+  /** Unité de l'article consulté lui-même. */
+  uniteArticle: string;
 }
 
 export interface ParametresArticleDetail {
@@ -924,6 +939,8 @@ export interface ParametresArticleDetail {
   nom: string;
   prixVente: number;
   quantite: number;
+  /** Unité de l'article de détail (« paquet »…). */
+  uniteId?: string | null;
 }
 
 export interface PaiementCreditDetail {

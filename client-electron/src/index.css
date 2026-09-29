@@ -7059,3 +7059,65 @@ tr.ligne-annulee td {
   border-radius: 999px;
   white-space: nowrap;
 }
+
+/* Nouvel article : « Se vend aussi au détail ». */
+.bloc-detail-groupe {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px dashed var(--bordure-tableau);
+  border-radius: var(--rayon-md);
+}
+
+.case-detail-groupe {
+  display: flex;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 600;
+}
+
+.case-detail-groupe input {
+  width: auto;
+}
+
+.champs-detail-groupe {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.ligne-detail-groupe {
+  display: block;
+}
+
+.compteur-quantite {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.compteur-quantite input {
+  width: 90px !important;
+  text-align: center;
+}
+
+.compteur-quantite button {
+  width: 2.2rem;
+  padding: 0.3rem 0;
+  font-weight: 700;
+}
+
+.bloc-detail-groupe .case-detail-groupe input[type="checkbox"] {
+  width: auto !important;
+  flex: 0 0 auto;
+  height: auto;
+  padding: 0;
+  margin: 0;
+}
+
+.bloc-detail-groupe .champs-detail-groupe input {
+  width: 100%;
+}

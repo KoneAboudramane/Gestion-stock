@@ -9,6 +9,7 @@ import {
   annulerDetaillage,
   appliquerMouvement,
   detaillerOuRegrouper,
+  listerArticlesDetaillables,
   listerDetaillages,
   listerStock,
 } from "../../electron/services/stock";
@@ -112,6 +113,20 @@ describe("détailler / regrouper (carton ↔ paquets)", () => {
     const lignes = listerStock(BOUTIQUE_ID, depotId);
     expect(lignes.find((l) => l.varianteId === carton)).toMatchObject({ detailNom: "Biscuit paquet", quantiteDetail: 24 });
     expect(lignes.find((l) => l.varianteId === paquet)).toMatchObject({ grosNom: "Biscuit carton", grosStock: 4 });
+  });
+
+  it("unités : le carton et le paquet donnent leur unité (carton, paquet) partout", () => {
+    executer("INSERT INTO unites (id, boutique_id, nom) VALUES ('u-carton', ?, 'Carton'), ('u-paquet', ?, 'Paquet')", [
+      BOUTIQUE_ID,
+      BOUTIQUE_ID,
+    ]);
+    executer("UPDATE produits SET unite_id = 'u-carton' WHERE id = (SELECT produit_id FROM variantes WHERE id = ?)", [carton]);
+    const sac = creerArticle("Sucre sac", 20000, 25000);
+    const kilo = creerArticleDetail({ varianteGrosId: sac, nom: "Sucre au kilo", prixVente: 600, quantite: 50, uniteId: "u-paquet" });
+    expect(infoDetailVariante(sac).detail).toMatchObject({ varianteId: kilo, unite: "Paquet" });
+    expect(infoDetailVariante(carton).uniteArticle).toBe("Carton");
+    const article = listerArticlesDetaillables(BOUTIQUE_ID, depotId).find((a) => a.varianteGrosId === carton);
+    expect(article).toMatchObject({ uniteGros: "Carton", prixAchatGros: 9600, prixVenteDetail: 600 });
   });
 
   it("lien de détail : info dans les deux sens, pas de boucle, création sur place", () => {

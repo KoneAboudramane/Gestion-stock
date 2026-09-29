@@ -644,12 +644,16 @@ export async function usagesCatalogue(boutiqueId: string): Promise<UsagesCatalog
 export interface LienDetail {
   varianteId: string;
   nom: string;
+  /** Unité de cet article lié (« paquet », « carton »…), vide si non renseignée. */
+  unite: string;
   quantite: number;
 }
 
 export interface InfoDetail {
   detail: LienDetail | null;
   gros: LienDetail | null;
+  /** Unité de l'article consulté lui-même. */
+  uniteArticle: string;
 }
 
 async function nomDuProduitDeVariante(varianteId: string): Promise<string> {
@@ -658,13 +662,25 @@ async function nomDuProduitDeVariante(varianteId: string): Promise<string> {
   return produit?.nom ?? "";
 }
 
+async function uniteDeVariante(varianteId: string): Promise<string> {
+  const variante = await obtenirLigne("variantes", varianteId);
+  const produit = variante ? await obtenirLigne("produits", variante.produit_id) : undefined;
+  const unite = produit?.unite_id ? await obtenirLigne("unites", produit.unite_id) : undefined;
+  return unite?.nom ?? "";
+}
+
 export async function infoDetailVariante(varianteId: string): Promise<InfoDetail> {
   const variante = await obtenirLigne("variantes", varianteId);
   let detail: LienDetail | null = null;
   if (variante?.variante_detail_id) {
     const cible = await obtenirLigne("variantes", variante.variante_detail_id);
     if (cible && !cible.supprime) {
-      detail = { varianteId: cible.id, nom: await nomDuProduitDeVariante(cible.id), quantite: Number(variante.quantite_detail ?? 0) };
+      detail = {
+        varianteId: cible.id,
+        nom: await nomDuProduitDeVariante(cible.id),
+        quantite: Number(variante.quantite_detail ?? 0),
+        unite: await uniteDeVariante(cible.id),
+      };
     }
   }
   const candidats = (await listerTout("variantes"))
@@ -674,11 +690,11 @@ export async function infoDetailVariante(varianteId: string): Promise<InfoDetail
   for (const v of candidats) {
     const produit = await obtenirLigne("produits", v.produit_id);
     if (produit && !produit.supprime) {
-      gros = { varianteId: v.id, nom: produit.nom, quantite: Number(v.quantite_detail ?? 0) };
+      gros = { varianteId: v.id, nom: produit.nom, quantite: Number(v.quantite_detail ?? 0), unite: await uniteDeVariante(v.id) };
       break;
     }
   }
-  return { detail, gros };
+  return { detail, gros, uniteArticle: await uniteDeVariante(varianteId) };
 }
 
 export async function definirArticleDetail(
@@ -713,6 +729,8 @@ export interface ParametresArticleDetail {
   nom: string;
   prixVente: number;
   quantite: number;
+  /** Unité de l'article de détail (« paquet »…). */
+  uniteId?: string | null;
 }
 
 export async function creerArticleDetail(params: ParametresArticleDetail): Promise<string> {
@@ -724,6 +742,7 @@ export async function creerArticleDetail(params: ParametresArticleDetail): Promi
     boutiqueId: produitGros.boutique_id,
     nom: params.nom.trim(),
     categorieId: produitGros.categorie_id,
+    uniteId: params.uniteId ?? null,
     prixAchat: Math.round(Number(gros.prix_achat) / params.quantite),
     prixVente: params.prixVente,
   });

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { creerArticleDeDetail } from "../components/VenteAuDetail";
 import { PanneauVenteAuDetail } from "../components/VenteAuDetail";
 import type { CSSProperties } from "react";
 
@@ -960,6 +961,8 @@ interface LigneProduitGroupe {
   prixVente: string;
   seuilAlerte: string;
   quantiteInitiale: string;
+  /** « Se vend aussi au détail » : l'article de détail à créer et relier. */
+  detail: { quantite: number; uniteId: string; uniteNom: string; nom: string; prixVente: number } | null;
 }
 
 /**
@@ -998,6 +1001,14 @@ function FormulaireProduitsGroupe({
   const [prixVente, setPrixVente] = useState("0");
   const [seuilAlerte, setSeuilAlerte] = useState("0");
   const [quantiteInitiale, setQuantiteInitiale] = useState("0");
+  const [avecDetail, setAvecDetail] = useState(false);
+  const [detailQuantite, setDetailQuantite] = useState("");
+  const [detailUniteId, setDetailUniteId] = useState("");
+  const [detailNom, setDetailNom] = useState("");
+  const [detailNomModifie, setDetailNomModifie] = useState(false);
+  const [detailPrix, setDetailPrix] = useState("0");
+  const uniteDetailNom = unites.find((u) => u.id === detailUniteId)?.nom ?? "";
+  const nomDetailPropose = nom.trim() ? `${nom.trim()} — ${uniteDetailNom ? uniteDetailNom.toLowerCase() : "détail"}` : "";
 
   const [lignes, setLignes] = useState<LigneProduitGroupe[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -1042,6 +1053,16 @@ function FormulaireProduitsGroupe({
         prixVente,
         seuilAlerte,
         quantiteInitiale,
+        detail:
+          avecDetail && Number(detailQuantite) > 1
+            ? {
+                quantite: Number(detailQuantite),
+                uniteId: detailUniteId,
+                uniteNom: uniteDetailNom,
+                nom: (detailNom || nomDetailPropose).trim(),
+                prixVente: Number(detailPrix) || 0,
+              }
+            : null,
       },
     ]);
     setNom("");
@@ -1052,6 +1073,12 @@ function FormulaireProduitsGroupe({
     setPrixVente("0");
     setSeuilAlerte("0");
     setQuantiteInitiale("0");
+    setAvecDetail(false);
+    setDetailQuantite("");
+    setDetailUniteId("");
+    setDetailNom("");
+    setDetailNomModifie(false);
+    setDetailPrix("0");
   }
 
   function surEntree(evenement: React.KeyboardEvent) {
@@ -1091,6 +1118,20 @@ function FormulaireProduitsGroupe({
         } catch (e) {
           setErreur(`"${ligne.nom}" : ${e instanceof ErreurProduit ? e.message : "erreur inattendue."}`);
           return;
+        }
+        if (ligne.detail) {
+          try {
+            await creerArticleDeDetail({
+              varianteGrosId: cree.varianteId,
+              nom: ligne.detail.nom,
+              prixVente: ligne.detail.prixVente,
+              quantite: ligne.detail.quantite,
+              uniteId: ligne.detail.uniteId || null,
+            });
+          } catch (e) {
+            setErreur(`"${ligne.nom}" créé, mais son article de détail a échoué : ${e instanceof Error ? e.message : "erreur inattendue."}`);
+            return;
+          }
         }
         const quantiteNombre = Number(ligne.quantiteInitiale) || 0;
         if (depotId && quantiteNombre > 0) {
@@ -1234,6 +1275,51 @@ function FormulaireProduitsGroupe({
                 onKeyDown={surEntree}
               />
             </label>
+            <div className="bloc-detail-groupe">
+              <label className="case-detail-groupe">
+                <input type="checkbox" checked={avecDetail} onChange={(e) => setAvecDetail(e.target.checked)} />
+                Se vend aussi au détail (carton ouvert, sac vendu au kilo…)
+              </label>
+              {avecDetail && (
+                <div className="champs-detail-groupe">
+                  <label>
+                    1 {unites.find((u) => u.id === uniteId)?.nom.toLowerCase() || "article"} contient
+                    <input type="number" min={2} step={1} placeholder="ex. 24" value={detailQuantite} onChange={(e) => setDetailQuantite(e.target.value)} />
+                  </label>
+                  <label>
+                    Unité du détail
+                    <select
+                      value={detailUniteId}
+                      onChange={(e) => {
+                        setDetailUniteId(e.target.value);
+                        if (!detailNomModifie) setDetailNom("");
+                      }}
+                    >
+                      <option value="">(aucune)</option>
+                      {unites.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.nom}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Nom de l'article au détail
+                    <input
+                      value={detailNom || nomDetailPropose}
+                      onChange={(e) => {
+                        setDetailNom(e.target.value);
+                        setDetailNomModifie(true);
+                      }}
+                    />
+                  </label>
+                  <label>
+                    Prix de vente au détail
+                    <ChampMontant value={detailPrix} disabled={!peutModifierPrix} onChange={setDetailPrix} />
+                  </label>
+                </div>
+              )}
+            </div>
             <button type="button" className="bouton-ajouter-produit-groupe" onClick={ajouterProduit}>
               + Ajouter à la liste
             </button>
@@ -1263,7 +1349,15 @@ function FormulaireProduitsGroupe({
                   <tr key={l.id}>
                     <td data-label="N°" className="colonne-numero-groupe">{index + 1}</td>
                     <td data-label="Référence" className="reference-auto">{referenceApercu(index)}</td>
-                    <td data-label="Désignation" className="col-designation-groupe">{l.nom}</td>
+                    <td data-label="Désignation" className="col-designation-groupe">
+                      {l.nom}
+                      {l.detail && (
+                        <span className="sous-info ligne-detail-groupe">
+                          ↳ 1 = {l.detail.quantite} {l.detail.uniteNom.toLowerCase() || "unité(s)"} · {l.detail.nom} ·{" "}
+                          {formaterMontant(l.detail.prixVente)}
+                        </span>
+                      )}
+                    </td>
                     <td data-label="Catégorie">{l.categorieNom}</td>
                     <td data-label="Unité">{l.uniteNom}</td>
                     <td data-label="Code-barres">{l.codeBarres || ""}</td>

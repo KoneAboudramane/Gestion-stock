@@ -344,6 +344,16 @@ export interface LigneStock {
   /** Article de détail : son article de gros et le stock de gros dans ce dépôt. */
   grosNom?: string | null;
   grosStock?: number | null;
+  /** Unités (carton, paquet…) pour « 12 cartons (= 288 paquets) ». */
+  detailUnite?: string | null;
+  grosUnite?: string | null;
+}
+
+async function nomUniteProduit(produitId: string | undefined): Promise<string> {
+  if (!produitId) return "";
+  const produit = await obtenirLigne("produits", produitId);
+  const unite = produit?.unite_id ? await obtenirLigne("unites", produit.unite_id) : undefined;
+  return unite?.nom ?? "";
 }
 
 export async function listerStock(boutiqueId: string, depotId?: string, terme = ""): Promise<LigneStock[]> {
@@ -356,11 +366,11 @@ export async function listerStock(boutiqueId: string, depotId?: string, terme = 
   const produits = (await db.getAllFromIndex("produits", "boutique_id", boutiqueId)).filter((p) => !p.supprime);
   // Article de détail → son article de gros (le plus ancien lien s'il y en a plusieurs).
   const nomsProduits = new Map(produits.map((p) => [p.id, p.nom]));
-  const grosParDetail = new Map<string, { id: string; nom: string }>();
+  const grosParDetail = new Map<string, { id: string; nom: string; unite: string }>();
   for (const g of (await db.getAll("variantes")).sort((a, b) => a.date_creation.localeCompare(b.date_creation))) {
     if (g.supprime || !g.variante_detail_id || grosParDetail.has(g.variante_detail_id)) continue;
     const nom = nomsProduits.get(g.produit_id);
-    if (nom) grosParDetail.set(g.variante_detail_id, { id: g.id, nom });
+    if (nom) grosParDetail.set(g.variante_detail_id, { id: g.id, nom, unite: await nomUniteProduit(g.produit_id) });
   }
   for (const produit of produits) {
     if (motif && !produit.nom.toLowerCase().includes(motif)) continue;
@@ -395,6 +405,8 @@ export async function listerStock(boutiqueId: string, depotId?: string, terme = 
           quantiteDetail: produitDetail ? Number(variante.quantite_detail ?? 0) : null,
           grosNom: gros?.nom ?? null,
           grosStock: gros ? await stockVarianteDepot(gros.id, depot.id) : null,
+          detailUnite: produitDetail ? await nomUniteProduit(produitDetail.id) : null,
+          grosUnite: gros?.unite || null,
         });
       }
     }
@@ -1592,6 +1604,12 @@ export interface ArticleDetaillable {
   /** Stock (du dépôt demandé, sinon tous dépôts). */
   stockGros: number;
   stockDetail: number;
+  /** Unités (Paramètres → Unités) : « carton », « paquet »… vides si non renseignées. */
+  uniteGros: string;
+  uniteDetail: string;
+  prixAchatGros: number;
+  prixAchatDetail: number;
+  prixVenteDetail: number;
 }
 
 export interface GrosDisponible {
@@ -1599,6 +1617,8 @@ export interface GrosDisponible {
   grosNom: string;
   quantite: number;
   stockGros: number;
+  uniteGros: string;
+  uniteDetail: string;
 }
 
 async function stockDe(varianteId: string, depotId?: string): Promise<number> {
@@ -1626,6 +1646,11 @@ export async function listerArticlesDetaillables(boutiqueId: string, depotId?: s
       quantite: Number(v.quantite_detail ?? 0),
       stockGros: await stockDe(v.id, depotId),
       stockDetail: await stockDe(detail.id, depotId),
+      uniteGros: await nomUniteProduit(produit.id),
+      uniteDetail: await nomUniteProduit(produitDetail.id),
+      prixAchatGros: Number(v.prix_achat),
+      prixAchatDetail: Number(detail.prix_achat),
+      prixVenteDetail: Number(detail.prix_vente),
     });
   }
   return resultat.sort((a, b) => a.grosNom.localeCompare(b.grosNom, "fr"));
@@ -1641,7 +1666,15 @@ export async function grosDisponiblePourDetail(varianteDetailId: string, depotId
     if (!produit || produit.supprime) continue;
     const stockGros = await stockVarianteDepot(v.id, depotId);
     if (stockGros >= 1 && (!meilleur || stockGros > meilleur.stockGros)) {
-      meilleur = { varianteGrosId: v.id, grosNom: produit.nom, quantite: Number(v.quantite_detail ?? 0), stockGros };
+      const detail = await obtenirLigne("variantes", varianteDetailId);
+      meilleur = {
+        varianteGrosId: v.id,
+        grosNom: produit.nom,
+        quantite: Number(v.quantite_detail ?? 0),
+        stockGros,
+        uniteGros: await nomUniteProduit(produit.id),
+        uniteDetail: await nomUniteProduit(detail?.produit_id),
+      };
     }
   }
   return meilleur;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ModaleDetaillerRegrouper } from "../components/VenteAuDetail";
+import { ModaleDetaillerRegrouper, quantiteUnite } from "../components/VenteAuDetail";
 import type { CSSProperties } from "react";
 
 import type { Session } from "../api";
@@ -153,7 +153,7 @@ function complementGrosDetail(l: LigneStock) {
     return (
       <span className="sous-info nowrap">
         {" "}
-        (= {formaterMontant(l.quantite * l.quantiteDetail)} {l.detailNom})
+        (= {l.detailUnite ? quantiteUnite(l.quantite * l.quantiteDetail, l.detailUnite) : `${formaterMontant(l.quantite * l.quantiteDetail)} × ${l.detailNom}`})
       </span>
     );
   }
@@ -161,7 +161,7 @@ function complementGrosDetail(l: LigneStock) {
     return (
       <span className="sous-info">
         {" "}
-        · {formaterMontant(l.grosStock ?? 0)} {l.grosNom} à détailler
+        · {l.grosUnite ? quantiteUnite(l.grosStock ?? 0, l.grosUnite) : `${formaterMontant(l.grosStock ?? 0)} × ${l.grosNom}`} à ouvrir
       </span>
     );
   }
@@ -235,7 +235,7 @@ function OngletStockNiveau({
     quantite: l.quantite,
     seuil: l.seuilAlerte,
     valeur: valeurLigne(l),
-    statut: aDetailler(l) ? "À détailler" : l.enRupture ? "Rupture" : "",
+    statut: aDetailler(l) ? "À ouvrir" : l.enRupture ? "Rupture" : "",
   }));
 
   function basculerSelection(id: string) {
@@ -357,8 +357,8 @@ function OngletStockNiveau({
                   {formaterMontant(valeurLigne(l))} {devise}
                 </td>
                 <td data-label="Statut" className="colonne-statut-stock">{aDetailler(l) ? (
-                  <span className="badge-a-detailler" title="Il reste de quoi détailler dans ce dépôt">
-                    À détailler
+                  <span className="badge-a-detailler" title="Il reste des cartons (ou sacs…) à ouvrir dans ce dépôt">
+                    À ouvrir
                   </span>
                 ) : l.enRupture ? (
                   <span className="badge-rupture">Rupture</span>

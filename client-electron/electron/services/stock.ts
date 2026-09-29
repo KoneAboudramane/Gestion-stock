@@ -390,6 +390,9 @@ export interface LigneStock {
   /** Article de détail : son article de gros et le stock de gros dans ce dépôt. */
   grosNom?: string | null;
   grosStock?: number | null;
+  /** Unités (carton, paquet…) pour « 12 cartons (= 288 paquets) ». */
+  detailUnite?: string | null;
+  grosUnite?: string | null;
 }
 
 export function listerStock(boutiqueId: string, depotId?: string, terme = ""): LigneStock[] {
@@ -406,6 +409,9 @@ export function listerStock(boutiqueId: string, depotId?: string, terme = ""): L
             v.prix_achat as prixAchat, v.prix_vente as prixVente,
             CASE WHEN s.quantite <= v.seuil_alerte THEN 1 ELSE 0 END as enRupture,
             pd.nom as detailNom, v.quantite_detail as quantiteDetail,
+            (SELECT un.nom FROM unites un WHERE un.id = pd.unite_id) as detailUnite,
+            (SELECT un.nom FROM variantes g JOIN produits pg ON pg.id = g.produit_id JOIN unites un ON un.id = pg.unite_id
+             WHERE g.variante_detail_id = v.id AND g.supprime = 0 ORDER BY g.date_creation LIMIT 1) as grosUnite,
             (SELECT pg.nom FROM variantes g JOIN produits pg ON pg.id = g.produit_id
              WHERE g.variante_detail_id = v.id AND g.supprime = 0 ORDER BY g.date_creation LIMIT 1) as grosNom,
             (SELECT COALESCE(SUM(sg.quantite), 0) FROM variantes g JOIN stocks sg ON sg.variante_id = g.id
@@ -1608,6 +1614,12 @@ export interface ArticleDetaillable {
   /** Stock (du dépôt demandé, sinon tous dépôts). */
   stockGros: number;
   stockDetail: number;
+  /** Unités (Paramètres → Unités) : « carton », « paquet »… vides si non renseignées. */
+  uniteGros: string;
+  uniteDetail: string;
+  prixAchatGros: number;
+  prixAchatDetail: number;
+  prixVenteDetail: number;
 }
 
 export interface GrosDisponible {
@@ -1615,6 +1627,8 @@ export interface GrosDisponible {
   grosNom: string;
   quantite: number;
   stockGros: number;
+  uniteGros: string;
+  uniteDetail: string;
 }
 
 /** Articles de gros reliés à un article de détail, avec leurs stocks. */
@@ -1623,25 +1637,40 @@ export function listerArticlesDetaillables(boutiqueId: string, depotId?: string)
   const parametres: string[] = depotId ? [depotId, depotId, boutiqueId] : [boutiqueId];
   return tousLesResultats<ArticleDetaillable>(
     `SELECT v.id as varianteGrosId, p.nom as grosNom, d.id as varianteDetailId, pd.nom as detailNom,
-            v.quantite_detail as quantite,
+            v.quantite_detail as quantite, COALESCE(u.nom, '') as uniteGros, COALESCE(ud.nom, '') as uniteDetail,
+            v.prix_achat as prixAchatGros, d.prix_achat as prixAchatDetail, d.prix_vente as prixVenteDetail,
             COALESCE((SELECT SUM(quantite) FROM stocks WHERE variante_id = v.id${filtreDepot}), 0) as stockGros,
             COALESCE((SELECT SUM(quantite) FROM stocks WHERE variante_id = d.id${filtreDepot}), 0) as stockDetail
      FROM variantes v
      JOIN produits p ON p.id = v.produit_id
      JOIN variantes d ON d.id = v.variante_detail_id
      JOIN produits pd ON pd.id = d.produit_id
+     LEFT JOIN unites u ON u.id = p.unite_id
+     LEFT JOIN unites ud ON ud.id = pd.unite_id
      WHERE p.boutique_id = ? AND v.supprime = 0 AND p.supprime = 0 AND d.supprime = 0 AND pd.supprime = 0
      ORDER BY p.nom`,
     parametres,
-  ).map((a) => ({ ...a, quantite: Number(a.quantite), stockGros: Number(a.stockGros), stockDetail: Number(a.stockDetail) }));
+  ).map((a) => ({
+    ...a,
+    quantite: Number(a.quantite),
+    stockGros: Number(a.stockGros),
+    stockDetail: Number(a.stockDetail),
+    prixAchatGros: Number(a.prixAchatGros),
+    prixAchatDetail: Number(a.prixAchatDetail),
+    prixVenteDetail: Number(a.prixVenteDetail),
+  }));
 }
 
 /** Pour un article de détail en rupture : un article de gros à détailler, s'il en reste dans ce dépôt. */
 export function grosDisponiblePourDetail(varianteDetailId: string, depotId: string): GrosDisponible | null {
   const gros = unResultat<GrosDisponible>(
-    `SELECT v.id as varianteGrosId, p.nom as grosNom, v.quantite_detail as quantite, s.quantite as stockGros
+    `SELECT v.id as varianteGrosId, p.nom as grosNom, v.quantite_detail as quantite, s.quantite as stockGros,
+            COALESCE(u.nom, '') as uniteGros,
+            COALESCE((SELECT ud.nom FROM variantes d JOIN produits pd ON pd.id = d.produit_id
+                      JOIN unites ud ON ud.id = pd.unite_id WHERE d.id = v.variante_detail_id), '') as uniteDetail
      FROM variantes v
      JOIN produits p ON p.id = v.produit_id
+     LEFT JOIN unites u ON u.id = p.unite_id
      JOIN stocks s ON s.variante_id = v.id AND s.depot_id = ?
      WHERE v.variante_detail_id = ? AND v.supprime = 0 AND p.supprime = 0 AND s.quantite >= 1
      ORDER BY s.quantite DESC LIMIT 1`,

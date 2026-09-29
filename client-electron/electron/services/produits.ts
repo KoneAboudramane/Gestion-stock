@@ -662,6 +662,8 @@ export function usagesCatalogue(boutiqueId: string): UsagesCatalogue {
 export interface LienDetail {
   varianteId: string;
   nom: string;
+  /** Unité de cet article lié (« paquet », « carton »…), vide si non renseignée. */
+  unite: string;
   /** Combien d'unités de détail contient un article de gros. */
   quantite: number;
 }
@@ -671,25 +673,35 @@ export interface InfoDetail {
   detail: LienDetail | null;
   /** Article de gros dont cet article est le détail (s'il y en a un). */
   gros: LienDetail | null;
+  /** Unité de l'article consulté lui-même. */
+  uniteArticle: string;
 }
 
 export function infoDetailVariante(varianteId: string): InfoDetail {
   const detail = unResultat<LienDetail>(
-    `SELECT d.id as varianteId, p.nom as nom, v.quantite_detail as quantite
+    `SELECT d.id as varianteId, p.nom as nom, v.quantite_detail as quantite, COALESCE(u.nom, '') as unite
      FROM variantes v JOIN variantes d ON d.id = v.variante_detail_id JOIN produits p ON p.id = d.produit_id
+     LEFT JOIN unites u ON u.id = p.unite_id
      WHERE v.id = ? AND d.supprime = 0`,
     [varianteId],
   );
   const gros = unResultat<LienDetail>(
-    `SELECT v.id as varianteId, p.nom as nom, v.quantite_detail as quantite
-     FROM variantes v JOIN produits p ON p.id = v.produit_id
+    `SELECT v.id as varianteId, p.nom as nom, v.quantite_detail as quantite, COALESCE(u.nom, '') as unite
+     FROM variantes v JOIN produits p ON p.id = v.produit_id LEFT JOIN unites u ON u.id = p.unite_id
      WHERE v.variante_detail_id = ? AND v.supprime = 0 AND p.supprime = 0
      ORDER BY v.date_creation LIMIT 1`,
     [varianteId],
   );
+  const uniteArticle =
+    unResultat<{ nom: string }>(
+      `SELECT COALESCE(u.nom, '') as nom FROM variantes v JOIN produits p ON p.id = v.produit_id
+       LEFT JOIN unites u ON u.id = p.unite_id WHERE v.id = ?`,
+      [varianteId],
+    )?.nom ?? "";
   return {
     detail: detail ? { ...detail, quantite: Number(detail.quantite) } : null,
     gros: gros ? { ...gros, quantite: Number(gros.quantite) } : null,
+    uniteArticle,
   };
 }
 
@@ -721,6 +733,8 @@ export interface ParametresArticleDetail {
   nom: string;
   prixVente: number;
   quantite: number;
+  /** Unité de l'article de détail (« paquet »…). */
+  uniteId?: string | null;
 }
 
 /** Crée l'article de détail (même catégorie que l'article de gros) et le relie. */
@@ -736,6 +750,7 @@ export function creerArticleDetail(params: ParametresArticleDetail): string {
     boutiqueId: gros.boutique_id,
     nom: params.nom.trim(),
     categorieId: gros.categorie_id,
+    uniteId: params.uniteId ?? null,
     prixAchat: Math.round(Number(gros.prix_achat) / params.quantite),
     prixVente: params.prixVente,
   });

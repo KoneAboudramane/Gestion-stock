@@ -2,81 +2,47 @@ import { useEffect, useState } from "react";
 
 //<adaptateur>
 import { api } from "../api/client";
-import type {
-  ArticleDetaillable,
-  DetaillageResume,
-  GrosDisponible,
-  InfoDetail,
-  Session,
-  TypeDetaillage,
-} from "../api/client";
+import type { ArticleDetaillable, DetaillageResume, GrosDisponible, InfoDetail, Session, TypeDetaillage } from "../api/client";
 
-function verifier<T>(
-  resultat: { succes: true; resultat: T } | { succes: false; message: string },
-): T {
+function verifier<T>(resultat: { succes: true; resultat: T } | { succes: false; message: string }): T {
   if (!resultat.succes) throw new Error(resultat.message);
   return resultat.resultat;
 }
 
 const donnees = {
-  infoDetail: (varianteId: string): Promise<InfoDetail> =>
-    api.detaillages.infoDetail(varianteId),
-  articles: (
-    boutiqueId: string,
-    depotId?: string,
-  ): Promise<ArticleDetaillable[]> =>
-    api.detaillages.articles(boutiqueId, depotId),
-  historique: (boutiqueId: string): Promise<DetaillageResume[]> =>
-    api.detaillages.lister(boutiqueId),
-  depots: async (boutiqueId: string): Promise<{ id: string; nom: string }[]> =>
-    api.depots.lister(boutiqueId),
-  variantes: (boutiqueId: string): Promise<{ id: string; nom: string }[]> =>
-    api.detaillages.variantes(boutiqueId),
-  operer: async (p: {
-    varianteGrosId: string;
-    depotId: string;
-    nombre: number;
-    type: TypeDetaillage;
-    utilisateurId: string | null;
-  }): Promise<void> => {
+  infoDetail: (varianteId: string): Promise<InfoDetail> => api.detaillages.infoDetail(varianteId),
+  articles: (boutiqueId: string, depotId?: string): Promise<ArticleDetaillable[]> => api.detaillages.articles(boutiqueId, depotId),
+  historique: (boutiqueId: string): Promise<DetaillageResume[]> => api.detaillages.lister(boutiqueId),
+  depots: async (boutiqueId: string): Promise<{ id: string; nom: string }[]> => api.depots.lister(boutiqueId),
+  variantes: (boutiqueId: string): Promise<{ id: string; nom: string }[]> => api.detaillages.variantes(boutiqueId),
+  unites: async (boutiqueId: string): Promise<{ id: string; nom: string }[]> => api.unites.lister(boutiqueId),
+  operer: async (p: { varianteGrosId: string; depotId: string; nombre: number; type: TypeDetaillage; utilisateurId: string | null }): Promise<void> => {
     verifier(await api.detaillages.operer(p));
   },
   annuler: async (id: string, utilisateurId: string | null): Promise<void> => {
     verifier(await api.detaillages.annuler(id, utilisateurId));
   },
-  definir: async (
-    grosId: string,
-    detailId: string | null,
-    quantite: number | null,
-  ): Promise<void> => {
+  definir: async (grosId: string, detailId: string | null, quantite: number | null): Promise<void> => {
     verifier(await api.detaillages.definirDetail(grosId, detailId, quantite));
   },
-  creer: async (p: {
-    varianteGrosId: string;
-    nom: string;
-    prixVente: number;
-    quantite: number;
-  }): Promise<void> => {
+  creer: async (p: { varianteGrosId: string; nom: string; prixVente: number; quantite: number; uniteId?: string | null }): Promise<void> => {
     verifier(await api.detaillages.creerDetail(p));
   },
 };
-/** Caisse : article de gros à détailler quand le détail est en rupture. */
-export const grosDisponible = (
-  varianteDetailId: string,
-  depotId: string,
-): Promise<GrosDisponible | null> =>
+
+/** Caisse : article de gros à ouvrir quand le détail est en rupture. */
+export const grosDisponible = (varianteDetailId: string, depotId: string): Promise<GrosDisponible | null> =>
   api.detaillages.grosDisponible(varianteDetailId, depotId);
+
+/** Nouvel article : crée et relie l'article de détail. */
+export const creerArticleDeDetail = donnees.creer;
 //</adaptateur>
 import ChampMontant from "./ChampMontant";
 import FiltrePeriodeHistorique from "./FiltrePeriodeHistorique";
 import { useDevise } from "../contexts/DeviseContext";
 import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
-import {
-  bornesPeriode,
-  dansPeriode,
-  jourLocal,
-  type PeriodeHistorique,
-} from "../lib/periode";
+import { formaterMontant } from "../lib/formatage";
+import { bornesPeriode, dansPeriode, jourLocal, type PeriodeHistorique } from "../lib/periode";
 
 export type { GrosDisponible };
 
@@ -88,25 +54,48 @@ function messageDe(erreur: unknown): string {
   return erreur instanceof Error ? erreur.message : "Erreur inattendue.";
 }
 
-// --- Formulaire « Détailler / Regrouper » ---
+/** « carton » → « cartons » (unités de Paramètres → Unités). */
+function pluriel(unite: string): string {
+  const u = unite.trim().toLowerCase();
+  return /[sxz]$/.test(u) ? u : `${u}s`;
+}
+
+/** « 2 cartons », « 1 paquet » ; sans unité renseignée : « 2 unité(s) ». */
+export function quantiteUnite(n: number, unite: string): string {
+  const u = unite.trim().toLowerCase();
+  if (!u) return `${nombre(n)} unité(s)`;
+  return `${nombre(n)} ${n >= 2 ? pluriel(u) : u}`;
+}
+
+/** Bouton : « Ouvrir des cartons », « Ouvrir des sacs »… ou « Ouvrir » sans unité. */
+export function libelleOuvrir(uniteGros: string): string {
+  return uniteGros.trim() ? `Ouvrir des ${pluriel(uniteGros)}` : "Ouvrir";
+}
+
+// --- Formulaire « Ouvrir / Regrouper » (pré-rempli, avec coût et marge) ---
 
 export function FormulaireDetailler({
   session,
   varianteGrosIdInitial,
   typeInitial = "detailler",
+  articleFixe = false,
   onTermine,
 }: {
   session: Session;
   varianteGrosIdInitial?: string;
   typeInitial?: TypeDetaillage;
+  /** Ouvert depuis la fiche d'un article : pas de choix d'article. */
+  articleFixe?: boolean;
   onTermine?: () => void;
 }) {
+  const devise = useDevise();
+  const peutVoirCout = !!session.permissions.voir_benefices_achat;
   const [depots, setDepots] = useState<{ id: string; nom: string }[]>([]);
   const [depotId, setDepotId] = useState(session.depotId ?? "");
   const [articles, setArticles] = useState<ArticleDetaillable[]>([]);
   const [grosId, setGrosId] = useState(varianteGrosIdInitial ?? "");
   const [type, setType] = useState<TypeDetaillage>(typeInitial);
-  const [quantite, setQuantite] = useState("1");
+  const [quantite, setQuantite] = useState(1);
   const [erreur, setErreur] = useState<string | null>(null);
   const [succes, setSucces] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
@@ -131,13 +120,9 @@ export function FormulaireDetailler({
   }, [depotId]);
 
   const article = articles.find((a) => a.varianteGrosId === grosId);
-  const n = Math.floor(Number(quantite) || 0);
   const detailler = type === "detailler";
-  const maximum = article
-    ? detailler
-      ? article.stockGros
-      : Math.floor(article.stockDetail / article.quantite)
-    : 0;
+  const maximum = article ? (detailler ? article.stockGros : Math.floor(article.stockDetail / article.quantite)) : 0;
+  const n = Math.max(0, Math.floor(quantite));
 
   async function confirmer() {
     if (!article || n <= 0) return;
@@ -145,19 +130,11 @@ export function FormulaireDetailler({
     setErreur(null);
     setSucces(null);
     try {
-      await donnees.operer({
-        varianteGrosId: article.varianteGrosId,
-        depotId,
-        nombre: n,
-        type,
-        utilisateurId: session.utilisateurId,
-      });
-      setSucces(
-        detailler
-          ? `${nombre(n)} « ${article.grosNom} » détaillé(s) en ${nombre(n * article.quantite)} « ${article.detailNom} ».`
-          : `${nombre(n * article.quantite)} « ${article.detailNom} » regroupé(s) en ${nombre(n)} « ${article.grosNom} ».`,
-      );
-      setQuantite("1");
+      await donnees.operer({ varianteGrosId: article.varianteGrosId, depotId, nombre: n, type, utilisateurId: session.utilisateurId });
+      const gros = quantiteUnite(n, article.uniteGros);
+      const detail = quantiteUnite(n * article.quantite, article.uniteDetail);
+      setSucces(detailler ? `${gros} ouvert(s) : ${detail} de plus en stock.` : `${detail} regroupé(s) en ${gros}.`);
+      setQuantite(1);
       await chargerArticles();
       onTermine?.();
     } catch (e) {
@@ -171,50 +148,43 @@ export function FormulaireDetailler({
     return (
       <div className="bloc-hors-ligne">
         <span>
-          Aucun article ne se détaille encore. Ouvrez la fiche d'un article de
-          gros (un carton, un sac…) puis sa rubrique « Vente au détail » pour
-          indiquer ce qu'il contient.
+          Aucun article ne se vend encore au détail. Reliez un carton, un sac… à son article de détail dans « 🔗 Articles à
+          détailler », ou dans la fiche de l'article (rubrique « Vente au détail »).
         </span>
       </div>
     );
   }
 
+  const coutDetail = article ? article.prixAchatGros / article.quantite : 0;
+  const margeDetail = article ? article.prixVenteDetail - coutDetail : 0;
+
   return (
     <div className="formulaire-detailler">
       <div className="bascule-vue" role="group" aria-label="Opération">
-        <button
-          type="button"
-          className={detailler ? "actif" : ""}
-          onClick={() => setType("detailler")}
-        >
-          ✂️ Détailler
+        <button type="button" className={detailler ? "actif" : ""} onClick={() => setType("detailler")}>
+          📦 {article ? libelleOuvrir(article.uniteGros) : "Ouvrir"}
         </button>
-        <button
-          type="button"
-          className={!detailler ? "actif" : ""}
-          onClick={() => setType("regrouper")}
-        >
-          📦 Regrouper
+        <button type="button" className={!detailler ? "actif" : ""} onClick={() => setType("regrouper")}>
+          🔁 Regrouper
         </button>
       </div>
       <div className="champs-detailler">
-        <label className="champ-formulaire">
-          Article
-          <select value={grosId} onChange={(e) => setGrosId(e.target.value)}>
-            {articles.map((a) => (
-              <option key={a.varianteGrosId} value={a.varianteGrosId}>
-                {a.grosNom} (1 = {nombre(a.quantite)} {a.detailNom})
-              </option>
-            ))}
-          </select>
-        </label>
+        {!articleFixe && (
+          <label className="champ-formulaire">
+            Article
+            <select value={grosId} onChange={(e) => setGrosId(e.target.value)}>
+              {articles.map((a) => (
+                <option key={a.varianteGrosId} value={a.varianteGrosId}>
+                  {a.grosNom} (1 = {quantiteUnite(a.quantite, a.uniteDetail)})
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {depots.length > 1 && (
           <label className="champ-formulaire">
             Dépôt
-            <select
-              value={depotId}
-              onChange={(e) => setDepotId(e.target.value)}
-            >
+            <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
               {depots.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.nom}
@@ -224,14 +194,20 @@ export function FormulaireDetailler({
           </label>
         )}
         <label className="champ-formulaire">
-          {detailler ? "Nombre à détailler" : "Nombre à reconstituer"}
-          <input
-            type="number"
-            min={1}
-            step={1}
-            value={quantite}
-            onChange={(e) => setQuantite(e.target.value)}
-          />
+          {article
+            ? detailler
+              ? `Combien de ${pluriel(article.uniteGros || "unité")} ouvrir ?`
+              : `Combien de ${pluriel(article.uniteGros || "unité")} refaire ?`
+            : "Combien ?"}
+          <span className="compteur-quantite">
+            <button type="button" onClick={() => setQuantite((q) => Math.max(1, q - 1))} aria-label="Moins">
+              −
+            </button>
+            <input type="number" min={1} step={1} value={quantite} onChange={(e) => setQuantite(Number(e.target.value) || 0)} />
+            <button type="button" onClick={() => setQuantite((q) => q + 1)} aria-label="Plus">
+              +
+            </button>
+          </span>
         </label>
       </div>
       {article && (
@@ -239,51 +215,48 @@ export function FormulaireDetailler({
           <div>
             <span className="sous-info">En stock</span>
             <strong>
-              {nombre(article.stockGros)} {article.grosNom} ·{" "}
-              {nombre(article.stockDetail)} {article.detailNom}
+              {quantiteUnite(article.stockGros, article.uniteGros)} · {quantiteUnite(article.stockDetail, article.uniteDetail)}
             </strong>
           </div>
           <div>
-            <span className="sous-info">Résultat</span>
+            <span className="sous-info">Vous obtiendrez</span>
             <strong>
               {detailler
-                ? `${nombre(n)} ${article.grosNom} → ${nombre(n * article.quantite)} ${article.detailNom}`
-                : `${nombre(n * article.quantite)} ${article.detailNom} → ${nombre(n)} ${article.grosNom}`}
+                ? quantiteUnite(n * article.quantite, article.uniteDetail)
+                : quantiteUnite(n, article.uniteGros)}
             </strong>
           </div>
           <div>
             <span className="sous-info">Possible au maximum</span>
-            <strong className={maximum < n ? "texte-erreur" : undefined}>
-              {nombre(maximum)}
-            </strong>
+            <strong className={maximum < n ? "texte-erreur" : undefined}>{quantiteUnite(maximum, article.uniteGros)}</strong>
           </div>
+          {peutVoirCout && detailler && (
+            <div>
+              <span className="sous-info">Par {article.uniteDetail.toLowerCase() || "unité"}</span>
+              <strong className="nowrap">
+                coût {formaterMontant(Math.round(coutDetail))} · vente {formaterMontant(article.prixVenteDetail)} ·{" "}
+                <span className={margeDetail < 0 ? "texte-erreur" : "montant-entree"}>
+                  marge {formaterMontant(Math.round(margeDetail))} {devise}
+                </span>
+              </strong>
+            </div>
+          )}
         </div>
       )}
       {erreur && <div className="message-erreur">{erreur}</div>}
       {succes && <div className="message-succes">✓ {succes}</div>}
       <div className="actions-formulaire">
-        <button
-          type="button"
-          className="bouton-valider"
-          disabled={enCours || !article || n <= 0 || n > maximum}
-          onClick={confirmer}
-        >
-          {enCours ? "…" : detailler ? "Détailler" : "Regrouper"}
+        <button type="button" className="bouton-valider" disabled={enCours || !article || n <= 0 || n > maximum} onClick={confirmer}>
+          {enCours ? "…" : detailler ? `📦 ${article ? libelleOuvrir(article.uniteGros) : "Ouvrir"}` : "🔁 Regrouper"}
         </button>
       </div>
     </div>
   );
 }
 
-// --- Historique des détaillages ---
+// --- Historique des ouvertures / regroupements ---
 
-export function HistoriqueDetaillages({
-  session,
-  actualisation = 0,
-}: {
-  session: Session;
-  actualisation?: number;
-}) {
+export function HistoriqueDetaillages({ session, actualisation = 0 }: { session: Session; actualisation?: number }) {
   const nomUtilisateur = useNomsUtilisateurs(session);
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const [operations, setOperations] = useState<DetaillageResume[]>([]);
@@ -301,9 +274,7 @@ export function HistoriqueDetaillages({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.boutiqueId, actualisation]);
 
-  const filtrees = operations.filter((o) =>
-    dansPeriode(o.dateCreation, bornesPeriode(periode, debutPerso, finPerso)),
-  );
+  const filtrees = operations.filter((o) => dansPeriode(o.dateCreation, bornesPeriode(periode, debutPerso, finPerso)));
 
   async function confirmerAnnulation() {
     if (!aAnnuler) return;
@@ -346,33 +317,24 @@ export function HistoriqueDetaillages({
           </thead>
           <tbody>
             {filtrees.map((o) => (
-              <tr
-                key={o.id}
-                className={o.annulee ? "ligne-annulee" : undefined}
-              >
-                <td data-label="Date">
-                  {new Date(o.dateCreation).toLocaleString("fr-FR")}
-                </td>
+              <tr key={o.id} className={o.annulee ? "ligne-annulee" : undefined}>
+                <td data-label="Date">{new Date(o.dateCreation).toLocaleString("fr-FR")}</td>
                 <td data-label="Opération">
-                  {o.type === "detailler" ? "✂️ Détaillé" : "📦 Regroupé"}
+                  {o.type === "detailler" ? "📦 Ouvert" : "🔁 Regroupé"}
                   {o.annulee && <span className="badge-annulee"> Annulé</span>}
                 </td>
                 <td data-label="De">
-                  {nombre(o.quantiteSource)} {o.sourceNom}
+                  {nombre(o.quantiteSource)} × {o.sourceNom}
                 </td>
                 <td data-label="Vers">
-                  {nombre(o.quantiteCible)} {o.cibleNom}
+                  {nombre(o.quantiteCible)} × {o.cibleNom}
                 </td>
                 <td data-label="Dépôt">{o.depotNom}</td>
                 <td data-label="Fait par">{nomUtilisateur(o.utilisateurId)}</td>
                 {peutGerer && (
                   <td>
                     {!o.annulee && (
-                      <button
-                        type="button"
-                        className="lien"
-                        onClick={() => setAAnnuler(o)}
-                      >
+                      <button type="button" className="lien" onClick={() => setAAnnuler(o)}>
                         Annuler
                       </button>
                     )}
@@ -383,9 +345,7 @@ export function HistoriqueDetaillages({
             {filtrees.length === 0 && (
               <tr>
                 <td colSpan={peutGerer ? 7 : 6} className="liste-vide">
-                  {operations.length === 0
-                    ? "Aucune opération."
-                    : "Aucune opération sur cette période."}
+                  {operations.length === 0 ? "Aucune opération." : "Aucune opération sur cette période."}
                 </td>
               </tr>
             )}
@@ -394,27 +354,16 @@ export function HistoriqueDetaillages({
       </div>
       {aAnnuler && (
         <div className="fond-modale" onClick={() => setAAnnuler(null)}>
-          <div
-            className="modale-confirmation"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="modale-confirmation" onClick={(e) => e.stopPropagation()}>
             <h3>Annuler cette opération ?</h3>
             <p className="note-aide">
               {`Les ${nombre(aAnnuler.quantiteCible)} « ${aAnnuler.cibleNom} » obtenus redeviennent ${nombre(aAnnuler.quantiteSource)} « ${aAnnuler.sourceNom} ». Possible seulement s'ils sont encore tous en stock.`}
             </p>
             <div className="actions-formulaire">
-              <button
-                type="button"
-                className="lien"
-                onClick={() => setAAnnuler(null)}
-              >
+              <button type="button" className="lien" onClick={() => setAAnnuler(null)}>
                 Retour
               </button>
-              <button
-                type="button"
-                className="bouton-danger"
-                onClick={confirmerAnnulation}
-              >
+              <button type="button" className="bouton-danger" onClick={confirmerAnnulation}>
                 Annuler l'opération
               </button>
             </div>
@@ -425,72 +374,179 @@ export function HistoriqueDetaillages({
   );
 }
 
-// --- Carte Stock « Détailler / Regrouper » ---
+// --- Articles reliés (réglage fait aussi depuis le Stock) ---
 
-export function ModaleDetaillerRegrouper({
+function ArticlesADetailler({
   session,
-  onFermer,
+  onOuvrir,
 }: {
   session: Session;
-  onFermer: () => void;
+  onOuvrir: (varianteGrosId: string) => void;
 }) {
-  const [page, setPage] = useState<"operer" | "historique">("operer");
+  const [articles, setArticles] = useState<ArticleDetaillable[]>([]);
+  const [variantes, setVariantes] = useState<{ id: string; nom: string }[]>([]);
+  const [enEdition, setEnEdition] = useState<{ id: string; nom: string } | null>(null);
+  const [choix, setChoix] = useState("");
+
+  async function rafraichir() {
+    setArticles(await donnees.articles(session.boutiqueId));
+  }
+  useEffect(() => {
+    rafraichir();
+    donnees.variantes(session.boutiqueId).then(setVariantes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId]);
+
+  if (enEdition) {
+    return (
+      <>
+        <div className="barre-actions">
+          <button type="button" className="lien" onClick={() => setEnEdition(null)}>
+            ← Retour à la liste
+          </button>
+          <strong>{enEdition.nom}</strong>
+        </div>
+        <PanneauVenteAuDetail
+          session={session}
+          varianteId={enEdition.id}
+          nomArticle={enEdition.nom}
+          onModifie={rafraichir}
+        />
+      </>
+    );
+  }
+
+  const dejaRelies = new Set(articles.map((a) => a.varianteGrosId));
+  return (
+    <>
+      <div className="barre-actions">
+        <select value={choix} onChange={(e) => setChoix(e.target.value)}>
+          <option value="">Relier un autre article (carton, sac…)</option>
+          {variantes
+            .filter((v) => !dejaRelies.has(v.id))
+            .map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.nom}
+              </option>
+            ))}
+        </select>
+        <button
+          type="button"
+          className="bouton-primaire"
+          disabled={!choix}
+          onClick={() => {
+            const v = variantes.find((x) => x.id === choix);
+            if (v) setEnEdition(v);
+            setChoix("");
+          }}
+        >
+          🔗 Relier
+        </button>
+      </div>
+      <div className="zone-tableau-scroll zone-commandes-fiche">
+        <table className="tableau-catalogue carte-mobile">
+          <thead>
+            <tr>
+              <th>Article de gros</th>
+              <th>Contient</th>
+              <th>Article de détail</th>
+              <th>En stock</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {articles.map((a) => (
+              <tr key={a.varianteGrosId}>
+                <td data-label="Article de gros">
+                  {a.grosNom}
+                  {a.uniteGros && <span className="sous-info"> · {a.uniteGros.toLowerCase()}</span>}
+                </td>
+                <td data-label="Contient">{quantiteUnite(a.quantite, a.uniteDetail)}</td>
+                <td data-label="Article de détail">{a.detailNom}</td>
+                <td data-label="En stock">
+                  {quantiteUnite(a.stockGros, a.uniteGros)} · {quantiteUnite(a.stockDetail, a.uniteDetail)}
+                </td>
+                <td>
+                  <span className="actions-ligne">
+                    <button type="button" className="bouton-primaire" onClick={() => onOuvrir(a.varianteGrosId)}>
+                      📦 {libelleOuvrir(a.uniteGros)}
+                    </button>
+                    <button type="button" className="lien" onClick={() => setEnEdition({ id: a.varianteGrosId, nom: a.grosNom })}>
+                      ✎ Modifier
+                    </button>
+                  </span>
+                </td>
+              </tr>
+            ))}
+            {articles.length === 0 && (
+              <tr>
+                <td colSpan={5} className="liste-vide">
+                  Aucun article relié. Choisissez un carton, un sac… ci-dessus et indiquez ce qu'il contient.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+// --- Carte Stock « Détailler / Regrouper » ---
+
+export function ModaleDetaillerRegrouper({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  const [page, setPage] = useState<"operer" | "articles" | "historique">("operer");
   const [actualisation, setActualisation] = useState(0);
+  const [grosChoisi, setGrosChoisi] = useState<string | undefined>(undefined);
   return (
     <div className="fond-modale" onClick={onFermer}>
-      <div
-        className="modale-selection-produits"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
         <div className="modale-entete">
           <h3>Détailler / Regrouper</h3>
-          <button
-            type="button"
-            className="lien bouton-retour"
-            onClick={onFermer}
-          >
+          <button type="button" className="lien bouton-retour" onClick={onFermer}>
             ← Retour
           </button>
         </div>
         <div className="modale-avec-menu">
           <nav className="menu-modale">
-            <button
-              type="button"
-              className={page === "operer" ? "actif" : ""}
-              onClick={() => setPage("operer")}
-            >
-              <span className="icone-menu-modale">✂️</span>
-              Détailler / regrouper
+            <button type="button" className={page === "operer" ? "actif" : ""} onClick={() => setPage("operer")}>
+              <span className="icone-menu-modale">📦</span>
+              Ouvrir / regrouper
             </button>
-            <button
-              type="button"
-              className={page === "historique" ? "actif" : ""}
-              onClick={() => setPage("historique")}
-            >
+            <button type="button" className={page === "articles" ? "actif" : ""} onClick={() => setPage("articles")}>
+              <span className="icone-menu-modale">🔗</span>
+              Articles à détailler
+            </button>
+            <button type="button" className={page === "historique" ? "actif" : ""} onClick={() => setPage("historique")}>
               <span className="icone-menu-modale">🕘</span>
               Historique
             </button>
           </nav>
           <div className="modale-corps">
-            {page === "operer" ? (
+            {page === "operer" && (
               <>
                 <p className="note-aide">
-                  <strong>Détailler</strong> : ouvrir un article de gros pour le
-                  vendre au détail (1 carton → 24 paquets).{" "}
-                  <strong>Regrouper</strong> : l'inverse, pour reconstituer des
-                  cartons complets. Le coût suit, la marge reste juste.
+                  <strong>Ouvrir</strong> un carton, un sac… pour le vendre au détail (1 carton → 24 paquets).{" "}
+                  <strong>Regrouper</strong> : l'inverse, pour refaire des cartons complets. Le coût suit, la marge reste juste.
                 </p>
                 <FormulaireDetailler
+                  key={grosChoisi ?? "tous"}
                   session={session}
+                  varianteGrosIdInitial={grosChoisi}
                   onTermine={() => setActualisation((a) => a + 1)}
                 />
               </>
-            ) : (
-              <HistoriqueDetaillages
+            )}
+            {page === "articles" && (
+              <ArticlesADetailler
                 session={session}
-                actualisation={actualisation}
+                onOuvrir={(id) => {
+                  setGrosChoisi(id);
+                  setPage("operer");
+                }}
               />
             )}
+            {page === "historique" && <HistoriqueDetaillages session={session} actualisation={actualisation} />}
           </div>
         </div>
       </div>
@@ -517,10 +573,13 @@ export function PanneauVenteAuDetail({
   const [edition, setEdition] = useState(false);
   const [mode, setMode] = useState<"creer" | "existant">("creer");
   const [quantite, setQuantite] = useState("");
+  const [uniteDetailId, setUniteDetailId] = useState("");
   const [nom, setNom] = useState("");
+  const [nomModifie, setNomModifie] = useState(false);
   const [prixVente, setPrixVente] = useState("");
   const [existantId, setExistantId] = useState("");
   const [variantes, setVariantes] = useState<{ id: string; nom: string }[]>([]);
+  const [unites, setUnites] = useState<{ id: string; nom: string }[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
   const [operation, setOperation] = useState<TypeDetaillage | null>(null);
 
@@ -532,17 +591,30 @@ export function PanneauVenteAuDetail({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [varianteId]);
 
+  const uniteArticle = info?.uniteArticle ?? "";
+  const nomUniteDetail = unites.find((u) => u.id === uniteDetailId)?.nom ?? "";
+
+  function nomPropose(uniteNom: string): string {
+    return `${nomArticle} — ${uniteNom ? uniteNom.toLowerCase() : "détail"}`;
+  }
+
   function ouvrirEdition() {
     setEdition(true);
     setErreur(null);
     setQuantite(info?.detail ? String(info.detail.quantite) : "");
-    setNom(`${nomArticle} (détail)`);
+    setUniteDetailId("");
+    setNom(nomPropose(""));
+    setNomModifie(false);
     setPrixVente("");
     setExistantId(info?.detail?.varianteId ?? "");
     setMode(info?.detail ? "existant" : "creer");
-    donnees
-      .variantes(session.boutiqueId)
-      .then((liste) => setVariantes(liste.filter((v) => v.id !== varianteId)));
+    donnees.variantes(session.boutiqueId).then((liste) => setVariantes(liste.filter((v) => v.id !== varianteId)));
+    donnees.unites(session.boutiqueId).then(setUnites);
+  }
+
+  function changerUniteDetail(id: string) {
+    setUniteDetailId(id);
+    if (!nomModifie) setNom(nomPropose(unites.find((u) => u.id === id)?.nom ?? ""));
   }
 
   async function enregistrer() {
@@ -550,13 +622,13 @@ export function PanneauVenteAuDetail({
     const q = Number(quantite) || 0;
     try {
       if (mode === "creer") {
-        if (!nom.trim())
-          throw new Error("Donnez un nom à l'article de détail.");
+        if (!nom.trim()) throw new Error("Donnez un nom à l'article de détail.");
         await donnees.creer({
           varianteGrosId: varianteId,
           nom,
           prixVente: Number(prixVente) || 0,
           quantite: q,
+          uniteId: uniteDetailId || null,
         });
       } else {
         if (!existantId) throw new Error("Choisissez l'article de détail.");
@@ -581,14 +653,15 @@ export function PanneauVenteAuDetail({
   }
 
   if (!info) return <p>Chargement…</p>;
+  const unGros = uniteArticle ? `1 ${uniteArticle.toLowerCase()}` : `1 ${nomArticle}`;
 
   return (
     <div className="panneau-vente-detail">
       {info.gros && (
         <div className="bloc-hors-ligne">
           <span>
-            📦 Cet article est le <strong>détail</strong> de « {info.gros.nom} »
-            : 1 {info.gros.nom} = {nombre(info.gros.quantite)} {nomArticle}.
+            📦 Cet article est le <strong>détail</strong> de « {info.gros.nom} » :{" "}
+            {info.gros.unite ? `1 ${info.gros.unite.toLowerCase()}` : "1"} = {quantiteUnite(info.gros.quantite, uniteArticle)}.
           </span>
         </div>
       )}
@@ -596,32 +669,23 @@ export function PanneauVenteAuDetail({
       {info.detail && !edition && (
         <div className="carte-lien-detail">
           <div className="formule-lien-detail">
-            <strong>1 {nomArticle}</strong>
+            <strong>{unGros}</strong>
             <span>=</span>
-            <strong>
-              {nombre(info.detail.quantite)} {info.detail.nom}
-            </strong>
+            <strong>{quantiteUnite(info.detail.quantite, info.detail.unite)}</strong>
+            <span className="sous-info">({info.detail.nom})</span>
           </div>
           {peutGerer && (
             <div className="actions-ligne">
-              <button
-                type="button"
-                className="bouton-primaire"
-                onClick={() => setOperation("detailler")}
-              >
-                ✂️ Détailler
+              <button type="button" className="bouton-primaire" onClick={() => setOperation("detailler")}>
+                📦 {libelleOuvrir(uniteArticle)}
               </button>
               <button type="button" onClick={() => setOperation("regrouper")}>
-                📦 Regrouper
+                🔁 Regrouper
               </button>
               <button type="button" className="lien" onClick={ouvrirEdition}>
                 ✎ Modifier le lien
               </button>
-              <button
-                type="button"
-                className="lien lien-danger"
-                onClick={retirerLien}
-              >
+              <button type="button" className="lien lien-danger" onClick={retirerLien}>
                 Retirer le lien
               </button>
             </div>
@@ -632,16 +696,11 @@ export function PanneauVenteAuDetail({
       {!info.detail && !edition && (
         <div className="carte-lien-detail">
           <p className="note-aide">
-            Cet article ne se vend pas au détail. Si c'est un carton, un sac, un
-            fardeau… que vous ouvrez pour vendre à l'unité, indiquez ce qu'il
-            contient.
+            Cet article ne se vend pas au détail. Si c'est un carton, un sac, un fardeau… que vous ouvrez pour vendre à
+            l'unité, indiquez ce qu'il contient.
           </p>
           {peutGerer && (
-            <button
-              type="button"
-              className="bouton-primaire"
-              onClick={ouvrirEdition}
-            >
+            <button type="button" className="bouton-primaire" onClick={ouvrirEdition}>
               ✂️ Vendre aussi au détail
             </button>
           )}
@@ -650,34 +709,30 @@ export function PanneauVenteAuDetail({
 
       {edition && (
         <div className="carte-lien-detail">
-          <label className="champ-formulaire">
-            1 {nomArticle} contient
-            <input
-              type="number"
-              min={2}
-              step={1}
-              placeholder="ex. 24"
-              value={quantite}
-              onChange={(e) => setQuantite(e.target.value)}
-            />
-          </label>
-          <div
-            className="bascule-vue"
-            role="group"
-            aria-label="Article de détail"
-          >
-            <button
-              type="button"
-              className={mode === "creer" ? "actif" : ""}
-              onClick={() => setMode("creer")}
-            >
+          <div className="champs-detailler">
+            <label className="champ-formulaire">
+              {unGros} contient
+              <input type="number" min={2} step={1} placeholder="ex. 24" value={quantite} onChange={(e) => setQuantite(e.target.value)} />
+            </label>
+            {mode === "creer" && (
+              <label className="champ-formulaire">
+                Unité du détail
+                <select value={uniteDetailId} onChange={(e) => changerUniteDetail(e.target.value)}>
+                  <option value="">(aucune)</option>
+                  {unites.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.nom}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+          <div className="bascule-vue" role="group" aria-label="Article de détail">
+            <button type="button" className={mode === "creer" ? "actif" : ""} onClick={() => setMode("creer")}>
               Créer l'article de détail
             </button>
-            <button
-              type="button"
-              className={mode === "existant" ? "actif" : ""}
-              onClick={() => setMode("existant")}
-            >
+            <button type="button" className={mode === "existant" ? "actif" : ""} onClick={() => setMode("existant")}>
               Choisir un article existant
             </button>
           </div>
@@ -687,26 +742,21 @@ export function PanneauVenteAuDetail({
                 Nom de l'article de détail
                 <input
                   value={nom}
-                  onChange={(e) => setNom(e.target.value)}
-                  placeholder="ex. Biscuit — paquet"
+                  onChange={(e) => {
+                    setNom(e.target.value);
+                    setNomModifie(true);
+                  }}
                 />
               </label>
               <label className="champ-formulaire">
-                Prix de vente au détail ({devise})
-                <ChampMontant
-                  value={prixVente}
-                  onChange={setPrixVente}
-                  placeholder="ex. 600"
-                />
+                Prix de vente {nomUniteDetail ? `d'un ${nomUniteDetail.toLowerCase()}` : "au détail"} ({devise})
+                <ChampMontant value={prixVente} onChange={setPrixVente} placeholder="ex. 600" />
               </label>
             </div>
           ) : (
             <label className="champ-formulaire">
               Article de détail
-              <select
-                value={existantId}
-                onChange={(e) => setExistantId(e.target.value)}
-              >
+              <select value={existantId} onChange={(e) => setExistantId(e.target.value)}>
                 <option value="">Choisir…</option>
                 {variantes.map((v) => (
                   <option key={v.id} value={v.id}>
@@ -718,18 +768,10 @@ export function PanneauVenteAuDetail({
           )}
           {erreur && <div className="message-erreur">{erreur}</div>}
           <div className="actions-formulaire">
-            <button
-              type="button"
-              className="lien"
-              onClick={() => setEdition(false)}
-            >
+            <button type="button" className="lien" onClick={() => setEdition(false)}>
               Annuler
             </button>
-            <button
-              type="button"
-              className="bouton-valider"
-              onClick={enregistrer}
-            >
+            <button type="button" className="bouton-valider" onClick={enregistrer}>
               Enregistrer
             </button>
           </div>
@@ -740,23 +782,19 @@ export function PanneauVenteAuDetail({
 
       {operation && (
         <div className="fond-modale" onClick={() => setOperation(null)}>
-          <div
-            className="modale-confirmation modale-confirmation-large"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3>{operation === "detailler" ? "Détailler" : "Regrouper"}</h3>
+          <div className="modale-confirmation modale-confirmation-large" onClick={(e) => e.stopPropagation()}>
+            <h3>
+              {operation === "detailler" ? `📦 ${libelleOuvrir(uniteArticle)}` : "🔁 Regrouper"} — {nomArticle}
+            </h3>
             <FormulaireDetailler
               session={session}
               varianteGrosIdInitial={varianteId}
               typeInitial={operation}
+              articleFixe
               onTermine={() => onModifie?.()}
             />
             <div className="actions-formulaire">
-              <button
-                type="button"
-                className="lien"
-                onClick={() => setOperation(null)}
-              >
+              <button type="button" className="lien" onClick={() => setOperation(null)}>
                 Fermer
               </button>
             </div>
@@ -786,8 +824,9 @@ export function ModaleDetaillerEnCaisse({
 }) {
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  const uniteGros = gros.uniteGros.trim().toLowerCase() || "unité";
 
-  async function detailler() {
+  async function ouvrir() {
     setEnCours(true);
     setErreur(null);
     try {
@@ -811,23 +850,17 @@ export function ModaleDetaillerEnCaisse({
       <div className="modale-confirmation" onClick={(e) => e.stopPropagation()}>
         <h3>Plus de « {detailNom} » en stock</h3>
         <p className="note-aide">
-          Il reste {nombre(gros.stockGros)} « {gros.grosNom} ». Détailler 1 «{" "}
-          {gros.grosNom} » donne {nombre(gros.quantite)} « {detailNom} », puis
-          l'article est ajouté à la vente. L'opération est enregistrée à votre
-          nom.
+          Il reste {quantiteUnite(gros.stockGros, gros.uniteGros)} de « {gros.grosNom} ». Ouvrir 1 {uniteGros} donne{" "}
+          {quantiteUnite(gros.quantite, gros.uniteDetail)}, puis l'article est ajouté à la vente. L'opération est enregistrée à
+          votre nom.
         </p>
         {erreur && <div className="message-erreur">{erreur}</div>}
         <div className="actions-formulaire">
           <button type="button" className="lien" onClick={onAnnuler}>
             Annuler
           </button>
-          <button
-            type="button"
-            className="bouton-valider"
-            disabled={enCours}
-            onClick={detailler}
-          >
-            {enCours ? "…" : "✂️ Détailler et vendre"}
+          <button type="button" className="bouton-valider" disabled={enCours} onClick={ouvrir}>
+            {enCours ? "…" : `📦 Ouvrir 1 ${uniteGros} et vendre`}
           </button>
         </div>
       </div>
