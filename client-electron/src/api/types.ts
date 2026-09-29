@@ -955,6 +955,41 @@ export interface ParametresArticleDetail {
   uniteId?: string | null;
 }
 
+export interface LigneJournee {
+  categorie: string;
+  montant: number;
+  nombre: number;
+}
+
+export interface CaissierJournee {
+  utilisateurId: string | null;
+  nombreVentes: number;
+  especes: number;
+  mobileMoney: number;
+  credit: number;
+  autres: number;
+  total: number;
+  /** Remboursements de crédit encaissés en espèces par cette personne. */
+  remboursements: number;
+}
+
+/** Résumé d'une journée de caisse (un dépôt, ou tous si depotId est null). */
+export interface JourneeCaisse {
+  fondOuverture: number;
+  entrees: LigneJournee[];
+  sorties: LigneJournee[];
+  ajustements: number;
+  soldeAttendu: number;
+  nombreVentes: number;
+  chiffreAffaires: number;
+  especes: number;
+  credit: number;
+  autres: number;
+  mobileMoney: { operateur: string; montant: number }[];
+  parCaissier: CaissierJournee[];
+  clotures: (ClotureCaisseResume & { depotId: string })[];
+}
+
 export interface PaiementCreditDetail {
   id: string;
   montant: number;
@@ -1707,6 +1742,7 @@ export interface WindowApi {
     ): Promise<ResultatEcriture<string>>;
   };
   tresorerie: {
+    journee(boutiqueId: string, depotId: string | null, debut: string, fin: string): Promise<JourneeCaisse>;
     solde(depotId: string, jusqua?: string): Promise<number>;
     listerMouvements(depotId: string, limite?: number): Promise<MouvementCaisseResume[]>;
     listerDepenses(depotId: string, limite?: number): Promise<DepenseResume[]>;

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import ModaleJournee from "../components/ModaleJournee";
 import type { CSSProperties } from "react";
 
 import { api } from "../api";
@@ -739,7 +740,7 @@ function OngletHistorique({
   const [transferts, setTransferts] = useState<TransfertCaisseResume[]>([]);
   const [clotures, setClotures] = useState<ClotureCaisseResume[]>([]);
   const [modaleOuverte, setModaleOuverte] = useState<
-    CategorieActionCaisse | "historique" | "transfert" | "historiqueTransfert" | "cloture" | null
+    CategorieActionCaisse | "historique" | "transfert" | "historiqueTransfert" | "cloture" | "journee" | null
   >(null);
   const [soldesMobileMoney, setSoldesMobileMoney] = useState<Record<OperateurMobileMoney, number> | null>(null);
   const [selection, setSelection] = useState<"caisse" | OperateurMobileMoney>("caisse");
@@ -829,6 +830,10 @@ function OngletHistorique({
 
           {selection === "caisse" && depotId && (
             <div className="grille-documents-comptables">
+              <button type="button" className="carte-document-comptable" onClick={() => setModaleOuverte("journee")}>
+                <span className="icone-document-comptable">📅</span>
+                Journée
+              </button>
               {peutGererTresorerie &&
                 (Object.keys(SECTIONS_ACTION_CAISSE) as CategorieActionCaisse[]).map((categorie) => (
                   <button
@@ -908,6 +913,16 @@ function OngletHistorique({
           transferts={transferts.filter((t) => t.operateur === selection)}
           devise={devise}
           nomUtilisateur={nomUtilisateur}
+          onFermer={() => setModaleOuverte(null)}
+        />
+      )}
+
+      {modaleOuverte === "journee" && (
+        <ModaleJournee
+          session={session}
+          depotIdInitial={depotId}
+          depotCourantId={depotId}
+          onCloturer={() => setModaleOuverte("cloture")}
           onFermer={() => setModaleOuverte(null)}
         />
       )}

@@ -348,6 +348,8 @@ contextBridge.exposeInMainWorld("api", {
     marquerTraite: (id: string) => ipcRenderer.invoke("messages:marquerTraite", id),
   },
   tresorerie: {
+    journee: (boutiqueId: string, depotId: string | null, debut: string, fin: string) =>
+      ipcRenderer.invoke("tresorerie:journee", boutiqueId, depotId, debut, fin),
     solde: (depotId: string, jusqua?: string) => ipcRenderer.invoke("tresorerie:solde", depotId, jusqua),
     listerMouvements: (depotId: string, limite?: number) =>
       ipcRenderer.invoke("tresorerie:listerMouvements", depotId, limite),

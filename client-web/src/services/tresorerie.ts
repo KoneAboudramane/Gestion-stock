@@ -390,3 +390,168 @@ export async function cloturerCaisse(
   await db.put("clotures_caisse", cloture);
   return clotureId;
 }
+
+export interface LigneJournee {
+  categorie: string;
+  montant: number;
+  nombre: number;
+}
+
+export interface CaissierJournee {
+  utilisateurId: string | null;
+  nombreVentes: number;
+  especes: number;
+  mobileMoney: number;
+  credit: number;
+  autres: number;
+  total: number;
+  /** Remboursements de crédit encaissés en espèces par cette personne. */
+  remboursements: number;
+}
+
+/** Résumé d'une journée de caisse (un dépôt, ou tous si depotId est null). */
+export interface JourneeCaisse {
+  fondOuverture: number;
+  entrees: LigneJournee[];
+  sorties: LigneJournee[];
+  ajustements: number;
+  soldeAttendu: number;
+  nombreVentes: number;
+  chiffreAffaires: number;
+  especes: number;
+  credit: number;
+  autres: number;
+  mobileMoney: { operateur: string; montant: number }[];
+  parCaissier: CaissierJournee[];
+  clotures: (ClotureCaisseResume & { depotId: string })[];
+}
+
+function regrouper(lignes: { categorie: string; montant: number }[]): LigneJournee[] {
+  const parCategorie = new Map<string, LigneJournee>();
+  for (const l of lignes) {
+    const actuel = parCategorie.get(l.categorie) ?? { categorie: l.categorie, montant: 0, nombre: 0 };
+    actuel.montant += l.montant;
+    actuel.nombre += 1;
+    parCategorie.set(l.categorie, actuel);
+  }
+  return [...parCategorie.values()].sort((a, b) => b.montant - a.montant);
+}
+
+function assemblerJournee(
+  fondOuverture: number,
+  mouvements: { type: string; categorie: string; montant: number; utilisateurId: string | null }[],
+  ventes: { id: string; utilisateurId: string | null; totalNet: number }[],
+  paiements: { venteId: string; mode: string; operateur: string; montant: number }[],
+  clotures: (ClotureCaisseResume & { depotId: string })[],
+): JourneeCaisse {
+  const entrees = regrouper(mouvements.filter((m) => m.type === "entree"));
+  const sorties = regrouper(mouvements.filter((m) => m.type === "sortie"));
+  const ajustements = mouvements.filter((m) => m.type === "ajustement").reduce((t, m) => t + m.montant, 0);
+  const totalEntrees = entrees.reduce((t, l) => t + l.montant, 0);
+  const totalSorties = sorties.reduce((t, l) => t + l.montant, 0);
+
+  const auteurVente = new Map(ventes.map((v) => [v.id, v.utilisateurId]));
+  const caissiers = new Map<string, CaissierJournee>();
+  const caissier = (id: string | null) => {
+    const cle = id ?? "";
+    let c = caissiers.get(cle);
+    if (!c) {
+      c = { utilisateurId: id, nombreVentes: 0, especes: 0, mobileMoney: 0, credit: 0, autres: 0, total: 0, remboursements: 0 };
+      caissiers.set(cle, c);
+    }
+    return c;
+  };
+  for (const v of ventes) {
+    const c = caissier(v.utilisateurId);
+    c.nombreVentes += 1;
+    c.total += v.totalNet;
+  }
+  let especes = 0;
+  let credit = 0;
+  let autres = 0;
+  const parOperateur = new Map<string, number>();
+  for (const p of paiements) {
+    const c = caissier(auteurVente.get(p.venteId) ?? null);
+    if (p.mode === "especes") {
+      especes += p.montant;
+      c.especes += p.montant;
+    } else if (p.mode === "mobile_money") {
+      parOperateur.set(p.operateur || "", (parOperateur.get(p.operateur || "") ?? 0) + p.montant);
+      c.mobileMoney += p.montant;
+    } else if (p.mode === "credit") {
+      credit += p.montant;
+      c.credit += p.montant;
+    } else {
+      autres += p.montant;
+      c.autres += p.montant;
+    }
+  }
+  for (const m of mouvements) {
+    if (m.type === "entree" && m.categorie === "remboursement_credit") caissier(m.utilisateurId).remboursements += m.montant;
+  }
+  return {
+    fondOuverture,
+    entrees,
+    sorties,
+    ajustements,
+    soldeAttendu: fondOuverture + totalEntrees - totalSorties + ajustements,
+    nombreVentes: ventes.length,
+    chiffreAffaires: ventes.reduce((t, v) => t + v.totalNet, 0),
+    especes,
+    credit,
+    autres,
+    mobileMoney: [...parOperateur.entries()].map(([operateur, montant]) => ({ operateur, montant })).sort((a, b) => b.montant - a.montant),
+    parCaissier: [...caissiers.values()].sort((a, b) => b.total - a.total),
+    clotures,
+  };
+}
+
+/** Journée de caisse entre debut (inclus) et fin (exclu), bornes ISO calculées en heure locale par l'écran. */
+export async function journeeCaisse(boutiqueId: string, depotId: string | null, debut: string, fin: string): Promise<JourneeCaisse> {
+  const db = await ouvrirBaseDeDonnees();
+  const depots = depotId
+    ? [depotId]
+    : (await db.getAllFromIndex("depots", "boutique_id", boutiqueId)).filter((d) => !d.supprime).map((d) => d.id);
+  let fondOuverture = 0;
+  const mouvements: { type: string; categorie: string; montant: number; utilisateurId: string | null }[] = [];
+  const clotures: (ClotureCaisseResume & { depotId: string })[] = [];
+  for (const d of depots) {
+    for (const m of await db.getAllFromIndex("mouvements_caisse", "depot_id", d)) {
+      if (m.supprime) continue;
+      const montant = Number(m.montant);
+      if (m.date_creation < debut) fondOuverture += m.type === "sortie" ? -montant : montant;
+      else if (m.date_creation < fin) {
+        mouvements.push({ type: m.type, categorie: m.categorie, montant, utilisateurId: m.utilisateur_id != null ? String(m.utilisateur_id) : null });
+      }
+    }
+    for (const c of await db.getAllFromIndex("clotures_caisse", "depot_id", d)) {
+      if (c.supprime || c.date_creation < debut || c.date_creation >= fin) continue;
+      clotures.push({
+        id: c.id,
+        depotId: d,
+        soldeTheorique: Number(c.solde_theorique),
+        soldeCompte: Number(c.solde_compte),
+        ecart: Number(c.ecart),
+        utilisateurId: c.utilisateur_id != null ? String(c.utilisateur_id) : null,
+        dateCreation: c.date_creation,
+      });
+    }
+  }
+  const depotsVoulus = new Set(depots);
+  const ventesLocales = (await db.getAllFromIndex("ventes", "boutique_id", boutiqueId)).filter(
+    (v) => !v.supprime && v.statut !== "annulee" && depotsVoulus.has(v.depot_id) && v.date_creation >= debut && v.date_creation < fin,
+  );
+  const ventes = ventesLocales.map((v) => ({
+    id: v.id,
+    utilisateurId: v.utilisateur_id != null ? String(v.utilisateur_id) : null,
+    totalNet: Number(v.total_net),
+  }));
+  const paiements: { venteId: string; mode: string; operateur: string; montant: number }[] = [];
+  for (const v of ventesLocales) {
+    for (const p of await db.getAllFromIndex("paiements", "vente_id", v.id)) {
+      if (!p.supprime) paiements.push({ venteId: v.id, mode: p.mode, operateur: p.operateur ?? "", montant: Number(p.montant) });
+    }
+  }
+  clotures.sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));
+  return assemblerJournee(fondOuverture, mouvements, ventes, paiements, clotures);
+}

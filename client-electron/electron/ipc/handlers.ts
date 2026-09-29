@@ -370,6 +370,9 @@ export function enregistrerLesHandlers(): void {
     stock.listerTransferts(boutiqueId, limite),
   );
 
+  ipcMain.handle("tresorerie:journee", (_evt, boutiqueId: string, depotId: string | null, debut: string, fin: string) =>
+    tresorerie.journeeCaisse(boutiqueId, depotId, debut, fin),
+  );
   ipcMain.handle("pertes:declarer", (_evt, params: stock.ParametresPerte) => {
     const resultat = executerEnSecurite(() => stock.declarerPerte(params));
     if (resultat.succes) signalerRuptureEnSecurite(params.depotId);

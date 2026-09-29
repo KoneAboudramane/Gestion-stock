@@ -12,6 +12,7 @@ import {
   effectuerTransfert,
   enregistrerApport,
   enregistrerDepense,
+  journeeCaisse,
   listerMouvements,
   soldeCaisse,
   soldeMobileMoneyDisponible,
@@ -184,4 +185,40 @@ describe("tresorerie (miroir de tresorerie/services.py)", () => {
     const dette = unResultat<{ solde: number }>("SELECT solde FROM dettes_fournisseur WHERE id = ?", [detteId]);
     expect(Number(dette!.solde)).toBe(750);
   });
+
+  it("journeeCaisse : fond du matin, entrées, sorties, hors caisse et détail par caissier", () => {
+    const hier = new Date(Date.now() - 86_400_000).toISOString();
+    executer(
+      `INSERT INTO mouvements_caisse (id, depot_id, type, categorie, montant, motif, utilisateur_id, date_creation, date_modification)
+       VALUES (?, ?, 'entree', 'apport', 1000, 'Fond', ?, ?, ?)`,
+      [randomUUID(), depotId, utilisateurId, hier, hier],
+    );
+    const autreCaissier = randomUUID();
+    creerVente({ boutiqueId, depotId, utilisateurId, statut: "payee", lignes: [{ varianteId, quantite: 1 }], paiements: [{ mode: "especes", montant: 350 }] });
+    creerVente({
+      boutiqueId,
+      depotId,
+      utilisateurId: autreCaissier,
+      statut: "payee",
+      lignes: [{ varianteId, quantite: 1 }],
+      paiements: [{ mode: "mobile_money", operateur: "orange_money", montant: 350 }],
+    });
+    enregistrerDepense(depotId, "transport", 50, "Taxi", utilisateurId);
+
+    const debut = new Date();
+    debut.setHours(0, 0, 0, 0);
+    const fin = new Date(debut.getTime() + 86_400_000);
+    const j = journeeCaisse(boutiqueId, null, debut.toISOString(), fin.toISOString());
+    expect(j.fondOuverture).toBe(1000);
+    expect(j.entrees).toEqual([{ categorie: "vente_especes", montant: 350, nombre: 1 }]);
+    expect(j.sorties).toEqual([{ categorie: "depense", montant: 50, nombre: 1 }]);
+    expect(j.soldeAttendu).toBe(1300);
+    expect(j.chiffreAffaires).toBe(700);
+    expect(j.nombreVentes).toBe(2);
+    expect(j.especes).toBe(350);
+    expect(j.mobileMoney).toEqual([{ operateur: "orange_money", montant: 350 }]);
+    expect(j.parCaissier).toHaveLength(2);
+    expect(j.parCaissier.find((c) => c.utilisateurId === autreCaissier)).toMatchObject({ mobileMoney: 350, total: 350 });
+  });
+
 });

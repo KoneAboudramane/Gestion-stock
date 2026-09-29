@@ -7471,3 +7471,74 @@ tr.ligne-cliquable {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Trésorerie : fenêtre « Journée ». */
+.colonnes-journee {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.bloc-journee {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--bordure-tableau);
+  border-radius: var(--rayon-md);
+  background: var(--surface-entete);
+}
+
+.bloc-journee h4,
+.titre-section-journee {
+  margin: 0 0 0.3rem;
+}
+
+.titre-section-journee {
+  margin-top: 1rem;
+}
+
+.ligne-journee {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.ligne-journee--detail {
+  padding-left: 1.2rem;
+  font-size: 0.92rem;
+  color: var(--gris-500);
+}
+
+.ligne-journee--total {
+  margin-top: 0.3rem;
+  font-weight: 600;
+}
+
+.ligne-journee--resultat {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--bordure-tableau);
+  font-size: 1.1rem;
+}
+
+.ligne-cloture-journee {
+  margin-top: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.bouton-cloturer-journee {
+  align-self: flex-start;
+  margin-top: 0.5rem;
+}
+
+.tuile-fiche .montant-entree,
+.tuile-fiche .texte-erreur {
+  font-size: 0.8rem;
+}
+
+@media (max-width: 720px) {
+  .colonnes-journee {
+    grid-template-columns: 1fr;
+  }
+}
