@@ -46,7 +46,18 @@ async function genererAlertesRuptureImpl(boutiqueId: string): Promise<string[]> 
     if (await notificationRecenteExiste(boutiqueId, s.id)) continue;
 
     const produit = await db.get("produits", variante.produit_id);
-    const message = `Rupture de stock : ${produit?.nom ?? ""} (${depot.nom}), ${s.quantite} restant(s)`;
+    // Il reste du gros (cartons) dans ce dépôt : détailler plutôt que commander.
+    let suggestion = "";
+    for (const g of await db.getAll("variantes")) {
+      if (g.supprime || g.variante_detail_id !== variante.id) continue;
+      const stockGros = Number((await db.getFromIndex("stocks", "variante_depot", [g.id, depot.id]))?.quantite ?? 0);
+      if (stockGros > 0) {
+        const produitGros = await db.get("produits", g.produit_id);
+        suggestion = ` — il reste ${stockGros} « ${produitGros?.nom ?? ""} » : détaillez-en un plutôt que de commander.`;
+        break;
+      }
+    }
+    const message = `Rupture de stock : ${produit?.nom ?? ""} (${depot.nom}), ${s.quantite} restant(s)${suggestion}`;
     const id = crypto.randomUUID();
     const notification: NotificationLocale = {
       id,

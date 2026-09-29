@@ -10,6 +10,7 @@ import {
   appliquerMouvement,
   detaillerOuRegrouper,
   listerDetaillages,
+  listerStock,
 } from "../../electron/services/stock";
 import { creerBaseDeTest } from "../setup";
 
@@ -103,6 +104,14 @@ describe("détailler / regrouper (carton ↔ paquets)", () => {
     expect(ids).toContain(carton);
     expect(ids).toContain(paquet);
     expect(listerVariantesCatalogue(BOUTIQUE_ID, depotId).find((v) => v.id === paquet)?.quantiteDisponible).toBe(0);
+  });
+
+  it("stock : le carton montre son équivalent en paquets, le paquet ce qu'il reste à détailler", () => {
+    executer("UPDATE produits SET boutique_id = ?", [BOUTIQUE_ID]);
+    detaillerOuRegrouper({ varianteGrosId: carton, depotId, nombre: 1, type: "detailler", utilisateurId: null });
+    const lignes = listerStock(BOUTIQUE_ID, depotId);
+    expect(lignes.find((l) => l.varianteId === carton)).toMatchObject({ detailNom: "Biscuit paquet", quantiteDetail: 24 });
+    expect(lignes.find((l) => l.varianteId === paquet)).toMatchObject({ grosNom: "Biscuit carton", grosStock: 4 });
   });
 
   it("lien de détail : info dans les deux sens, pas de boucle, création sur place", () => {

@@ -36,6 +36,18 @@ def generer_alertes_rupture(boutique):
             f"Rupture de stock : {stock.variante.produit.nom} ({stock.depot.nom}) — "
             f"{stock.quantite} restant(s)"
         )
+        # Il reste du gros (cartons) dans ce dépôt : détailler plutôt que commander.
+        stock_gros = (
+            Stock.objects.filter(
+                depot=stock.depot, variante__variante_detail=stock.variante,
+                variante__supprime=False, quantite__gt=0,
+            ).select_related("variante__produit").order_by("-quantite").first()
+        )
+        if stock_gros:
+            message += (
+                f" — il reste {stock_gros.quantite:g} « {stock_gros.variante.produit.nom} » : "
+                "détaillez-en un plutôt que de commander."
+            )
         notifications_creees.append(
             Notification.objects.create(
                 boutique=boutique,

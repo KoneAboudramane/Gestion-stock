@@ -82,6 +82,32 @@ function EnteteModale({ titre, onFermer }: { titre: string; onFermer: () => void
   );
 }
 
+/** Carton : « (= 288 paquets) » ; paquet : « · 12 cartons à détailler ». */
+function complementGrosDetail(l: LigneStock) {
+  if (l.detailNom && l.quantiteDetail) {
+    return (
+      <span className="sous-info nowrap">
+        {" "}
+        (= {formaterMontant(l.quantite * l.quantiteDetail)} {l.detailNom})
+      </span>
+    );
+  }
+  if (l.grosNom && (l.grosStock ?? 0) > 0) {
+    return (
+      <span className="sous-info">
+        {" "}
+        · {formaterMontant(l.grosStock ?? 0)} {l.grosNom} à détailler
+      </span>
+    );
+  }
+  return null;
+}
+
+/** Rupture qui se règle en détaillant un carton plutôt qu'en commandant. */
+function aDetailler(l: LigneStock): boolean {
+  return !!l.enRupture && !!l.grosNom && (l.grosStock ?? 0) > 0;
+}
+
 function OngletStockNiveau({
   session,
   filtreRuptureInitial,
@@ -138,7 +164,7 @@ function OngletStockNiveau({
     quantite: l.quantite,
     seuil: l.seuilAlerte,
     valeur: valeurLigne(l),
-    statut: l.enRupture ? "Rupture" : "",
+    statut: aDetailler(l) ? "À détailler" : l.enRupture ? "Rupture" : "",
   }));
 
   function basculerSelection(id: string) {
@@ -252,12 +278,21 @@ function OngletStockNiveau({
               <td>{l.reference || ""}</td>
               <td>{l.produitNom}</td>
               <td>{l.depotNom}</td>
-              <td><strong className={classeQuantite(l)}>{l.quantite}</strong></td>
+              <td><strong className={classeQuantite(l)}>{l.quantite}</strong>
+                {complementGrosDetail(l)}
+              </td>
               <td>{l.seuilAlerte}</td>
               <td className="nowrap">
                 {formaterMontant(valeurLigne(l))} {devise}
               </td>
-              <td className="colonne-statut-stock">{l.enRupture ? <span className="badge-rupture">Rupture</span> : null}</td>
+              <td className="colonne-statut-stock">{aDetailler(l) ? (
+                  <span className="badge-a-detailler" title="Il reste de quoi détailler dans ce dépôt">
+                    À détailler
+                  </span>
+                ) : l.enRupture ? (
+                  <span className="badge-rupture">Rupture</span>
+                ) : null}
+              </td>
               <td className="colonne-actions-stock">
                 {!!l.enRupture && (
                   <span className="actions-ligne">

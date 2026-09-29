@@ -40,11 +40,17 @@ interface LigneStockEnRupture {
   depotId: string;
   depotNom: string;
   quantite: number;
+  grosNom: string | null;
+  grosStock: number | null;
 }
 
 export function genererAlertesRupture(boutiqueId: string): string[] {
   const stocksEnRupture = tousLesResultats<LigneStockEnRupture>(
-    `SELECT s.id as id, p.nom as produitNom, d.id as depotId, d.nom as depotNom, s.quantite as quantite
+    `SELECT s.id as id, p.nom as produitNom, d.id as depotId, d.nom as depotNom, s.quantite as quantite,
+            (SELECT pg.nom FROM variantes g JOIN produits pg ON pg.id = g.produit_id
+             WHERE g.variante_detail_id = va.id AND g.supprime = 0 ORDER BY g.date_creation LIMIT 1) as grosNom,
+            (SELECT COALESCE(SUM(sg.quantite), 0) FROM variantes g JOIN stocks sg ON sg.variante_id = g.id
+             WHERE g.variante_detail_id = va.id AND g.supprime = 0 AND sg.depot_id = s.depot_id) as grosStock
      FROM stocks s
      JOIN depots d ON d.id = s.depot_id
      JOIN variantes va ON va.id = s.variante_id
@@ -57,7 +63,11 @@ export function genererAlertesRupture(boutiqueId: string): string[] {
   const maintenant = new Date().toISOString();
   for (const stock of stocksEnRupture) {
     if (notificationRecenteExiste(boutiqueId, stock.id)) continue;
-    const message = `Rupture de stock : ${stock.produitNom} (${stock.depotNom}), ${stock.quantite} restant(s)`;
+    const message =
+      `Rupture de stock : ${stock.produitNom} (${stock.depotNom}), ${stock.quantite} restant(s)` +
+      (stock.grosNom && Number(stock.grosStock) > 0
+        ? ` — il reste ${Number(stock.grosStock)} « ${stock.grosNom} » : détaillez-en un plutôt que de commander.`
+        : "");
     const id = randomUUID();
     executer(
       `INSERT INTO notifications

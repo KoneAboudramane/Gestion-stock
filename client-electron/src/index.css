@@ -7049,3 +7049,13 @@ tr.ligne-annulee td {
 .formulaire-detailler .actions-formulaire {
   align-self: flex-start;
 }
+
+.badge-a-detailler {
+  background: var(--avertissement-clair);
+  color: var(--avertissement-fonce);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}

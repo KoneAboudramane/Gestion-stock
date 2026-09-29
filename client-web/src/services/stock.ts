@@ -338,6 +338,12 @@ export interface LigneStock {
   prixAchat: number;
   prixVente: number;
   enRupture: boolean;
+  /** Article de gros : son article de détail et combien il en contient. */
+  detailNom?: string | null;
+  quantiteDetail?: number | null;
+  /** Article de détail : son article de gros et le stock de gros dans ce dépôt. */
+  grosNom?: string | null;
+  grosStock?: number | null;
 }
 
 export async function listerStock(boutiqueId: string, depotId?: string, terme = ""): Promise<LigneStock[]> {
@@ -348,10 +354,21 @@ export async function listerStock(boutiqueId: string, depotId?: string, terme = 
 
   const resultat: LigneStock[] = [];
   const produits = (await db.getAllFromIndex("produits", "boutique_id", boutiqueId)).filter((p) => !p.supprime);
+  // Article de détail → son article de gros (le plus ancien lien s'il y en a plusieurs).
+  const nomsProduits = new Map(produits.map((p) => [p.id, p.nom]));
+  const grosParDetail = new Map<string, { id: string; nom: string }>();
+  for (const g of (await db.getAll("variantes")).sort((a, b) => a.date_creation.localeCompare(b.date_creation))) {
+    if (g.supprime || !g.variante_detail_id || grosParDetail.has(g.variante_detail_id)) continue;
+    const nom = nomsProduits.get(g.produit_id);
+    if (nom) grosParDetail.set(g.variante_detail_id, { id: g.id, nom });
+  }
   for (const produit of produits) {
     if (motif && !produit.nom.toLowerCase().includes(motif)) continue;
     const variantes = (await db.getAllFromIndex("variantes", "produit_id", produit.id)).filter((v) => !v.supprime);
     for (const variante of variantes) {
+      const detail = variante.variante_detail_id ? await db.get("variantes", variante.variante_detail_id) : undefined;
+      const produitDetail = detail && !detail.supprime ? await db.get("produits", detail.produit_id) : undefined;
+      const gros = grosParDetail.get(variante.id);
       const stocks = await db.getAllFromIndex(
         "stocks",
         "variante_depot",
@@ -374,6 +391,10 @@ export async function listerStock(boutiqueId: string, depotId?: string, terme = 
           prixAchat: variante.prix_achat,
           prixVente: variante.prix_vente,
           enRupture: stock.quantite <= variante.seuil_alerte,
+          detailNom: produitDetail?.nom ?? null,
+          quantiteDetail: produitDetail ? Number(variante.quantite_detail ?? 0) : null,
+          grosNom: gros?.nom ?? null,
+          grosStock: gros ? await stockVarianteDepot(gros.id, depot.id) : null,
         });
       }
     }

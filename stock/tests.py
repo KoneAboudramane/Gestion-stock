@@ -499,3 +499,22 @@ class DetaillageTests(APITestCase):
         appliquer_mouvement(self.paquet, self.depot, MouvementStock.Type.SORTIE, 1)
         reponse = self.client.post(reverse("detaillage-annuler", args=[operation.id]))
         self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class AlerteRuptureDetailTests(APITestCase):
+    def test_alerte_propose_de_detailler_quand_il_reste_des_cartons(self):
+        from notifications.services import generer_alertes_rupture
+
+        boutique, _ = inscrire_boutique({"nom": "Boutique A"}, {"username": "patronA", "password": "UnMotDePasseSolide123"})
+        depot = Depot.objects.create(boutique=boutique, nom="Magasin")
+        paquet = Variante.objects.create(
+            produit=Produit.objects.create(boutique=boutique, nom="Paquet"), prix_vente=600, seuil_alerte=5,
+        )
+        carton = Variante.objects.create(
+            produit=Produit.objects.create(boutique=boutique, nom="Carton"), prix_vente=12000,
+            variante_detail=paquet, quantite_detail=24,
+        )
+        appliquer_mouvement(carton, depot, MouvementStock.Type.ENTREE, 3)
+        appliquer_mouvement(paquet, depot, MouvementStock.Type.ENTREE, 2)
+        messages = [n.message for n in generer_alertes_rupture(boutique)]
+        self.assertTrue(any("détaillez-en un" in m and "Carton" in m for m in messages), messages)

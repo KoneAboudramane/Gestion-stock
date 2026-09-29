@@ -375,6 +375,12 @@ export interface LigneStock {
   prixAchat: number;
   prixVente: number;
   enRupture: number;
+  /** Article de gros : son article de détail et combien il en contient. */
+  detailNom?: string | null;
+  quantiteDetail?: number | null;
+  /** Article de détail : son article de gros et le stock de gros dans ce dépôt. */
+  grosNom?: string | null;
+  grosStock?: number | null;
 }
 
 export interface MouvementResume {

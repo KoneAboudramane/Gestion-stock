@@ -147,6 +147,32 @@ function versLigneAchatInitiale(l: LigneStock): LigneAchatInitiale {
 
 // --- Onglet Stock (niveaux) ---
 
+/** Carton : « (= 288 paquets) » ; paquet : « · 12 cartons à détailler ». */
+function complementGrosDetail(l: LigneStock) {
+  if (l.detailNom && l.quantiteDetail) {
+    return (
+      <span className="sous-info nowrap">
+        {" "}
+        (= {formaterMontant(l.quantite * l.quantiteDetail)} {l.detailNom})
+      </span>
+    );
+  }
+  if (l.grosNom && (l.grosStock ?? 0) > 0) {
+    return (
+      <span className="sous-info">
+        {" "}
+        · {formaterMontant(l.grosStock ?? 0)} {l.grosNom} à détailler
+      </span>
+    );
+  }
+  return null;
+}
+
+/** Rupture qui se règle en détaillant un carton plutôt qu'en commandant. */
+function aDetailler(l: LigneStock): boolean {
+  return !!l.enRupture && !!l.grosNom && (l.grosStock ?? 0) > 0;
+}
+
 function OngletStockNiveau({
   session,
   filtreRuptureInitial,
@@ -209,7 +235,7 @@ function OngletStockNiveau({
     quantite: l.quantite,
     seuil: l.seuilAlerte,
     valeur: valeurLigne(l),
-    statut: l.enRupture ? "Rupture" : "",
+    statut: aDetailler(l) ? "À détailler" : l.enRupture ? "Rupture" : "",
   }));
 
   function basculerSelection(id: string) {
@@ -323,12 +349,21 @@ function OngletStockNiveau({
                 <td data-label="Désignation">{l.produitNom}</td>
                 <td data-label="Référence">{l.reference || ""}</td>
                 <td data-label="Dépôt">{l.depotNom}</td>
-                <td data-label="Quantité"><strong className={classeQuantite(l)}>{l.quantite}</strong></td>
+                <td data-label="Quantité"><strong className={classeQuantite(l)}>{l.quantite}</strong>
+                {complementGrosDetail(l)}
+              </td>
                 <td data-label="Seuil">{l.seuilAlerte}</td>
                 <td data-label="Valeur" className="nowrap">
                   {formaterMontant(valeurLigne(l))} {devise}
                 </td>
-                <td data-label="Statut" className="colonne-statut-stock">{l.enRupture ? <span className="badge-rupture">Rupture</span> : null}</td>
+                <td data-label="Statut" className="colonne-statut-stock">{aDetailler(l) ? (
+                  <span className="badge-a-detailler" title="Il reste de quoi détailler dans ce dépôt">
+                    À détailler
+                  </span>
+                ) : l.enRupture ? (
+                  <span className="badge-rupture">Rupture</span>
+                ) : null}
+              </td>
                 <td data-label="Actions" className="colonne-actions-stock">
                   {!!l.enRupture && (
                     <span className="actions-ligne">

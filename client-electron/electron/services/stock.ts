@@ -384,6 +384,12 @@ export interface LigneStock {
   prixAchat: number;
   prixVente: number;
   enRupture: number;
+  /** Article de gros : son article de détail et combien il en contient. */
+  detailNom?: string | null;
+  quantiteDetail?: number | null;
+  /** Article de détail : son article de gros et le stock de gros dans ce dépôt. */
+  grosNom?: string | null;
+  grosStock?: number | null;
 }
 
 export function listerStock(boutiqueId: string, depotId?: string, terme = ""): LigneStock[] {
@@ -398,11 +404,18 @@ export function listerStock(boutiqueId: string, depotId?: string, terme = ""): L
     `SELECT s.id as id, v.id as varianteId, p.id as produitId, p.nom as produitNom, v.reference as reference,
             d.id as depotId, d.nom as depotNom, s.quantite as quantite, v.seuil_alerte as seuilAlerte,
             v.prix_achat as prixAchat, v.prix_vente as prixVente,
-            CASE WHEN s.quantite <= v.seuil_alerte THEN 1 ELSE 0 END as enRupture
+            CASE WHEN s.quantite <= v.seuil_alerte THEN 1 ELSE 0 END as enRupture,
+            pd.nom as detailNom, v.quantite_detail as quantiteDetail,
+            (SELECT pg.nom FROM variantes g JOIN produits pg ON pg.id = g.produit_id
+             WHERE g.variante_detail_id = v.id AND g.supprime = 0 ORDER BY g.date_creation LIMIT 1) as grosNom,
+            (SELECT COALESCE(SUM(sg.quantite), 0) FROM variantes g JOIN stocks sg ON sg.variante_id = g.id
+             WHERE g.variante_detail_id = v.id AND g.supprime = 0 AND sg.depot_id = s.depot_id) as grosStock
      FROM stocks s
      JOIN variantes v ON v.id = s.variante_id
      JOIN produits p ON p.id = v.produit_id
      JOIN depots d ON d.id = s.depot_id
+     LEFT JOIN variantes vd ON vd.id = v.variante_detail_id AND vd.supprime = 0
+     LEFT JOIN produits pd ON pd.id = vd.produit_id
      WHERE ${conditions.join(" AND ")}
      ORDER BY p.nom`,
     params,
