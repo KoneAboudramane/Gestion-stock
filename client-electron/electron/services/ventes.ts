@@ -234,6 +234,9 @@ export interface VenteResume {
   clientNom: string | null;
   statut: StatutVente;
   totalNet: number;
+  utilisateurId: string | null;
+  nombreArticles: number;
+  montantCredit: number;
 }
 
 export function listerVentes(
@@ -267,7 +270,12 @@ export function listerVentes(
 
   return tousLesResultats<VenteResume>(
     `SELECT v.id as id, v.numero as numero, v.date_creation as dateCreation,
-            d.nom as depotNom, c.nom as clientNom, v.statut as statut, v.total_net as totalNet
+            d.nom as depotNom, c.nom as clientNom, v.statut as statut, v.total_net as totalNet,
+            v.utilisateur_id as utilisateurId,
+            (SELECT COALESCE(SUM(lv.quantite), 0) FROM lignes_vente lv
+              WHERE lv.vente_id = v.id AND lv.supprime = 0) as nombreArticles,
+            (SELECT COALESCE(SUM(p.montant), 0) FROM paiements p
+              WHERE p.vente_id = v.id AND p.supprime = 0 AND p.mode = 'credit') as montantCredit
      FROM ventes v
      JOIN depots d ON d.id = v.depot_id
      LEFT JOIN clients c ON c.id = v.client_id
@@ -364,7 +372,7 @@ export function obtenirVente(id: string): VenteDetail | undefined {
   );
 
   const paiements = tousLesResultats<PaiementDetail>(
-    "SELECT id, mode, montant FROM paiements WHERE vente_id = ? AND supprime = 0",
+    "SELECT id, mode, operateur, montant FROM paiements WHERE vente_id = ? AND supprime = 0",
     [id],
   );
 

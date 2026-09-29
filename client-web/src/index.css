@@ -4848,22 +4848,27 @@ input.champ-invalide:focus {
 
   .catalogue-clients-reguliers .tableau-catalogue th:nth-child(1),
   .catalogue-clients-reguliers .tableau-catalogue td:nth-child(1) {
-    width: 5%;
+    width: 6%;
   }
 
   .catalogue-clients-reguliers .tableau-catalogue th:nth-child(2),
   .catalogue-clients-reguliers .tableau-catalogue td:nth-child(2) {
-    width: 42%;
+    width: 30%;
   }
 
   .catalogue-clients-reguliers .tableau-catalogue th:nth-child(3),
   .catalogue-clients-reguliers .tableau-catalogue td:nth-child(3) {
-    width: 24%;
+    width: 19%;
   }
 
   .catalogue-clients-reguliers .tableau-catalogue th:nth-child(4),
   .catalogue-clients-reguliers .tableau-catalogue td:nth-child(4) {
-    width: 29%;
+    width: 27%;
+  }
+
+  .catalogue-clients-reguliers .tableau-catalogue th:nth-child(5),
+  .catalogue-clients-reguliers .tableau-catalogue td:nth-child(5) {
+    width: 18%;
   }
 }
 
@@ -7748,4 +7753,50 @@ button.tuile-dormance.active {
 .ligne-depot-supprime button {
   margin-left: 0.4rem;
   padding: 0.2rem 0.6rem;
+}
+
+/* Fiche d'une vente : action d'annulation dans la barre latérale. */
+.menu-modale .bouton-menu-danger {
+  margin-top: auto;
+  color: var(--danger, #dc2626);
+}
+
+/* Caisse : case « Masquer les ruptures » dans l'ajout d'articles. */
+.case-masquer-ruptures {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+
+.case-masquer-ruptures input {
+  width: auto;
+}
+
+/* Caisse > Choisir un client : 5 colonnes (N°, Nom, Téléphone, Adresse, Crédit en cours). */
+.catalogue-clients-reguliers .tableau-catalogue td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.catalogue-clients-reguliers .tableau-catalogue td:nth-child(2) {
+  font-weight: 600;
+}
+
+.catalogue-clients-reguliers .tableau-catalogue th:nth-child(1),
+.catalogue-clients-reguliers .tableau-catalogue td:nth-child(1) {
+  text-align: center;
+  color: var(--gris-500);
+}
+
+.catalogue-clients-reguliers .tableau-catalogue th:nth-child(5),
+.catalogue-clients-reguliers .tableau-catalogue td:nth-child(5) {
+  text-align: right;
+}
+
+.modale-avec-menu .catalogue-clients-reguliers {
+  flex: 1;
+  min-height: 0;
 }

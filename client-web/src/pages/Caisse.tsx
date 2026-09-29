@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Session } from "../api/auth";
 import ChampMontant from "../components/ChampMontant";
 import FactureVente from "../components/FactureVente";
+import ModaleConfirmation from "../components/ModaleConfirmation";
 import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant, normaliserTelephone, telephoneValide } from "../lib/formatage";
 import { OPERATEURS_MOBILE_MONEY, type OperateurMobileMoney } from "../lib/libelles";
@@ -13,7 +14,7 @@ import {
   type ClientBoutique,
   type VarianteCatalogue,
 } from "../services/catalogue";
-import { creerClient } from "../services/clients";
+import { creerClient, listerClientsDetail } from "../services/clients";
 import { creerVente, ErreurVente, type VenteCreee } from "../services/ventes";
 
 /**
@@ -71,6 +72,10 @@ export default function Caisse({ session }: { session: Session }) {
   const [selectionModale, setSelectionModale] = useState<SelectionModaleVente[]>([]);
   const [erreurModale, setErreurModale] = useState<string | null>(null);
   const [modaleClientsOuverte, setModaleClientsOuverte] = useState(false);
+  const [masquerRuptures, setMasquerRuptures] = useState(false);
+  const [confirmationAnnulation, setConfirmationAnnulation] = useState(false);
+  // Crédit en cours de chaque client, montré dans « Choisir un client ».
+  const [soldesClients, setSoldesClients] = useState<Record<string, number>>({});
   const [catalogue, setCatalogue] = useState<VarianteCatalogue[]>([]);
   const [panier, setPanier] = useState<LignePanier[]>([]);
   const [depotId, setDepotId] = useState(session.depotId ?? "");
@@ -137,6 +142,27 @@ export default function Caisse({ session }: { session: Session }) {
     if (!q) return clients;
     return clients.filter((c) => c.nom.toLowerCase().includes(q));
   }, [clients, clientRechercheReguliers]);
+
+  useEffect(() => {
+    if (!modaleClientsOuverte) return;
+    listerClientsDetail(session.boutiqueId).then((liste) =>
+      setSoldesClients(Object.fromEntries(liste.map((c) => [c.id, c.soldeCredit]))),
+    );
+  }, [modaleClientsOuverte, session.boutiqueId]);
+
+  function retirerClient() {
+    setClientId("");
+    setClientTerme("");
+    fermerModaleClients();
+  }
+
+  const catalogueModale = masquerRuptures
+    ? catalogueFiltre.filter(
+        (v) =>
+          (quantitesDisponiblesAjustees.get(v.id) ?? v.quantiteDisponible) > 0 ||
+          selectionModale.some((s) => s.varianteId === v.id),
+      )
+    : catalogueFiltre;
 
   function choisirClient(client: ClientBoutique) {
     setClientId(client.id);
@@ -448,7 +474,7 @@ export default function Caisse({ session }: { session: Session }) {
         <div className="colonne-caisse colonne-recherche-vente">
           <h4 className="titre-colonne-caisse">Article</h4>
           <div className="recherche-produit-combobox">
-            <button type="button" className="bouton-ajouter-produit-dans-champ" title="Vente" onClick={() => setModaleProduitsOuverte(true)}>
+            <button type="button" className="bouton-ajouter-produit-dans-champ" title="Ajouter des articles" onClick={() => setModaleProduitsOuverte(true)}>
               +
             </button>
             <input
@@ -486,7 +512,7 @@ export default function Caisse({ session }: { session: Session }) {
               </ul>
             )}
           </div>
-          <button type="button" className="bouton-annuler-vente" disabled={enCours} onClick={annulerVente}>
+          <button type="button" className="bouton-annuler-vente" disabled={enCours} onClick={() => (panier.length > 0 ? setConfirmationAnnulation(true) : annulerVente())}>
             Annuler la vente
           </button>
         </div>
@@ -569,11 +595,25 @@ export default function Caisse({ session }: { session: Session }) {
         </div>
       </div>
 
+      {confirmationAnnulation && (
+        <ModaleConfirmation
+          titre="Annuler la vente en cours ?"
+          description={`Le panier (${lignesCalculees.length} article(s), ${formaterMontant(totalNet)} ${devise}) sera vidé. Rien n'a encore été enregistré.`}
+          labelConfirmer="Vider le panier"
+          dangereux
+          onAnnuler={() => setConfirmationAnnulation(false)}
+          onConfirmer={() => {
+            setConfirmationAnnulation(false);
+            annulerVente();
+          }}
+        />
+      )}
+
       {modaleProduitsOuverte && (
         <div className="fond-modale" onClick={fermerModaleProduits}>
           <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
             <div className="modale-entete">
-              <h3>Vente</h3>
+              <h3>Ajouter des articles</h3>
               <button type="button" className="lien bouton-retour" onClick={fermerModaleProduits}>
                 ← Retour
               </button>
@@ -599,13 +639,19 @@ export default function Caisse({ session }: { session: Session }) {
                     </div>
                   </div>
                   <button type="button" className="bouton-valider" onClick={confirmerSelectionModale}>
-                    Valider la vente
+                    {selectionModale.length > 0
+                      ? `Ajouter au panier (${selectionModale.length} article(s) · ${formaterMontant(totalSelectionModale)} ${devise})`
+                      : "Ajouter au panier"}
                   </button>
                 </div>
               </div>
               {erreurModale && <div className="message-erreur">{erreurModale}</div>}
               <div className="ligne-recherche-monnaie">
                 <input className="champ-recherche" placeholder="Rechercher un article ou scanner un code-barres…" value={terme} onChange={(e) => setTerme(e.target.value)} autoFocus />
+                <label className="case-masquer-ruptures">
+                  <input type="checkbox" checked={masquerRuptures} onChange={(e) => setMasquerRuptures(e.target.checked)} />
+                  Masquer les ruptures
+                </label>
                 <div className="calculette-monnaie">
                   <ChampMontant placeholder="Montant reçu" value={montantRecuEspeces} onChange={setMontantRecuEspeces} />
                   <div className="monnaie-a-rendre">
@@ -630,7 +676,7 @@ export default function Caisse({ session }: { session: Session }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {catalogueFiltre.map((v, index) => {
+                    {catalogueModale.map((v, index) => {
                       const quantiteBase = quantitesDisponiblesAjustees.get(v.id) ?? v.quantiteDisponible;
                       const selection = selectionModale.find((s) => s.varianteId === v.id);
                       const estSelectionnee = !!selection;
@@ -686,15 +732,13 @@ export default function Caisse({ session }: { session: Session }) {
                                   ✕
                                 </button>
                               </div>
-                            ) : (
-                              0
-                            )}
+                            ) : null}
                           </td>
                           <td data-label="Total">{selection ? `${formaterMontant(Math.round(selection.quantite * selection.prixUnitaire))} ${devise}` : ""}</td>
                         </tr>
                       );
                     })}
-                    {catalogueFiltre.length === 0 && (
+                    {catalogueModale.length === 0 && (
                       <tr>
                         <td colSpan={7} className="liste-vide">
                           Aucun article ne correspond.
@@ -703,8 +747,8 @@ export default function Caisse({ session }: { session: Session }) {
                     )}
                     {/* Lignes vides pour que le tableau soit déjà tracé (grille visible,
                         au moins 10 lignes) même quand peu d'articles correspondent. */}
-                    {catalogueFiltre.length > 0 &&
-                      Array.from({ length: Math.max(0, 10 - catalogueFiltre.length) }).map((_, i) => (
+                    {catalogueModale.length > 0 &&
+                      Array.from({ length: Math.max(0, 10 - catalogueModale.length) }).map((_, i) => (
                         <tr key={`vide-${i}`} className="ligne-groupe-vide">
                           <td>&nbsp;</td>
                           <td>&nbsp;</td>
@@ -732,76 +776,132 @@ export default function Caisse({ session }: { session: Session }) {
                 ← Retour
               </button>
             </div>
-            <div className="modale-corps">
-              <div className="barre-onglets">
-                <button type="button" className={ongletModaleClients === "reguliers" ? "onglet actif" : "onglet"} onClick={() => setOngletModaleClients("reguliers")}>
+            <div className="modale-avec-menu">
+              <nav className="menu-modale">
+                <button
+                  type="button"
+                  className={ongletModaleClients === "reguliers" ? "actif" : ""}
+                  onClick={() => setOngletModaleClients("reguliers")}
+                >
+                  <span className="icone-menu-modale">👥</span>
                   Clients réguliers
+                  <span className="compteur-menu-modale">{clients.length}</span>
                 </button>
-                <button type="button" className={ongletModaleClients === "occasionnel" ? "onglet actif" : "onglet"} onClick={() => setOngletModaleClients("occasionnel")}>
+                <button
+                  type="button"
+                  className={ongletModaleClients === "occasionnel" ? "actif" : ""}
+                  onClick={() => setOngletModaleClients("occasionnel")}
+                >
+                  <span className="icone-menu-modale">🚶</span>
                   Client de passage
                 </button>
-              </div>
-
-              {ongletModaleClients === "reguliers" ? (
-                <>
-                  <input className="champ-recherche" placeholder="Rechercher un client…" value={clientRechercheReguliers} onChange={(e) => setClientRechercheReguliers(e.target.value)} autoFocus />
-                  <div className="catalogue-caisse catalogue-clients-reguliers">
-                    <table className="tableau-catalogue carte-mobile">
-                      <thead>
-                        <tr>
-                          <th>N°</th>
-                          <th>Nom</th>
-                          <th>Téléphone</th>
-                          <th>Adresse</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {clientsFiltres.map((c, index) => (
-                          <tr key={c.id} onClick={() => choisirClient(c)}>
-                            <td data-label="N°">{index + 1}</td>
-                            <td data-label="Nom">{c.nom}</td>
-                            <td data-label="Téléphone">{c.telephone || ""}</td>
-                            <td data-label="Adresse">{c.adresse || ""}</td>
-                          </tr>
-                        ))}
-                        {clientsFiltres.length === 0 && (
+                {clientId && (
+                  <button type="button" className="bouton-menu-danger" onClick={retirerClient}>
+                    <span className="icone-menu-modale">✕</span>
+                    Retirer « {clientTerme} »
+                  </button>
+                )}
+              </nav>
+              <div className="modale-corps">
+                {ongletModaleClients === "reguliers" ? (
+                  <>
+                    <input
+                      className="champ-recherche"
+                      placeholder="Rechercher un client…"
+                      value={clientRechercheReguliers}
+                      onChange={(e) => setClientRechercheReguliers(e.target.value)}
+                      autoFocus
+                    />
+                    <div className="catalogue-caisse catalogue-clients-reguliers">
+                      <table className="tableau-catalogue carte-mobile">
+                        <thead>
                           <tr>
-                            <td colSpan={4} className="liste-vide">
-                              {clients.length === 0 ? "Aucun client régulier enregistré." : "Aucun client ne correspond."}
-                            </td>
+                            <th>N°</th>
+                            <th>Nom</th>
+                            <th>Téléphone</th>
+                            <th>Adresse</th>
+                            <th>Crédit en cours</th>
                           </tr>
-                        )}
-                        {clientsFiltres.length > 0 &&
-                          Array.from({ length: Math.max(0, 10 - clientsFiltres.length) }).map((_, i) => (
-                            <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                              <td>&nbsp;</td>
-                              <td>&nbsp;</td>
-                              <td>&nbsp;</td>
-                              <td>&nbsp;</td>
+                        </thead>
+                        <tbody>
+                          {clientsFiltres.map((c, index) => {
+                            const solde = soldesClients[c.id] ?? 0;
+                            return (
+                              <tr
+                                key={c.id}
+                                className={c.id === clientId ? "ligne-selectionnee" : undefined}
+                                onClick={() => choisirClient(c)}
+                              >
+                                <td data-label="N°">{index + 1}</td>
+                                <td data-label="Nom">{c.nom}</td>
+                                <td data-label="Téléphone">{c.telephone || ""}</td>
+                                <td data-label="Adresse">{c.adresse || ""}</td>
+                                <td data-label="Crédit en cours" className="nowrap">
+                                  {solde > 0 ? (
+                                    <span className="badge-credit">
+                                      {formaterMontant(solde)} {devise}
+                                    </span>
+                                  ) : (
+                                    ""
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          {clientsFiltres.length === 0 && (
+                            <tr>
+                              <td colSpan={5} className="liste-vide">
+                                {clients.length === 0 ? "Aucun client régulier enregistré." : "Aucun client ne correspond."}
+                              </td>
                             </tr>
-                          ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              ) : (
-                <div className="creation-client-rapide">
-                  <div className="champs-client-occasionnel">
-                    <input placeholder="Nom complet" value={nouveauClientNom} onChange={(e) => setNouveauClientNom(e.target.value)} autoFocus />
-                    <div className="champ-telephone-avec-aide">
-                      <input type="tel" placeholder="+2250712345678" value={nouveauClientTelephone} onChange={(e) => setNouveauClientTelephone(normaliserTelephone(e.target.value))} />
-                      <span className="aide-format-telephone">Indicatif + numéro, ex. 2250712345678</span>
+                          )}
+                          {clientsFiltres.length > 0 &&
+                            Array.from({ length: Math.max(0, 10 - clientsFiltres.length) }).map((_, i) => (
+                              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                                <td>&nbsp;</td>
+                                <td>&nbsp;</td>
+                                <td>&nbsp;</td>
+                                <td>&nbsp;</td>
+                                <td>&nbsp;</td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
                     </div>
-                    <input placeholder="Adresse" value={nouveauClientAdresse} onChange={(e) => setNouveauClientAdresse(e.target.value)} />
+                  </>
+                ) : (
+                  <div className="creation-client-rapide">
+                    <div className="champs-client-occasionnel">
+                      <input
+                        placeholder="Nom complet"
+                        value={nouveauClientNom}
+                        onChange={(e) => setNouveauClientNom(e.target.value)}
+                        autoFocus
+                      />
+                      <div className="champ-telephone-avec-aide">
+                        <input
+                          type="tel"
+                          placeholder="+2250712345678"
+                          value={nouveauClientTelephone}
+                          onChange={(e) => setNouveauClientTelephone(normaliserTelephone(e.target.value))}
+                        />
+                        <span className="aide-format-telephone">Indicatif + numéro, ex. 2250712345678</span>
+                      </div>
+                      <input
+                        placeholder="Adresse"
+                        value={nouveauClientAdresse}
+                        onChange={(e) => setNouveauClientAdresse(e.target.value)}
+                      />
+                    </div>
+                    {erreurModaleClients && <div className="message-erreur">{erreurModaleClients}</div>}
+                    <div className="creation-client-actions">
+                      <button type="button" onClick={confirmerCreationClientOccasionnel}>
+                        Ajouter et sélectionner
+                      </button>
+                    </div>
                   </div>
-                  {erreurModaleClients && <div className="message-erreur">{erreurModaleClients}</div>}
-                  <div className="creation-client-actions">
-                    <button type="button" onClick={confirmerCreationClientOccasionnel}>
-                      Ajouter et sélectionner
-                    </button>
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
         </div>

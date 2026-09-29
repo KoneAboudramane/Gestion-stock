@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 
 import { api } from "../api/client";
 import type {
+  ColonneExport,
   Depot,
   FournisseurMobileMoney,
   PaiementDetail,
@@ -12,17 +13,22 @@ import type {
   VenteDetail,
   VenteResume,
 } from "../api/client";
+import BoutonsExport from "../components/BoutonsExport";
 import FactureVente from "../components/FactureVente";
+import FiltrePeriodeHistorique from "../components/FiltrePeriodeHistorique";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import { useDevise } from "../contexts/DeviseContext";
+import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
 import { formaterMontant } from "../lib/formatage";
 import {
   FOURNISSEURS_MOBILE_MONEY,
   libelleFournisseurMobileMoney,
   libelleModePaiement,
+  libelleOperateurMobileMoney,
   libelleStatutTransactionMobileMoney,
   libelleStatutVente,
 } from "../lib/libelles";
+import { bornesPeriode, dansPeriode, jourLocal, type PeriodeHistorique } from "../lib/periode";
 
 const STATUTS: { valeur: StatutVenteHistorique | ""; label: string }[] = [
   { valeur: "", label: "Tous les statuts" },
@@ -108,18 +114,12 @@ function PaiementMobileMoney({ paiement }: { paiement: PaiementDetail }) {
   );
 }
 
-export function DetailVente({
-  venteId,
-  session,
-  onRetour,
-}: {
-  venteId: string;
-  session: Session;
-  onRetour: () => void;
-}) {
+export function DetailVente({ venteId, session, onRetour }: { venteId: string; session: Session; onRetour: () => void }) {
   const peutAnnuler = !!session.permissions.annuler_vente;
   const devise = useDevise();
+  const nomUtilisateur = useNomsUtilisateurs(session);
   const [vente, setVente] = useState<VenteDetail | null>(null);
+  const [page, setPage] = useState<"articles" | "paiements">("articles");
   const [confirmation, setConfirmation] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
@@ -150,18 +150,23 @@ export function DetailVente({
   }
 
   if (afficherFacture) {
-    return (
-      <FactureVente
-        venteId={venteId}
-        session={session}
-        labelRetour="← Retour à la vente"
-        onRetour={() => setAfficherFacture(false)}
-      />
-    );
+    return <FactureVente venteId={venteId} session={session} labelRetour="← Retour à la vente" onRetour={() => setAfficherFacture(false)} />;
   }
 
   if (!vente) return <p>Chargement…</p>;
   const estAnnulee = vente.statut === "annulee";
+  const montantCredit = vente.paiements.filter((p) => p.mode === "credit").reduce((t, p) => t + p.montant, 0);
+  const montantComptant = vente.paiements.filter((p) => p.mode !== "credit").reduce((t, p) => t + p.montant, 0);
+  const quantiteTotale = vente.lignes.reduce((t, l) => t + l.quantite, 0);
+  const consequences = [
+    `${formaterQuantite(quantiteTotale)} article(s) retournent dans le stock du dépôt « ${vente.depotNom} ».`,
+    montantCredit > 0
+      ? `Le crédit de ${formaterMontant(montantCredit)} ${devise}${vente.clientNom ? ` de ${vente.clientNom}` : ""} est annulé.`
+      : "",
+    "La vente reste visible dans l'historique, marquée « Annulée ».",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <>
@@ -178,84 +183,177 @@ export function DetailVente({
           </button>
         </div>
       </div>
-      <div className="modale-corps">
-      <p>
-        Dépôt : {vente.depotNom} · Client : {vente.clientNom ?? ""} · {new Date(vente.dateCreation).toLocaleString("fr-FR")}
-      </p>
-      {erreur && <div className="message-erreur">{erreur}</div>}
+      <div className="modale-avec-menu">
+        <nav className="menu-modale">
+          <button type="button" className={page === "articles" ? "actif" : ""} onClick={() => setPage("articles")}>
+            <span className="icone-menu-modale">🧾</span>
+            Articles
+            <span className="compteur-menu-modale">{vente.lignes.length}</span>
+          </button>
+          <button type="button" className={page === "paiements" ? "actif" : ""} onClick={() => setPage("paiements")}>
+            <span className="icone-menu-modale">💳</span>
+            Paiements
+            <span className="compteur-menu-modale">{vente.paiements.length}</span>
+          </button>
+          {!estAnnulee && peutAnnuler && (
+            <button type="button" className="bouton-menu-danger" onClick={() => setConfirmation(true)}>
+              <span className="icone-menu-modale">✕</span>
+              Annuler la vente
+            </button>
+          )}
+        </nav>
+        <div className="modale-corps">
+          <div className="tuiles-fiche">
+            <div className="tuile-fiche">
+              <span className="sous-info">💰 Total net</span>
+              <strong className="nowrap">
+                {formaterMontant(vente.totalNet)} {devise}
+              </strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">🏷️ Remise</span>
+              <strong className="nowrap">
+                {formaterMontant(vente.remise)} {devise}
+              </strong>
+            </div>
+            <div className="tuile-fiche">
+              <span className="sous-info">💵 Payé comptant</span>
+              <strong className="nowrap">
+                {formaterMontant(montantComptant)} {devise}
+              </strong>
+            </div>
+            <div className={`tuile-fiche${montantCredit > 0 && !estAnnulee ? " tuile-fiche--attention" : ""}`}>
+              <span className="sous-info">💳 Reste en crédit</span>
+              <strong className="nowrap">
+                {formaterMontant(montantCredit)} {devise}
+              </strong>
+            </div>
+          </div>
+          <div className="fiche-infos-produit">
+            <div>
+              <span className="sous-info">Date</span>
+              <strong>{new Date(vente.dateCreation).toLocaleString("fr-FR")}</strong>
+            </div>
+            <div>
+              <span className="sous-info">Dépôt</span>
+              <strong>{vente.depotNom || "—"}</strong>
+            </div>
+            <div>
+              <span className="sous-info">Client</span>
+              <strong>
+                {vente.clientNom ?? "—"}
+                {vente.clientTelephone ? ` · ${vente.clientTelephone}` : ""}
+              </strong>
+            </div>
+            <div>
+              <span className="sous-info">Vendeur</span>
+              <strong>{nomUtilisateur(vente.utilisateurId)}</strong>
+            </div>
+          </div>
+          {erreur && <div className="message-erreur">{erreur}</div>}
 
-      <div className="zone-tableau-scroll">
-      <table className="tableau-catalogue">
-        <thead>
-          <tr>
-            <th>Désignation</th>
-            <th>Référence</th>
-            <th>Qté</th>
-            <th>PU</th>
-            <th>Sous-total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {vente.lignes.map((l) => (
-            <tr key={l.id}>
-              <td>{l.produitNom}</td>
-              <td>{l.reference || ""}</td>
-              <td>{l.quantite}</td>
-              <td>{formaterMontant(l.prixUnitaire)}</td>
-              <td>{formaterMontant(l.sousTotal)}</td>
-            </tr>
-          ))}
-          {Array.from({ length: Math.max(0, 10 - vente.lignes.length) }).map((_, i) => (
-            <tr key={`vide-${i}`} className="ligne-groupe-vide">
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      </div>
+          {page === "articles" ? (
+            <div className="zone-tableau-scroll zone-commandes-fiche">
+              <table className="tableau-catalogue">
+                <thead>
+                  <tr>
+                    <th>N°</th>
+                    <th>Désignation</th>
+                    <th>Référence</th>
+                    <th>Qté</th>
+                    <th>PU</th>
+                    <th>Sous-total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vente.lignes.map((l, index) => (
+                    <tr key={l.id}>
+                      <td data-label="N°">{index + 1}</td>
+                      <td data-label="Désignation">
+                        {l.produitNom}{" "}
+                        {l.prixNormal !== null && (
+                          <span className="badge-destockage" title={`Prix normal : ${formaterMontant(l.prixNormal)} ${devise}`}>
+                            Déstockage
+                          </span>
+                        )}
+                      </td>
+                      <td data-label="Référence">{l.reference || ""}</td>
+                      <td data-label="Qté">{formaterQuantite(l.quantite)}</td>
+                      <td data-label="PU" className="nowrap">
+                        {formaterMontant(l.prixUnitaire)}
+                      </td>
+                      <td data-label="Sous-total" className="nowrap">
+                        {formaterMontant(l.sousTotal)} {devise}
+                      </td>
+                    </tr>
+                  ))}
+                  {Array.from({ length: Math.max(0, 10 - vente.lignes.length) }).map((_, i) => (
+                    <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="zone-tableau-scroll zone-commandes-fiche">
+              <table className="tableau-catalogue">
+                <thead>
+                  <tr>
+                    <th>Mode</th>
+                    <th>Opérateur</th>
+                    <th>Montant</th>
+                    <th>Suivi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vente.paiements.map((p) => (
+                    <tr key={p.id}>
+                      <td data-label="Mode">{libelleModePaiement(p.mode)}</td>
+                      <td data-label="Opérateur">{p.operateur ? libelleOperateurMobileMoney(p.operateur) : ""}</td>
+                      <td data-label="Montant" className="nowrap">
+                        {formaterMontant(p.montant)} {devise}
+                      </td>
+                      <td data-label="Suivi">{p.mode === "mobile_money" && <PaiementMobileMoney paiement={p} />}</td>
+                    </tr>
+                  ))}
+                  {vente.paiements.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="liste-vide">
+                        Aucun paiement.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
 
-      <div className="totaux">
-        <div>Total brut : {formaterMontant(vente.totalBrut)} {devise}</div>
-        <div>Remise : {formaterMontant(vente.remise)} {devise}</div>
-        <div className="total-net">Total net : {formaterMontant(vente.totalNet)} {devise}</div>
-      </div>
-
-      <div className="paiements">
-        <h3>Paiements</h3>
-        <ul className="liste-simple">
-          {vente.paiements.map((p) => (
-            <li key={p.id}>
-              {libelleModePaiement(p.mode)} : {formaterMontant(p.montant)} {devise}
-              {p.mode === "mobile_money" && <PaiementMobileMoney paiement={p} />}
-            </li>
-          ))}
-          {vente.paiements.length === 0 && <li className="liste-vide">Aucun paiement.</li>}
-        </ul>
-      </div>
-
-      {!estAnnulee && peutAnnuler && (
-        <button type="button" className="bouton-danger" onClick={() => setConfirmation(true)}>
-          Annuler la vente
-        </button>
-      )}
-      {!estAnnulee && peutAnnuler && confirmation && (
-        <ModaleConfirmation
-          titre="Annuler cette vente ?"
-          description="Le stock sera recrédité."
-          labelConfirmer="Confirmer l'annulation"
-          dangereux
-          enCours={enCours}
-          onAnnuler={() => setConfirmation(false)}
-          onConfirmer={confirmerAnnulation}
-        />
-      )}
+          {!estAnnulee && peutAnnuler && confirmation && (
+            <ModaleConfirmation
+              titre="Annuler cette vente ?"
+              description={consequences}
+              labelConfirmer="Confirmer l'annulation"
+              dangereux
+              enCours={enCours}
+              onAnnuler={() => setConfirmation(false)}
+              onConfirmer={confirmerAnnulation}
+            />
+          )}
+        </div>
       </div>
     </>
   );
+}
+
+/** Quantité lisible : entier sans décimales, sinon deux décimales au plus. */
+function formaterQuantite(quantite: number): string {
+  return quantite.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
 const CERCLES_FOND = [
@@ -273,10 +371,15 @@ const CERCLES_FOND = [
 
 export default function Ventes({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
+  const devise = useDevise();
+  const nomUtilisateur = useNomsUtilisateurs(session);
   const [depots, setDepots] = useState<Depot[]>([]);
   const [depotId, setDepotId] = useState(peutGerer ? "" : (session.depotId ?? ""));
   const [statut, setStatut] = useState<StatutVenteHistorique | "">("");
   const [terme, setTerme] = useState("");
+  const [periode, setPeriode] = useState<PeriodeHistorique>("mois");
+  const [debutPerso, setDebutPerso] = useState(jourLocal(new Date()));
+  const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
   const [ventes, setVentes] = useState<VenteResume[]>([]);
   const [venteSelectionneeId, setVenteSelectionneeId] = useState<string | null>(null);
 
@@ -286,12 +389,43 @@ export default function Ventes({ session }: { session: Session }) {
   }, [session.boutiqueId, peutGerer]);
 
   async function rafraichir() {
-    setVentes(await api.ventes.lister(session.boutiqueId, depotId || undefined, statut || undefined, terme));
+    setVentes(await api.ventes.lister(session.boutiqueId, depotId || undefined, statut || undefined, terme, 5000));
   }
   useEffect(() => {
     rafraichir();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [depotId, statut, terme]);
+
+  const bornes = bornesPeriode(periode, debutPerso, finPerso);
+  const ventesPeriode = ventes.filter((v) => dansPeriode(v.dateCreation, bornes));
+  // Les ventes annulées restent listées mais ne comptent pas dans les tuiles.
+  const valides = ventesPeriode.filter((v) => v.statut !== "annulee");
+  const chiffreAffaires = valides.reduce((t, v) => t + v.totalNet, 0);
+  const venduACredit = valides.reduce((t, v) => t + (v.montantCredit ?? 0), 0);
+  const panierMoyen = valides.length > 0 ? Math.round(chiffreAffaires / valides.length) : 0;
+
+  const colonnesExport: ColonneExport[] = [
+    { cle: "date", libelle: "Date" },
+    { cle: "numero", libelle: "Numéro" },
+    { cle: "depot", libelle: "Dépôt" },
+    { cle: "client", libelle: "Client" },
+    { cle: "vendeur", libelle: "Vendeur" },
+    { cle: "articles", libelle: "Articles" },
+    { cle: "statut", libelle: "Statut" },
+    { cle: "credit", libelle: `Dont crédit (${devise})` },
+    { cle: "total", libelle: `Total net (${devise})` },
+  ];
+  const lignesExport = ventesPeriode.map((v) => ({
+    date: new Date(v.dateCreation).toLocaleString("fr-FR"),
+    numero: v.numero,
+    depot: v.depotNom,
+    client: v.clientNom ?? "",
+    vendeur: nomUtilisateur(v.utilisateurId),
+    articles: v.nombreArticles,
+    statut: libelleStatutVente(v.statut),
+    credit: v.montantCredit,
+    total: v.totalNet,
+  }));
 
   return (
     <div className="page-produits page-accueil">
@@ -329,7 +463,39 @@ export default function Ventes({ session }: { session: Session }) {
           </div>
         </div>
       )}
-      <div className="barre-actions">
+      <div className="tuiles-fiche">
+        <div className="tuile-fiche">
+          <span className="sous-info">🧾 Ventes</span>
+          <strong>{valides.length}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">💰 Chiffre d'affaires</span>
+          <strong className="nowrap">
+            {formaterMontant(chiffreAffaires)} {devise}
+          </strong>
+        </div>
+        <div className={`tuile-fiche${venduACredit > 0 ? " tuile-fiche--attention" : ""}`}>
+          <span className="sous-info">💳 Vendu à crédit</span>
+          <strong className="nowrap">
+            {formaterMontant(venduACredit)} {devise}
+          </strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">🧺 Panier moyen</span>
+          <strong className="nowrap">
+            {formaterMontant(panierMoyen)} {devise}
+          </strong>
+        </div>
+      </div>
+      <div className="barre-actions barre-filtres-historique">
+        <FiltrePeriodeHistorique
+          periode={periode}
+          setPeriode={setPeriode}
+          debutPerso={debutPerso}
+          setDebutPerso={setDebutPerso}
+          finPerso={finPerso}
+          setFinPerso={setFinPerso}
+        />
         {peutGerer ? (
           <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
             <option value="">Tous les dépôts</option>
@@ -355,51 +521,66 @@ export default function Ventes({ session }: { session: Session }) {
           value={terme}
           onChange={(e) => setTerme(e.target.value)}
         />
+        <BoutonsExport titre="Historique des ventes" colonnes={colonnesExport} lignes={lignesExport} compact />
       </div>
       <div className="zone-tableau-scroll">
-      <table className="tableau-catalogue">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Numéro</th>
-            <th>Dépôt</th>
-            <th>Client</th>
-            <th>Statut</th>
-            <th>Total net</th>
-          </tr>
-        </thead>
-        <tbody>
-          {ventes.map((v) => (
-            <tr key={v.id} onClick={() => setVenteSelectionneeId(v.id)}>
-              <td>{new Date(v.dateCreation).toLocaleString("fr-FR")}</td>
-              <td>{v.numero}</td>
-              <td>{v.depotNom}</td>
-              <td>{v.clientNom ?? ""}</td>
-              <td>
-                <span className={`badge-${v.statut}`}>{libelleStatutVente(v.statut)}</span>
-              </td>
-              <td>{formaterMontant(v.totalNet)}</td>
-            </tr>
-          ))}
-          {ventes.length === 0 && (
+        <table className="tableau-catalogue">
+          <thead>
             <tr>
-              <td colSpan={6} className="liste-vide">
-                Aucune vente.
-              </td>
+              <th>N°</th>
+              <th>Date</th>
+              <th>Numéro</th>
+              <th>Dépôt</th>
+              <th>Client</th>
+              <th>Vendeur</th>
+              <th>Articles</th>
+              <th>Statut</th>
+              <th>Total net</th>
             </tr>
-          )}
-          {Array.from({ length: Math.max(0, 10 - Math.max(1, ventes.length)) }).map((_, i) => (
-            <tr key={`vide-${i}`} className="ligne-groupe-vide">
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {ventesPeriode.map((v, index) => (
+              <tr key={v.id} onClick={() => setVenteSelectionneeId(v.id)}>
+                <td data-label="N°">{index + 1}</td>
+                <td data-label="Date">{new Date(v.dateCreation).toLocaleString("fr-FR")}</td>
+                <td data-label="Numéro">{v.numero}</td>
+                <td data-label="Dépôt">{v.depotNom}</td>
+                <td data-label="Client">{v.clientNom ?? ""}</td>
+                <td data-label="Vendeur">{nomUtilisateur(v.utilisateurId)}</td>
+                <td data-label="Articles">{formaterQuantite(v.nombreArticles)}</td>
+                <td data-label="Statut">
+                  <span className={`badge-${v.statut}`}>{libelleStatutVente(v.statut)}</span>
+                </td>
+                <td data-label="Total net" className="nowrap">
+                  {formaterMontant(v.totalNet)} {devise}
+                  {v.montantCredit > 0 && v.statut !== "annulee" && (
+                    <span className="sous-info"> · dont {formaterMontant(v.montantCredit)} à crédit</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {ventesPeriode.length === 0 && (
+              <tr>
+                <td colSpan={9} className="liste-vide">
+                  {ventes.length === 0 ? "Aucune vente." : "Aucune vente sur cette période."}
+                </td>
+              </tr>
+            )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, ventesPeriode.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

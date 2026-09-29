@@ -242,6 +242,7 @@ export interface VenteDetail {
   totalBrut: number;
   remise: number;
   totalNet: number;
+  utilisateurId: string | null;
   lignes: LigneVenteDetail[];
   paiements: PaiementDetail[];
 }
@@ -256,6 +257,11 @@ export interface VenteResumeLocale {
   clientNom: string | null;
   statut: StatutVente;
   totalNet: number;
+  utilisateurId: string | null;
+  /** Quantité totale d'articles vendus. */
+  nombreArticles: number;
+  /** Part de la vente payée à crédit. */
+  montantCredit: number;
 }
 
 /** Liste l'historique des ventes depuis IndexedDB (données déjà synchronisées ou créées localement). */
@@ -273,6 +279,8 @@ export async function listerVentesLocales(
   for (const v of ventes) {
     const depot = await db.get("depots", v.depot_id);
     const client = v.client_id ? await db.get("clients", v.client_id) : undefined;
+    const lignes = (await db.getAllFromIndex("lignes_vente", "vente_id", v.id)).filter((l) => !l.supprime);
+    const paiements = (await db.getAllFromIndex("paiements", "vente_id", v.id)).filter((p) => !p.supprime);
     resumes.push({
       id: v.id,
       depotId: v.depot_id,
@@ -283,6 +291,9 @@ export async function listerVentesLocales(
       clientNom: client?.nom ?? null,
       statut: v.statut,
       totalNet: v.total_net,
+      utilisateurId: v.utilisateur_id != null ? String(v.utilisateur_id) : null,
+      nombreArticles: lignes.reduce((t, l) => t + l.quantite, 0),
+      montantCredit: paiements.filter((p) => p.mode === "credit").reduce((t, p) => t + p.montant, 0),
     });
   }
 
@@ -388,6 +399,7 @@ export async function obtenirVenteDetail(venteId: string): Promise<VenteDetail |
     totalBrut: vente.total_brut,
     remise: vente.remise,
     totalNet: vente.total_net,
+    utilisateurId: vente.utilisateur_id != null ? String(vente.utilisateur_id) : null,
     lignes: lignesDetail,
     paiements: paiements.map((p) => ({ id: p.id, mode: p.mode, operateur: p.operateur, montant: p.montant })),
   };

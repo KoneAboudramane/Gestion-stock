@@ -134,6 +134,11 @@ export interface VenteResume {
   clientNom: string | null;
   statut: StatutVenteHistorique;
   totalNet: number;
+  utilisateurId: string | null;
+  /** Quantité totale d'articles vendus. */
+  nombreArticles: number;
+  /** Part de la vente payée à crédit. */
+  montantCredit: number;
 }
 
 export interface LigneVenteDetail {
