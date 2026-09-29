@@ -8234,3 +8234,21 @@ button.badge-cliquable:hover {
   flex-direction: column;
   gap: 1rem;
 }
+
+.choix-deballage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+}
+
+.choix-deballage .bascule-vue {
+  margin-left: 0;
+}
+
+.choix-deballage .champ-formulaire {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 260px;
+}
