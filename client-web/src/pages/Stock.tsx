@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ModaleDetaillerRegrouper } from "../components/VenteAuDetail";
 import type { CSSProperties } from "react";
 
 import type { Session } from "../api";
@@ -107,6 +108,7 @@ const SECTIONS = [
   { cle: "mouvements", label: "Mouvements", icone: "🔄" },
   { cle: "transferts", label: "Transferts", icone: "🚚" },
   { cle: "pertes", label: "Pertes", icone: "🗑️" },
+  { cle: "detailler", label: "Détailler / Regrouper", icone: "✂️" },
   { cle: "dormants", label: "Produits dormants", icone: "😴" },
   { cle: "destockage", label: "Déstockage", icone: "🏷️" },
   { cle: "historique", label: "Historique", icone: "🗂️" },
@@ -4092,9 +4094,10 @@ export default function Stock({
         {SECTIONS.filter(
           // Produits dormants : montre des coûts d'achat, réservé à la gestion du stock / aux rapports.
           (s) =>
-            s.cle !== "dormants" ||
+            (s.cle === "detailler" ? !!session.permissions.gerer_produits_stock_achats : true) &&
+            (s.cle !== "dormants" ||
             !!session.permissions.gerer_produits_stock_achats ||
-            !!session.permissions.voir_rapports_complets,
+            !!session.permissions.voir_rapports_complets),
         ).map((s) => (
           <button
             key={s.cle}
@@ -4134,6 +4137,9 @@ export default function Stock({
       )}
       {sectionOuverte === "destockage" && (
         <ModaleDestockage session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
+      {sectionOuverte === "detailler" && (
+        <ModaleDetaillerRegrouper session={session} onFermer={() => setSectionOuverte(null)} />
       )}
       {sectionOuverte === "pertes" && (
         <ModalePertes session={session} onFermer={() => setSectionOuverte(null)} />

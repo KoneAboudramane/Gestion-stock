@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { PanneauVenteAuDetail } from "../components/VenteAuDetail";
 import type { CSSProperties } from "react";
 
 import { api } from "../api/client";
@@ -486,7 +487,7 @@ function DetailProduit({
   const [messageStock, setMessageStock] = useState<string | null>(null);
   const [mouvements, setMouvements] = useState<MouvementResume[]>([]);
   const [ventesHistorique, setVentesHistorique] = useState<LigneVenteHistorique[]>([]);
-  const [pageDetail, setPageDetail] = useState<"details" | "mouvements" | "ventes">("details");
+  const [pageDetail, setPageDetail] = useState<"details" | "mouvements" | "ventes" | "detail">("details");
   const [modifierInfos, setModifierInfos] = useState(false);
 
   async function rafraichir() {
@@ -569,6 +570,14 @@ function DetailProduit({
               <span className="icone-menu-modale">🛒</span>
               Ventes
               <span className="compteur-menu-modale">{ventesHistorique.length}</span>
+            </button>
+            <button
+              type="button"
+              className={pageDetail === "detail" ? "actif" : ""}
+              onClick={() => setPageDetail("detail")}
+            >
+              <span className="icone-menu-modale">✂️</span>
+              Vente au détail
             </button>
           </nav>
         <div className="modale-corps">
@@ -864,6 +873,15 @@ function DetailProduit({
                 </tbody>
               </table>
               </div>
+              )}
+
+              {pageDetail === "detail" && produit.variantes[0] && (
+                <PanneauVenteAuDetail
+                  session={session}
+                  varianteId={produit.variantes[0].id}
+                  nomArticle={produit.nom}
+                  onModifie={rafraichir}
+                />
               )}
 
               {pageDetail === "ventes" && (

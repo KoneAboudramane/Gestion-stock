@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { executer, unResultat } from "../../electron/db/helpers";
+import { listerVariantesCatalogue } from "../../electron/services/catalogue";
 import { creerArticleDetail, definirArticleDetail, infoDetailVariante } from "../../electron/services/produits";
 import {
   ErreurStock,
@@ -94,6 +95,14 @@ describe("détailler / regrouper (carton ↔ paquets)", () => {
     const second = detaillerOuRegrouper({ varianteGrosId: carton, depotId, nombre: 1, type: "detailler", utilisateurId: null });
     appliquerMouvement({ varianteId: paquet, depotId, type: "sortie", quantite: 1 });
     expect(() => annulerDetaillage(second, null)).toThrow(/plus tous en stock/);
+  });
+
+  it("caisse : le détail jamais stocké reste visible tant que son carton est en stock", () => {
+    executer("UPDATE produits SET actif = 1");
+    const ids = listerVariantesCatalogue(BOUTIQUE_ID, depotId).map((v) => v.id);
+    expect(ids).toContain(carton);
+    expect(ids).toContain(paquet);
+    expect(listerVariantesCatalogue(BOUTIQUE_ID, depotId).find((v) => v.id === paquet)?.quantiteDisponible).toBe(0);
   });
 
   it("lien de détail : info dans les deux sens, pas de boucle, création sur place", () => {

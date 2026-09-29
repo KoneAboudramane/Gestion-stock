@@ -1584,3 +1584,67 @@ export function listerDetaillages(boutiqueId: string): DetaillageResume[] {
     [boutiqueId],
   ).map((o) => ({ ...o, annulee: Boolean(o.annulee) }));
 }
+
+export interface ArticleDetaillable {
+  varianteGrosId: string;
+  grosNom: string;
+  varianteDetailId: string;
+  detailNom: string;
+  /** Unités de détail dans un article de gros. */
+  quantite: number;
+  /** Stock (du dépôt demandé, sinon tous dépôts). */
+  stockGros: number;
+  stockDetail: number;
+}
+
+export interface GrosDisponible {
+  varianteGrosId: string;
+  grosNom: string;
+  quantite: number;
+  stockGros: number;
+}
+
+/** Articles de gros reliés à un article de détail, avec leurs stocks. */
+export function listerArticlesDetaillables(boutiqueId: string, depotId?: string): ArticleDetaillable[] {
+  const filtreDepot = depotId ? " AND depot_id = ?" : "";
+  const parametres: string[] = depotId ? [depotId, depotId, boutiqueId] : [boutiqueId];
+  return tousLesResultats<ArticleDetaillable>(
+    `SELECT v.id as varianteGrosId, p.nom as grosNom, d.id as varianteDetailId, pd.nom as detailNom,
+            v.quantite_detail as quantite,
+            COALESCE((SELECT SUM(quantite) FROM stocks WHERE variante_id = v.id${filtreDepot}), 0) as stockGros,
+            COALESCE((SELECT SUM(quantite) FROM stocks WHERE variante_id = d.id${filtreDepot}), 0) as stockDetail
+     FROM variantes v
+     JOIN produits p ON p.id = v.produit_id
+     JOIN variantes d ON d.id = v.variante_detail_id
+     JOIN produits pd ON pd.id = d.produit_id
+     WHERE p.boutique_id = ? AND v.supprime = 0 AND p.supprime = 0 AND d.supprime = 0 AND pd.supprime = 0
+     ORDER BY p.nom`,
+    parametres,
+  ).map((a) => ({ ...a, quantite: Number(a.quantite), stockGros: Number(a.stockGros), stockDetail: Number(a.stockDetail) }));
+}
+
+/** Pour un article de détail en rupture : un article de gros à détailler, s'il en reste dans ce dépôt. */
+export function grosDisponiblePourDetail(varianteDetailId: string, depotId: string): GrosDisponible | null {
+  const gros = unResultat<GrosDisponible>(
+    `SELECT v.id as varianteGrosId, p.nom as grosNom, v.quantite_detail as quantite, s.quantite as stockGros
+     FROM variantes v
+     JOIN produits p ON p.id = v.produit_id
+     JOIN stocks s ON s.variante_id = v.id AND s.depot_id = ?
+     WHERE v.variante_detail_id = ? AND v.supprime = 0 AND p.supprime = 0 AND s.quantite >= 1
+     ORDER BY s.quantite DESC LIMIT 1`,
+    [depotId, varianteDetailId],
+  );
+  return gros ? { ...gros, quantite: Number(gros.quantite), stockGros: Number(gros.stockGros) } : null;
+}
+
+/** Tous les articles de la boutique (nom + référence), pour choisir un article de détail. */
+export function listerVariantesSimples(boutiqueId: string): { id: string; nom: string }[] {
+  return tousLesResultats<{ id: string; nom: string }>(
+    `SELECT v.id as id,
+            p.nom || CASE WHEN COALESCE(v.reference, '') <> '' THEN ' (' || v.reference || ')' ELSE '' END as nom
+     FROM variantes v JOIN produits p ON p.id = v.produit_id
+     WHERE p.boutique_id = ? AND v.supprime = 0 AND p.supprime = 0
+     ORDER BY p.nom`,
+    [boutiqueId],
+  );
+}

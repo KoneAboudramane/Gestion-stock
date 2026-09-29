@@ -396,6 +396,13 @@ export function enregistrerLesHandlers(): void {
     executerEnSecurite(() => stock.annulerDetaillage(id, utilisateurId)),
   );
   ipcMain.handle("detaillages:lister", (_evt, boutiqueId: string) => stock.listerDetaillages(boutiqueId));
+  ipcMain.handle("detaillages:variantes", (_evt, boutiqueId: string) => stock.listerVariantesSimples(boutiqueId));
+  ipcMain.handle("detaillages:articles", (_evt, boutiqueId: string, depotId?: string) =>
+    stock.listerArticlesDetaillables(boutiqueId, depotId),
+  );
+  ipcMain.handle("detaillages:grosDisponible", (_evt, varianteDetailId: string, depotId: string) =>
+    stock.grosDisponiblePourDetail(varianteDetailId, depotId),
+  );
   ipcMain.handle("variantes:infoDetail", (_evt, varianteId: string) => produits.infoDetailVariante(varianteId));
   ipcMain.handle(
     "variantes:definirDetail",

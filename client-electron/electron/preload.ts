@@ -157,6 +157,10 @@ contextBridge.exposeInMainWorld("api", {
     operer: (params: unknown) => ipcRenderer.invoke("detaillages:operer", params),
     annuler: (id: string, utilisateurId: string | null) => ipcRenderer.invoke("detaillages:annuler", id, utilisateurId),
     lister: (boutiqueId: string) => ipcRenderer.invoke("detaillages:lister", boutiqueId),
+    variantes: (boutiqueId: string) => ipcRenderer.invoke("detaillages:variantes", boutiqueId),
+    articles: (boutiqueId: string, depotId?: string) => ipcRenderer.invoke("detaillages:articles", boutiqueId, depotId),
+    grosDisponible: (varianteDetailId: string, depotId: string) =>
+      ipcRenderer.invoke("detaillages:grosDisponible", varianteDetailId, depotId),
     infoDetail: (varianteId: string) => ipcRenderer.invoke("variantes:infoDetail", varianteId),
     definirDetail: (varianteGrosId: string, varianteDetailId: string | null, quantite: number | null) =>
       ipcRenderer.invoke("variantes:definirDetail", varianteGrosId, varianteDetailId, quantite),

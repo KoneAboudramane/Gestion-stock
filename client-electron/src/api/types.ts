@@ -883,6 +883,25 @@ export interface DetaillageResume {
   annulee: boolean;
 }
 
+export interface ArticleDetaillable {
+  varianteGrosId: string;
+  grosNom: string;
+  varianteDetailId: string;
+  detailNom: string;
+  /** Unités de détail dans un article de gros. */
+  quantite: number;
+  /** Stock (du dépôt demandé, sinon tous dépôts). */
+  stockGros: number;
+  stockDetail: number;
+}
+
+export interface GrosDisponible {
+  varianteGrosId: string;
+  grosNom: string;
+  quantite: number;
+  stockGros: number;
+}
+
 export interface LienDetail {
   varianteId: string;
   nom: string;
@@ -1448,6 +1467,9 @@ export interface WindowApi {
     operer(params: ParametresDetaillage): Promise<ResultatEcriture<string>>;
     annuler(id: string, utilisateurId: string | null): Promise<ResultatEcriture<void>>;
     lister(boutiqueId: string): Promise<DetaillageResume[]>;
+    variantes(boutiqueId: string): Promise<{ id: string; nom: string }[]>;
+    articles(boutiqueId: string, depotId?: string): Promise<ArticleDetaillable[]>;
+    grosDisponible(varianteDetailId: string, depotId: string): Promise<GrosDisponible | null>;
     infoDetail(varianteId: string): Promise<InfoDetail>;
     definirDetail(varianteGrosId: string, varianteDetailId: string | null, quantite: number | null): Promise<ResultatEcriture<void>>;
     creerDetail(params: ParametresArticleDetail): Promise<ResultatEcriture<string>>;

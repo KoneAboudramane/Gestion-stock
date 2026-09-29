@@ -1560,3 +1560,81 @@ export async function listerDetaillages(boutiqueId: string): Promise<DetaillageR
   }
   return resultat.sort((a, b) => b.dateCreation.localeCompare(a.dateCreation));
 }
+
+export interface ArticleDetaillable {
+  varianteGrosId: string;
+  grosNom: string;
+  varianteDetailId: string;
+  detailNom: string;
+  /** Unités de détail dans un article de gros. */
+  quantite: number;
+  /** Stock (du dépôt demandé, sinon tous dépôts). */
+  stockGros: number;
+  stockDetail: number;
+}
+
+export interface GrosDisponible {
+  varianteGrosId: string;
+  grosNom: string;
+  quantite: number;
+  stockGros: number;
+}
+
+async function stockDe(varianteId: string, depotId?: string): Promise<number> {
+  return depotId ? stockVarianteDepot(varianteId, depotId) : stockTotalVariante(varianteId);
+}
+
+/** Articles de gros reliés à un article de détail, avec leurs stocks. */
+export async function listerArticlesDetaillables(boutiqueId: string, depotId?: string): Promise<ArticleDetaillable[]> {
+  const produits = new Map(
+    (await listerParIndex("produits", "boutique_id", boutiqueId)).filter((p) => !p.supprime).map((p) => [p.id, p]),
+  );
+  const resultat: ArticleDetaillable[] = [];
+  const db = await ouvrirBaseDeDonnees();
+  for (const v of await db.getAll("variantes")) {
+    const produit = produits.get(v.produit_id);
+    if (!produit || v.supprime || !v.variante_detail_id) continue;
+    const detail = await obtenirLigne("variantes", v.variante_detail_id);
+    const produitDetail = detail ? produits.get(detail.produit_id) : undefined;
+    if (!detail || detail.supprime || !produitDetail) continue;
+    resultat.push({
+      varianteGrosId: v.id,
+      grosNom: produit.nom,
+      varianteDetailId: detail.id,
+      detailNom: produitDetail.nom,
+      quantite: Number(v.quantite_detail ?? 0),
+      stockGros: await stockDe(v.id, depotId),
+      stockDetail: await stockDe(detail.id, depotId),
+    });
+  }
+  return resultat.sort((a, b) => a.grosNom.localeCompare(b.grosNom, "fr"));
+}
+
+/** Pour un article de détail en rupture : un article de gros à détailler, s'il en reste dans ce dépôt. */
+export async function grosDisponiblePourDetail(varianteDetailId: string, depotId: string): Promise<GrosDisponible | null> {
+  const db = await ouvrirBaseDeDonnees();
+  let meilleur: GrosDisponible | null = null;
+  for (const v of await db.getAll("variantes")) {
+    if (v.variante_detail_id !== varianteDetailId || v.supprime) continue;
+    const produit = await obtenirLigne("produits", v.produit_id);
+    if (!produit || produit.supprime) continue;
+    const stockGros = await stockVarianteDepot(v.id, depotId);
+    if (stockGros >= 1 && (!meilleur || stockGros > meilleur.stockGros)) {
+      meilleur = { varianteGrosId: v.id, grosNom: produit.nom, quantite: Number(v.quantite_detail ?? 0), stockGros };
+    }
+  }
+  return meilleur;
+}
+
+/** Tous les articles de la boutique (nom + référence), pour choisir un article de détail. */
+export async function listerVariantesSimples(boutiqueId: string): Promise<{ id: string; nom: string }[]> {
+  const produits = (await listerParIndex("produits", "boutique_id", boutiqueId)).filter((p) => !p.supprime);
+  const resultat: { id: string; nom: string }[] = [];
+  for (const p of produits) {
+    for (const v of await listerParIndex("variantes", "produit_id", p.id)) {
+      if (v.supprime) continue;
+      resultat.push({ id: v.id, nom: v.reference ? `${p.nom} (${v.reference})` : p.nom });
+    }
+  }
+  return resultat.sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
+}

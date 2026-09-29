@@ -52,19 +52,24 @@ export function listerVariantesCatalogue(boutiqueId: string, depotId?: string): 
     `SELECT v.id as id, v.produit_id as produitId, p.nom as produitNom, v.reference as reference,
             v.code_barres as codeBarres, v.prix_vente as prixVente, v.prix_achat as prixAchat,
             v.seuil_alerte as seuilAlerte, c.nom as categorieNom,
-            s.quantite as quantiteDisponible,
+            COALESCE(s.quantite, 0) as quantiteDisponible,
             (SELECT d.prix_destockage FROM destockages d
              WHERE d.variante_id = v.id AND d.statut = 'en_cours' AND d.supprime = 0
                AND (d.date_fin IS NULL OR d.date_fin = '' OR d.date_fin >= ?)
              ORDER BY d.date_creation DESC LIMIT 1) as prixDestockage
-     FROM stocks s
-     JOIN variantes v ON v.id = s.variante_id
+     FROM variantes v
      JOIN produits p ON p.id = v.produit_id
+     LEFT JOIN stocks s ON s.variante_id = v.id AND s.depot_id = ?
      LEFT JOIN categories c ON c.id = p.categorie_id
-     WHERE s.depot_id = ? AND p.boutique_id = ? AND p.actif = 1 AND v.actif = 1
+     WHERE p.boutique_id = ? AND p.actif = 1 AND v.actif = 1
        AND p.supprime = 0 AND v.supprime = 0
+       -- Article jamais stocké ici : visible quand même s'il est le détail
+       -- d'un article de gros en stock (la caisse proposera de le détailler).
+       AND (s.id IS NOT NULL OR EXISTS (
+         SELECT 1 FROM variantes g JOIN stocks sg ON sg.variante_id = g.id AND sg.depot_id = ?
+         WHERE g.variante_detail_id = v.id AND g.supprime = 0 AND sg.quantite > 0))
      ORDER BY (c.nom IS NULL), c.nom, p.nom`,
-    [aujourdhui, depotId ?? null, boutiqueId],
+    [aujourdhui, depotId ?? null, boutiqueId, depotId ?? null],
   ).map(({ prixDestockage, ...v }) =>
     prixDestockage == null
       ? { ...v, prixNormal: null }

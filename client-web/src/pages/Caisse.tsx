@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { ModaleDetaillerEnCaisse, grosDisponible, type GrosDisponible } from "../components/VenteAuDetail";
 import type { Session } from "../api/auth";
 import ChampMontant from "../components/ChampMontant";
 import FactureVente from "../components/FactureVente";
@@ -83,6 +84,14 @@ export default function Caisse({ session }: { session: Session }) {
   const [erreurModale, setErreurModale] = useState<string | null>(null);
   const [modaleClientsOuverte, setModaleClientsOuverte] = useState(false);
   const [masquerRuptures, setMasquerRuptures] = useState(false);
+  // Article de détail en rupture mais un article de gros en stock : la caisse
+  // propose de détailler (tout vendeur peut le faire ici, l'opération est à son nom).
+  const [detailEnCaisse, setDetailEnCaisse] = useState<{
+    gros: GrosDisponible;
+    variante: VarianteCatalogue;
+    cible: "panier" | "modale";
+  } | null>(null);
+  const [aRejouer, setARejouer] = useState<{ varianteId: string; cible: "panier" | "modale" } | null>(null);
   const [confirmationAnnulation, setConfirmationAnnulation] = useState(false);
   // Infos de chaque client pour « Choisir un client » : crédit en cours (et
   // retard d'échéance), nombre d'achats et date du dernier achat.
@@ -257,10 +266,32 @@ export default function Caisse({ session }: { session: Session }) {
     }
   }
 
+  async function proposerDetail(variante: VarianteCatalogue, cible: "panier" | "modale") {
+    const gros = depotId ? await grosDisponible(variante.id, depotId) : null;
+    if (gros) {
+      setDetailEnCaisse({ gros, variante, cible });
+      return;
+    }
+    const message = `"${variante.produitNom}" est en rupture de stock dans ce dépôt.`;
+    if (cible === "panier") setErreur(message);
+    else setErreurModale(message);
+  }
+
+  // Après un détaillage en caisse : le catalogue rechargé, on rejoue l'ajout.
+  useEffect(() => {
+    if (!aRejouer) return;
+    const variante = catalogue.find((c) => c.id === aRejouer.varianteId);
+    setARejouer(null);
+    if (!variante) return;
+    if (aRejouer.cible === "panier") ajouterAuPanier(variante);
+    else selectionnerProduitModale(variante);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalogue]);
+
   function ajouterAuPanier(variante: VarianteCatalogue) {
     const quantiteAjustee = quantitesDisponiblesAjustees.get(variante.id) ?? variante.quantiteDisponible;
     if (quantiteAjustee <= 0) {
-      setErreur(`"${variante.produitNom}" est en rupture de stock dans ce dépôt.`);
+      proposerDetail(variante, "panier");
       return;
     }
     setErreur(null);
@@ -289,7 +320,7 @@ export default function Caisse({ session }: { session: Session }) {
     const quantiteAjustee = quantitesDisponiblesAjustees.get(variante.id) ?? variante.quantiteDisponible;
     const dejaSelectionnee = selectionModale.find((s) => s.varianteId === variante.id)?.quantite ?? 0;
     if (quantiteAjustee - dejaSelectionnee <= 0) {
-      setErreurModale(`"${variante.produitNom}" est en rupture de stock dans ce dépôt.`);
+      proposerDetail(variante, "modale");
       return;
     }
     setErreurModale(null);
@@ -652,6 +683,20 @@ export default function Caisse({ session }: { session: Session }) {
         </div>
       </div>
 
+      {detailEnCaisse && (
+        <ModaleDetaillerEnCaisse
+          session={session}
+          gros={detailEnCaisse.gros}
+          detailNom={detailEnCaisse.variante.produitNom}
+          depotId={depotId}
+          onAnnuler={() => setDetailEnCaisse(null)}
+          onTermine={() => {
+            setARejouer({ varianteId: detailEnCaisse.variante.id, cible: detailEnCaisse.cible });
+            setDetailEnCaisse(null);
+            listerVariantesCatalogue(session.boutiqueId, depotId || undefined).then(setCatalogue);
+          }}
+        />
+      )}
       {confirmationAnnulation && (
         <ModaleConfirmation
           titre="Annuler la vente en cours ?"
