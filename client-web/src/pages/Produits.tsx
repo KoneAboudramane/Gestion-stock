@@ -1009,6 +1009,21 @@ function FormulaireProduitsGroupe({
   const [detailPrix, setDetailPrix] = useState("0");
   const uniteDetailNom = unites.find((u) => u.id === detailUniteId)?.nom ?? "";
   const nomDetailPropose = nom.trim() ? `${nom.trim()} — ${uniteDetailNom ? uniteDetailNom.toLowerCase() : "détail"}` : "";
+  const [fenetreDetail, setFenetreDetail] = useState(false);
+  const [erreurDetail, setErreurDetail] = useState<string | null>(null);
+
+  function validerDetail() {
+    if (!(Number(detailQuantite) > 1)) {
+      setErreurDetail("Indiquez combien d'unités de détail il contient (au moins 2).");
+      return;
+    }
+    if (!(detailNom || nomDetailPropose).trim()) {
+      setErreurDetail("Donnez un nom à l'article de détail.");
+      return;
+    }
+    setAvecDetail(true);
+    setFenetreDetail(false);
+  }
 
   const [lignes, setLignes] = useState<LigneProduitGroupe[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -1275,54 +1290,101 @@ function FormulaireProduitsGroupe({
                 onKeyDown={surEntree}
               />
             </label>
-            <div className="bloc-detail-groupe">
-              <label className="case-detail-groupe">
-                <input type="checkbox" checked={avecDetail} onChange={(e) => setAvecDetail(e.target.checked)} />
-                Se vend aussi au détail (carton ouvert, sac vendu au kilo…)
-              </label>
-              {avecDetail && (
-                <div className="champs-detail-groupe">
-                  <label>
-                    1 {unites.find((u) => u.id === uniteId)?.nom.toLowerCase() || "article"} contient
-                    <input type="number" min={2} step={1} placeholder="ex. 24" value={detailQuantite} onChange={(e) => setDetailQuantite(e.target.value)} />
-                  </label>
-                  <label>
-                    Unité du détail
-                    <select
-                      value={detailUniteId}
-                      onChange={(e) => {
-                        setDetailUniteId(e.target.value);
-                        if (!detailNomModifie) setDetailNom("");
-                      }}
-                    >
-                      <option value="">(aucune)</option>
-                      {unites.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.nom}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Nom de l'article au détail
-                    <input
-                      value={detailNom || nomDetailPropose}
-                      onChange={(e) => {
-                        setDetailNom(e.target.value);
-                        setDetailNomModifie(true);
-                      }}
-                    />
-                  </label>
-                  <label>
-                    Prix de vente au détail
-                    <ChampMontant value={detailPrix} disabled={!peutModifierPrix} onChange={setDetailPrix} />
-                  </label>
-                </div>
-              )}
-            </div>
             <button type="button" className="bouton-ajouter-produit-groupe" onClick={ajouterProduit}>
               + Ajouter à la liste
             </button>
+            <button
+              type="button"
+              className={`bouton-detail-groupe${avecDetail ? " actif" : ""}`}
+              title="Cet article se vend aussi au détail (carton ouvert, sac vendu au kilo…)"
+              onClick={() => {
+                setErreurDetail(null);
+                setFenetreDetail(true);
+              }}
+            >
+              {avecDetail
+                ? `✂️ 1 = ${detailQuantite} ${uniteDetailNom.toLowerCase() || "unité(s)"} · ${formaterMontant(Number(detailPrix) || 0)} ✎`
+                : "✂️ Vente au détail…"}
+            </button>
+            {fenetreDetail && (
+              <div className="fond-modale" onClick={() => setFenetreDetail(false)}>
+                <div
+                  className="modale-confirmation modale-confirmation-large"
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      validerDetail();
+                    }
+                  }}
+                >
+                  <h3>✂️ Vente au détail{nom.trim() ? ` — ${nom.trim()}` : ""}</h3>
+                  <p className="note-aide">
+                    Pour un carton que l'on ouvre, un sac vendu au kilo… L'article de détail est créé et relié en même temps.
+                  </p>
+                  <div className="champs-detail-groupe">
+                    <label>
+                      1 {unites.find((u) => u.id === uniteId)?.nom.toLowerCase() || "article"} contient
+                      <input
+                        type="number"
+                        min={2}
+                        step={1}
+                        placeholder="ex. 24"
+                        value={detailQuantite}
+                        onChange={(e) => setDetailQuantite(e.target.value)}
+                        autoFocus
+                      />
+                    </label>
+                    <label>
+                      Unité du détail
+                      <select value={detailUniteId} onChange={(e) => setDetailUniteId(e.target.value)}>
+                        <option value="">(aucune)</option>
+                        {unites.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.nom}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Nom de l'article au détail
+                      <input
+                        value={detailNom || nomDetailPropose}
+                        onChange={(e) => {
+                          setDetailNom(e.target.value);
+                          setDetailNomModifie(true);
+                        }}
+                      />
+                    </label>
+                    <label>
+                      Prix de vente au détail
+                      <ChampMontant value={detailPrix} disabled={!peutModifierPrix} onChange={setDetailPrix} />
+                    </label>
+                  </div>
+                  {erreurDetail && <div className="message-erreur">{erreurDetail}</div>}
+                  <div className="actions-formulaire">
+                    {avecDetail && (
+                      <button
+                        type="button"
+                        className="lien lien-danger"
+                        onClick={() => {
+                          setAvecDetail(false);
+                          setFenetreDetail(false);
+                        }}
+                      >
+                        Retirer
+                      </button>
+                    )}
+                    <button type="button" className="lien" onClick={() => setFenetreDetail(false)}>
+                      Annuler
+                    </button>
+                    <button type="button" className="bouton-valider" onClick={validerDetail}>
+                      Valider
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

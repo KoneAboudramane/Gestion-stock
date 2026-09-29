@@ -7121,3 +7121,24 @@ tr.ligne-annulee td {
 .bloc-detail-groupe .champs-detail-groupe input {
   width: 100%;
 }
+
+.bouton-detail-groupe {
+  background: transparent;
+  border: 1px dashed var(--bordure-tableau);
+  color: inherit;
+  box-shadow: none;
+}
+
+.bouton-detail-groupe.actif {
+  border-style: solid;
+  border-color: var(--couleur-primaire);
+  color: var(--couleur-primaire);
+  font-weight: 600;
+}
+
+.bouton-detail-groupe {
+  align-self: end;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
