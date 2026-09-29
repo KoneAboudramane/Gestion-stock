@@ -47,6 +47,16 @@ function PrixCaisse({ variante, devise }: { variante: VarianteCatalogue; devise:
   );
 }
 
+/** « aujourd'hui », « hier », « il y a 3 j », « il y a 2 mois ». */
+function depuisLe(date: string): string {
+  const jours = Math.floor((Date.now() - new Date(date).getTime()) / 86_400_000);
+  if (jours <= 0) return "aujourd'hui";
+  if (jours === 1) return "hier";
+  if (jours < 31) return `il y a ${jours} j`;
+  if (jours < 365) return `il y a ${Math.floor(jours / 30)} mois`;
+  return `il y a ${Math.floor(jours / 365)} an(s)`;
+}
+
 export default function Caisse({ session }: { session: Session }) {
   const peutModifierPrix = !!session.permissions.modifier_prix;
   const devise = useDevise();
@@ -59,8 +69,14 @@ export default function Caisse({ session }: { session: Session }) {
   const [modaleClientsOuverte, setModaleClientsOuverte] = useState(false);
   const [masquerRuptures, setMasquerRuptures] = useState(false);
   const [confirmationAnnulation, setConfirmationAnnulation] = useState(false);
-  // Crédit en cours de chaque client, montré dans « Choisir un client ».
-  const [soldesClients, setSoldesClients] = useState<Record<string, number>>({});
+  // Infos de chaque client pour « Choisir un client » : crédit en cours (et
+  // retard d'échéance), nombre d'achats et date du dernier achat.
+  const [infosClients, setInfosClients] = useState<
+    Record<string, { solde: number; enRetard: boolean; nombreAchats: number; dernierAchat: string | null }>
+  >({});
+  const [triClients, setTriClients] = useState<"frequence" | "nom" | "credit">("frequence");
+  const [indexSurbrillance, setIndexSurbrillance] = useState(0);
+  const [nouveauRegulierOuvert, setNouveauRegulierOuvert] = useState(false);
   const [catalogue, setCatalogue] = useState<VarianteCatalogue[]>([]);
   const [panier, setPanier] = useState<LignePanier[]>([]);
   const [depotId, setDepotId] = useState(session.depotId ?? "");
@@ -140,15 +156,53 @@ export default function Caisse({ session }: { session: Session }) {
   // occasionnels n'y figurent jamais (voir electron/services/catalogue.ts).
   const clientsFiltres = useMemo(() => {
     const q = clientRechercheReguliers.trim().toLowerCase();
-    if (!q) return clients;
-    return clients.filter((c) => c.nom.toLowerCase().includes(q));
-  }, [clients, clientRechercheReguliers]);
+    const chiffres = q.replace(/\D/g, "");
+    const trouves = !q
+      ? clients
+      : clients.filter(
+          (c) => c.nom.toLowerCase().includes(q) || (chiffres.length >= 2 && (c.telephone ?? "").replace(/\D/g, "").includes(chiffres)),
+        );
+    const info = (id: string) => infosClients[id];
+    return [...trouves].sort((a, b) => {
+      if (triClients === "credit") return (info(b.id)?.solde ?? 0) - (info(a.id)?.solde ?? 0) || a.nom.localeCompare(b.nom, "fr");
+      if (triClients === "frequence") {
+        const ecart = (info(b.id)?.nombreAchats ?? 0) - (info(a.id)?.nombreAchats ?? 0);
+        if (ecart !== 0) return ecart;
+      }
+      return a.nom.localeCompare(b.nom, "fr");
+    });
+  }, [clients, clientRechercheReguliers, infosClients, triClients]);
+
+  // Surbrillance clavier (↑ ↓ Entrée) : revient en tête à chaque recherche.
+  useEffect(() => setIndexSurbrillance(0), [clientRechercheReguliers, triClients]);
+
+  function naviguerClients(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const pas = e.key === "ArrowDown" ? 1 : -1;
+      setIndexSurbrillance((i) => Math.min(Math.max(0, i + pas), Math.max(0, clientsFiltres.length - 1)));
+      requestAnimationFrame(() =>
+        document.querySelector(".catalogue-clients-reguliers tr.ligne-surbrillance")?.scrollIntoView({ block: "nearest" }),
+      );
+    } else if (e.key === "Enter" && clientsFiltres[indexSurbrillance]) {
+      e.preventDefault();
+      choisirClient(clientsFiltres[indexSurbrillance]);
+    }
+  }
 
   useEffect(() => {
     if (!modaleClientsOuverte) return;
-    api.clients.lister(session.boutiqueId).then((liste) =>
-      setSoldesClients(Object.fromEntries(liste.map((c) => [c.id, c.soldeCredit]))),
-    );
+    Promise.all([api.clients.lister(session.boutiqueId), api.credits.lister(session.boutiqueId, undefined, "en_cours")]).then(([liste, credits]) => {
+      const enRetard = new Set(credits.filter((c) => c.prochaineEcheance?.enRetard).map((c) => c.clientId));
+      setInfosClients(
+        Object.fromEntries(
+          liste.map((c) => [
+            c.id,
+            { solde: c.soldeCredit, enRetard: enRetard.has(c.id), nombreAchats: c.nombreAchats, dernierAchat: c.dernierAchat },
+          ]),
+        ),
+      );
+    });
   }, [modaleClientsOuverte, session.boutiqueId]);
 
   function retirerClient() {
@@ -179,12 +233,13 @@ export default function Caisse({ session }: { session: Session }) {
     setNouveauClientTelephone("");
     setNouveauClientAdresse("");
     setErreurModaleClients(null);
+    setNouveauRegulierOuvert(false);
   }
 
   // Client "de passage" : saisi à la volée pour une vente à crédit, jamais
   // ajouté au répertoire clients (est_permanent = false) — voir mémoire
   // projet "clients permanents vs occasionnels".
-  async function confirmerCreationClientOccasionnel() {
+  async function confirmerCreationClient(permanent: boolean) {
     const nom = nouveauClientNom.trim();
     if (!nom) {
       setErreurModaleClients("Le nom complet est obligatoire.");
@@ -196,9 +251,11 @@ export default function Caisse({ session }: { session: Session }) {
       return;
     }
     const adresse = nouveauClientAdresse.trim();
-    const resultat = await api.clients.creer(session.boutiqueId, nom, telephone, adresse, false);
+    const resultat = await api.clients.creer(session.boutiqueId, nom, telephone, adresse, permanent);
     if (resultat.succes) {
-      choisirClient({ id: resultat.resultat, nom, telephone, adresse });
+      const client = { id: resultat.resultat, nom, telephone, adresse };
+      if (permanent) setClients((actuels) => [...actuels, client]);
+      choisirClient(client);
     } else {
       setErreurModaleClients(resultat.message);
     }
@@ -910,41 +967,120 @@ export default function Caisse({ session }: { session: Session }) {
               <div className="modale-corps">
                 {ongletModaleClients === "reguliers" ? (
                   <>
-                    <input
-                      className="champ-recherche"
-                      placeholder="Rechercher un client…"
-                      value={clientRechercheReguliers}
-                      onChange={(e) => setClientRechercheReguliers(e.target.value)}
-                      autoFocus
-                    />
+                    <div className="barre-recherche-clients">
+                      <input
+                        className="champ-recherche"
+                        placeholder="Nom ou téléphone… (↑ ↓ puis Entrée)"
+                        value={clientRechercheReguliers}
+                        onChange={(e) => setClientRechercheReguliers(e.target.value)}
+                        onKeyDown={naviguerClients}
+                        autoFocus
+                      />
+                      <span className="sous-info nowrap">
+                        {clientsFiltres.length} client{clientsFiltres.length > 1 ? "s" : ""}
+                      </span>
+                      <button
+                        type="button"
+                        className="bouton-primaire nowrap"
+                        onClick={() => {
+                          setNouveauRegulierOuvert(!nouveauRegulierOuvert);
+                          setNouveauClientNom("");
+                          setNouveauClientTelephone("");
+                          setNouveauClientAdresse("");
+                          setErreurModaleClients(null);
+                        }}
+                      >
+                        {nouveauRegulierOuvert ? "Fermer" : "+ Nouveau client régulier"}
+                      </button>
+                    </div>
+                    {nouveauRegulierOuvert && (
+                      <div className="creation-client-rapide">
+                        <div className="champs-client-occasionnel">
+                          <input
+                            placeholder="Nom complet"
+                            value={nouveauClientNom}
+                            onChange={(e) => setNouveauClientNom(e.target.value)}
+                            autoFocus
+                          />
+                          <div className="champ-telephone-avec-aide">
+                            <input
+                              type="tel"
+                              placeholder="+2250712345678"
+                              value={nouveauClientTelephone}
+                              onChange={(e) => setNouveauClientTelephone(normaliserTelephone(e.target.value))}
+                            />
+                            <span className="aide-format-telephone">Indicatif + numéro, ex. 2250712345678</span>
+                          </div>
+                          <input
+                            placeholder="Adresse"
+                            value={nouveauClientAdresse}
+                            onChange={(e) => setNouveauClientAdresse(e.target.value)}
+                          />
+                        </div>
+                        {erreurModaleClients && <div className="message-erreur">{erreurModaleClients}</div>}
+                        <div className="creation-client-actions">
+                          <button type="button" onClick={() => confirmerCreationClient(true)}>
+                            Créer et sélectionner
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     <div className="catalogue-caisse catalogue-clients-reguliers">
                       <table className="tableau-catalogue">
                         <thead>
                           <tr>
                             <th>N°</th>
-                            <th>Nom</th>
+                            <th className="entete-triable" onClick={() => setTriClients(triClients === "nom" ? "frequence" : "nom")}>
+                              Nom {triClients === "nom" ? "▲" : ""}
+                            </th>
                             <th>Téléphone</th>
                             <th>Adresse</th>
-                            <th>Crédit en cours</th>
+                            <th>Dernier achat</th>
+                            <th
+                              className="entete-triable"
+                              onClick={() => setTriClients(triClients === "credit" ? "frequence" : "credit")}
+                            >
+                              Crédit en cours {triClients === "credit" ? "▼" : ""}
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
                           {clientsFiltres.map((c, index) => {
-                            const solde = soldesClients[c.id] ?? 0;
+                            const info = infosClients[c.id];
+                            const solde = info?.solde ?? 0;
+                            const classes = [
+                              c.id === clientId ? "ligne-selectionnee" : "",
+                              index === indexSurbrillance ? "ligne-surbrillance" : "",
+                            ]
+                              .filter(Boolean)
+                              .join(" ");
                             return (
                               <tr
                                 key={c.id}
-                                className={c.id === clientId ? "ligne-selectionnee" : undefined}
+                                className={classes || undefined}
                                 onClick={() => choisirClient(c)}
+                                onMouseEnter={() => setIndexSurbrillance(index)}
                               >
                                 <td data-label="N°">{index + 1}</td>
-                                <td data-label="Nom">{c.nom}</td>
+                                <td data-label="Nom" title={c.nom}>
+                                  {c.nom}
+                                </td>
                                 <td data-label="Téléphone">{c.telephone || ""}</td>
-                                <td data-label="Adresse">{c.adresse || ""}</td>
+                                <td data-label="Adresse" title={c.adresse || undefined}>
+                                  {c.adresse || ""}
+                                </td>
+                                <td
+                                  data-label="Dernier achat"
+                                  title={info?.nombreAchats ? `${info.nombreAchats} achat(s)` : undefined}
+                                >
+                                  {info?.dernierAchat ? depuisLe(info.dernierAchat) : "—"}
+                                </td>
                                 <td data-label="Crédit en cours" className="nowrap">
                                   {solde > 0 ? (
-                                    <span className="badge-credit">
+                                    <span className={info?.enRetard ? "badge-credit-retard" : "badge-credit"}>
+                                      {info?.enRetard ? "⚠ " : ""}
                                       {formaterMontant(solde)} {devise}
+                                      {info?.enRetard ? " · en retard" : ""}
                                     </span>
                                   ) : (
                                     ""
@@ -955,7 +1091,7 @@ export default function Caisse({ session }: { session: Session }) {
                           })}
                           {clientsFiltres.length === 0 && (
                             <tr>
-                              <td colSpan={5} className="liste-vide">
+                              <td colSpan={6} className="liste-vide">
                                 {clients.length === 0 ? "Aucun client régulier enregistré." : "Aucun client ne correspond."}
                               </td>
                             </tr>
@@ -963,6 +1099,7 @@ export default function Caisse({ session }: { session: Session }) {
                           {clientsFiltres.length > 0 &&
                             Array.from({ length: Math.max(0, 10 - clientsFiltres.length) }).map((_, i) => (
                               <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                                <td>&nbsp;</td>
                                 <td>&nbsp;</td>
                                 <td>&nbsp;</td>
                                 <td>&nbsp;</td>
@@ -1000,7 +1137,7 @@ export default function Caisse({ session }: { session: Session }) {
                     </div>
                     {erreurModaleClients && <div className="message-erreur">{erreurModaleClients}</div>}
                     <div className="creation-client-actions">
-                      <button type="button" onClick={confirmerCreationClientOccasionnel}>
+                      <button type="button" onClick={() => confirmerCreationClient(false)}>
                         Ajouter et sélectionner
                       </button>
                     </div>

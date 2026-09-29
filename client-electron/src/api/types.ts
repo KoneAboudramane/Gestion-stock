@@ -832,6 +832,7 @@ export interface ChampsClient {
 
 export interface CreditResume {
   id: string;
+  clientId: string;
   clientNom: string;
   clientEstPermanent: number;
   /** Pour la relance WhatsApp depuis la liste des crédits. */

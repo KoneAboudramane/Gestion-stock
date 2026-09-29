@@ -1988,27 +1988,32 @@ input[type="number"]::-webkit-outer-spin-button {
 
 .catalogue-clients-reguliers .tableau-catalogue th:nth-child(1),
 .catalogue-clients-reguliers .tableau-catalogue td:nth-child(1) {
-  width: 6%;
+  width: 5%;
 }
 
 .catalogue-clients-reguliers .tableau-catalogue th:nth-child(2),
 .catalogue-clients-reguliers .tableau-catalogue td:nth-child(2) {
-  width: 30%;
+  width: 25%;
 }
 
 .catalogue-clients-reguliers .tableau-catalogue th:nth-child(3),
 .catalogue-clients-reguliers .tableau-catalogue td:nth-child(3) {
-  width: 19%;
+  width: 16%;
 }
 
 .catalogue-clients-reguliers .tableau-catalogue th:nth-child(4),
 .catalogue-clients-reguliers .tableau-catalogue td:nth-child(4) {
-  width: 27%;
+  width: 22%;
 }
 
 .catalogue-clients-reguliers .tableau-catalogue th:nth-child(5),
 .catalogue-clients-reguliers .tableau-catalogue td:nth-child(5) {
-  width: 18%;
+  width: 13%;
+}
+
+.catalogue-clients-reguliers .tableau-catalogue th:nth-child(6),
+.catalogue-clients-reguliers .tableau-catalogue td:nth-child(6) {
+  width: 19%;
 }
 
 .catalogue-caisse .tableau-catalogue input {
@@ -6898,12 +6903,46 @@ button.tuile-dormance.active {
   color: var(--gris-500);
 }
 
-.catalogue-clients-reguliers .tableau-catalogue th:nth-child(5),
-.catalogue-clients-reguliers .tableau-catalogue td:nth-child(5) {
+.catalogue-clients-reguliers .tableau-catalogue th:nth-child(6),
+.catalogue-clients-reguliers .tableau-catalogue td:nth-child(6) {
   text-align: right;
 }
 
 .modale-avec-menu .catalogue-clients-reguliers {
   flex: 1;
   min-height: 0;
+}
+
+.barre-recherche-clients {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.barre-recherche-clients .champ-recherche {
+  flex: 1;
+  min-width: 0;
+}
+
+.catalogue-caisse .tableau-catalogue tbody tr.ligne-surbrillance {
+  outline: 2px solid var(--couleur-primaire);
+  outline-offset: -2px;
+}
+
+.entete-triable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.entete-triable:hover {
+  text-decoration: underline;
+}
+
+.badge-credit-retard {
+  background: var(--danger-clair);
+  color: var(--danger-fonce);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
 }
