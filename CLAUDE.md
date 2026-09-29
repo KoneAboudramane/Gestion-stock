@@ -16,7 +16,7 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 6. **Montants et quantités** : `DecimalField(max_digits=12, decimal_places=2)`. Jamais de FloatField pour l'argent.
 7. Les labels d'app sont le nom du dossier : `core, comptes, catalogue, stock, ventes, achats, clients, fournisseurs, configuration, synchronisation`.
 
-## Les 10 apps et leurs 39 modèles
+## Les 10 apps et leurs 40 modèles
 
 ### core
 - `ModeleBase` (abstrait) — hérité par tous. Champs : id (UUID), date_creation, date_modification, synchronise, date_synchronisation.
@@ -32,7 +32,7 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 - `Produit` — boutique (FK), nom, categorie (FK), unite (FK), description, photo, actif. **Pas de prix ni de stock ici.**
 - `Attribut` — boutique (FK), nom (ex. Taille, Couleur).
 - `ValeurAttribut` — attribut (FK → valeurs), valeur (ex. M, Rouge).
-- `Variante` — produit (FK → variantes), reference (SKU), code_barres, **prix_achat**, **prix_vente**, seuil_alerte, photo, actif. **C'est l'article vendu et stocké.**
+- `Variante` — produit (FK → variantes), reference (SKU), code_barres, **prix_achat**, **prix_vente**, seuil_alerte, photo, actif. **C'est l'article vendu et stocké.** variante_detail (FK self, null) + quantite_detail : article de gros (carton) qui se **détaille** en `quantite_detail` unités de `variante_detail` (paquets).
 - `VarianteValeur` — variante (FK → valeurs), valeur_attribut (FK). unique_together(variante, valeur_attribut).
 
 ### stock  (tout est par Variante + Depot)
@@ -41,6 +41,7 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 - `MouvementStock` — variante (FK), depot (FK), type {entree|sortie|ajustement}, quantite, motif, reference_type, reference_id (UUID), utilisateur (FK).
 - `TransfertStock` — variante (FK), depot_source (FK → transferts_sortants), depot_destination (FK → transferts_entrants), quantite, utilisateur (FK).
 - `PerteStock` — variante (FK, PROTECT), depot (FK → pertes, PROTECT), quantite, motif {perime|abime|vol|don|consommation|autre}, detail (obligatoire si « autre »), valeur (figée au CUMP), utilisateur (FK), annulee, date_annulation. **Sortie sans vente** : crée un `MouvementStock` `sortie` (reference_type `stock.PerteStock`). À distinguer d'un ajustement (correction d'erreur).
+- `Detaillage` — depot (FK, PROTECT), type {detailler|regrouper}, variante_source / variante_cible (FK, PROTECT), quantite_source, quantite_cible, cout_unitaire_cible, utilisateur (FK), annulee, date_annulation. **Carton → paquets (ou l'inverse)** : une sortie + une entrée (reference_type `stock.Detaillage`), le coût suit (CUMP), aucune écriture comptable ; annulable tant que le résultat est en stock. En caisse, un vendeur peut détailler quand le détail est en rupture.
 - `OperationDestockage` — boutique (FK), nom, date_fin (null), utilisateur (FK). **Groupe nommé** de déstockages lancés ensemble (ex. « Liquidation fin d'année ») : création tout-ou-rien, arrêt en un clic, bilan commun.
 - `Destockage` — variante (FK → destockages, PROTECT), prix_normal (figé au démarrage), prix_destockage, date_fin (null), statut {en_cours|termine}, motif_fin {date|epuise|manuel}, date_arret, utilisateur (FK), operation (FK OperationDestockage, null). **Prix réduit appliqué automatiquement en caisse** ; s'arrête à date_fin, quand le stock (tous dépôts) tombe à 0, ou à la main. Vente à perte permise.
 - `ReleveDormants` — boutique (FK), date, jours_seuil (déf. 60), nombre_articles, valeur_immobilisee. **Photo quotidienne de l'argent qui dort**, prise par les clients à l'ouverture (ajout seul, pas d'unicité par date : plusieurs appareils → l'affichage garde le plus récent).
