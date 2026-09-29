@@ -27,7 +27,7 @@ const ZONES = [
   { cle: "caisse", label: "Caisse / Vente", icone: "🧾" },
   { cle: "produits", label: "Articles", icone: "🏷️" },
   { cle: "stock", label: "Stock", icone: "📦" },
-  { cle: "ventes", label: "Historique des ventes", icone: "📜" },
+  { cle: "ventes", label: "Historique", icone: "📜" },
   { cle: "achats", label: "Achats & fournisseurs", icone: "🚚", permission: "gerer_produits_stock_achats" },
   { cle: "clients", label: "Clients & crédit", icone: "👤" },
   { cle: "tresorerie", label: "Trésorerie", icone: "💰", permission: "consulter_tresorerie" },
