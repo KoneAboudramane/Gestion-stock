@@ -347,6 +347,8 @@ export interface LigneStock {
   /** Unités (carton, paquet…) pour « 12 cartons (= 288 paquets) ». */
   detailUnite?: string | null;
   grosUnite?: string | null;
+  /** Article de détail : son article de gros (pour l'ouvrir depuis la ligne). */
+  grosVarianteId?: string | null;
 }
 
 async function nomUniteProduit(produitId: string | undefined): Promise<string> {
@@ -407,6 +409,7 @@ export async function listerStock(boutiqueId: string, depotId?: string, terme = 
           grosStock: gros ? await stockVarianteDepot(gros.id, depot.id) : null,
           detailUnite: produitDetail ? await nomUniteProduit(produitDetail.id) : null,
           grosUnite: gros?.unite || null,
+          grosVarianteId: gros?.id ?? null,
         });
       }
     }

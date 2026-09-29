@@ -7163,3 +7163,31 @@ tr.ligne-annulee td {
   border-color: var(--couleur-primaire);
   color: #fff;
 }
+
+/* Stock : ouvrir un carton depuis sa ligne, ou depuis le paquet « À ouvrir ». */
+.bouton-ouvrir-stock {
+  padding: 0.25rem 0.7rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: var(--couleur-primaire-clair);
+  border: 1px solid var(--couleur-primaire);
+  color: var(--couleur-primaire);
+  box-shadow: none;
+  margin-right: 0.4rem;
+}
+
+.bouton-ouvrir-stock:hover {
+  background: var(--couleur-primaire);
+  color: #fff;
+}
+
+button.badge-cliquable {
+  border: 1px solid currentColor;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+button.badge-cliquable:hover {
+  filter: brightness(1.1);
+  text-decoration: underline;
+}

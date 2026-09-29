@@ -384,6 +384,8 @@ export interface LigneStock {
   /** Unités (carton, paquet…) pour « 12 cartons (= 288 paquets) ». */
   detailUnite?: string | null;
   grosUnite?: string | null;
+  /** Article de détail : son article de gros (pour l'ouvrir depuis la ligne). */
+  grosVarianteId?: string | null;
 }
 
 export interface MouvementResume {

@@ -83,10 +83,13 @@ export function FormulaireDetailler({
   varianteGrosIdInitial,
   typeInitial = "detailler",
   articleFixe = false,
+  depotIdInitial,
   onTermine,
 }: {
   session: Session;
   varianteGrosIdInitial?: string;
+  /** Dépôt imposé (ligne du stock) ; sinon celui du vendeur ou le premier. */
+  depotIdInitial?: string;
   typeInitial?: TypeDetaillage;
   /** Ouvert depuis la fiche d'un article : pas de choix d'article. */
   articleFixe?: boolean;
@@ -95,7 +98,7 @@ export function FormulaireDetailler({
   const devise = useDevise();
   const peutVoirCout = !!session.permissions.voir_benefices_achat;
   const [depots, setDepots] = useState<{ id: string; nom: string }[]>([]);
-  const [depotId, setDepotId] = useState(session.depotId ?? "");
+  const [depotId, setDepotId] = useState(depotIdInitial ?? session.depotId ?? "");
   const [articles, setArticles] = useState<ArticleDetaillable[]>([]);
   const [grosId, setGrosId] = useState(varianteGrosIdInitial ?? "");
   const [type, setType] = useState<TypeDetaillage>(typeInitial);
@@ -865,6 +868,44 @@ export function ModaleDetaillerEnCaisse({
           </button>
           <button type="button" className="bouton-valider" disabled={enCours} onClick={ouvrir}>
             {enCours ? "…" : `📦 Ouvrir 1 ${uniteGros} et vendre`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Fenêtre « Ouvrir » depuis une ligne du stock ---
+
+export function ModaleOuvrir({
+  session,
+  varianteGrosId,
+  depotId,
+  titre,
+  onFermer,
+  onTermine,
+}: {
+  session: Session;
+  varianteGrosId: string;
+  depotId: string;
+  titre: string;
+  onFermer: () => void;
+  onTermine: () => void;
+}) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-confirmation modale-confirmation-large" onClick={(e) => e.stopPropagation()}>
+        <h3>{titre}</h3>
+        <FormulaireDetailler
+          session={session}
+          varianteGrosIdInitial={varianteGrosId}
+          depotIdInitial={depotId}
+          articleFixe
+          onTermine={onTermine}
+        />
+        <div className="actions-formulaire">
+          <button type="button" className="lien" onClick={onFermer}>
+            Fermer
           </button>
         </div>
       </div>

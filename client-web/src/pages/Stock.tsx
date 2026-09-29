@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ModaleDetaillerRegrouper, quantiteUnite } from "../components/VenteAuDetail";
+import { ModaleDetaillerRegrouper, ModaleOuvrir, quantiteUnite } from "../components/VenteAuDetail";
 import type { CSSProperties } from "react";
 
 import type { Session } from "../api";
@@ -189,12 +189,18 @@ function OngletStockNiveau({
   const [lignes, setLignes] = useState<LigneStock[]>([]);
   const [seulementRuptures, setSeulementRuptures] = useState(!!filtreRuptureInitial);
   const [selection, setSelection] = useState<Set<string>>(new Set());
+  // Ouvrir un carton (sac…) depuis sa ligne, ou depuis la ligne du paquet « À ouvrir ».
+  const [ouverture, setOuverture] = useState<{ varianteGrosId: string; depotId: string; titre: string } | null>(null);
   const devise = useDevise();
 
   useEffect(() => {
     if (peutGerer) listerDepotsDetail(session.boutiqueId).then(setDepots);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peutGerer]);
+
+  function rechargerLignes() {
+    listerStock(session.boutiqueId, depotId || undefined).then(setLignes);
+  }
 
   useEffect(() => {
     listerStock(session.boutiqueId, depotId || undefined).then(setLignes);
@@ -357,14 +363,43 @@ function OngletStockNiveau({
                   {formaterMontant(valeurLigne(l))} {devise}
                 </td>
                 <td data-label="Statut" className="colonne-statut-stock">{aDetailler(l) ? (
-                  <span className="badge-a-detailler" title="Il reste des cartons (ou sacs…) à ouvrir dans ce dépôt">
-                    À ouvrir
-                  </span>
+                  peutGerer && l.grosVarianteId ? (
+                    <button
+                      type="button"
+                      className="badge-a-detailler badge-cliquable"
+                      title={`Ouvrir ${l.grosNom ?? ""} pour réapprovisionner cet article`}
+                      onClick={() =>
+                        setOuverture({
+                          varianteGrosId: l.grosVarianteId as string,
+                          depotId: l.depotId,
+                          titre: `📦 Ouvrir — ${l.grosNom ?? ""} (${l.depotNom})`,
+                        })
+                      }
+                    >
+                      📦 À ouvrir
+                    </button>
+                  ) : (
+                    <span className="badge-a-detailler" title="Il reste des cartons (ou sacs…) à ouvrir dans ce dépôt">
+                      À ouvrir
+                    </span>
+                  )
                 ) : l.enRupture ? (
                   <span className="badge-rupture">Rupture</span>
                 ) : null}
               </td>
                 <td data-label="Actions" className="colonne-actions-stock">
+                  {peutGerer && !!l.detailNom && l.quantite > 0 && (
+                    <button
+                      type="button"
+                      className="bouton-ouvrir-stock"
+                      title={`Ouvrir pour vendre au détail (${l.detailNom})`}
+                      onClick={() =>
+                        setOuverture({ varianteGrosId: l.varianteId, depotId: l.depotId, titre: `📦 Ouvrir — ${l.produitNom} (${l.depotNom})` })
+                      }
+                    >
+                      📦 Ouvrir
+                    </button>
+                  )}
                   {!!l.enRupture && (
                     <span className="actions-ligne">
                       <input
@@ -419,6 +454,16 @@ function OngletStockNiveau({
             Valeur du stock : {formaterMontant(valeurTotale)} {devise}
           </div>
         </div>
+      )}
+      {ouverture && (
+        <ModaleOuvrir
+          session={session}
+          varianteGrosId={ouverture.varianteGrosId}
+          depotId={ouverture.depotId}
+          titre={ouverture.titre}
+          onFermer={() => setOuverture(null)}
+          onTermine={rechargerLignes}
+        />
       )}
     </div>
   );

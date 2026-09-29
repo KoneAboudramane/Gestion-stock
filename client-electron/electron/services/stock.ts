@@ -393,6 +393,8 @@ export interface LigneStock {
   /** Unités (carton, paquet…) pour « 12 cartons (= 288 paquets) ». */
   detailUnite?: string | null;
   grosUnite?: string | null;
+  /** Article de détail : son article de gros (pour l'ouvrir depuis la ligne). */
+  grosVarianteId?: string | null;
 }
 
 export function listerStock(boutiqueId: string, depotId?: string, terme = ""): LigneStock[] {
@@ -410,6 +412,8 @@ export function listerStock(boutiqueId: string, depotId?: string, terme = ""): L
             CASE WHEN s.quantite <= v.seuil_alerte THEN 1 ELSE 0 END as enRupture,
             pd.nom as detailNom, v.quantite_detail as quantiteDetail,
             (SELECT un.nom FROM unites un WHERE un.id = pd.unite_id) as detailUnite,
+            (SELECT g.id FROM variantes g WHERE g.variante_detail_id = v.id AND g.supprime = 0
+             ORDER BY g.date_creation LIMIT 1) as grosVarianteId,
             (SELECT un.nom FROM variantes g JOIN produits pg ON pg.id = g.produit_id JOIN unites un ON un.id = pg.unite_id
              WHERE g.variante_detail_id = v.id AND g.supprime = 0 ORDER BY g.date_creation LIMIT 1) as grosUnite,
             (SELECT pg.nom FROM variantes g JOIN produits pg ON pg.id = g.produit_id
