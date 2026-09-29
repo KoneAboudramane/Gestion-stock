@@ -1546,8 +1546,8 @@ function OngletAttributs({ session }: { session: Session }) {
       )}
       {erreur && <div className="message-erreur">{erreur}</div>}
       <p className="note-aide">
-        Les valeurs de chaque attribut (ex. Rouge, Bleu pour Couleur) se créent directement lors de l'ajout d'une
-        variante, dans la fiche de l'article.
+        Les valeurs de chaque attribut (ex. Rouge, Bleu pour Couleur) se gèrent dans la colonne « Valeurs » : « + valeur »
+        pour en ajouter, un clic sur une valeur pour la renommer, × pour la retirer.
       </p>
       <div className="zone-tableau-scroll zone-commandes-fiche">
         <table className="tableau-catalogue">
