@@ -1588,6 +1588,12 @@ export interface DetaillageResume {
   quantiteCible: number;
   coutUnitaireCible: number;
   utilisateurId: string | null;
+  depotId: string;
+  uniteSource: string;
+  uniteCible: string;
+  dateAnnulation: string | null;
+  /** Stock actuel de ce qui a été obtenu, dans ce dépôt (pour savoir si l'annulation est possible). */
+  stockCibleActuel: number;
   annulee: boolean;
 }
 
@@ -1598,7 +1604,12 @@ export function listerDetaillages(boutiqueId: string): DetaillageResume[] {
             dt.variante_source_id as varianteSourceId, dt.variante_cible_id as varianteCibleId,
             ps.nom as sourceNom, pc.nom as cibleNom, dt.quantite_source as quantiteSource,
             dt.quantite_cible as quantiteCible, dt.cout_unitaire_cible as coutUnitaireCible,
-            dt.utilisateur_id as utilisateurId, COALESCE(dt.annulee, 0) as annulee
+            dt.utilisateur_id as utilisateurId, COALESCE(dt.annulee, 0) as annulee,
+            dt.depot_id as depotId, dt.date_annulation as dateAnnulation,
+            COALESCE((SELECT nom FROM unites WHERE id = ps.unite_id), '') as uniteSource,
+            COALESCE((SELECT nom FROM unites WHERE id = pc.unite_id), '') as uniteCible,
+            COALESCE((SELECT quantite FROM stocks s WHERE s.variante_id = dt.variante_cible_id AND s.depot_id = dt.depot_id), 0)
+              as stockCibleActuel
      FROM detaillages dt
      JOIN depots d ON d.id = dt.depot_id
      JOIN variantes vs ON vs.id = dt.variante_source_id
@@ -1608,7 +1619,7 @@ export function listerDetaillages(boutiqueId: string): DetaillageResume[] {
      WHERE d.boutique_id = ? AND dt.supprime = 0
      ORDER BY dt.date_creation DESC`,
     [boutiqueId],
-  ).map((o) => ({ ...o, annulee: Boolean(o.annulee) }));
+  ).map((o) => ({ ...o, annulee: Boolean(o.annulee), stockCibleActuel: Number(o.stockCibleActuel) }));
 }
 
 export interface ArticleDetaillable {

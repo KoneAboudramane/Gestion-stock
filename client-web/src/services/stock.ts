@@ -1571,6 +1571,12 @@ export interface DetaillageResume {
   quantiteCible: number;
   coutUnitaireCible: number;
   utilisateurId: string | null;
+  depotId: string;
+  uniteSource: string;
+  uniteCible: string;
+  dateAnnulation: string | null;
+  /** Stock actuel de ce qui a été obtenu, dans ce dépôt (pour savoir si l'annulation est possible). */
+  stockCibleActuel: number;
   annulee: boolean;
 }
 
@@ -1595,6 +1601,11 @@ export async function listerDetaillages(boutiqueId: string): Promise<DetaillageR
         coutUnitaireCible: Number(o.cout_unitaire_cible),
         utilisateurId: o.utilisateur_id != null ? String(o.utilisateur_id) : null,
         annulee: Boolean(o.annulee),
+        depotId: depot.id,
+        uniteSource: await nomUniteProduit((await obtenirLigne("variantes", o.variante_source_id))?.produit_id),
+        uniteCible: await nomUniteProduit((await obtenirLigne("variantes", o.variante_cible_id))?.produit_id),
+        dateAnnulation: o.date_annulation ?? null,
+        stockCibleActuel: await stockVarianteDepot(o.variante_cible_id, depot.id),
       });
     }
   }

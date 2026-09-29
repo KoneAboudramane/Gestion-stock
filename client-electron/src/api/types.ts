@@ -893,6 +893,12 @@ export interface DetaillageResume {
   quantiteCible: number;
   coutUnitaireCible: number;
   utilisateurId: string | null;
+  depotId: string;
+  uniteSource: string;
+  uniteCible: string;
+  dateAnnulation: string | null;
+  /** Stock actuel de ce qui a été obtenu, dans ce dépôt (pour savoir si l'annulation est possible). */
+  stockCibleActuel: number;
   annulee: boolean;
 }
 

@@ -2,7 +2,15 @@ import { useEffect, useState } from "react";
 
 //<adaptateur>
 import { api } from "../api/client";
-import type { ArticleDetaillable, DetaillageResume, GrosDisponible, InfoDetail, Session, TypeDetaillage } from "../api/client";
+import type {
+  ArticleDetaillable,
+  ColonneExport,
+  DetaillageResume,
+  GrosDisponible,
+  InfoDetail,
+  Session,
+  TypeDetaillage,
+} from "../api/client";
 
 function verifier<T>(resultat: { succes: true; resultat: T } | { succes: false; message: string }): T {
   if (!resultat.succes) throw new Error(resultat.message);
@@ -40,6 +48,7 @@ export const grosDisponible = (varianteDetailId: string, depotId: string): Promi
 /** Nouvel article : crée et relie l'article de détail. */
 export const creerArticleDeDetail = donnees.creer;
 //</adaptateur>
+import BoutonsExport from "./BoutonsExport";
 import ChampMontant from "./ChampMontant";
 import FiltrePeriodeHistorique from "./FiltrePeriodeHistorique";
 import { useDevise } from "../contexts/DeviseContext";
@@ -394,7 +403,6 @@ export function ContenuDeballage({
 
 // --- Historique des déballages / remballages ---
 
-
 export function HistoriqueDetaillages({
   session,
   actualisation = 0,
@@ -403,16 +411,22 @@ export function HistoriqueDetaillages({
 }: {
   session: Session;
   actualisation?: number;
-  /** Seulement les opérations de cet article (fenêtre « Ouvrir »). */
+  /** Seulement les opérations de cet article (fenêtre de l'article). */
   varianteId?: string;
   onModifie?: () => void;
 }) {
+  const devise = useDevise();
   const nomUtilisateur = useNomsUtilisateurs(session);
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
+  const peutVoirCout = !!session.permissions.voir_benefices_achat;
   const [operations, setOperations] = useState<DetaillageResume[]>([]);
   const [periode, setPeriode] = useState<PeriodeHistorique>("30j");
   const [debutPerso, setDebutPerso] = useState(jourLocal(new Date()));
   const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
+  const [type, setType] = useState<"" | TypeDetaillage>("");
+  const [terme, setTerme] = useState("");
+  const [depotId, setDepotId] = useState("");
+  const [avecAnnulees, setAvecAnnulees] = useState(false);
   const [aAnnuler, setAAnnuler] = useState<DetaillageResume | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
 
@@ -424,11 +438,47 @@ export function HistoriqueDetaillages({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.boutiqueId, actualisation]);
 
-  const filtrees = operations.filter(
+  const depots = [...new Map(operations.map((o) => [o.depotId, o.depotNom])).entries()];
+  const cle = terme.trim().toLowerCase();
+  // Tout sauf le filtre « annulées » : les tuiles comptent aussi les annulées.
+  const dansLesFiltres = operations.filter(
     (o) =>
       dansPeriode(o.dateCreation, bornesPeriode(periode, debutPerso, finPerso)) &&
-      (!varianteId || o.varianteSourceId === varianteId || o.varianteCibleId === varianteId),
+      (!varianteId || o.varianteSourceId === varianteId || o.varianteCibleId === varianteId) &&
+      (!type || o.type === type) &&
+      (!depotId || o.depotId === depotId) &&
+      (!cle || o.sourceNom.toLowerCase().includes(cle) || o.cibleNom.toLowerCase().includes(cle)),
   );
+  const filtrees = dansLesFiltres.filter((o) => avecAnnulees || !o.annulee);
+  const valides = dansLesFiltres.filter((o) => !o.annulee);
+  const deballages = valides.filter((o) => o.type === "detailler");
+  const remballages = valides.filter((o) => o.type === "regrouper");
+  const annulees = dansLesFiltres.length - valides.length;
+  const uniteObtenue = deballages[0]?.uniteCible ?? "";
+  const memeUnite = deballages.every((o) => o.uniteCible === uniteObtenue);
+  const obtenus = deballages.reduce((t, o) => t + o.quantiteCible, 0);
+  const valeurDeballee = deballages.reduce((t, o) => t + o.quantiteCible * o.coutUnitaireCible, 0);
+
+  const colonnesExport: ColonneExport[] = [
+    { cle: "date", libelle: "Date" },
+    { cle: "operation", libelle: "Opération" },
+    { cle: "article", libelle: "Article" },
+    { cle: "de", libelle: "De" },
+    { cle: "vers", libelle: "Vers" },
+    { cle: "depot", libelle: "Dépôt" },
+    { cle: "par", libelle: "Fait par" },
+    { cle: "etat", libelle: "État" },
+  ];
+  const lignesExport = filtrees.map((o) => ({
+    date: new Date(o.dateCreation).toLocaleString("fr-FR"),
+    operation: o.type === "detailler" ? "Déballé" : "Remballé",
+    article: o.type === "detailler" ? o.sourceNom : o.cibleNom,
+    de: `${quantiteUnite(o.quantiteSource, o.uniteSource)} (${o.sourceNom})`,
+    vers: `${quantiteUnite(o.quantiteCible, o.uniteCible)} (${o.cibleNom})`,
+    depot: o.depotNom,
+    par: nomUtilisateur(o.utilisateurId),
+    etat: o.annulee ? `Annulé${o.dateAnnulation ? ` le ${new Date(o.dateAnnulation).toLocaleString("fr-FR")}` : ""}` : "",
+  }));
 
   async function confirmerAnnulation() {
     if (!aAnnuler) return;
@@ -444,8 +494,37 @@ export function HistoriqueDetaillages({
     }
   }
 
+  const colonnes = 7 + (peutGerer ? 1 : 0);
   return (
     <>
+      <div className="tuiles-fiche">
+        <div className="tuile-fiche">
+          <span className="sous-info">📦 Déballages</span>
+          <strong>{deballages.length}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">🔁 Remballages</span>
+          <strong>{remballages.length}</strong>
+        </div>
+        <div className="tuile-fiche">
+          <span className="sous-info">🧩 Obtenus au détail</span>
+          <strong className="nowrap">{memeUnite ? quantiteUnite(obtenus, uniteObtenue) : nombre(obtenus)}</strong>
+        </div>
+        {peutVoirCout ? (
+          <div className="tuile-fiche">
+            <span className="sous-info">💰 Valeur déballée (coût)</span>
+            <strong className="nowrap">
+              {formaterMontant(Math.round(valeurDeballee))} {devise}
+            </strong>
+          </div>
+        ) : (
+          <div className={`tuile-fiche${annulees > 0 ? " tuile-fiche--attention" : ""}`}>
+            <span className="sous-info">↩️ Annulées</span>
+            <strong>{annulees}</strong>
+          </div>
+        )}
+      </div>
+
       <div className="barre-actions barre-filtres-historique">
         <FiltrePeriodeHistorique
           periode={periode}
@@ -455,70 +534,126 @@ export function HistoriqueDetaillages({
           finPerso={finPerso}
           setFinPerso={setFinPerso}
         />
+        <div className="bascule-vue" role="group" aria-label="Type">
+          <button type="button" className={type === "" ? "actif" : ""} onClick={() => setType("")}>
+            Tous
+          </button>
+          <button type="button" className={type === "detailler" ? "actif" : ""} onClick={() => setType("detailler")}>
+            📦 Déballés
+          </button>
+          <button type="button" className={type === "regrouper" ? "actif" : ""} onClick={() => setType("regrouper")}>
+            🔁 Remballés
+          </button>
+        </div>
+        {!varianteId && (
+          <input type="search" placeholder="Article…" value={terme} onChange={(e) => setTerme(e.target.value)} />
+        )}
+        {depots.length > 1 && (
+          <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
+            <option value="">Tous les dépôts</option>
+            {depots.map(([id, nom]) => (
+              <option key={id} value={id}>
+                {nom}
+              </option>
+            ))}
+          </select>
+        )}
+        <label className="case-annulees">
+          <input type="checkbox" checked={avecAnnulees} onChange={(e) => setAvecAnnulees(e.target.checked)} />
+          Afficher les annulées{annulees > 0 ? ` (${annulees})` : ""}
+        </label>
+        <BoutonsExport titre="Historique des déballages" colonnes={colonnesExport} lignes={lignesExport} compact />
       </div>
       {erreur && <div className="message-erreur">{erreur}</div>}
+
       <div className="zone-tableau-scroll zone-commandes-fiche">
         <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
+              <th>N°</th>
               <th>Date</th>
               <th>Opération</th>
-              <th>De</th>
-              <th>Vers</th>
+              <th>Article</th>
+              <th>Quantités</th>
               <th>Dépôt</th>
               <th>Fait par</th>
               {peutGerer && <th />}
             </tr>
           </thead>
           <tbody>
-            {filtrees.map((o) => (
-              <tr key={o.id} className={o.annulee ? "ligne-annulee" : undefined}>
-                <td data-label="Date">{new Date(o.dateCreation).toLocaleString("fr-FR")}</td>
-                <td data-label="Opération">
-                  {o.type === "detailler" ? "📦 Déballé" : "🔁 Remballé"}
-                  {o.annulee && <span className="badge-annulee"> Annulé</span>}
-                </td>
-                <td data-label="De">
-                  {nombre(o.quantiteSource)} × {o.sourceNom}
-                </td>
-                <td data-label="Vers">
-                  {nombre(o.quantiteCible)} × {o.cibleNom}
-                </td>
-                <td data-label="Dépôt">{o.depotNom}</td>
-                <td data-label="Fait par">{nomUtilisateur(o.utilisateurId)}</td>
-                {peutGerer && (
-                  <td>
-                    {!o.annulee && (
-                      <button type="button" className="lien" onClick={() => setAAnnuler(o)}>
-                        Annuler
-                      </button>
+            {filtrees.map((o, index) => {
+              const date = new Date(o.dateCreation);
+              return (
+                <tr key={o.id} className={o.annulee ? "ligne-annulee" : undefined}>
+                  <td data-label="N°">{index + 1}</td>
+                  <td data-label="Date" className="nowrap" title={date.toLocaleString("fr-FR")}>
+                    {date.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} ·{" "}
+                    {date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                  </td>
+                  <td data-label="Opération">
+                    <span className={o.type === "detailler" ? "badge-deballe" : "badge-remballe"}>
+                      {o.type === "detailler" ? "📦 Déballé" : "🔁 Remballé"}
+                    </span>
+                    {o.annulee && (
+                      <span className="sous-info ligne-detail-article">
+                        Annulé{o.dateAnnulation ? ` le ${new Date(o.dateAnnulation).toLocaleDateString("fr-FR")}` : ""}
+                      </span>
                     )}
                   </td>
-                )}
-              </tr>
-            ))}
+                  <td data-label="Article">{o.type === "detailler" ? o.sourceNom : o.cibleNom}</td>
+                  <td data-label="Quantités" className="nowrap">
+                    <strong>
+                      {quantiteUnite(o.quantiteSource, o.uniteSource)} → {quantiteUnite(o.quantiteCible, o.uniteCible)}
+                    </strong>
+                  </td>
+                  <td data-label="Dépôt">{o.depotNom}</td>
+                  <td data-label="Fait par">{nomUtilisateur(o.utilisateurId)}</td>
+                  {peutGerer && (
+                    <td>
+                      {!o.annulee && (
+                        <button type="button" className="lien" onClick={() => setAAnnuler(o)}>
+                          Annuler
+                        </button>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
             {filtrees.length === 0 && (
               <tr>
-                <td colSpan={peutGerer ? 7 : 6} className="liste-vide">
-                  {operations.length === 0 ? "Aucune opération." : "Aucune opération sur cette période."}
+                <td colSpan={colonnes} className="liste-vide">
+                  {operations.length === 0 ? "Aucune opération." : "Aucune opération ne correspond."}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+
       {aAnnuler && (
         <div className="fond-modale" onClick={() => setAAnnuler(null)}>
           <div className="modale-confirmation" onClick={(e) => e.stopPropagation()}>
-            <h3>Annuler cette opération ?</h3>
+            <h3>Annuler ce {aAnnuler.type === "detailler" ? "déballage" : "remballage"} ?</h3>
             <p className="note-aide">
-              {`Les ${nombre(aAnnuler.quantiteCible)} « ${aAnnuler.cibleNom} » obtenus redeviennent ${nombre(aAnnuler.quantiteSource)} « ${aAnnuler.sourceNom} ». Possible seulement s'ils sont encore tous en stock.`}
+              Annuler retire {quantiteUnite(aAnnuler.quantiteCible, aAnnuler.uniteCible)} de « {aAnnuler.cibleNom} » et redonne{" "}
+              {quantiteUnite(aAnnuler.quantiteSource, aAnnuler.uniteSource)} de « {aAnnuler.sourceNom} », dans « {aAnnuler.depotNom} ».
+            </p>
+            <p className={aAnnuler.stockCibleActuel >= aAnnuler.quantiteCible ? "note-aide" : "texte-erreur"}>
+              {aAnnuler.stockCibleActuel >= aAnnuler.quantiteCible
+                ? `Possible : il y en a ${quantiteUnite(aAnnuler.stockCibleActuel, aAnnuler.uniteCible)} en stock.`
+                : `Impossible : il n'en reste que ${quantiteUnite(aAnnuler.stockCibleActuel, aAnnuler.uniteCible)} (déjà vendu(e)s ?).`}
             </p>
             <div className="actions-formulaire">
               <button type="button" className="lien" onClick={() => setAAnnuler(null)}>
                 Retour
               </button>
-              <button type="button" className="bouton-danger" onClick={confirmerAnnulation}>
+              <button
+                type="button"
+                className="bouton-danger"
+                disabled={aAnnuler.stockCibleActuel < aAnnuler.quantiteCible}
+                onClick={confirmerAnnulation}
+              >
                 Annuler l'opération
               </button>
             </div>

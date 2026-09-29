@@ -8293,3 +8293,35 @@ tr.ligne-cliquable {
 .bouton-ouvrir-stock {
   white-space: nowrap;
 }
+
+/* Historique des déballages. */
+.badge-deballe,
+.badge-remballe {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.badge-deballe {
+  background: var(--couleur-primaire-clair);
+  color: var(--couleur-primaire);
+}
+
+.badge-remballe {
+  background: rgba(139, 92, 246, 0.18);
+  color: #a78bfa;
+}
+
+.case-annulees {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+
+.case-annulees input {
+  width: auto;
+}
