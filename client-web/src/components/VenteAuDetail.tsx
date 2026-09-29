@@ -1433,3 +1433,23 @@ export function ModaleOuvrir({
     </div>
   );
 }
+
+// --- Page Historique : carte « Historique des déballages » ---
+
+export function ModaleHistoriqueDeballages({ session, onFermer }: { session: Session; onFermer: () => void }) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+        <div className="modale-entete">
+          <h3>Historique des déballages</h3>
+          <button type="button" className="lien bouton-retour" onClick={onFermer}>
+            ← Retour
+          </button>
+        </div>
+        <div className="modale-corps">
+          <HistoriqueDetaillages session={session} />
+        </div>
+      </div>
+    </div>
+  );
+}

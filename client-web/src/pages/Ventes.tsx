@@ -5,6 +5,7 @@ import type { Session } from "../api";
 import BoutonsExport from "../components/BoutonsExport";
 import FactureVente from "../components/FactureVente";
 import ModaleRemboursementsClients from "../components/ModaleRemboursementsClients";
+import { ModaleHistoriqueDeballages } from "../components/VenteAuDetail";
 import FiltrePeriodeHistorique from "../components/FiltrePeriodeHistorique";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import { useDevise } from "../contexts/DeviseContext";
@@ -460,6 +461,7 @@ type CarteHistorique =
   | "mouvements"
   | "transferts"
   | "pertes"
+  | "deballages"
   | "depenses"
   | "caisse"
   | "mobileMoney"
@@ -479,6 +481,7 @@ const CARTES_HISTORIQUE: {
   { cle: "mouvements", label: "Mouvements de stock", icone: "📦" },
   { cle: "transferts", label: "Transferts de stock", icone: "🔁" },
   { cle: "pertes", label: "Pertes", icone: "🗑️" },
+  { cle: "deballages", label: "Historique des déballages", icone: "📦" },
   { cle: "depenses", label: "Historique des dépenses", icone: "💸" },
   { cle: "caisse", label: "Historique de la caisse", icone: "💰" },
   { cle: "mobileMoney", label: "Transferts Mobile Money", icone: "📱" },
@@ -761,6 +764,7 @@ export default function Ventes({ session }: { session: Session }) {
           onFermer={fermerCarte}
         />
       )}
+      {carteOuverte === "deballages" && <ModaleHistoriqueDeballages session={session} onFermer={fermerCarte} />}
       {carteOuverte === "depenses" && (
         <HistoriqueDepensesDepot
           session={session}
