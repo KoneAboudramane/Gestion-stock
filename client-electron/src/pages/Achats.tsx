@@ -30,7 +30,12 @@ import { formaterMontant } from "../lib/formatage";
 import { libelleModeReglement, MODES_REGLEMENT } from "../lib/libelles";
 import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
 import BoutonsExport from "../components/BoutonsExport";
-import { PanneauCompte } from "../components/CompteTiers";
+import {
+  MODES_MONTANT_INITIAL,
+  PanneauCompte,
+  enregistrerMontantInitial,
+  libelleModeInitial,
+} from "../components/CompteTiers";
 import ModaleEcheancier from "../components/ModaleEcheancier";
 import FiltrePeriodeHistorique from "../components/FiltrePeriodeHistorique";
 import { bornesPeriode, dansPeriode, jourLocal, type PeriodeHistorique } from "../lib/periode";
@@ -1808,6 +1813,8 @@ interface LigneFournisseurGroupe {
   telephone: string;
   adresse: string;
   contact: string;
+  montantInitial: number;
+  modeInitial: string;
 }
 
 function FormulaireFournisseursGroupe({
@@ -1822,6 +1829,8 @@ function FormulaireFournisseursGroupe({
   const [nom, setNom] = useState("");
   const [telephone, setTelephone] = useState("");
   const [adresse, setAdresse] = useState("");
+  const [montantInitial, setMontantInitial] = useState("");
+  const [modeInitial, setModeInitial] = useState("especes");
   const [contact, setContact] = useState("");
   const [lignes, setLignes] = useState<LigneFournisseurGroupe[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -1831,11 +1840,15 @@ function FormulaireFournisseursGroupe({
     if (!nom.trim()) return;
     setLignes((actuel) => [
       ...actuel,
-      { id: crypto.randomUUID(), nom: nom.trim(), telephone: telephone.trim(), adresse: adresse.trim(), contact: contact.trim() },
+      { id: crypto.randomUUID(), nom: nom.trim(), telephone: telephone.trim(), adresse: adresse.trim(),
+        montantInitial: Number(montantInitial) || 0,
+        modeInitial, contact: contact.trim() },
     ]);
     setNom("");
     setTelephone("");
     setAdresse("");
+    setMontantInitial("");
+    setModeInitial("especes");
     setContact("");
   }
 
@@ -1870,6 +1883,14 @@ function FormulaireFournisseursGroupe({
         if (!resultat.succes) {
           setErreur(`"${ligne.nom}" : ${resultat.message}`);
           return;
+        }
+        if (ligne.montantInitial > 0) {
+          try {
+            await enregistrerMontantInitial("fournisseur", resultat.resultat, ligne.montantInitial, ligne.modeInitial, session);
+          } catch (e) {
+            setErreur(`"${ligne.nom}" est enregistré, mais pas son avance : ${e instanceof Error ? e.message : "erreur inattendue"}.`);
+            return;
+          }
         }
       }
       onCree();
@@ -1913,6 +1934,19 @@ function FormulaireFournisseursGroupe({
           Contact
           <input value={contact} onChange={(e) => setContact(e.target.value)} onKeyDown={surEntree} />
         </label>
+        <label>
+          Avance initiale
+          <span className="champ-montant-initial">
+            <ChampMontant placeholder="0" value={montantInitial} onChange={setMontantInitial} onKeyDown={surEntree} />
+            <select value={modeInitial} onChange={(e) => setModeInitial(e.target.value)} disabled={!(Number(montantInitial) > 0)}>
+              {MODES_MONTANT_INITIAL.map((m) => (
+                <option key={m.valeur} value={m.valeur}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </span>
+        </label>
         <button type="button" className="bouton-ajouter-produit-groupe" onClick={ajouterFournisseur}>
           + Ajouter à la liste
         </button>
@@ -1927,6 +1961,7 @@ function FormulaireFournisseursGroupe({
               <th>Téléphone</th>
               <th>Adresse</th>
               <th>Contact</th>
+              <th>Avance initiale</th>
               <th className="colonne-numero-groupe" />
             </tr>
           </thead>
@@ -1938,6 +1973,9 @@ function FormulaireFournisseursGroupe({
                 <td>{l.telephone}</td>
                 <td>{l.adresse}</td>
                 <td>{l.contact}</td>
+                <td className="nowrap">
+                  {l.montantInitial > 0 ? `${formaterMontant(l.montantInitial)} · ${libelleModeInitial(l.modeInitial)}` : ""}
+                </td>
                 <td className="colonne-numero-groupe">
                   <button
                     type="button"
@@ -1954,6 +1992,7 @@ function FormulaireFournisseursGroupe({
               <tr key={`vide-${i}`} className="ligne-groupe-vide">
                 <td className="colonne-numero-groupe">&nbsp;</td>
                 <td className="col-designation-groupe">&nbsp;</td>
+                <td>&nbsp;</td>
                 <td>&nbsp;</td>
                 <td>&nbsp;</td>
                 <td>&nbsp;</td>

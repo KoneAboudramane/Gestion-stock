@@ -53,7 +53,12 @@ import { creerProduit, ErreurProduit, obtenirProduit } from "../services/produit
 import { listerDepotsDetail, type DepotResume, type LigneAchatInitiale } from "../services/stock";
 import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
 import BoutonsExport from "../components/BoutonsExport";
-import { PanneauCompte } from "../components/CompteTiers";
+import {
+  MODES_MONTANT_INITIAL,
+  PanneauCompte,
+  enregistrerMontantInitial,
+  libelleModeInitial,
+} from "../components/CompteTiers";
 import type { ColonneExport } from "../lib/export";
 import ModaleEcheancier from "../components/ModaleEcheancier";
 import FiltrePeriodeHistorique from "../components/FiltrePeriodeHistorique";
@@ -1859,20 +1864,26 @@ interface LigneFournisseurGroupe {
   telephone: string;
   adresse: string;
   contact: string;
+  montantInitial: number;
+  modeInitial: string;
 }
 
 function FormulaireFournisseursGroupe({
   boutiqueId,
+  session,
   onAnnuler,
   onCree,
 }: {
   boutiqueId: string;
+  session: Session;
   onAnnuler: () => void;
   onCree: () => void;
 }) {
   const [nom, setNom] = useState("");
   const [telephone, setTelephone] = useState("");
   const [adresse, setAdresse] = useState("");
+  const [montantInitial, setMontantInitial] = useState("");
+  const [modeInitial, setModeInitial] = useState("especes");
   const [contact, setContact] = useState("");
   const [lignes, setLignes] = useState<LigneFournisseurGroupe[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -1880,10 +1891,14 @@ function FormulaireFournisseursGroupe({
 
   function ajouterFournisseur() {
     if (!nom.trim()) return;
-    setLignes((actuel) => [...actuel, { id: crypto.randomUUID(), nom: nom.trim(), telephone: telephone.trim(), adresse: adresse.trim(), contact: contact.trim() }]);
+    setLignes((actuel) => [...actuel, { id: crypto.randomUUID(), nom: nom.trim(), telephone: telephone.trim(), adresse: adresse.trim(),
+        montantInitial: Number(montantInitial) || 0,
+        modeInitial, contact: contact.trim() }]);
     setNom("");
     setTelephone("");
     setAdresse("");
+    setMontantInitial("");
+    setModeInitial("especes");
     setContact("");
   }
 
@@ -1908,11 +1923,20 @@ function FormulaireFournisseursGroupe({
     setEnCours(true);
     try {
       for (const ligne of lignes) {
+        let nouvelId: string;
         try {
-          await creerFournisseur(boutiqueId, ligne.nom, ligne.telephone, ligne.adresse, ligne.contact);
+          nouvelId = await creerFournisseur(boutiqueId, ligne.nom, ligne.telephone, ligne.adresse, ligne.contact);
         } catch (e) {
           setErreur(`"${ligne.nom}" : ${e instanceof ErreurAchat ? e.message : "Erreur inattendue."}`);
           return;
+        }
+        if (ligne.montantInitial > 0) {
+          try {
+            await enregistrerMontantInitial("fournisseur", nouvelId, ligne.montantInitial, ligne.modeInitial, session);
+          } catch (e) {
+            setErreur(`"${ligne.nom}" est enregistré, mais pas son avance : ${e instanceof Error ? e.message : "erreur inattendue"}.`);
+            return;
+          }
         }
       }
       onCree();
@@ -1956,6 +1980,19 @@ function FormulaireFournisseursGroupe({
           Contact
           <input value={contact} onChange={(e) => setContact(e.target.value)} onKeyDown={surEntree} />
         </label>
+        <label>
+          Avance initiale
+          <span className="champ-montant-initial">
+            <ChampMontant placeholder="0" value={montantInitial} onChange={setMontantInitial} onKeyDown={surEntree} />
+            <select value={modeInitial} onChange={(e) => setModeInitial(e.target.value)} disabled={!(Number(montantInitial) > 0)}>
+              {MODES_MONTANT_INITIAL.map((m) => (
+                <option key={m.valeur} value={m.valeur}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </span>
+        </label>
         <button type="button" className="bouton-ajouter-produit-groupe" onClick={ajouterFournisseur}>
           + Ajouter à la liste
         </button>
@@ -1970,6 +2007,7 @@ function FormulaireFournisseursGroupe({
               <th>Téléphone</th>
               <th>Adresse</th>
               <th>Contact</th>
+              <th>Avance initiale</th>
               <th className="colonne-numero-groupe" />
             </tr>
           </thead>
@@ -1981,6 +2019,9 @@ function FormulaireFournisseursGroupe({
                 <td data-label="Téléphone">{l.telephone}</td>
                 <td data-label="Adresse">{l.adresse}</td>
                 <td data-label="Contact">{l.contact}</td>
+                <td data-label="Avance initiale" className="nowrap">
+                  {l.montantInitial > 0 ? `${formaterMontant(l.montantInitial)} · ${libelleModeInitial(l.modeInitial)}` : ""}
+                </td>
                 <td className="colonne-numero-groupe">
                   <button type="button" className="bouton-retirer-ligne-groupe" title="Retirer de la liste" onClick={() => retirerLigne(l.id)}>
                     ✕
@@ -1992,6 +2033,7 @@ function FormulaireFournisseursGroupe({
               <tr key={`vide-${i}`} className="ligne-groupe-vide">
                 <td className="colonne-numero-groupe">&nbsp;</td>
                 <td className="col-designation-groupe">&nbsp;</td>
+                <td>&nbsp;</td>
                 <td>&nbsp;</td>
                 <td>&nbsp;</td>
                 <td>&nbsp;</td>
@@ -2177,6 +2219,7 @@ function OngletFournisseurs({ session }: { session: Session }) {
           <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
             <FormulaireFournisseursGroupe
               boutiqueId={session.boutiqueId}
+              session={session}
               onAnnuler={() => setAfficherModal(false)}
               onCree={() => {
                 setAfficherModal(false);

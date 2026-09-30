@@ -3,7 +3,12 @@ import type { CSSProperties } from "react";
 
 import type { Session } from "../api";
 import ChampMontant from "../components/ChampMontant";
-import { PanneauCompte } from "../components/CompteTiers";
+import {
+  MODES_MONTANT_INITIAL,
+  PanneauCompte,
+  enregistrerMontantInitial,
+  libelleModeInitial,
+} from "../components/CompteTiers";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import RecuCredit from "../components/RecuCredit";
 import { useDevise } from "../contexts/DeviseContext";
@@ -822,20 +827,26 @@ interface LigneClientGroupe {
   nom: string;
   telephone: string;
   adresse: string;
+  montantInitial: number;
+  modeInitial: string;
 }
 
 function FormulaireClientsGroupe({
   boutiqueId,
+  session,
   onAnnuler,
   onCree,
 }: {
   boutiqueId: string;
+  session: Session;
   onAnnuler: () => void;
   onCree: () => void;
 }) {
   const [nom, setNom] = useState("");
   const [telephone, setTelephone] = useState("");
   const [adresse, setAdresse] = useState("");
+  const [montantInitial, setMontantInitial] = useState("");
+  const [modeInitial, setModeInitial] = useState("especes");
   const [lignes, setLignes] = useState<LigneClientGroupe[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
@@ -847,10 +858,12 @@ function FormulaireClientsGroupe({
       return;
     }
     setErreur(null);
-    setLignes((actuel) => [...actuel, { id: crypto.randomUUID(), nom: nom.trim(), telephone: telephone.trim(), adresse: adresse.trim() }]);
+    setLignes((actuel) => [...actuel, { id: crypto.randomUUID(), nom: nom.trim(), telephone: telephone.trim(), adresse: adresse.trim(), montantInitial: Number(montantInitial) || 0, modeInitial }]);
     setNom("");
     setTelephone("");
     setAdresse("");
+    setMontantInitial("");
+    setModeInitial("especes");
   }
 
   function surEntree(evenement: React.KeyboardEvent) {
@@ -874,11 +887,20 @@ function FormulaireClientsGroupe({
     setEnCours(true);
     try {
       for (const ligne of lignes) {
+        let nouvelId: string;
         try {
-          await creerClient(boutiqueId, ligne.nom, ligne.telephone, ligne.adresse);
+          nouvelId = await creerClient(boutiqueId, ligne.nom, ligne.telephone, ligne.adresse);
         } catch (e) {
           setErreur(`"${ligne.nom}" : ${e instanceof ErreurClient ? e.message : "Erreur inattendue."}`);
           return;
+        }
+        if (ligne.montantInitial > 0) {
+          try {
+            await enregistrerMontantInitial("client", nouvelId, ligne.montantInitial, ligne.modeInitial, session);
+          } catch (e) {
+            setErreur(`"${ligne.nom}" est enregistré, mais pas son dépôt : ${e instanceof Error ? e.message : "erreur inattendue"}.`);
+            return;
+          }
         }
       }
       onCree();
@@ -921,6 +943,19 @@ function FormulaireClientsGroupe({
           Adresse
           <input value={adresse} onChange={(e) => setAdresse(e.target.value)} onKeyDown={surEntree} />
         </label>
+        <label>
+          Dépôt initial
+          <span className="champ-montant-initial">
+            <ChampMontant placeholder="0" value={montantInitial} onChange={setMontantInitial} onKeyDown={surEntree} />
+            <select value={modeInitial} onChange={(e) => setModeInitial(e.target.value)} disabled={!(Number(montantInitial) > 0)}>
+              {MODES_MONTANT_INITIAL.map((m) => (
+                <option key={m.valeur} value={m.valeur}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </span>
+        </label>
         <button type="button" className="bouton-ajouter-produit-groupe" onClick={ajouterClient}>
           + Ajouter à la liste
         </button>
@@ -934,6 +969,7 @@ function FormulaireClientsGroupe({
               <th className="col-designation-groupe">Nom</th>
               <th>Téléphone</th>
               <th>Adresse</th>
+              <th>Dépôt initial</th>
               <th className="colonne-numero-groupe" />
             </tr>
           </thead>
@@ -944,6 +980,9 @@ function FormulaireClientsGroupe({
                 <td data-label="Nom" className="col-designation-groupe">{l.nom}</td>
                 <td data-label="Téléphone">{l.telephone}</td>
                 <td data-label="Adresse">{l.adresse}</td>
+                <td data-label="Dépôt initial" className="nowrap">
+                  {l.montantInitial > 0 ? `${formaterMontant(l.montantInitial)} · ${libelleModeInitial(l.modeInitial)}` : ""}
+                </td>
                 <td className="colonne-numero-groupe">
                   <button type="button" className="bouton-retirer-ligne-groupe" title="Retirer de la liste" onClick={() => retirerLigne(l.id)}>
                     ✕
@@ -955,6 +994,7 @@ function FormulaireClientsGroupe({
               <tr key={`vide-${i}`} className="ligne-groupe-vide">
                 <td className="colonne-numero-groupe">&nbsp;</td>
                 <td className="col-designation-groupe">&nbsp;</td>
+                <td>&nbsp;</td>
                 <td>&nbsp;</td>
                 <td>&nbsp;</td>
                 <td className="colonne-numero-groupe">&nbsp;</td>
@@ -1122,6 +1162,7 @@ function OngletClients({ session }: { session: Session }) {
           <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
             <FormulaireClientsGroupe
               boutiqueId={session.boutiqueId}
+              session={session}
               onAnnuler={() => setAfficherForm(false)}
               onCree={() => {
                 setAfficherForm(false);

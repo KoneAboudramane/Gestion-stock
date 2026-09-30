@@ -607,3 +607,41 @@ function FormulaireReglement({
     </div>
   );
 }
+
+
+/** Moyens pour le dépôt initial (client) / l'avance initiale (fournisseur) : un seul menu. */
+export const MODES_MONTANT_INITIAL: { valeur: string; label: string }[] = [
+  { valeur: "especes", label: "Espèces" },
+  ...OPERATEURS_MOBILE_MONEY,
+  { valeur: "banque", label: "Banque" },
+];
+
+export function libelleModeInitial(valeur: string): string {
+  return MODES_MONTANT_INITIAL.find((m) => m.valeur === valeur)?.label ?? valeur;
+}
+
+/**
+ * Formulaire d'ajout : enregistre le dépôt initial du client (ou l'avance
+ * initiale au fournisseur) comme première opération de son compte. Espèces :
+ * caisse du dépôt de l'utilisateur, sinon le premier dépôt de la boutique.
+ */
+export async function enregistrerMontantInitial(
+  genre: GenreTiers,
+  tiersId: string,
+  montant: number,
+  modeInitial: string,
+  session: Session,
+): Promise<void> {
+  const operateur = OPERATEURS_MOBILE_MONEY.some((o) => o.valeur === modeInitial) ? modeInitial : "";
+  const mode: ModeArgent = operateur ? "mobile_money" : modeInitial === "banque" ? "banque" : "especes";
+  let depotId = session.depotId;
+  if (mode === "especes" && !depotId) depotId = (await donnees.depots(session.boutiqueId))[0]?.id ?? null;
+  await donnees.entree(genre, tiersId, {
+    montant,
+    mode,
+    operateur,
+    depotId: mode === "especes" ? depotId : null,
+    utilisateurId: session.utilisateurId,
+    motif: genre === "client" ? "Dépôt initial" : "Avance initiale",
+  });
+}

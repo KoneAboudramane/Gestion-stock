@@ -7655,3 +7655,19 @@ tr.ligne-total-tableau td {
   height: calc(100vh - 25rem);
   min-height: 16rem;
 }
+
+/* Formulaires d'ajout client / fournisseur : dépôt ou avance initiale + moyen. */
+.champ-montant-initial {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.champ-montant-initial input {
+  flex: 1 1 6rem;
+  min-width: 0;
+}
+
+.champ-montant-initial select {
+  flex: 0 1 8rem;
+  min-width: 0;
+}

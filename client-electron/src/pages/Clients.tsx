@@ -13,7 +13,12 @@ import type {
   EcheanceDetail,
 } from "../api/client";
 import ChampMontant from "../components/ChampMontant";
-import { PanneauCompte } from "../components/CompteTiers";
+import {
+  MODES_MONTANT_INITIAL,
+  PanneauCompte,
+  enregistrerMontantInitial,
+  libelleModeInitial,
+} from "../components/CompteTiers";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import RecuCredit from "../components/RecuCredit";
 import { useDevise } from "../contexts/DeviseContext";
@@ -802,6 +807,8 @@ interface LigneClientGroupe {
   nom: string;
   telephone: string;
   adresse: string;
+  montantInitial: number;
+  modeInitial: string;
 }
 
 function FormulaireClientsGroupe({
@@ -816,6 +823,8 @@ function FormulaireClientsGroupe({
   const [nom, setNom] = useState("");
   const [telephone, setTelephone] = useState("");
   const [adresse, setAdresse] = useState("");
+  const [montantInitial, setMontantInitial] = useState("");
+  const [modeInitial, setModeInitial] = useState("especes");
   const [lignes, setLignes] = useState<LigneClientGroupe[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
@@ -829,11 +838,13 @@ function FormulaireClientsGroupe({
     setErreur(null);
     setLignes((actuel) => [
       ...actuel,
-      { id: crypto.randomUUID(), nom: nom.trim(), telephone: telephone.trim(), adresse: adresse.trim() },
+      { id: crypto.randomUUID(), nom: nom.trim(), telephone: telephone.trim(), adresse: adresse.trim(), montantInitial: Number(montantInitial) || 0, modeInitial },
     ]);
     setNom("");
     setTelephone("");
     setAdresse("");
+    setMontantInitial("");
+    setModeInitial("especes");
   }
 
   function surEntree(evenement: React.KeyboardEvent) {
@@ -861,6 +872,14 @@ function FormulaireClientsGroupe({
         if (!resultat.succes) {
           setErreur(`"${ligne.nom}" : ${resultat.message}`);
           return;
+        }
+        if (ligne.montantInitial > 0) {
+          try {
+            await enregistrerMontantInitial("client", resultat.resultat, ligne.montantInitial, ligne.modeInitial, session);
+          } catch (e) {
+            setErreur(`"${ligne.nom}" est enregistré, mais pas son dépôt : ${e instanceof Error ? e.message : "erreur inattendue"}.`);
+            return;
+          }
         }
       }
       onCree();
@@ -903,6 +922,19 @@ function FormulaireClientsGroupe({
           Adresse
           <input value={adresse} onChange={(e) => setAdresse(e.target.value)} onKeyDown={surEntree} />
         </label>
+        <label>
+          Dépôt initial
+          <span className="champ-montant-initial">
+            <ChampMontant placeholder="0" value={montantInitial} onChange={setMontantInitial} onKeyDown={surEntree} />
+            <select value={modeInitial} onChange={(e) => setModeInitial(e.target.value)} disabled={!(Number(montantInitial) > 0)}>
+              {MODES_MONTANT_INITIAL.map((m) => (
+                <option key={m.valeur} value={m.valeur}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </span>
+        </label>
         <button type="button" className="bouton-ajouter-produit-groupe" onClick={ajouterClient}>
           + Ajouter à la liste
         </button>
@@ -916,6 +948,7 @@ function FormulaireClientsGroupe({
               <th className="col-designation-groupe">Nom</th>
               <th>Téléphone</th>
               <th>Adresse</th>
+              <th>Dépôt initial</th>
               <th className="colonne-numero-groupe" />
             </tr>
           </thead>
@@ -926,6 +959,9 @@ function FormulaireClientsGroupe({
                 <td className="col-designation-groupe">{l.nom}</td>
                 <td>{l.telephone}</td>
                 <td>{l.adresse}</td>
+                <td className="nowrap">
+                  {l.montantInitial > 0 ? `${formaterMontant(l.montantInitial)} · ${libelleModeInitial(l.modeInitial)}` : ""}
+                </td>
                 <td className="colonne-numero-groupe">
                   <button
                     type="button"
@@ -942,6 +978,7 @@ function FormulaireClientsGroupe({
               <tr key={`vide-${i}`} className="ligne-groupe-vide">
                 <td className="colonne-numero-groupe">&nbsp;</td>
                 <td className="col-designation-groupe">&nbsp;</td>
+                <td>&nbsp;</td>
                 <td>&nbsp;</td>
                 <td>&nbsp;</td>
                 <td className="colonne-numero-groupe">&nbsp;</td>
