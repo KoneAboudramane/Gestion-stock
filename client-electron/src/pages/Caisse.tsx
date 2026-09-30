@@ -104,10 +104,13 @@ export default function Caisse({ session }: { session: Session }) {
   const [montantRecuEspeces, setMontantRecuEspeces] = useState("");
   const [montantCredit, setMontantCredit] = useState("");
   const [montantMobileMoney, setMontantMobileMoney] = useState("");
+  const [montantCompte, setMontantCompte] = useState("");
+  // Argent que le client associé a laissé d'avance (👛 Compte client).
+  const [soldeCompteClient, setSoldeCompteClient] = useState(0);
   // Champ de paiement le plus récemment saisi à la main par le caissier — sert
   // à déterminer quel(s) autre(s) champ(s) doivent s'ajuster automatiquement
   // pour que la somme des paiements colle toujours au Total net.
-  const [dernierChampPaiement, setDernierChampPaiement] = useState<"especes" | "credit" | "mobileMoney" | "aucun">(
+  const [dernierChampPaiement, setDernierChampPaiement] = useState<"especes" | "credit" | "mobileMoney" | "compte" | "aucun">(
     "aucun",
   );
   const [operateurMobileMoney, setOperateurMobileMoney] = useState<OperateurMobileMoney | "">("");
@@ -450,8 +453,20 @@ export default function Caisse({ session }: { session: Session }) {
       : Number(remiseGlobale) || 0;
   const totalNetModale = Math.round(totalBrutModale - remiseGlobaleNombreModale);
   const totalPaiements =
-    (Number(montantEspeces) || 0) + (Number(montantCredit) || 0) + (Number(montantMobileMoney) || 0);
+    (Number(montantEspeces) || 0) + (Number(montantCredit) || 0) +
+    (Number(montantMobileMoney) || 0) +
+    (Number(montantCompte) || 0);
   const creditSansClient = (Number(montantCredit) || 0) > 0 && !clientId;
+
+  // Solde du compte du client associé : propose « 👛 Compte client » comme moyen de paiement.
+  useEffect(() => {
+    setMontantCompte("");
+    if (!clientId) {
+      setSoldeCompteClient(0);
+      return;
+    }
+    api.comptesTiers.compteClient(clientId).then((c) => setSoldeCompteClient(c.solde));
+  }, [clientId]);
 
   // Les 3 champs de paiement restent toujours cohérents avec le Total net : le
   // champ que le caissier vient de saisir à la main (Espèces, Crédit ou Mobile
@@ -464,16 +479,17 @@ export default function Caisse({ session }: { session: Session }) {
     const especes = Number(montantEspeces) || 0;
     const credit = Number(montantCredit) || 0;
     const mobileMoney = Number(montantMobileMoney) || 0;
+    const compte = Number(montantCompte) || 0;
 
     if (dernierChampPaiement === "especes") {
-      const reste = totalNet - especes - mobileMoney;
+      const reste = totalNet - especes - mobileMoney - compte;
       setMontantCredit(reste > 0 ? String(reste) : "");
     } else {
-      const reste = totalNet - credit - mobileMoney;
+      const reste = totalNet - credit - mobileMoney - compte;
       setMontantEspeces(reste > 0 ? String(reste) : "");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [totalNet, montantEspeces, montantCredit, montantMobileMoney, dernierChampPaiement]);
+  }, [totalNet, montantEspeces, montantCredit, montantMobileMoney, montantCompte, dernierChampPaiement]);
 
   async function validerVente() {
     setErreur(null);
@@ -505,12 +521,19 @@ export default function Caisse({ session }: { session: Session }) {
       return;
     }
 
+    const montantCompteNombre = Number(montantCompte) || 0;
+    if (montantCompteNombre > 0 && (!clientId || montantCompteNombre > soldeCompteClient)) {
+      setErreur("Le compte du client ne suffit pas.");
+      return;
+    }
+
     const paiementsAEnvoyer = [
       ...((Number(montantEspeces) || 0) > 0 ? [{ mode: "especes" as const, montant: Number(montantEspeces) }] : []),
       ...(utiliseCredit ? [{ mode: "credit" as const, montant: Number(montantCredit) }] : []),
       ...(utiliseMobileMoney
         ? [{ mode: "mobile_money" as const, operateur: operateurMobileMoney, montant: Number(montantMobileMoney) }]
         : []),
+      ...(montantCompteNombre > 0 ? [{ mode: "compte_client" as const, montant: montantCompteNombre }] : []),
     ];
 
     setEnCours(true);
@@ -541,6 +564,7 @@ export default function Caisse({ session }: { session: Session }) {
         setMontantRecuEspeces("");
         setMontantCredit("");
         setMontantMobileMoney("");
+        setMontantCompte("");
         setOperateurMobileMoney("");
         setDernierChampPaiement("aucun");
         setRemiseGlobale("0");
@@ -570,6 +594,7 @@ export default function Caisse({ session }: { session: Session }) {
     setMontantRecuEspeces("");
     setMontantCredit("");
     setMontantMobileMoney("");
+    setMontantCompte("");
     setOperateurMobileMoney("");
     setDernierChampPaiement("aucun");
     setRemiseGlobale("0");
@@ -720,6 +745,22 @@ export default function Caisse({ session }: { session: Session }) {
               {clientId ? clientTerme : "Associer un client"}
             </button>
           </div>
+
+          {clientId && soldeCompteClient > 0 && (
+            <div className="bloc-paiement bloc-paiement-compte">
+              <label title="Argent que le client a laissé d'avance">Compte</label>
+              <ChampMontant
+                placeholder={`Dispo. ${formaterMontant(soldeCompteClient)}`}
+                title={`Disponible sur le compte du client : ${formaterMontant(soldeCompteClient)}`}
+                value={montantCompte}
+                onChange={(v) => {
+                  const plafond = Math.min(totalNet, soldeCompteClient);
+                  setMontantCompte((Number(v) || 0) > plafond ? String(plafond) : v);
+                  setDernierChampPaiement("compte");
+                }}
+              />
+            </div>
+          )}
         </div>
 
         <div className="colonne-caisse colonne-totaux">

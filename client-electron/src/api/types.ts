@@ -713,7 +713,7 @@ export interface ParametresReception {
   utilisateurId: string | null;
   montantDejaPaye?: number;
   /** Comment le montant déjà payé a été réglé : espèces (sortie de caisse), Mobile Money ou banque. */
-  modePaiement?: "especes" | "mobile_money" | "banque" | "";
+  modePaiement?: "especes" | "mobile_money" | "banque" | "compte_fournisseur" | "";
   operateurPaiement?: string;
   lignes: LigneReceptionEntree[];
 }

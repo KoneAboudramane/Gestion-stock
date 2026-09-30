@@ -572,7 +572,15 @@ function DetailCommande({
   const [depots, setDepots] = useState<Depot[]>([]);
   const [depotId, setDepotId] = useState("");
   const [montantDejaPaye, setMontantDejaPaye] = useState("0");
-  const [modePaiementReception, setModePaiementReception] = useState<"especes" | "mobile_money" | "banque">("especes");
+  const [modePaiementReception, setModePaiementReception] = useState<
+    "especes" | "mobile_money" | "banque" | "compte_fournisseur"
+  >("especes");
+  // Ce que le fournisseur nous doit déjà (avances, avoirs) : peut payer la réception.
+  const [soldeCompteFournisseur, setSoldeCompteFournisseur] = useState(0);
+  useEffect(() => {
+    if (!commande?.fournisseurId) return;
+    api.comptesTiers.compteFournisseur(commande.fournisseurId).then((c) => setSoldeCompteFournisseur(c.solde));
+  }, [commande]);
   const [operateurReception, setOperateurReception] = useState("orange_money");
   const [afficherReception, setAfficherReception] = useState(false);
   const [receptionReussie, setReceptionReussie] = useState<{ quantiteRecue: number; quantiteRestante: number } | null>(
@@ -1153,12 +1161,21 @@ function DetailCommande({
                   Payé par
                   <select
                     value={modePaiementReception}
-                    onChange={(e) => setModePaiementReception(e.target.value as "especes" | "mobile_money" | "banque")}
+                    onChange={(e) =>
+                      setModePaiementReception(
+                        e.target.value as "especes" | "mobile_money" | "banque" | "compte_fournisseur",
+                      )
+                    }
                     title="Espèces : l'argent sort de la caisse du dépôt"
                   >
                     <option value="especes">💵 Espèces (caisse)</option>
                     <option value="mobile_money">📱 Mobile Money</option>
                     <option value="banque">🏦 Banque</option>
+                    {soldeCompteFournisseur > 0 && (
+                      <option value="compte_fournisseur">
+                        👛 Compte fournisseur (disponible {formaterMontant(soldeCompteFournisseur)})
+                      </option>
+                    )}
                   </select>
                 </label>
               )}
