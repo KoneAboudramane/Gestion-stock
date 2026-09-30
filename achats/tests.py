@@ -624,3 +624,81 @@ class PaiementALaReceptionTests(APITestCase):
         credits = {l.compte.numero: l.credit for l in ecriture.lignes.all() if l.credit}
         self.assertEqual(credits.get("521"), 600)
         self.assertEqual(credits.get("401"), 400)
+
+
+class CompteFournisseurTests(APITestCase):
+    """Avances et avoirs : versement, paiement d'une réception, retour, remboursement."""
+
+    def setUp(self):
+        from catalogue.models import Produit, Variante
+        from comptes.services import inscrire_boutique
+        from fournisseurs.models import Fournisseur
+        from stock.models import Depot
+
+        from .models import CommandeAchat, LigneAchat
+
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique F"}, {"username": "patronF", "password": "UnMotDePasseSolide123"}
+        )
+        self.depot = Depot.objects.create(boutique=self.boutique, nom="Magasin")
+        self.variante = Variante.objects.create(
+            produit=Produit.objects.create(boutique=self.boutique, nom="Clou"), prix_achat=100, prix_vente=200,
+        )
+        self.fournisseur = Fournisseur.objects.create(boutique=self.boutique, nom="Grossiste")
+        self.commande = CommandeAchat.objects.create(
+            boutique=self.boutique, fournisseur=self.fournisseur, utilisateur=self.patron, numero="CMD-F",
+            statut="commandee",
+        )
+        self.ligne = LigneAchat.objects.create(
+            commande=self.commande, variante=self.variante, quantite=10, prix_achat=100, sous_total=1000,
+        )
+        self.client.force_authenticate(user=self.patron)
+
+    def test_avance_puis_reception_payee_par_le_compte(self):
+        from django.urls import reverse
+
+        from comptabilite.models import EcritureComptable
+        from fournisseurs.services import solde_compte_fournisseur
+        from tresorerie.services import solde_caisse
+
+        from .services import annuler_reception, receptionner_commande
+
+        reponse = self.client.post(
+            reverse("fournisseur-verser-avance", args=[self.fournisseur.id]),
+            {"montant": "700", "mode": "especes", "depot": str(self.depot.id)}, format="json",
+        )
+        self.assertEqual(reponse.status_code, 200, reponse.data)
+        self.assertEqual(solde_caisse(self.depot), -700)
+        reception = receptionner_commande(
+            self.commande, self.depot, self.patron, montant_deja_paye=700,
+            lignes=[{"ligne": self.ligne, "quantite": 10, "prix_vente": None}], mode_paiement="compte_fournisseur",
+        )
+        self.assertEqual(solde_compte_fournisseur(self.fournisseur), 0)
+        self.assertEqual(solde_caisse(self.depot), -700)  # rien ne ressort une 2e fois
+        ecriture = EcritureComptable.objects.get(reference_type="achats.Reception", reference_id=reception.id)
+        credits = {l.compte.numero: l.credit for l in ecriture.lignes.all() if l.credit}
+        self.assertEqual(credits.get("409"), 700)
+        self.assertEqual(credits.get("401"), 300)
+        annuler_reception(reception, self.patron)
+        self.assertEqual(solde_compte_fournisseur(self.fournisseur), 700)
+
+    def test_retour_au_dela_de_la_dette_devient_un_avoir(self):
+        from django.urls import reverse
+
+        from fournisseurs.services import solde_compte_fournisseur
+
+        from .services import receptionner_commande, retourner_au_fournisseur
+
+        reception = receptionner_commande(
+            self.commande, self.depot, self.patron, montant_deja_paye=800,
+            lignes=[{"ligne": self.ligne, "quantite": 10, "prix_vente": None}], mode_paiement="banque",
+        )
+        retour = retourner_au_fournisseur(reception, [{"variante": self.variante, "quantite": 5}])
+        self.assertEqual(retour.avoir, 300)
+        self.assertEqual(solde_compte_fournisseur(self.fournisseur), 300)
+        reponse = self.client.post(
+            reverse("fournisseur-remboursement", args=[self.fournisseur.id]),
+            {"montant": "300", "mode": "especes", "depot": str(self.depot.id)}, format="json",
+        )
+        self.assertEqual(reponse.status_code, 200, reponse.data)
+        self.assertEqual(reponse.data["solde"], 0)

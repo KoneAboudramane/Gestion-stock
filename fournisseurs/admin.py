@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import DetteFournisseur, EcheanceDette, Fournisseur, PaiementDetteFournisseur
+from .models import DetteFournisseur, EcheanceDette, Fournisseur, MouvementCompteFournisseur, PaiementDetteFournisseur
 
 
 class DetteFournisseurInline(admin.TabularInline):
@@ -32,3 +32,9 @@ class DetteFournisseurAdmin(admin.ModelAdmin):
     search_fields = ("fournisseur__nom",)
     list_filter = ("statut",)
     inlines = [PaiementDetteFournisseurInline, EcheanceDetteInline]
+
+
+@admin.register(MouvementCompteFournisseur)
+class MouvementCompteFournisseurAdmin(admin.ModelAdmin):
+    list_display = ("fournisseur", "type", "montant", "mode", "date_creation")
+    list_filter = ("type", "mode")

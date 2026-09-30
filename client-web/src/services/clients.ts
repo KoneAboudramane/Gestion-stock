@@ -2,6 +2,7 @@ import { ouvrirBaseDeDonnees } from "../db";
 import { ecrireLigne, maintenant, obtenirLigne, suiviSyncNeuf } from "../db/helpers";
 import type { ClientLocal, CreditLocal, EcheanceCreditLocale, PaiementCreditLocal } from "../db/schema";
 import { calculerEcheances, erreurTranches, type EcheanceDetail } from "./echeancier";
+import { ajouterMouvementCompteClient, soldeCompteClient } from "./comptesTiers";
 import { enregistrerMouvement } from "./tresorerie";
 
 /**
@@ -274,6 +275,9 @@ export async function rembourserCredit(
   if (montant > credit.solde) {
     throw new ErreurClient("Le montant remboursé ne peut pas dépasser le solde restant.");
   }
+  if (mode === "compte_client" && montant > (await soldeCompteClient(credit.client_id))) {
+    throw new ErreurClient("Le compte du client ne suffit pas.");
+  }
 
   const paiementId = crypto.randomUUID();
   const paiement: PaiementCreditLocal = {
@@ -285,6 +289,17 @@ export async function rembourserCredit(
     ...suiviSyncNeuf(),
   };
   await db.put("paiements_credit", paiement);
+  if (mode === "compte_client") {
+    await ajouterMouvementCompteClient({
+      clientId: credit.client_id,
+      type: "utilisation",
+      montant,
+      creditId,
+      venteId: credit.vente_id,
+      utilisateurId,
+      motif: "Règlement de crédit",
+    });
+  }
 
   const nouveauMontantPaye = credit.montant_paye + montant;
   const nouveauSolde = credit.solde - montant;

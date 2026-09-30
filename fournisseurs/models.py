@@ -81,3 +81,42 @@ class EcheanceDette(ModeleBase):
 
     def __str__(self):
         return f"{self.dette} : {self.montant} le {self.date_echeance}"
+
+
+class MouvementCompteFournisseur(ModeleBase):
+    """Compte du fournisseur : ce qu'il nous doit en marchandise ou en argent
+    (avances versées, avoirs de retour). Solde calculé, jamais stocké :
+    entrées (avance, avoir, annulation d'un paiement fait avec le compte)
+    moins sorties (utilisation pour une réception ou une dette, argent que le
+    fournisseur nous rend). Ajout seul."""
+
+    class Type(models.TextChoices):
+        AVANCE = "avance", "Avance versée"
+        AVOIR = "avoir", "Avoir (retour)"
+        UTILISATION = "utilisation", "Utilisation"
+        REMBOURSEMENT = "remboursement", "Remboursé par le fournisseur"
+        ANNULATION = "annulation", "Annulation (remis sur le compte)"
+
+    ENTREES = ("avance", "avoir", "annulation")
+
+    fournisseur = models.ForeignKey(Fournisseur, on_delete=models.CASCADE, related_name="mouvements_compte")
+    type = models.CharField(max_length=15, choices=Type.choices)
+    montant = models.DecimalField(max_digits=12, decimal_places=2)
+    mode = models.CharField(max_length=20, blank=True, default="")
+    operateur = models.CharField(max_length=20, blank=True, default="")
+    depot = models.ForeignKey("stock.Depot", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    reception = models.ForeignKey("achats.Reception", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    retour = models.ForeignKey(
+        "achats.RetourFournisseur", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    dette = models.ForeignKey(DetteFournisseur, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    utilisateur = models.ForeignKey(
+        "comptes.Utilisateur", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    motif = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        ordering = ["date_creation"]
+
+    def __str__(self):
+        return f"{self.fournisseur} : {self.get_type_display()} {self.montant}"

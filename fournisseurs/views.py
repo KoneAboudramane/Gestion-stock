@@ -5,9 +5,15 @@ from rest_framework.response import Response
 
 from core.permissions import EstMembreBoutique, FiltreBoutiqueMixin, a_la_permission
 
-from .models import DetteFournisseur, Fournisseur, PaiementDetteFournisseur
-from .serializers import DetteFournisseurSerializer, FournisseurSerializer, PaiementDetteSerializer
-from .services import annuler_paiement_dette, payer_dette
+from .models import DetteFournisseur, Fournisseur, MouvementCompteFournisseur, PaiementDetteFournisseur
+from .serializers import (
+    DetteFournisseurSerializer, FournisseurSerializer, MouvementCompteSerializer, OperationCompteSerializer,
+    PaiementDetteSerializer,
+)
+from .services import (
+    annuler_paiement_dette, payer_dette, rembourse_par_fournisseur, solde_compte_fournisseur,
+    verser_avance_fournisseur,
+)
 
 PeutGererAchats = a_la_permission("gerer_produits_stock_achats")
 
@@ -17,9 +23,41 @@ class FournisseurViewSet(FiltreBoutiqueMixin, viewsets.ModelViewSet):
     queryset = Fournisseur.objects.all()
 
     def get_permissions(self):
-        if self.action in ("list", "retrieve"):
+        if self.action in ("list", "retrieve", "compte"):
             return [EstMembreBoutique()]
         return [EstMembreBoutique(), PeutGererAchats()]
+
+    def _compte(self, fournisseur):
+        mouvements = MouvementCompteFournisseur.objects.filter(fournisseur=fournisseur, supprime=False).order_by(
+            "date_creation"
+        )
+        return {
+            "solde": solde_compte_fournisseur(fournisseur),
+            "mouvements": MouvementCompteSerializer(mouvements, many=True).data,
+        }
+
+    @action(detail=True, methods=["get"])
+    def compte(self, request, pk=None):
+        return Response(self._compte(self.get_object()))
+
+    def _operation(self, request, fonction):
+        fournisseur = self.get_object()
+        entree = OperationCompteSerializer(data=request.data, context={"request": request})
+        entree.is_valid(raise_exception=True)
+        d = entree.validated_data
+        fonction(
+            fournisseur, d["montant"], d["mode"], operateur=d.get("operateur", ""), depot=d.get("depot"),
+            utilisateur=request.user, motif=d.get("motif", ""),
+        )
+        return Response(self._compte(fournisseur))
+
+    @action(detail=True, methods=["post"], url_path="verser-avance")
+    def verser_avance(self, request, pk=None):
+        return self._operation(request, verser_avance_fournisseur)
+
+    @action(detail=True, methods=["post"])
+    def remboursement(self, request, pk=None):
+        return self._operation(request, rembourse_par_fournisseur)
 
 
 class DetteFournisseurViewSet(

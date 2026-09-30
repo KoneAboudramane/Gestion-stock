@@ -29,7 +29,14 @@ const OPERATEUR_VERS_COMPTE: Record<string, string> = {
 /** Crédits de l'écriture de réception (miroir de comptabilite/signals.py::_contreparties_reception). */
 function contrepartiesReception(valeur: number, paye: number, mode: string, operateur: string): [string, number][] {
   if (!mode) return [[valeur - paye > 0 ? "401" : "571", valeur]];
-  const comptePaye = mode === "especes" ? "571" : mode === "mobile_money" ? (OPERATEUR_VERS_COMPTE[operateur] ?? "55") : "521";
+  const comptePaye =
+    mode === "especes"
+      ? "571"
+      : mode === "mobile_money"
+        ? (OPERATEUR_VERS_COMPTE[operateur] ?? "55")
+        : mode === "compte_fournisseur"
+          ? "409"
+          : "521";
   const lignes: [string, number][] = [];
   if (paye > 0) lignes.push([comptePaye, paye]);
   if (valeur - paye > 0) lignes.push(["401", valeur - paye]);
@@ -49,6 +56,7 @@ const LIBELLES_MODE_PAIEMENT: Record<string, string> = {
   especes: "Espèces",
   mobile_money: "Mobile Money",
   credit: "Crédit",
+  compte_client: "Compte client",
 };
 
 const LIBELLES_OPERATEUR: Record<string, string> = {
@@ -99,7 +107,23 @@ function compteSourcePaiement(mode: string, operateur: string): string {
   if (mode === "especes") return "571";
   if (mode === "mobile_money") return OPERATEUR_VERS_COMPTE[operateur] ?? "55";
   if (mode === "credit") return "411";
+  if (mode === "compte_client") return "419";
   return "47";
+}
+
+/** Compte d'un règlement de crédit / dette (le mode y est l'opérateur lui-même). Miroir de signals.py::_compte_reglement. */
+function compteReglement(mode: string): string {
+  if (mode === "especes") return "571";
+  if (mode === "compte_client") return "419";
+  if (mode === "compte_fournisseur") return "409";
+  if (mode === "banque") return "521";
+  return OPERATEUR_VERS_COMPTE[mode] ?? "55";
+}
+
+function compteArgent(mode: string, operateur: string): string {
+  if (mode === "especes") return "571";
+  if (mode === "mobile_money") return OPERATEUR_VERS_COMPTE[operateur] ?? "55";
+  return "521";
 }
 
 function decomposerTtc(montantTtc: number, taux: number): [number, number] {
@@ -214,8 +238,10 @@ export function genererEcrituresLocales(boutiqueId: string): EcritureLocale[] {
       });
     }
   }
-  for (const retour of tousLesResultats<{ id: string; numero: string; montant: number; dateCreation: string }>(
-    `SELECT rf.id as id, c.numero as numero, rf.montant as montant, rf.date_creation as dateCreation
+  for (const retour of tousLesResultats<{ id: string; numero: string; montant: number; dateCreation: string; avoir: number }>(
+    `SELECT rf.id as id, c.numero as numero, rf.montant as montant, rf.date_creation as dateCreation,
+            COALESCE((SELECT SUM(m.montant) FROM mouvements_compte_fournisseur m
+                      WHERE m.retour_id = rf.id AND m.type = 'avoir' AND m.supprime = 0), 0) as avoir
      FROM retours_fournisseur rf
      JOIN commandes_achat c ON c.id = rf.commande_id
      WHERE c.boutique_id = ? AND rf.supprime = 0 AND rf.montant > 0`,
@@ -228,7 +254,14 @@ export function genererEcrituresLocales(boutiqueId: string): EcritureLocale[] {
       libelle: `Retour fournisseur ${retour.numero}`,
       referenceType: "achats.RetourFournisseur",
       referenceId: retour.id,
-      lignes: [ligne("401", Number(retour.montant), 0), ligne("601", 0, Number(retour.montant))],
+      // La part devenue un avoir sur le compte du fournisseur va en 409 (il nous doit).
+      lignes: [
+        ...(Number(retour.montant) - Number(retour.avoir) > 0
+          ? [ligne("401", Number(retour.montant) - Number(retour.avoir), 0)]
+          : []),
+        ...(Number(retour.avoir) > 0 ? [ligne("409", Number(retour.avoir), 0)] : []),
+        ligne("601", 0, Number(retour.montant)),
+      ],
     });
   }
 
@@ -251,7 +284,7 @@ export function genererEcrituresLocales(boutiqueId: string): EcritureLocale[] {
     [boutiqueId],
   );
   for (const p of paiementsDette) {
-    const compteSource = p.mode === "especes" ? "571" : "55";
+    const compteSource = compteReglement(p.mode);
     ecritures.push({
       id: `paiement-dette-${p.id}`,
       date: p.dateCreation.slice(0, 10),
@@ -284,7 +317,7 @@ export function genererEcrituresLocales(boutiqueId: string): EcritureLocale[] {
     [boutiqueId],
   );
   for (const p of paiementsCredit) {
-    const compteSource = p.mode === "especes" ? "571" : "55";
+    const compteSource = compteReglement(p.mode);
     ecritures.push({
       id: `paiement-credit-${p.id}`,
       date: p.dateCreation.slice(0, 10),
@@ -335,6 +368,52 @@ export function genererEcrituresLocales(boutiqueId: string): EcritureLocale[] {
       referenceType: "tresorerie.Transfert",
       referenceId: t.id,
       lignes: [ligne("571", t.montant, 0), ligne(compteMobileMoney, 0, t.montant)],
+    });
+  }
+
+  // --- Comptes client / fournisseur : dépôts, argent rendu, avances (419 / 409) ---
+  for (const m of tousLesResultats<{ id: string; type: string; montant: number; mode: string; operateur: string; dateCreation: string; nom: string }>(
+    `SELECT m.id as id, m.type as type, m.montant as montant, COALESCE(m.mode, '') as mode,
+            COALESCE(m.operateur, '') as operateur, m.date_creation as dateCreation, c.nom as nom
+     FROM mouvements_compte_client m JOIN clients c ON c.id = m.client_id
+     WHERE c.boutique_id = ? AND m.supprime = 0 AND m.type IN ('depot', 'rendu')`,
+    [boutiqueId],
+  )) {
+    const tresorerie = compteArgent(m.mode, m.operateur);
+    const montant = Number(m.montant);
+    ecritures.push({
+      id: `compte-client-${m.id}`,
+      date: m.dateCreation.slice(0, 10),
+      journal: "CA",
+      libelle: m.type === "depot" ? `Dépôt client ${m.nom}` : `Argent rendu à ${m.nom}`,
+      referenceType: "clients.MouvementCompteClient",
+      referenceId: m.id,
+      lignes:
+        m.type === "depot"
+          ? [ligne(tresorerie, montant, 0), ligne("419", 0, montant)]
+          : [ligne("419", montant, 0), ligne(tresorerie, 0, montant)],
+    });
+  }
+  for (const m of tousLesResultats<{ id: string; type: string; montant: number; mode: string; operateur: string; dateCreation: string; nom: string }>(
+    `SELECT m.id as id, m.type as type, m.montant as montant, COALESCE(m.mode, '') as mode,
+            COALESCE(m.operateur, '') as operateur, m.date_creation as dateCreation, f.nom as nom
+     FROM mouvements_compte_fournisseur m JOIN fournisseurs f ON f.id = m.fournisseur_id
+     WHERE f.boutique_id = ? AND m.supprime = 0 AND m.type IN ('avance', 'remboursement')`,
+    [boutiqueId],
+  )) {
+    const tresorerie = compteArgent(m.mode, m.operateur);
+    const montant = Number(m.montant);
+    ecritures.push({
+      id: `compte-fournisseur-${m.id}`,
+      date: m.dateCreation.slice(0, 10),
+      journal: "AC",
+      libelle: m.type === "avance" ? `Avance à ${m.nom}` : `Remboursement de ${m.nom}`,
+      referenceType: "fournisseurs.MouvementCompteFournisseur",
+      referenceId: m.id,
+      lignes:
+        m.type === "avance"
+          ? [ligne("409", montant, 0), ligne(tresorerie, 0, montant)]
+          : [ligne(tresorerie, montant, 0), ligne("409", 0, montant)],
     });
   }
 

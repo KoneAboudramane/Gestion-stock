@@ -10,7 +10,8 @@ Cahier des charges §8 : numérotation automatique, devise FCFA sans décimales
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
 
-from clients.models import Credit
+from clients.models import Credit, MouvementCompteClient
+from clients.services import solde_compte_client
 from core.services import generer_numero_sequentiel
 from stock.models import MouvementStock
 from stock.services import appliquer_mouvement, destockage_actif, terminer_destockage_si_epuise
@@ -64,6 +65,13 @@ def creer_vente(
             f"La somme des paiements ({total_paiements}) doit être égale au total net ({total_net})."
         )
 
+    montant_compte = sum(p["montant"] for p in paiements_donnees if p["mode"] == Paiement.Mode.COMPTE_CLIENT)
+    if montant_compte > 0:
+        if client is None:
+            raise ValidationError("Choisissez le client dont le compte paie.")
+        if montant_compte > solde_compte_client(client):
+            raise ValidationError("Le compte du client ne suffit pas.")
+
     numero = _generer_numero(boutique)
     vente = Vente.objects.create(
         boutique=boutique, depot=depot, client=client, utilisateur=utilisateur,
@@ -88,6 +96,11 @@ def creer_vente(
                 depot, MouvementCaisse.Type.ENTREE, MouvementCaisse.Categorie.VENTE_ESPECES,
                 paiement.montant, motif=f"Vente {numero}", utilisateur=utilisateur,
                 reference_type="ventes.Paiement", reference_id=paiement.id,
+            )
+        elif paiement.mode == Paiement.Mode.COMPTE_CLIENT:
+            MouvementCompteClient.objects.create(
+                client=client, type=MouvementCompteClient.Type.UTILISATION, montant=paiement.montant,
+                vente=vente, depot=depot, utilisateur=utilisateur, motif=f"Vente {numero}",
             )
 
     if statut == Vente.Statut.CREDIT:
@@ -126,6 +139,13 @@ def annuler_vente(vente, utilisateur):
             vente.depot, MouvementCaisse.Type.SORTIE, MouvementCaisse.Categorie.VENTE_ESPECES,
             paiement.montant, motif=f"Annulation vente {vente.numero}", utilisateur=utilisateur,
             reference_type="ventes.Vente", reference_id=vente.id,
+        )
+
+    montant_compte = sum(p.montant for p in vente.paiements.filter(mode=Paiement.Mode.COMPTE_CLIENT))
+    if montant_compte > 0 and vente.client_id:
+        MouvementCompteClient.objects.create(
+            client=vente.client, type=MouvementCompteClient.Type.ANNULATION, montant=montant_compte,
+            vente=vente, depot=vente.depot, utilisateur=utilisateur, motif=f"Annulation vente {vente.numero}",
         )
 
     for credit in Credit.objects.filter(vente=vente):

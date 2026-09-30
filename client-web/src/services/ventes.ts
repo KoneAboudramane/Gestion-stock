@@ -3,6 +3,7 @@ import { maintenant, suiviSyncNeuf } from "../db/helpers";
 import type { CreditLocal, LigneVenteLocale, PaiementLocal, VenteLocale } from "../db/schema";
 import { verifierAbonnementActif } from "./abonnement";
 import { appliquerMouvement, destockageActif, terminerDestockageSiEpuise } from "./stock";
+import { ajouterMouvementCompteClient, soldeCompteClient } from "./comptesTiers";
 import { enregistrerMouvement } from "./tresorerie";
 
 /**
@@ -14,7 +15,7 @@ import { enregistrerMouvement } from "./tresorerie";
  */
 
 export type StatutVente = "payee" | "credit" | "annulee";
-export type ModePaiement = "especes" | "mobile_money" | "credit";
+export type ModePaiement = "especes" | "mobile_money" | "credit" | "compte_client";
 export type OperateurMobileMoney = "orange_money" | "mtn_money" | "moov_money" | "wave";
 
 export class ErreurVente extends Error {}
@@ -112,6 +113,11 @@ export async function creerVente(params: ParametresVente): Promise<VenteCreee> {
   if (paiements.some((p) => p.mode === "mobile_money" && !p.operateur)) {
     throw new ErreurVente("Un opérateur est requis pour un paiement Mobile Money.");
   }
+  const montantCompte = paiements.filter((p) => p.mode === "compte_client").reduce((t, p) => t + p.montant, 0);
+  if (montantCompte > 0) {
+    if (!clientId) throw new ErreurVente("Choisissez le client dont le compte paie.");
+    if (montantCompte > (await soldeCompteClient(clientId))) throw new ErreurVente("Le compte du client ne suffit pas.");
+  }
 
   // Un stock insuffisant sur une ligne (appliquerMouvement lève ErreurStock)
   // interrompt la fonction avant toute écriture de vente/ligne/paiement — pas
@@ -187,6 +193,16 @@ export async function creerVente(params: ParametresVente): Promise<VenteCreee> {
         utilisateurId,
         referenceType: "ventes.Paiement",
         referenceId: paiementId,
+      });
+    } else if (paiement.mode === "compte_client" && clientId) {
+      await ajouterMouvementCompteClient({
+        clientId,
+        type: "utilisation",
+        montant: paiement.montant,
+        venteId,
+        depotId,
+        utilisateurId,
+        motif: `Vente ${numero}`,
       });
     }
   }
@@ -354,6 +370,22 @@ export async function annulerVente(venteId: string, utilisateurId: string | null
       utilisateurId,
       referenceType: "ventes.Vente",
       referenceId: venteId,
+    });
+  }
+
+  // Payé avec le compte du client : l'argent y revient.
+  const montantCompte = (await db.getAllFromIndex("paiements", "vente_id", venteId))
+    .filter((p) => !p.supprime && p.mode === "compte_client")
+    .reduce((t, p) => t + p.montant, 0);
+  if (montantCompte > 0 && vente.client_id) {
+    await ajouterMouvementCompteClient({
+      clientId: vente.client_id,
+      type: "annulation",
+      montant: montantCompte,
+      venteId,
+      depotId: vente.depot_id,
+      utilisateurId,
+      motif: `Annulation vente ${vente.numero}`,
     });
   }
 

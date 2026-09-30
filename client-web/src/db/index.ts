@@ -222,6 +222,16 @@ export function ouvrirBaseDeDonnees(): Promise<IDBPDatabase<GestionStockDB>> {
           detaillages.createIndex("depot_id", "depot_id");
           detaillages.createIndex("synchronise", "synchronise");
         }
+
+        // v13 : comptes client (porte-monnaie) et fournisseur (avances, avoirs).
+        if (oldVersion < 13) {
+          const comptesClient = db.createObjectStore("mouvements_compte_client", { keyPath: "id" });
+          comptesClient.createIndex("client_id", "client_id");
+          comptesClient.createIndex("synchronise", "synchronise");
+          const comptesFournisseur = db.createObjectStore("mouvements_compte_fournisseur", { keyPath: "id" });
+          comptesFournisseur.createIndex("fournisseur_id", "fournisseur_id");
+          comptesFournisseur.createIndex("synchronise", "synchronise");
+        }
       },
     });
   }

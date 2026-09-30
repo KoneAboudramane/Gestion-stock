@@ -224,6 +224,18 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("dettes:payer", id, montant, mode, depotId, utilisateurId),
     listerPaiements: (detteId: string) => ipcRenderer.invoke("dettes:listerPaiements", detteId),
   },
+  comptesTiers: {
+    compteClient: (clientId: string) => ipcRenderer.invoke("comptesTiers:compteClient", clientId),
+    soldesClients: (boutiqueId: string) => ipcRenderer.invoke("comptesTiers:soldesClients", boutiqueId),
+    deposerClient: (clientId: string, op: unknown) => ipcRenderer.invoke("comptesTiers:deposerClient", clientId, op),
+    rendreClient: (clientId: string, op: unknown) => ipcRenderer.invoke("comptesTiers:rendreClient", clientId, op),
+    compteFournisseur: (fournisseurId: string) => ipcRenderer.invoke("comptesTiers:compteFournisseur", fournisseurId),
+    soldesFournisseurs: (boutiqueId: string) => ipcRenderer.invoke("comptesTiers:soldesFournisseurs", boutiqueId),
+    verserAvance: (fournisseurId: string, op: unknown) =>
+      ipcRenderer.invoke("comptesTiers:verserAvance", fournisseurId, op),
+    remboursementFournisseur: (fournisseurId: string, op: unknown) =>
+      ipcRenderer.invoke("comptesTiers:remboursementFournisseur", fournisseurId, op),
+  },
   clients: {
     lister: (boutiqueId: string, terme?: string) => ipcRenderer.invoke("clients:lister", boutiqueId, terme),
     obtenir: (id: string) => ipcRenderer.invoke("clients:obtenir", id),

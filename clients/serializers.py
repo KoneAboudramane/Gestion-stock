@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from stock.models import Depot
 
-from .models import Client, Credit, PaiementCredit
+from .models import Client, Credit, PaiementCredit, MouvementCompteClient
 
 
 class ClientSerializer(serializers.ModelSerializer):
@@ -41,3 +41,25 @@ class PaiementCreditEntreeSerializer(serializers.Serializer):
         request = self.context.get("request")
         if request and request.user.is_authenticated and request.user.boutique_id:
             self.fields["depot"].queryset = Depot.objects.filter(boutique=request.user.boutique)
+
+
+class OperationCompteSerializer(serializers.Serializer):
+    """Dépôt / argent rendu / avance : montant, mode, opérateur, dépôt, motif."""
+
+    montant = serializers.DecimalField(max_digits=12, decimal_places=2)
+    mode = serializers.ChoiceField(choices=["especes", "mobile_money", "banque"])
+    operateur = serializers.CharField(max_length=20, required=False, allow_blank=True, default="")
+    depot = serializers.PrimaryKeyRelatedField(queryset=Depot.objects.all(), required=False, allow_null=True)
+    motif = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request and request.user.is_authenticated and request.user.boutique_id:
+            self.fields["depot"].queryset = Depot.objects.filter(boutique=request.user.boutique)
+
+
+class MouvementCompteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MouvementCompteClient
+        fields = "__all__"

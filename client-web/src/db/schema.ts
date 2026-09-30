@@ -344,6 +344,37 @@ export interface PaiementCreditLocal extends SuiviSync {
   utilisateur_id: string | null;
 }
 
+/** Porte-monnaie du client (voir services/comptesTiers.ts). */
+export interface MouvementCompteClientLocal extends SuiviSync {
+  id: string;
+  client_id: string;
+  type: string;
+  montant: number;
+  mode: string;
+  operateur: string;
+  depot_id: string | null;
+  vente_id: string | null;
+  credit_id: string | null;
+  utilisateur_id: string | null;
+  motif: string;
+}
+
+/** Avances versées et avoirs de retour d'un fournisseur. */
+export interface MouvementCompteFournisseurLocal extends SuiviSync {
+  id: string;
+  fournisseur_id: string;
+  type: string;
+  montant: number;
+  mode: string;
+  operateur: string;
+  depot_id: string | null;
+  reception_id: string | null;
+  retour_id: string | null;
+  dette_id: string | null;
+  utilisateur_id: string | null;
+  motif: string;
+}
+
 export interface DetteFournisseurLocale extends SuiviSync {
   id: string;
   fournisseur_id: string;
@@ -550,6 +581,16 @@ export interface GestionStockDB extends DBSchema {
     value: PaiementCreditLocal;
     indexes: { credit_id: string; synchronise: number };
   };
+  mouvements_compte_client: {
+    key: string;
+    value: MouvementCompteClientLocal;
+    indexes: { client_id: string; synchronise: number };
+  };
+  mouvements_compte_fournisseur: {
+    key: string;
+    value: MouvementCompteFournisseurLocal;
+    indexes: { fournisseur_id: string; synchronise: number };
+  };
   evenements_commande: {
     key: string;
     value: EvenementCommandeLocal;
@@ -670,4 +711,4 @@ export interface GestionStockDB extends DBSchema {
 }
 
 export const NOM_BASE = "gestion-stock";
-export const VERSION_BASE = 12;
+export const VERSION_BASE = 13;

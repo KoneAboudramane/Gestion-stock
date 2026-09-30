@@ -31,6 +31,10 @@ class MouvementCaisse(ModeleBase):
         RETRAIT = "retrait", "Retrait"
         PAIEMENT_DETTE_FOURNISSEUR = "paiement_dette_fournisseur", "Paiement dette fournisseur"
         PAIEMENT_FOURNISSEUR = "paiement_fournisseur", "Paiement fournisseur (réception)"
+        DEPOT_CLIENT = "depot_client", "Dépôt sur compte client"
+        RENDU_CLIENT = "rendu_client", "Argent rendu à un client"
+        AVANCE_FOURNISSEUR = "avance_fournisseur", "Avance à un fournisseur"
+        REMBOURSEMENT_FOURNISSEUR = "remboursement_fournisseur", "Remboursement d'un fournisseur"
         AJUSTEMENT = "ajustement", "Ajustement"
 
     depot = models.ForeignKey(

@@ -32,7 +32,14 @@ const OPERATEUR_VERS_COMPTE: Record<string, string> = {
 /** Crédits de l'écriture de réception (miroir de comptabilite/signals.py::_contreparties_reception). */
 function contrepartiesReception(valeur: number, paye: number, mode: string, operateur: string): [string, number][] {
   if (!mode) return [[valeur - paye > 0 ? "401" : "571", valeur]];
-  const comptePaye = mode === "especes" ? "571" : mode === "mobile_money" ? (OPERATEUR_VERS_COMPTE[operateur] ?? "55") : "521";
+  const comptePaye =
+    mode === "especes"
+      ? "571"
+      : mode === "mobile_money"
+        ? (OPERATEUR_VERS_COMPTE[operateur] ?? "55")
+        : mode === "compte_fournisseur"
+          ? "409"
+          : "521";
   const lignes: [string, number][] = [];
   if (paye > 0) lignes.push([comptePaye, paye]);
   if (valeur - paye > 0) lignes.push(["401", valeur - paye]);
@@ -74,7 +81,23 @@ function compteSourcePaiement(mode: string, operateur: string): string {
   if (mode === "especes") return "571";
   if (mode === "mobile_money") return OPERATEUR_VERS_COMPTE[operateur] ?? "55";
   if (mode === "credit") return "411";
+  if (mode === "compte_client") return "419";
   return "47";
+}
+
+/** Compte d'un règlement de crédit / dette (le mode y est l'opérateur lui-même). Miroir de signals.py::_compte_reglement. */
+function compteReglement(mode: string): string {
+  if (mode === "especes") return "571";
+  if (mode === "compte_client") return "419";
+  if (mode === "compte_fournisseur") return "409";
+  if (mode === "banque") return "521";
+  return OPERATEUR_VERS_COMPTE[mode] ?? "55";
+}
+
+function compteArgent(mode: string, operateur: string): string {
+  if (mode === "especes") return "571";
+  if (mode === "mobile_money") return OPERATEUR_VERS_COMPTE[operateur] ?? "55";
+  return "521";
 }
 
 function decomposerTtc(montantTtc: number, taux: number): [number, number] {
@@ -98,6 +121,12 @@ export async function genererEcrituresLocales(boutiqueId: string): Promise<Ecrit
   const db = await ouvrirBaseDeDonnees();
   const taux = await tauxTva(db, boutiqueId);
   const ecritures: EcritureLocale[] = [];
+
+  const avoirsParRetour = new Map<string, number>();
+  for (const m of await db.getAll("mouvements_compte_fournisseur")) {
+    if (m.supprime || m.type !== "avoir" || !m.retour_id) continue;
+    avoirsParRetour.set(m.retour_id, (avoirsParRetour.get(m.retour_id) ?? 0) + m.montant);
+  }
 
   // --- Ventes ---
   const ventes = (await db.getAllFromIndex("ventes", "boutique_id", boutiqueId)).filter((v) => !v.supprime);
@@ -174,6 +203,8 @@ export async function genererEcrituresLocales(boutiqueId: string): Promise<Ecrit
     for (const retour of (await db.getAllFromIndex("retours_fournisseur", "commande_id", commande.id)).filter(
       (x) => !x.supprime && x.montant > 0,
     )) {
+      // La part devenue un avoir sur le compte du fournisseur va en 409 (il nous doit).
+      const avoir = avoirsParRetour.get(retour.id) ?? 0;
       ecritures.push({
         id: `achat-retour-${retour.id}`,
         date: retour.date_creation.slice(0, 10),
@@ -181,7 +212,11 @@ export async function genererEcrituresLocales(boutiqueId: string): Promise<Ecrit
         libelle: `Retour fournisseur ${commande.numero}`,
         referenceType: "achats.RetourFournisseur",
         referenceId: retour.id,
-        lignes: [ligne("401", retour.montant, 0), ligne("601", 0, retour.montant)],
+        lignes: [
+          ...(retour.montant - avoir > 0 ? [ligne("401", retour.montant - avoir, 0)] : []),
+          ...(avoir > 0 ? [ligne("409", avoir, 0)] : []),
+          ligne("601", 0, retour.montant),
+        ],
       });
     }
   }
@@ -194,7 +229,7 @@ export async function genererEcrituresLocales(boutiqueId: string): Promise<Ecrit
       (p) => !p.supprime,
     );
     for (const paiement of paiements) {
-      const compteSource = paiement.mode === "especes" ? "571" : "55";
+      const compteSource = compteReglement(paiement.mode);
       ecritures.push({
         id: `paiement-dette-${paiement.id}`,
         date: paiement.date_creation.slice(0, 10),
@@ -225,7 +260,7 @@ export async function genererEcrituresLocales(boutiqueId: string): Promise<Ecrit
   for (const credit of credits) {
     const paiements = (await db.getAllFromIndex("paiements_credit", "credit_id", credit.id)).filter((p) => !p.supprime);
     for (const paiement of paiements) {
-      const compteSource = paiement.mode === "especes" ? "571" : "55";
+      const compteSource = compteReglement(paiement.mode);
       ecritures.push({
         id: `paiement-credit-${paiement.id}`,
         date: paiement.date_creation.slice(0, 10),
@@ -236,6 +271,42 @@ export async function genererEcrituresLocales(boutiqueId: string): Promise<Ecrit
         lignes: [ligne(compteSource, paiement.montant, 0), ligne("411", 0, paiement.montant)],
       });
     }
+  }
+
+  // --- Comptes client / fournisseur : dépôts, argent rendu, avances (419 / 409) ---
+  for (const m of await db.getAll("mouvements_compte_client")) {
+    const client = clientsParId.get(m.client_id);
+    if (m.supprime || !client || (m.type !== "depot" && m.type !== "rendu")) continue;
+    const tresorerie = compteArgent(m.mode ?? "", m.operateur ?? "");
+    ecritures.push({
+      id: `compte-client-${m.id}`,
+      date: m.date_creation.slice(0, 10),
+      journal: "CA",
+      libelle: m.type === "depot" ? `Dépôt client ${client.nom}` : `Argent rendu à ${client.nom}`,
+      referenceType: "clients.MouvementCompteClient",
+      referenceId: m.id,
+      lignes:
+        m.type === "depot"
+          ? [ligne(tresorerie, m.montant, 0), ligne("419", 0, m.montant)]
+          : [ligne("419", m.montant, 0), ligne(tresorerie, 0, m.montant)],
+    });
+  }
+  for (const m of await db.getAll("mouvements_compte_fournisseur")) {
+    const fournisseur = fournisseursParId.get(m.fournisseur_id);
+    if (m.supprime || !fournisseur || (m.type !== "avance" && m.type !== "remboursement")) continue;
+    const tresorerie = compteArgent(m.mode ?? "", m.operateur ?? "");
+    ecritures.push({
+      id: `compte-fournisseur-${m.id}`,
+      date: m.date_creation.slice(0, 10),
+      journal: "AC",
+      libelle: m.type === "avance" ? `Avance à ${fournisseur.nom}` : `Remboursement de ${fournisseur.nom}`,
+      referenceType: "fournisseurs.MouvementCompteFournisseur",
+      referenceId: m.id,
+      lignes:
+        m.type === "avance"
+          ? [ligne("409", m.montant, 0), ligne(tresorerie, 0, m.montant)]
+          : [ligne(tresorerie, m.montant, 0), ligne("409", 0, m.montant)],
+    });
   }
 
   // --- Trésorerie : dépenses, transferts, apports/retraits/ajustements ---

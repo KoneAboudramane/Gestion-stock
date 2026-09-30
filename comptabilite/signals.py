@@ -48,7 +48,31 @@ def _compte_source_paiement(mode, operateur):
         return OPERATEUR_VERS_COMPTE.get(operateur, "55")
     if mode == "credit":
         return "411"
+    if mode == "compte_client":
+        return "419"
     return "47"  # tiers/débiteurs divers, filet de sécurité si un mode inconnu apparaît
+
+
+def _compte_reglement(mode):
+    """Compte de trésorerie d'un règlement de crédit client / dette fournisseur
+    (le mode y est l'opérateur Mobile Money lui-même, ex. « wave »)."""
+    if mode == "especes":
+        return "571"
+    if mode == "compte_client":
+        return "419"
+    if mode == "compte_fournisseur":
+        return "409"
+    if mode == "banque":
+        return "521"
+    return OPERATEUR_VERS_COMPTE.get(mode, "55")
+
+
+def _compte_argent(mode, operateur):
+    if mode == "especes":
+        return "571"
+    if mode == "mobile_money":
+        return OPERATEUR_VERS_COMPTE.get(operateur, "55")
+    return "521"
 
 
 # --- Ventes ---
@@ -121,6 +145,8 @@ def _contreparties_reception(reception):
         compte_paye = "571"
     elif mode == "mobile_money":
         compte_paye = OPERATEUR_VERS_COMPTE.get(reception.operateur_paiement, "55")
+    elif mode == "compte_fournisseur":
+        compte_paye = "409"
     else:
         compte_paye = "521"
     lignes = []
@@ -198,11 +224,13 @@ def sur_retour_fournisseur(sender, instance, created, **kwargs):
             return
         commande = instance.commande
         date = instance.date_creation.date()
+        avoir = instance.avoir or 0
         creer_ecriture(
             preparer_contexte(commande.boutique, date), "AC", date,
             f"Retour fournisseur {commande.numero or commande.id}",
             [
-                {"compte": "401", "debit": instance.montant},
+                *([{"compte": "401", "debit": instance.montant - avoir}] if instance.montant - avoir > 0 else []),
+                *([{"compte": "409", "debit": avoir}] if avoir > 0 else []),
                 {"compte": "601", "credit": instance.montant},
             ],
             reference_type="achats.RetourFournisseur", reference_id=instance.id,
@@ -221,7 +249,7 @@ def sur_paiement_dette_fournisseur(sender, instance, created, **kwargs):
         if _reference_deja_comptabilisee("fournisseurs.PaiementDetteFournisseur", instance.id):
             return
         contexte = preparer_contexte(boutique)
-        compte_source = "571" if instance.mode == "especes" else "55"
+        compte_source = _compte_reglement(instance.mode)
         creer_ecriture(
             contexte, "AC", instance.date_creation.date(),
             f"Paiement dette {instance.dette.fournisseur.nom}",
@@ -249,7 +277,7 @@ def sur_annulation_paiement_dette_fournisseur(sender, instance, created, **kwarg
             return
         boutique = instance.dette.fournisseur.boutique
         date = instance.date_annulation.date() if instance.date_annulation else instance.date_modification.date()
-        compte_source = "571" if instance.mode == "especes" else "55"
+        compte_source = _compte_reglement(instance.mode)
         creer_ecriture(
             preparer_contexte(boutique, date), "AC", date,
             f"Annulation paiement dette {instance.dette.fournisseur.nom}",
@@ -275,7 +303,7 @@ def sur_paiement_credit(sender, instance, created, **kwargs):
         if _reference_deja_comptabilisee("clients.PaiementCredit", instance.id):
             return
         contexte = preparer_contexte(boutique)
-        compte_source = "571" if instance.mode == "especes" else "55"
+        compte_source = _compte_reglement(instance.mode)
         creer_ecriture(
             contexte, "VE", instance.date_creation.date(),
             f"Règlement crédit {instance.credit.client.nom}",
@@ -372,3 +400,59 @@ def sur_mouvement_caisse_divers(sender, instance, created, **kwargs):
         )
     except Exception:
         logger.exception("comptabilite: échec génération écriture pour tresorerie.MouvementCaisse %s", instance.id)
+
+
+# --- Comptes client / fournisseur (avances) ---
+
+@receiver(post_save, sender="clients.MouvementCompteClient")
+def sur_mouvement_compte_client(sender, instance, created, **kwargs):
+    """Seuls le dépôt et l'argent rendu déplacent de l'argent : 419 (avances
+    reçues des clients) contre la caisse / Mobile Money / banque. L'utilisation
+    et l'annulation sont passées par le paiement de la vente ou du crédit."""
+    if not created or instance.type not in ("depot", "rendu"):
+        return
+    try:
+        if _reference_deja_comptabilisee("clients.MouvementCompteClient", instance.id):
+            return
+        date = instance.date_creation.date()
+        tresorerie = _compte_argent(instance.mode, instance.operateur)
+        if instance.type == "depot":
+            lignes = [{"compte": tresorerie, "debit": instance.montant}, {"compte": "419", "credit": instance.montant}]
+            libelle = f"Dépôt client {instance.client.nom}"
+        else:
+            lignes = [{"compte": "419", "debit": instance.montant}, {"compte": tresorerie, "credit": instance.montant}]
+            libelle = f"Argent rendu à {instance.client.nom}"
+        creer_ecriture(
+            preparer_contexte(instance.client.boutique, date), "CA", date, libelle, lignes,
+            reference_type="clients.MouvementCompteClient", reference_id=instance.id,
+            utilisateur=instance.utilisateur,
+        )
+    except Exception:
+        logger.exception("comptabilite: échec écriture pour clients.MouvementCompteClient %s", instance.id)
+
+
+@receiver(post_save, sender="fournisseurs.MouvementCompteFournisseur")
+def sur_mouvement_compte_fournisseur(sender, instance, created, **kwargs):
+    """Avance versée : 409 contre la trésorerie ; argent rendu par le
+    fournisseur : l'inverse. Les avoirs passent par l'écriture du retour,
+    l'utilisation par la réception ou le règlement de la dette."""
+    if not created or instance.type not in ("avance", "remboursement"):
+        return
+    try:
+        if _reference_deja_comptabilisee("fournisseurs.MouvementCompteFournisseur", instance.id):
+            return
+        date = instance.date_creation.date()
+        tresorerie = _compte_argent(instance.mode, instance.operateur)
+        if instance.type == "avance":
+            lignes = [{"compte": "409", "debit": instance.montant}, {"compte": tresorerie, "credit": instance.montant}]
+            libelle = f"Avance à {instance.fournisseur.nom}"
+        else:
+            lignes = [{"compte": tresorerie, "debit": instance.montant}, {"compte": "409", "credit": instance.montant}]
+            libelle = f"Remboursement de {instance.fournisseur.nom}"
+        creer_ecriture(
+            preparer_contexte(instance.fournisseur.boutique, date), "AC", date, libelle, lignes,
+            reference_type="fournisseurs.MouvementCompteFournisseur", reference_id=instance.id,
+            utilisateur=instance.utilisateur,
+        )
+    except Exception:
+        logger.exception("comptabilite: échec écriture pour fournisseurs.MouvementCompteFournisseur %s", instance.id)

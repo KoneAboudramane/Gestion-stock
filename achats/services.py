@@ -11,7 +11,8 @@ from rest_framework.exceptions import ValidationError
 from tresorerie.models import MouvementCaisse
 from tresorerie.services import enregistrer_mouvement
 from core.services import generer_numero_sequentiel
-from fournisseurs.models import DetteFournisseur
+from fournisseurs.models import DetteFournisseur, MouvementCompteFournisseur
+from fournisseurs.services import solde_compte_fournisseur
 from stock.models import MouvementStock, Stock
 from stock.services import appliquer_mouvement
 
@@ -108,7 +109,7 @@ def modifier_commande(commande, fournisseur, statut, lignes_donnees=None, utilis
     return commande
 
 
-MODES_PAIEMENT_RECEPTION = ("especes", "mobile_money", "banque")
+MODES_PAIEMENT_RECEPTION = ("especes", "mobile_money", "banque", "compte_fournisseur")
 
 
 @transaction.atomic
@@ -144,6 +145,11 @@ def receptionner_commande(
         raise ValidationError("Le montant déjà payé ne peut pas dépasser la valeur reçue.")
     if montant_deja_paye > 0 and mode_paiement and mode_paiement not in MODES_PAIEMENT_RECEPTION:
         raise ValidationError("Mode de paiement inconnu.")
+    if (
+        montant_deja_paye > 0 and mode_paiement == "compte_fournisseur"
+        and montant_deja_paye > solde_compte_fournisseur(commande.fournisseur)
+    ):
+        raise ValidationError("Le compte du fournisseur ne suffit pas.")
 
     # Créée avant les mouvements pour qu'ils puissent la référencer : c'est ce
     # lien qui permet de retrouver les articles livrés à chaque réception.
@@ -160,6 +166,13 @@ def receptionner_commande(
             depot, MouvementCaisse.Type.SORTIE, MouvementCaisse.Categorie.PAIEMENT_FOURNISSEUR,
             montant_deja_paye, motif=f"Paiement réception {commande.numero}", utilisateur=utilisateur,
             reference_type="achats.Reception", reference_id=reception.id,
+        )
+    # Payé avec ce que le fournisseur nous doit déjà (avance, avoir).
+    if montant_deja_paye > 0 and mode_paiement == "compte_fournisseur":
+        MouvementCompteFournisseur.objects.create(
+            fournisseur=commande.fournisseur, type=MouvementCompteFournisseur.Type.UTILISATION,
+            montant=montant_deja_paye, reception=reception, depot=depot, utilisateur=utilisateur,
+            motif=f"Réception {commande.numero}",
         )
 
     for donnee in lignes:
@@ -315,6 +328,12 @@ def annuler_reception(reception, utilisateur=None):
         commande.statut = CommandeAchat.Statut.COMMANDEE
         commande.save(update_fields=["statut", "date_modification"])
 
+    if reception.mode_paiement == "compte_fournisseur" and reception.montant_paye > 0:
+        MouvementCompteFournisseur.objects.create(
+            fournisseur=commande.fournisseur, type=MouvementCompteFournisseur.Type.ANNULATION,
+            montant=reception.montant_paye, reception=reception, depot=reception.depot, utilisateur=utilisateur,
+            motif=f"Annulation réception {commande.numero}",
+        )
     # L'argent payé en espèces à la livraison revient dans la caisse.
     if MouvementCaisse.objects.filter(
         reference_type="achats.Reception", reference_id=reception.id,
@@ -386,6 +405,13 @@ def retourner_au_fournisseur(reception, lignes, motif="", utilisateur=None):
     retour.montant = montant
     retour.avoir = montant - deduit
     retour.save(update_fields=["montant", "avoir", "date_modification"])
+    # Ce qui dépasse la dette est dû par le fournisseur : il va sur son compte.
+    if retour.avoir > 0:
+        MouvementCompteFournisseur.objects.create(
+            fournisseur=commande.fournisseur, type=MouvementCompteFournisseur.Type.AVOIR, montant=retour.avoir,
+            reception=reception, retour=retour, depot=reception.depot, utilisateur=utilisateur,
+            motif=f"Retour {commande.numero}",
+        )
     noter_etape(
         commande, EvenementCommande.Type.RETOUR, utilisateur,
         f"{_articles(sum(l['quantite'] for l in lignes))} renvoyés" + (f" · {retour.motif}" if retour.motif else ""),

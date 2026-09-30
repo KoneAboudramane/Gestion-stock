@@ -74,3 +74,38 @@ class PaiementCredit(ModeleBase):
     utilisateur = models.ForeignKey(
         "comptes.Utilisateur", on_delete=models.SET_NULL, null=True, blank=True
     )
+
+
+class MouvementCompteClient(ModeleBase):
+    """Porte-monnaie du client : l'argent qu'il laisse d'avance à la boutique.
+    Le solde n'est jamais stocké : entrées (dépôt, annulation d'une vente payée
+    par le compte) moins sorties (utilisation en caisse ou pour un crédit,
+    argent rendu). Ajout seul : on ne corrige pas, on contre-passe."""
+
+    class Type(models.TextChoices):
+        DEPOT = "depot", "Dépôt"
+        UTILISATION = "utilisation", "Utilisation"
+        RENDU = "rendu", "Argent rendu"
+        ANNULATION = "annulation", "Annulation (remis sur le compte)"
+
+    ENTREES = ("depot", "annulation")
+
+    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name="mouvements_compte")
+    type = models.CharField(max_length=15, choices=Type.choices)
+    montant = models.DecimalField(max_digits=12, decimal_places=2)
+    # Comment l'argent est entré / sorti (dépôt, rendu) : especes, mobile_money, banque.
+    mode = models.CharField(max_length=20, blank=True, default="")
+    operateur = models.CharField(max_length=20, blank=True, default="")
+    depot = models.ForeignKey("stock.Depot", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    vente = models.ForeignKey("ventes.Vente", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    credit = models.ForeignKey(Credit, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    utilisateur = models.ForeignKey(
+        "comptes.Utilisateur", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    motif = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        ordering = ["date_creation"]
+
+    def __str__(self):
+        return f"{self.client} : {self.get_type_display()} {self.montant}"

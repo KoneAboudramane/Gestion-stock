@@ -5,6 +5,7 @@ stocké : il se recalcule à la volée à partir de MouvementCaisse (agrégat
 simple) — la caisse n'est pas lue sur le chemin chaud d'une vente comme
 l'est le stock, donc pas besoin d'une table dédiée à tenir à jour.
 """
+from django.apps import apps
 from django.db import transaction
 from django.db.models import Sum
 from rest_framework.exceptions import ValidationError
@@ -108,6 +109,14 @@ def solde_mobile_money_disponible(boutique, utilisateur_source, operateur):
         mode=Paiement.Mode.MOBILE_MONEY, operateur=operateur,
         vente__boutique=boutique, vente__utilisateur=utilisateur_source,
     ).exclude(vente__statut=Vente.Statut.ANNULEE).aggregate(total=Sum("montant"))["total"] or 0
+
+    # Dépôts / argent rendus sur le compte d'un client par Mobile Money.
+    comptes = apps.get_model("clients", "MouvementCompteClient").objects.filter(
+        mode="mobile_money", operateur=operateur, utilisateur=utilisateur_source,
+        client__boutique=boutique, supprime=False,
+    )
+    encaisse += comptes.filter(type="depot").aggregate(total=Sum("montant"))["total"] or 0
+    encaisse -= comptes.filter(type="rendu").aggregate(total=Sum("montant"))["total"] or 0
 
     transfere = Transfert.objects.filter(
         utilisateur_source=utilisateur_source, operateur=operateur,

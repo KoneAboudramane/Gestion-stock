@@ -87,7 +87,7 @@ export interface ClientBoutique {
   adresse: string;
 }
 
-export type ModePaiement = "especes" | "mobile_money" | "carte" | "credit";
+export type ModePaiement = "especes" | "mobile_money" | "carte" | "credit" | "compte_client";
 export type OperateurMobileMoney = "orange_money" | "mtn_money" | "moov_money" | "wave";
 export type StatutVente = "payee" | "credit";
 
@@ -323,6 +323,43 @@ export interface ChampsVariante {
 }
 
 export type ResultatEcriture<T> = { succes: true; resultat: T } | { succes: false; message: string };
+
+// --- Comptes client / fournisseur (miroir de electron/services/comptesTiers.ts) ---
+export type ModeArgent = "especes" | "mobile_money" | "banque";
+
+export interface MouvementCompte {
+  id: string;
+  type: string;
+  /** Positif = entrée sur le compte, négatif = sortie. */
+  montant: number;
+  mode: string;
+  operateur: string;
+  depotId: string | null;
+  venteId: string | null;
+  venteNumero: string | null;
+  creditId: string | null;
+  receptionId: string | null;
+  retourId: string | null;
+  detteId: string | null;
+  commandeNumero: string | null;
+  utilisateurId: string | null;
+  motif: string;
+  dateCreation: string;
+}
+
+export interface CompteTiers {
+  solde: number;
+  mouvements: MouvementCompte[];
+}
+
+export interface OperationCompte {
+  montant: number;
+  mode: ModeArgent;
+  operateur?: string;
+  depotId?: string | null;
+  utilisateurId?: string | null;
+  motif?: string;
+}
 
 export interface DepotResume {
   id: string;
@@ -1354,6 +1391,10 @@ export type CategorieMouvementCaisse =
   | "retrait"
   | "paiement_dette_fournisseur"
   | "paiement_fournisseur"
+  | "depot_client"
+  | "rendu_client"
+  | "avance_fournisseur"
+  | "remboursement_fournisseur"
   | "ajustement";
 export type CategorieDepense =
   | "transport"
@@ -1636,6 +1677,16 @@ export interface WindowApi {
       utilisateurId?: string | null,
     ): Promise<ResultatEcriture<void>>;
     listerPaiements(detteId: string): Promise<PaiementDetteDetail[]>;
+  };
+  comptesTiers: {
+    compteClient(clientId: string): Promise<CompteTiers>;
+    soldesClients(boutiqueId: string): Promise<Record<string, number>>;
+    deposerClient(clientId: string, op: OperationCompte): Promise<ResultatEcriture<CompteTiers>>;
+    rendreClient(clientId: string, op: OperationCompte): Promise<ResultatEcriture<CompteTiers>>;
+    compteFournisseur(fournisseurId: string): Promise<CompteTiers>;
+    soldesFournisseurs(boutiqueId: string): Promise<Record<string, number>>;
+    verserAvance(fournisseurId: string, op: OperationCompte): Promise<ResultatEcriture<CompteTiers>>;
+    remboursementFournisseur(fournisseurId: string, op: OperationCompte): Promise<ResultatEcriture<CompteTiers>>;
   };
   clients: {
     lister(boutiqueId: string, terme?: string): Promise<ClientDetailResume[]>;

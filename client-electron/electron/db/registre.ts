@@ -223,6 +223,20 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
       "dette_id IN (SELECT id FROM dettes_fournisseur WHERE fournisseur_id IN (SELECT id FROM fournisseurs WHERE boutique_id = ?))",
   },
   {
+    table: "clients.MouvementCompteClient",
+    tableLocale: "mouvements_compte_client",
+    champsFK: ["client", "depot", "vente", "credit", "utilisateur"],
+    ajoutSeul: true,
+    clauseBoutique: "client_id IN (SELECT id FROM clients WHERE boutique_id = ?)",
+  },
+  {
+    table: "fournisseurs.MouvementCompteFournisseur",
+    tableLocale: "mouvements_compte_fournisseur",
+    champsFK: ["fournisseur", "depot", "reception", "retour", "dette", "utilisateur"],
+    ajoutSeul: true,
+    clauseBoutique: "fournisseur_id IN (SELECT id FROM fournisseurs WHERE boutique_id = ?)",
+  },
+  {
     table: "tresorerie.Depense",
     tableLocale: "depenses",
     champsFK: ["depot", "utilisateur"],

@@ -5,6 +5,7 @@ import { calculerEcheances, erreurTranches, type EcheanceDetail, type StatutEche
 export type { EcheanceDetail, StatutEcheance } from "./echeancier";
 import { sauvegarder } from "../db/index";
 import { appliquerMouvement } from "./stock";
+import { ajouterMouvementCompteFournisseur, soldeCompteFournisseur } from "./comptesTiers";
 import { enregistrerMouvement } from "./tresorerie";
 
 /**
@@ -358,6 +359,7 @@ const LIBELLES_MODE_PAIEMENT: Record<string, string> = {
   mtn_money: "MTN Money",
   moov_money: "Moov Money",
   wave: "Wave",
+  compte_fournisseur: "Compte fournisseur",
 };
 
 function texteArticles(quantite: number): string {
@@ -518,7 +520,7 @@ export interface ParametresReception {
   utilisateurId: string | null;
   montantDejaPaye?: number;
   /** Comment le montant déjà payé a été réglé : espèces (sortie de caisse), Mobile Money ou banque. */
-  modePaiement?: "especes" | "mobile_money" | "banque" | "";
+  modePaiement?: "especes" | "mobile_money" | "banque" | "compte_fournisseur" | "";
   operateurPaiement?: string;
   lignes: LigneReceptionEntree[];
 }
@@ -570,6 +572,9 @@ export function receptionnerCommande(params: ParametresReception): string {
   }
   if (montantDejaPaye > valeurRecue) {
     throw new ErreurAchat("Le montant déjà payé ne peut pas dépasser la valeur reçue.");
+  }
+  if (modePaiement === "compte_fournisseur" && montantDejaPaye > soldeCompteFournisseur(commande.fournisseur_id)) {
+    throw new ErreurAchat("Le compte du fournisseur ne suffit pas.");
   }
 
   const receptionId = randomUUID();
@@ -657,6 +662,18 @@ export function receptionnerCommande(params: ParametresReception): string {
         utilisateurId,
         referenceType: "achats.Reception",
         referenceId: receptionId,
+      });
+    }
+    // Payé avec ce que le fournisseur nous doit déjà (avance, avoir).
+    if (montantDejaPaye > 0 && modePaiement === "compte_fournisseur") {
+      ajouterMouvementCompteFournisseur({
+        fournisseurId: commande.fournisseur_id,
+        type: "utilisation",
+        montant: montantDejaPaye,
+        receptionId,
+        depotId,
+        utilisateurId,
+        motif: `Réception ${commande.numero}`,
       });
     }
 
@@ -1057,8 +1074,18 @@ function retirerDuStockEtDuCump(
  * règlement après la réception. Renvoie le montant payé sur place à récupérer.
  */
 export function annulerReception(receptionId: string, utilisateurId: string | null): { montantARecuperer: number } {
-  const reception = unResultat<{ id: string; commande_id: string; depot_id: string; valeur_recue: number; montant_paye: number; annulee: number }>(
-    "SELECT id, commande_id, depot_id, valeur_recue, montant_paye, COALESCE(annulee, 0) as annulee FROM receptions WHERE id = ?",
+  const reception = unResultat<{
+    id: string;
+    commande_id: string;
+    depot_id: string;
+    valeur_recue: number;
+    montant_paye: number;
+    annulee: number;
+    mode_paiement: string;
+  }>(
+    `SELECT id, commande_id, depot_id, valeur_recue, montant_paye, COALESCE(annulee, 0) as annulee,
+            COALESCE(mode_paiement, '') as mode_paiement
+     FROM receptions WHERE id = ?`,
     [receptionId],
   );
   if (!reception) throw new ErreurAchat("Réception introuvable.");
@@ -1112,6 +1139,20 @@ export function annulerReception(receptionId: string, utilisateurId: string | nu
         maintenant,
         reception.commande_id,
       ]);
+    }
+    if (reception.mode_paiement === "compte_fournisseur" && Number(reception.montant_paye) > 0) {
+      const fournisseurId = unResultat<{ f: string }>("SELECT fournisseur_id as f FROM commandes_achat WHERE id = ?", [
+        reception.commande_id,
+      ])!.f;
+      ajouterMouvementCompteFournisseur({
+        fournisseurId,
+        type: "annulation",
+        montant: Number(reception.montant_paye),
+        receptionId,
+        depotId: reception.depot_id,
+        utilisateurId,
+        motif: `Annulation réception ${commande.numero}`,
+      });
     }
     // L'argent payé en espèces à la livraison revient dans la caisse.
     const sortieCaisse = unResultat<{ n: number }>(
@@ -1174,7 +1215,10 @@ export function retournerAuFournisseur(params: ParametresRetourFournisseur): { m
   if (lignes.length === 0) throw new ErreurAchat("Indiquez au moins une quantité à retourner.");
   const recues = lignesRecues(receptionId);
   const retournees = dejaRetourne(receptionId);
-  const commande = unResultat<{ numero: string }>("SELECT numero FROM commandes_achat WHERE id = ?", [reception.commande_id])!;
+  const commande = unResultat<{ numero: string; fournisseur_id: string }>(
+    "SELECT numero, fournisseur_id FROM commandes_achat WHERE id = ?",
+    [reception.commande_id],
+  )!;
 
   const resultat = dansUneTransaction(() => {
     const maintenant = new Date().toISOString();
@@ -1225,6 +1269,19 @@ export function retournerAuFournisseur(params: ParametresRetourFournisseur): { m
       );
     }
     executer("UPDATE retours_fournisseur SET montant = ?, avoir = ? WHERE id = ?", [montant, montant - deduit, retourId]);
+    // Ce qui dépasse la dette est dû par le fournisseur : il va sur son compte.
+    if (montant - deduit > 0) {
+      ajouterMouvementCompteFournisseur({
+        fournisseurId: commande.fournisseur_id,
+        type: "avoir",
+        montant: montant - deduit,
+        receptionId,
+        retourId,
+        depotId: reception.depot_id,
+        utilisateurId,
+        motif: `Retour ${commande.numero}`,
+      });
+    }
     const motif = (params.motif ?? "").trim();
     noterEtape(
       reception.commande_id,
@@ -1394,14 +1451,14 @@ export function listerPaiementsDette(detteId: string): PaiementDetteDetail[] {
  * était en espèces, l'argent revient dans la caisse du même dépôt.
  */
 export function annulerPaiementDette(paiementId: string, utilisateurId: string | null, motif = ""): void {
-  const paiement = unResultat<{ dette_id: string; montant: number; annulee: number }>(
-    "SELECT dette_id, montant, COALESCE(annulee, 0) as annulee FROM paiements_dette_fournisseur WHERE id = ?",
+  const paiement = unResultat<{ dette_id: string; montant: number; annulee: number; mode: string }>(
+    "SELECT dette_id, montant, COALESCE(annulee, 0) as annulee, COALESCE(mode, '') as mode FROM paiements_dette_fournisseur WHERE id = ?",
     [paiementId],
   );
   if (!paiement) throw new ErreurAchat("Remboursement introuvable.");
   if (Number(paiement.annulee)) throw new ErreurAchat("Ce remboursement est déjà annulé.");
-  const dette = unResultat<{ commande_id: string | null; fournisseur_nom: string }>(
-    `SELECT d.commande_id as commande_id, f.nom as fournisseur_nom
+  const dette = unResultat<{ commande_id: string | null; fournisseur_nom: string; fournisseur_id: string }>(
+    `SELECT d.commande_id as commande_id, f.nom as fournisseur_nom, f.id as fournisseur_id
      FROM dettes_fournisseur d JOIN fournisseurs f ON f.id = d.fournisseur_id WHERE d.id = ?`,
     [paiement.dette_id],
   )!;
@@ -1437,6 +1494,16 @@ export function annulerPaiementDette(paiementId: string, utilisateurId: string |
         referenceId: paiementId,
       });
     }
+    if (paiement.mode === "compte_fournisseur") {
+      ajouterMouvementCompteFournisseur({
+        fournisseurId: dette.fournisseur_id,
+        type: "annulation",
+        montant,
+        detteId: paiement.dette_id,
+        utilisateurId,
+        motif: "Remboursement annulé",
+      });
+    }
     if (dette.commande_id) {
       noterEtape(
         dette.commande_id,
@@ -1458,8 +1525,16 @@ export function payerDette(
   depotId: string | null = null,
   utilisateurId: string | null = null,
 ): void {
-  const dette = unResultat<{ montant_paye: number; solde: number; fournisseur_nom: string; commande_id: string | null }>(
-    `SELECT d.montant_paye as montant_paye, d.solde as solde, f.nom as fournisseur_nom, d.commande_id as commande_id
+  const dette = unResultat<{
+    montant_paye: number;
+    solde: number;
+    fournisseur_nom: string;
+    fournisseur_id: string;
+    commande_id: string | null;
+    reception_id: string | null;
+  }>(
+    `SELECT d.montant_paye as montant_paye, d.solde as solde, f.nom as fournisseur_nom, f.id as fournisseur_id,
+            d.commande_id as commande_id, d.reception_id as reception_id
      FROM dettes_fournisseur d JOIN fournisseurs f ON f.id = d.fournisseur_id WHERE d.id = ?`,
     [detteId],
   );
@@ -1470,10 +1545,24 @@ export function payerDette(
   if (montant > Number(dette.solde)) {
     throw new ErreurAchat("Le montant payé ne peut pas dépasser le solde restant.");
   }
+  if (mode === "compte_fournisseur" && montant > soldeCompteFournisseur(dette.fournisseur_id)) {
+    throw new ErreurAchat("Le compte du fournisseur ne suffit pas.");
+  }
 
   dansUneTransaction(() => {
     const maintenant = new Date().toISOString();
     const paiementId = randomUUID();
+    if (mode === "compte_fournisseur") {
+      ajouterMouvementCompteFournisseur({
+        fournisseurId: dette.fournisseur_id,
+        type: "utilisation",
+        montant,
+        detteId,
+        receptionId: dette.reception_id,
+        utilisateurId,
+        motif: "Règlement de dette",
+      });
+    }
     executer(
       `INSERT INTO paiements_dette_fournisseur (id, dette_id, montant, mode, date_creation, date_modification)
        VALUES (?, ?, ?, ?, ?, ?)`,

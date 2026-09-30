@@ -63,6 +63,7 @@ class Paiement(ModeleBase):
         ESPECES = "especes", "Espèces"
         MOBILE_MONEY = "mobile_money", "Mobile Money"
         CREDIT = "credit", "Crédit"
+        COMPTE_CLIENT = "compte_client", "Compte client"
 
     class Operateur(models.TextChoices):
         ORANGE_MONEY = "orange_money", "Orange Money"

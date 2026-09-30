@@ -15,6 +15,7 @@ import type {
   RetourFournisseurLocale,
 } from "../db/schema";
 import { appliquerMouvement } from "./stock";
+import { ajouterMouvementCompteFournisseur, soldeCompteFournisseur } from "./comptesTiers";
 import { enregistrerMouvement } from "./tresorerie";
 
 /**
@@ -384,6 +385,7 @@ const LIBELLES_MODE_PAIEMENT: Record<string, string> = {
   mtn_money: "MTN Money",
   moov_money: "Moov Money",
   wave: "Wave",
+  compte_fournisseur: "Compte fournisseur",
 };
 
 function texteArticles(quantite: number): string {
@@ -543,7 +545,7 @@ export interface ParametresReception {
   utilisateurId: string | null;
   montantDejaPaye?: number;
   /** Comment le montant déjà payé a été réglé : espèces (sortie de caisse), Mobile Money ou banque. */
-  modePaiement?: "especes" | "mobile_money" | "banque" | "";
+  modePaiement?: "especes" | "mobile_money" | "banque" | "compte_fournisseur" | "";
   operateurPaiement?: string;
   lignes: LigneReceptionEntree[];
 }
@@ -587,6 +589,9 @@ export async function receptionnerCommande(params: ParametresReception): Promise
   }
   if (montantDejaPaye > valeurRecue) {
     throw new ErreurAchat("Le montant déjà payé ne peut pas dépasser la valeur reçue.");
+  }
+  if (modePaiement === "compte_fournisseur" && montantDejaPaye > (await soldeCompteFournisseur(commande.fournisseur_id))) {
+    throw new ErreurAchat("Le compte du fournisseur ne suffit pas.");
   }
 
   const receptionId = crypto.randomUUID();
@@ -680,6 +685,18 @@ export async function receptionnerCommande(params: ParametresReception): Promise
       utilisateurId,
       referenceType: "achats.Reception",
       referenceId: receptionId,
+    });
+  }
+  // Payé avec ce que le fournisseur nous doit déjà (avance, avoir).
+  if (montantDejaPaye > 0 && modePaiement === "compte_fournisseur") {
+    await ajouterMouvementCompteFournisseur({
+      fournisseurId: commande.fournisseur_id,
+      type: "utilisation",
+      montant: montantDejaPaye,
+      receptionId,
+      depotId,
+      utilisateurId,
+      motif: `Réception ${commande.numero}`,
     });
   }
 
@@ -1156,6 +1173,16 @@ export async function annulerPaiementDette(paiementId: string, utilisateurId: st
       referenceId: paiementId,
     });
   }
+  if (paiement.mode === "compte_fournisseur") {
+    await ajouterMouvementCompteFournisseur({
+      fournisseurId: dette.fournisseur_id,
+      type: "annulation",
+      montant: paiement.montant,
+      detteId: dette.id,
+      utilisateurId,
+      motif: "Remboursement annulé",
+    });
+  }
   if (dette.commande_id) {
     await noterEtape(
       dette.commande_id,
@@ -1184,8 +1211,22 @@ export async function payerDette(
   if (montant > dette.solde) {
     throw new ErreurAchat("Le montant payé ne peut pas dépasser le solde restant.");
   }
+  if (mode === "compte_fournisseur" && montant > (await soldeCompteFournisseur(dette.fournisseur_id))) {
+    throw new ErreurAchat("Le compte du fournisseur ne suffit pas.");
+  }
 
   const paiementId = crypto.randomUUID();
+  if (mode === "compte_fournisseur") {
+    await ajouterMouvementCompteFournisseur({
+      fournisseurId: dette.fournisseur_id,
+      type: "utilisation",
+      montant,
+      detteId,
+      receptionId: dette.reception_id ?? null,
+      utilisateurId,
+      motif: "Règlement de dette",
+    });
+  }
   const paiement: PaiementDetteFournisseurLocale = {
     id: paiementId,
     dette_id: detteId,
@@ -1456,6 +1497,17 @@ export async function annulerReception(receptionId: string, utilisateurId: strin
   if (commande.statut === "recue") {
     await ecrireLigne("commandes_achat", { ...commande, statut: "commandee", date_modification: instant, synchronise: 0 });
   }
+  if (reception.mode_paiement === "compte_fournisseur" && reception.montant_paye > 0) {
+    await ajouterMouvementCompteFournisseur({
+      fournisseurId: commande.fournisseur_id,
+      type: "annulation",
+      montant: reception.montant_paye,
+      receptionId,
+      depotId: reception.depot_id,
+      utilisateurId,
+      motif: `Annulation réception ${commande.numero}`,
+    });
+  }
   // L'argent payé en espèces à la livraison revient dans la caisse.
   const sortieCaisse = (await db.getAllFromIndex("mouvements_caisse", "depot_id", reception.depot_id)).some(
     (m) => !m.supprime && m.type === "sortie" && m.reference_type === "achats.Reception" && m.reference_id === receptionId,
@@ -1541,6 +1593,19 @@ export async function retournerAuFournisseur(params: ParametresRetourFournisseur
     ...suiviSyncNeuf(),
   };
   await ecrireLigne("retours_fournisseur", retour);
+  // Ce qui dépasse la dette est dû par le fournisseur : il va sur son compte.
+  if (retour.avoir > 0) {
+    await ajouterMouvementCompteFournisseur({
+      fournisseurId: commande.fournisseur_id,
+      type: "avoir",
+      montant: retour.avoir,
+      receptionId,
+      retourId,
+      depotId: reception.depot_id,
+      utilisateurId,
+      motif: `Retour ${commande.numero}`,
+    });
+  }
   const instant = maintenant();
   for (const sortie of sorties) {
     if (sortie.nouveauCump) {

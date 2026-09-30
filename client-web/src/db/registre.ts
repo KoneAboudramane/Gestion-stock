@@ -196,6 +196,20 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
     champsNumeriques: ["montant"],
   },
   {
+    table: "clients.MouvementCompteClient",
+    store: "mouvements_compte_client",
+    champsFK: ["client", "depot", "vente", "credit", "utilisateur"],
+    ajoutSeul: true,
+    champsNumeriques: ["montant"],
+  },
+  {
+    table: "fournisseurs.MouvementCompteFournisseur",
+    store: "mouvements_compte_fournisseur",
+    champsFK: ["fournisseur", "depot", "reception", "retour", "dette", "utilisateur"],
+    ajoutSeul: true,
+    champsNumeriques: ["montant"],
+  },
+  {
     table: "tresorerie.Depense",
     store: "depenses",
     champsFK: ["depot", "utilisateur"],

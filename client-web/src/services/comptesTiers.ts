@@ -1,0 +1,380 @@
+import { ouvrirBaseDeDonnees } from "../db";
+import { suiviSyncNeuf } from "../db/helpers";
+import type { MouvementCompteClientLocal, MouvementCompteFournisseurLocal } from "../db/schema";
+import { enregistrerMouvement } from "./tresorerie";
+
+/**
+ * Port navigateur de client-electron/electron/services/comptesTiers.ts : le
+ * « compte » d'un client (son argent laissé d'avance) et celui d'un
+ * fournisseur (avances versées, avoirs de retour). Solde jamais stocké :
+ * entrées moins sorties des mouvements (ajout seul).
+ */
+
+export class ErreurCompte extends Error {}
+
+export type ModeArgent = "especes" | "mobile_money" | "banque";
+export type TypeMouvementCompteClient = "depot" | "utilisation" | "rendu" | "annulation";
+export type TypeMouvementCompteFournisseur = "avance" | "avoir" | "utilisation" | "remboursement" | "annulation";
+
+const ENTREES_CLIENT = ["depot", "annulation"];
+const ENTREES_FOURNISSEUR = ["avance", "avoir", "annulation"];
+const MODES_ARGENT: ModeArgent[] = ["especes", "mobile_money", "banque"];
+
+export interface MouvementCompte {
+  id: string;
+  type: string;
+  /** Positif = entrée sur le compte, négatif = sortie. */
+  montant: number;
+  mode: string;
+  operateur: string;
+  depotId: string | null;
+  venteId: string | null;
+  venteNumero: string | null;
+  creditId: string | null;
+  receptionId: string | null;
+  retourId: string | null;
+  detteId: string | null;
+  commandeNumero: string | null;
+  utilisateurId: string | null;
+  motif: string;
+  dateCreation: string;
+}
+
+export interface CompteTiers {
+  solde: number;
+  mouvements: MouvementCompte[];
+}
+
+export interface OperationCompte {
+  montant: number;
+  mode: ModeArgent;
+  operateur?: string;
+  depotId?: string | null;
+  utilisateurId?: string | null;
+  motif?: string;
+}
+
+function verifierOperation(op: OperationCompte): void {
+  if (!(op.montant > 0)) throw new ErreurCompte("Le montant doit être strictement positif.");
+  if (!MODES_ARGENT.includes(op.mode)) throw new ErreurCompte("Mode de paiement inconnu.");
+  if (op.mode === "mobile_money" && !op.operateur) throw new ErreurCompte("Choisissez l'opérateur Mobile Money.");
+  if (op.mode === "especes" && !op.depotId) {
+    throw new ErreurCompte("Choisissez le dépôt dont la caisse reçoit ou donne l'argent.");
+  }
+}
+
+const signe = (entrees: string[], type: string, montant: number) =>
+  entrees.includes(type) ? Number(montant) : -Number(montant);
+
+// --- Client ---
+
+export interface NouveauMouvementClient {
+  clientId: string;
+  type: TypeMouvementCompteClient;
+  montant: number;
+  mode?: string;
+  operateur?: string;
+  depotId?: string | null;
+  venteId?: string | null;
+  creditId?: string | null;
+  utilisateurId?: string | null;
+  motif?: string;
+}
+
+export async function ajouterMouvementCompteClient(m: NouveauMouvementClient): Promise<string> {
+  const db = await ouvrirBaseDeDonnees();
+  const ligne: MouvementCompteClientLocal = {
+    id: crypto.randomUUID(),
+    client_id: m.clientId,
+    type: m.type,
+    montant: m.montant,
+    mode: m.mode ?? "",
+    operateur: m.operateur ?? "",
+    depot_id: m.depotId ?? null,
+    vente_id: m.venteId ?? null,
+    credit_id: m.creditId ?? null,
+    utilisateur_id: m.utilisateurId ?? null,
+    motif: (m.motif ?? "").trim().slice(0, 255),
+    ...suiviSyncNeuf(),
+  };
+  await db.put("mouvements_compte_client", ligne);
+  return ligne.id;
+}
+
+async function mouvementsClient(clientId: string): Promise<MouvementCompteClientLocal[]> {
+  const db = await ouvrirBaseDeDonnees();
+  return (await db.getAllFromIndex("mouvements_compte_client", "client_id", clientId))
+    .filter((m) => !m.supprime)
+    .sort((a, b) => a.date_creation.localeCompare(b.date_creation));
+}
+
+export async function soldeCompteClient(clientId: string): Promise<number> {
+  return (await mouvementsClient(clientId)).reduce((t, m) => t + signe(ENTREES_CLIENT, m.type, m.montant), 0);
+}
+
+/** Soldes de tous les clients qui ont (ou ont eu) un compte, pour les listes. */
+export async function soldesComptesClients(boutiqueId: string): Promise<Record<string, number>> {
+  const db = await ouvrirBaseDeDonnees();
+  const clients = new Set(
+    (await db.getAllFromIndex("clients", "boutique_id", boutiqueId)).map((c) => c.id),
+  );
+  const soldes: Record<string, number> = {};
+  for (const m of await db.getAll("mouvements_compte_client")) {
+    if (m.supprime || !clients.has(m.client_id)) continue;
+    soldes[m.client_id] = (soldes[m.client_id] ?? 0) + signe(ENTREES_CLIENT, m.type, m.montant);
+  }
+  return soldes;
+}
+
+export async function compteClient(clientId: string): Promise<CompteTiers> {
+  const db = await ouvrirBaseDeDonnees();
+  const mouvements: MouvementCompte[] = [];
+  for (const m of await mouvementsClient(clientId)) {
+    const vente = m.vente_id ? await db.get("ventes", m.vente_id) : undefined;
+    mouvements.push({
+      id: m.id,
+      type: m.type,
+      montant: signe(ENTREES_CLIENT, m.type, m.montant),
+      mode: m.mode ?? "",
+      operateur: m.operateur ?? "",
+      depotId: m.depot_id ?? null,
+      venteId: m.vente_id ?? null,
+      venteNumero: vente?.numero ?? null,
+      creditId: m.credit_id ?? null,
+      receptionId: null,
+      retourId: null,
+      detteId: null,
+      commandeNumero: null,
+      utilisateurId: m.utilisateur_id ?? null,
+      motif: m.motif ?? "",
+      dateCreation: m.date_creation,
+    });
+  }
+  return { solde: mouvements.reduce((t, m) => t + m.montant, 0), mouvements };
+}
+
+async function nomClient(clientId: string): Promise<string> {
+  const db = await ouvrirBaseDeDonnees();
+  const client = await db.get("clients", clientId);
+  if (!client) throw new ErreurCompte("Client introuvable.");
+  return client.nom;
+}
+
+export async function deposerSurCompteClient(clientId: string, op: OperationCompte): Promise<CompteTiers> {
+  verifierOperation(op);
+  const nom = await nomClient(clientId);
+  const id = await ajouterMouvementCompteClient({
+    clientId,
+    type: "depot",
+    montant: op.montant,
+    mode: op.mode,
+    operateur: op.mode === "mobile_money" ? op.operateur : "",
+    depotId: op.depotId ?? null,
+    utilisateurId: op.utilisateurId ?? null,
+    motif: op.motif,
+  });
+  if (op.mode === "especes") {
+    await enregistrerMouvement({
+      depotId: op.depotId!,
+      type: "entree",
+      categorie: "depot_client",
+      montant: op.montant,
+      motif: `Dépôt de ${nom}`,
+      utilisateurId: op.utilisateurId ?? null,
+      referenceType: "clients.MouvementCompteClient",
+      referenceId: id,
+    });
+  }
+  return compteClient(clientId);
+}
+
+export async function rendreDuCompteClient(clientId: string, op: OperationCompte): Promise<CompteTiers> {
+  verifierOperation(op);
+  const nom = await nomClient(clientId);
+  if (op.montant > (await soldeCompteClient(clientId))) {
+    throw new ErreurCompte("On ne peut pas rendre plus que ce que le client a sur son compte.");
+  }
+  const id = await ajouterMouvementCompteClient({
+    clientId,
+    type: "rendu",
+    montant: op.montant,
+    mode: op.mode,
+    operateur: op.mode === "mobile_money" ? op.operateur : "",
+    depotId: op.depotId ?? null,
+    utilisateurId: op.utilisateurId ?? null,
+    motif: op.motif,
+  });
+  if (op.mode === "especes") {
+    await enregistrerMouvement({
+      depotId: op.depotId!,
+      type: "sortie",
+      categorie: "rendu_client",
+      montant: op.montant,
+      motif: `Rendu à ${nom}`,
+      utilisateurId: op.utilisateurId ?? null,
+      referenceType: "clients.MouvementCompteClient",
+      referenceId: id,
+    });
+  }
+  return compteClient(clientId);
+}
+
+// --- Fournisseur ---
+
+export interface NouveauMouvementFournisseur {
+  fournisseurId: string;
+  type: TypeMouvementCompteFournisseur;
+  montant: number;
+  mode?: string;
+  operateur?: string;
+  depotId?: string | null;
+  receptionId?: string | null;
+  retourId?: string | null;
+  detteId?: string | null;
+  utilisateurId?: string | null;
+  motif?: string;
+}
+
+export async function ajouterMouvementCompteFournisseur(m: NouveauMouvementFournisseur): Promise<string> {
+  const db = await ouvrirBaseDeDonnees();
+  const ligne: MouvementCompteFournisseurLocal = {
+    id: crypto.randomUUID(),
+    fournisseur_id: m.fournisseurId,
+    type: m.type,
+    montant: m.montant,
+    mode: m.mode ?? "",
+    operateur: m.operateur ?? "",
+    depot_id: m.depotId ?? null,
+    reception_id: m.receptionId ?? null,
+    retour_id: m.retourId ?? null,
+    dette_id: m.detteId ?? null,
+    utilisateur_id: m.utilisateurId ?? null,
+    motif: (m.motif ?? "").trim().slice(0, 255),
+    ...suiviSyncNeuf(),
+  };
+  await db.put("mouvements_compte_fournisseur", ligne);
+  return ligne.id;
+}
+
+async function mouvementsFournisseur(fournisseurId: string): Promise<MouvementCompteFournisseurLocal[]> {
+  const db = await ouvrirBaseDeDonnees();
+  return (await db.getAllFromIndex("mouvements_compte_fournisseur", "fournisseur_id", fournisseurId))
+    .filter((m) => !m.supprime)
+    .sort((a, b) => a.date_creation.localeCompare(b.date_creation));
+}
+
+export async function soldeCompteFournisseur(fournisseurId: string): Promise<number> {
+  return (await mouvementsFournisseur(fournisseurId)).reduce(
+    (t, m) => t + signe(ENTREES_FOURNISSEUR, m.type, m.montant),
+    0,
+  );
+}
+
+export async function soldesComptesFournisseurs(boutiqueId: string): Promise<Record<string, number>> {
+  const db = await ouvrirBaseDeDonnees();
+  const fournisseurs = new Set(
+    (await db.getAllFromIndex("fournisseurs", "boutique_id", boutiqueId)).map((f) => f.id),
+  );
+  const soldes: Record<string, number> = {};
+  for (const m of await db.getAll("mouvements_compte_fournisseur")) {
+    if (m.supprime || !fournisseurs.has(m.fournisseur_id)) continue;
+    soldes[m.fournisseur_id] = (soldes[m.fournisseur_id] ?? 0) + signe(ENTREES_FOURNISSEUR, m.type, m.montant);
+  }
+  return soldes;
+}
+
+export async function compteFournisseur(fournisseurId: string): Promise<CompteTiers> {
+  const db = await ouvrirBaseDeDonnees();
+  const mouvements: MouvementCompte[] = [];
+  for (const m of await mouvementsFournisseur(fournisseurId)) {
+    const reception = m.reception_id ? await db.get("receptions", m.reception_id) : undefined;
+    const dette = m.dette_id ? await db.get("dettes_fournisseur", m.dette_id) : undefined;
+    const commandeId = reception?.commande_id ?? dette?.commande_id ?? null;
+    const commande = commandeId ? await db.get("commandes_achat", commandeId) : undefined;
+    mouvements.push({
+      id: m.id,
+      type: m.type,
+      montant: signe(ENTREES_FOURNISSEUR, m.type, m.montant),
+      mode: m.mode ?? "",
+      operateur: m.operateur ?? "",
+      depotId: m.depot_id ?? null,
+      venteId: null,
+      venteNumero: null,
+      creditId: null,
+      receptionId: m.reception_id ?? null,
+      retourId: m.retour_id ?? null,
+      detteId: m.dette_id ?? null,
+      commandeNumero: commande?.numero ?? null,
+      utilisateurId: m.utilisateur_id ?? null,
+      motif: m.motif ?? "",
+      dateCreation: m.date_creation,
+    });
+  }
+  return { solde: mouvements.reduce((t, m) => t + m.montant, 0), mouvements };
+}
+
+async function nomFournisseur(fournisseurId: string): Promise<string> {
+  const db = await ouvrirBaseDeDonnees();
+  const fournisseur = await db.get("fournisseurs", fournisseurId);
+  if (!fournisseur) throw new ErreurCompte("Fournisseur introuvable.");
+  return fournisseur.nom;
+}
+
+export async function verserAvanceFournisseur(fournisseurId: string, op: OperationCompte): Promise<CompteTiers> {
+  verifierOperation(op);
+  const nom = await nomFournisseur(fournisseurId);
+  const id = await ajouterMouvementCompteFournisseur({
+    fournisseurId,
+    type: "avance",
+    montant: op.montant,
+    mode: op.mode,
+    operateur: op.mode === "mobile_money" ? op.operateur : "",
+    depotId: op.depotId ?? null,
+    utilisateurId: op.utilisateurId ?? null,
+    motif: op.motif,
+  });
+  if (op.mode === "especes") {
+    await enregistrerMouvement({
+      depotId: op.depotId!,
+      type: "sortie",
+      categorie: "avance_fournisseur",
+      montant: op.montant,
+      motif: `Avance à ${nom}`,
+      utilisateurId: op.utilisateurId ?? null,
+      referenceType: "fournisseurs.MouvementCompteFournisseur",
+      referenceId: id,
+    });
+  }
+  return compteFournisseur(fournisseurId);
+}
+
+export async function remboursementFournisseur(fournisseurId: string, op: OperationCompte): Promise<CompteTiers> {
+  verifierOperation(op);
+  const nom = await nomFournisseur(fournisseurId);
+  if (op.montant > (await soldeCompteFournisseur(fournisseurId))) {
+    throw new ErreurCompte("Le fournisseur ne peut pas rendre plus que ce qu'il nous doit sur son compte.");
+  }
+  const id = await ajouterMouvementCompteFournisseur({
+    fournisseurId,
+    type: "remboursement",
+    montant: op.montant,
+    mode: op.mode,
+    operateur: op.mode === "mobile_money" ? op.operateur : "",
+    depotId: op.depotId ?? null,
+    utilisateurId: op.utilisateurId ?? null,
+    motif: op.motif,
+  });
+  if (op.mode === "especes") {
+    await enregistrerMouvement({
+      depotId: op.depotId!,
+      type: "entree",
+      categorie: "remboursement_fournisseur",
+      montant: op.montant,
+      motif: `Remboursement de ${nom}`,
+      utilisateurId: op.utilisateurId ?? null,
+      referenceType: "fournisseurs.MouvementCompteFournisseur",
+      referenceId: id,
+    });
+  }
+  return compteFournisseur(fournisseurId);
+}

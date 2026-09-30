@@ -4,6 +4,7 @@ import { dansUneTransaction, executer, tousLesResultats, unResultat } from "../d
 import { sauvegarder } from "../db/index";
 import { verifierAbonnementActif } from "./abonnement";
 import { appliquerMouvement, destockageActif, terminerDestockageSiEpuise } from "./stock";
+import { ajouterMouvementCompteClient, soldeCompteClient } from "./comptesTiers";
 import { enregistrerMouvement } from "./tresorerie";
 
 /**
@@ -13,7 +14,7 @@ import { enregistrerMouvement } from "./tresorerie";
  */
 
 export type StatutVente = "payee" | "credit" | "annulee";
-export type ModePaiement = "especes" | "mobile_money" | "credit";
+export type ModePaiement = "especes" | "mobile_money" | "credit" | "compte_client";
 export type OperateurMobileMoney = "orange_money" | "mtn_money" | "moov_money" | "wave";
 
 export class ErreurVente extends Error {}
@@ -122,6 +123,11 @@ export function creerVente(params: ParametresVente): VenteCreee {
   if (paiements.some((p) => p.mode === "mobile_money" && !p.operateur)) {
     throw new ErreurVente("Un opérateur est requis pour un paiement Mobile Money.");
   }
+  const montantCompte = paiements.filter((p) => p.mode === "compte_client").reduce((t, p) => t + p.montant, 0);
+  if (montantCompte > 0) {
+    if (!clientId) throw new ErreurVente("Choisissez le client dont le compte paie.");
+    if (montantCompte > soldeCompteClient(clientId)) throw new ErreurVente("Le compte du client ne suffit pas.");
+  }
 
   // Tout ce qui suit écrit en base : enveloppé dans une transaction (comme
   // @transaction.atomic côté Django) pour qu'un stock insuffisant sur une
@@ -201,6 +207,16 @@ export function creerVente(params: ParametresVente): VenteCreee {
           utilisateurId,
           referenceType: "ventes.Paiement",
           referenceId: paiementId,
+        });
+      } else if (paiement.mode === "compte_client" && clientId) {
+        ajouterMouvementCompteClient({
+          clientId,
+          type: "utilisation",
+          montant: paiement.montant,
+          venteId,
+          depotId,
+          utilisateurId,
+          motif: `Vente ${numero}`,
         });
       }
     }
@@ -385,8 +401,8 @@ export function obtenirVente(id: string): VenteDetail | undefined {
  * si déjà annulée.
  */
 export function annulerVente(venteId: string, utilisateurId: string | null): void {
-  const vente = unResultat<{ numero: string; statut: string; depot_id: string }>(
-    "SELECT numero, statut, depot_id FROM ventes WHERE id = ?",
+  const vente = unResultat<{ numero: string; statut: string; depot_id: string; client_id: string | null }>(
+    "SELECT numero, statut, depot_id, client_id FROM ventes WHERE id = ?",
     [venteId],
   );
   if (!vente) throw new ErreurVente("Vente introuvable.");
@@ -434,6 +450,25 @@ export function annulerVente(venteId: string, utilisateurId: string | null): voi
         utilisateurId,
         referenceType: "ventes.Vente",
         referenceId: venteId,
+      });
+    }
+
+    // Payé avec le compte du client : l'argent y revient.
+    const montantCompte = Number(
+      unResultat<{ total: number }>(
+        "SELECT COALESCE(SUM(montant), 0) as total FROM paiements WHERE vente_id = ? AND mode = 'compte_client' AND supprime = 0",
+        [venteId],
+      )?.total ?? 0,
+    );
+    if (montantCompte > 0 && vente.client_id) {
+      ajouterMouvementCompteClient({
+        clientId: vente.client_id,
+        type: "annulation",
+        montant: montantCompte,
+        venteId,
+        depotId: vente.depot_id,
+        utilisateurId,
+        motif: `Annulation vente ${vente.numero}`,
       });
     }
 

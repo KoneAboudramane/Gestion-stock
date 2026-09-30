@@ -5,6 +5,7 @@ const MODES_PAIEMENT: { valeur: string; label: string }[] = [
   { valeur: "mobile_money", label: "Mobile Money" },
   { valeur: "carte", label: "Carte" },
   { valeur: "credit", label: "Crédit" },
+  { valeur: "compte_client", label: "Compte client" },
 ];
 
 export function libelleModePaiement(mode: string): string {
@@ -105,6 +106,10 @@ const LIBELLES_CATEGORIE_MOUVEMENT_CAISSE: Record<string, string> = {
   retrait: "Retrait",
   paiement_dette_fournisseur: "Paiement dette fournisseur",
   paiement_fournisseur: "Paiement fournisseur (réception)",
+  depot_client: "Dépôt sur compte client",
+  rendu_client: "Argent rendu à un client",
+  avance_fournisseur: "Avance à un fournisseur",
+  remboursement_fournisseur: "Remboursement d'un fournisseur",
   ajustement: "Ajustement",
 };
 

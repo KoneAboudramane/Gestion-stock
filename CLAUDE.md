@@ -66,12 +66,14 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 - `Credit` — client (FK → credits), vente (FK ventes.Vente, null), montant, montant_paye, solde, echeance, statut {en_cours|solde}. **Carnet de crédit.**
 - `PaiementCredit` — credit (FK → paiements), montant, mode.
 - `EcheanceCredit` — credit (FK → echeances), date_echeance, montant. **Échéancier** du crédit client, même principe que `EcheanceDette` (statut calculé ; alertes `credit_proche` J-3 et `credit_retard`).
+- `MouvementCompteClient` — client (FK → mouvements_compte), type {depot|utilisation|rendu|annulation}, montant, mode {especes|mobile_money|banque}, operateur, depot (null), vente (null), credit (null), utilisateur, motif. **Porte-monnaie du client** (argent laissé d'avance), ajout seul ; solde = depot + annulation − utilisation − rendu, jamais stocké. Paiement de vente `compte_client` (écriture 419), règlement de crédit par le compte (419/411). Dépôt espèces → entrée de caisse `depot_client` ; Mobile Money → crédité à l'encaisseur. Rendre : rôle `gerer_tresorerie`.
 
 ### fournisseurs
 - `Fournisseur` — boutique (FK), nom, telephone, adresse, contact.
 - `DetteFournisseur` — fournisseur (FK → dettes), commande (FK achats.CommandeAchat, null), reception (FK achats.Reception, null), montant, montant_paye, solde, statut {en_cours|solde}.
 - `PaiementDetteFournisseur` — dette (FK → paiements), montant, mode, annulee, date_annulation, annule_par (FK), motif_annulation. Un remboursement annulé reste visible ; son montant revient dans le solde (contre-écriture, retour en caisse si espèces).
 - `EcheanceDette` — dette (FK → echeances), date_echeance, montant. **Échéancier** de remboursement : les paiements (libres) couvrent les tranches dans l'ordre des dates ; statut (payée / partielle / à venir / en retard) calculé, jamais stocké. Replanifier = retirer les tranches non couvertes, en ajouter pour le reste dû. Alertes `echeance_proche` (J-3) et `echeance_retard`.
+- `MouvementCompteFournisseur` — fournisseur (FK → mouvements_compte), type {avance|avoir|utilisation|remboursement|annulation}, montant, mode, operateur, depot (null), reception (null), retour (null), dette (null), utilisateur, motif. **Avances versées et avoirs de retour** (compte 409), ajout seul ; solde = avance + avoir + annulation − utilisation − remboursement. L'avoir d'un retour y va automatiquement ; une réception (`mode_paiement` `compte_fournisseur`) ou une dette peut être réglée avec.
 
 ### configuration
 - `Parametre` — boutique (FK), cle, valeur. unique_together(boutique, cle). Réglages dynamiques (devise, TVA, format ticket). **PAS l'interface** (elle reste dans le code React).

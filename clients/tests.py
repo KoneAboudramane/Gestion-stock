@@ -122,3 +122,120 @@ class PermissionsClientsTests(APITestCase):
         self.client.force_authenticate(user=self.utilisateur_restreint)
         reponse = self.client.get(reverse("client-list"))
         self.assertEqual(reponse.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class CompteClientTests(APITestCase):
+    """Porte-monnaie : dépôt, paiement en caisse, annulation, crédit, rendu, comptabilité."""
+
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique K"}, {"username": "patronK", "password": "UnMotDePasseSolide123"}
+        )
+        self.depot = Depot.objects.create(boutique=self.boutique, nom="Magasin")
+        produit = Produit.objects.create(boutique=self.boutique, nom="Riz")
+        self.variante = Variante.objects.create(produit=produit, prix_achat=800, prix_vente=1000)
+        appliquer_mouvement(self.variante, self.depot, MouvementStock.Type.ENTREE, 10)
+        self.cli = Client.objects.create(boutique=self.boutique, nom="Mme Koné")
+        self.client.force_authenticate(user=self.patron)
+
+    def _deposer(self, montant, mode="especes"):
+        return self.client.post(
+            reverse("client-deposer", args=[self.cli.id]),
+            {"montant": str(montant), "mode": mode, "depot": str(self.depot.id), "operateur": "wave"},
+            format="json",
+        )
+
+    def test_depot_entre_en_caisse_et_ecriture_419(self):
+        from comptabilite.models import EcritureComptable
+        from tresorerie.services import solde_caisse
+
+        reponse = self._deposer(5000)
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK, reponse.data)
+        self.assertEqual(reponse.data["solde"], 5000)
+        self.assertEqual(solde_caisse(self.depot), 5000)
+        mouvement_id = reponse.data["mouvements"][0]["id"]
+        ecriture = EcritureComptable.objects.get(reference_type="clients.MouvementCompteClient", reference_id=mouvement_id)
+        comptes = {l.compte.numero: (l.debit, l.credit) for l in ecriture.lignes.all()}
+        self.assertEqual(comptes["571"][0], 5000)
+        self.assertEqual(comptes["419"][1], 5000)
+
+    def test_depot_mobile_money_credite_a_l_encaisseur(self):
+        from tresorerie.services import solde_caisse, solde_mobile_money_disponible
+
+        self._deposer(3000, "mobile_money")
+        self.assertEqual(solde_caisse(self.depot), 0)
+        self.assertEqual(solde_mobile_money_disponible(self.boutique, self.patron, "wave"), 3000)
+
+    def test_vente_payee_par_le_compte_puis_annulee(self):
+        from ventes.services import annuler_vente
+
+        from .services import solde_compte_client
+
+        self._deposer(5000)
+        vente = creer_vente(
+            boutique=self.boutique, depot=self.depot, utilisateur=self.patron, client=self.cli, statut="payee",
+            lignes_donnees=[{"variante": self.variante, "quantite": 3}],
+            paiements_donnees=[{"mode": "compte_client", "montant": 2000}, {"mode": "especes", "montant": 1000}],
+        )
+        self.assertEqual(solde_compte_client(self.cli), 3000)
+        annuler_vente(vente, self.patron)
+        self.assertEqual(solde_compte_client(self.cli), 5000)
+
+    def test_compte_insuffisant_refuse(self):
+        from rest_framework.exceptions import ValidationError
+
+        self._deposer(500)
+        with self.assertRaises(ValidationError):
+            creer_vente(
+                boutique=self.boutique, depot=self.depot, utilisateur=self.patron, client=self.cli, statut="payee",
+                lignes_donnees=[{"variante": self.variante, "quantite": 1}],
+                paiements_donnees=[{"mode": "compte_client", "montant": 1000}],
+            )
+
+    def test_utiliser_le_compte_pour_un_credit(self):
+        from .services import solde_compte_client
+
+        vente = creer_vente(
+            boutique=self.boutique, depot=self.depot, utilisateur=self.patron, client=self.cli, statut="credit",
+            lignes_donnees=[{"variante": self.variante, "quantite": 2}],
+            paiements_donnees=[{"mode": "credit", "montant": 2000}],
+        )
+        credit = Credit.objects.get(vente=vente)
+        self._deposer(1500)
+        reponse = self.client.post(
+            reverse("credit-rembourser", args=[credit.id]), {"montant": "1500", "mode": "compte_client"}, format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK, reponse.data)
+        credit.refresh_from_db()
+        self.assertEqual(credit.solde, 500)
+        self.assertEqual(solde_compte_client(self.cli), 0)
+
+    def test_rendre_reserve_a_la_tresorerie(self):
+        from tresorerie.services import solde_caisse
+
+        self._deposer(2000)
+        reponse = self.client.post(
+            reverse("client-rendre", args=[self.cli.id]),
+            {"montant": "2500", "mode": "especes", "depot": str(self.depot.id)}, format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
+        reponse = self.client.post(
+            reverse("client-rendre", args=[self.cli.id]),
+            {"montant": "2000", "mode": "especes", "depot": str(self.depot.id)}, format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK, reponse.data)
+        self.assertEqual(reponse.data["solde"], 0)
+        self.assertEqual(solde_caisse(self.depot), 0)
+
+        caissier = Utilisateur(
+            boutique=self.boutique, role=Role.objects.get(boutique=self.boutique, nom="Caissier"), username="caissK",
+        )
+        caissier.set_password("UnMotDePasseSolide123")
+        caissier.save()
+        self.client.force_authenticate(user=caissier)
+        self.assertEqual(self._deposer(1000).status_code, status.HTTP_200_OK)
+        reponse = self.client.post(
+            reverse("client-rendre", args=[self.cli.id]),
+            {"montant": "1000", "mode": "especes", "depot": str(self.depot.id)}, format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_403_FORBIDDEN)

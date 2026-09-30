@@ -7,6 +7,7 @@ import * as auth from "../services/auth";
 import * as clients from "../services/clients";
 import * as comptabilite from "../services/comptabilite";
 import * as comptes from "../services/comptes";
+import * as comptesTiers from "../services/comptesTiers";
 import * as exportService from "../services/export";
 import * as inscriptionLocale from "../services/inscriptionLocale";
 import * as messages from "../services/messages";
@@ -549,6 +550,28 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("credits:planifier", (_evt, creditId: string, tranches: { dateEcheance: string; montant: number }[]) =>
     executerEnSecurite(() => clients.planifierEcheancierCredit(creditId, tranches)),
   );
+  // Comptes client / fournisseur (porte-monnaie, avances, avoirs).
+  ipcMain.handle("comptesTiers:compteClient", (_evt, clientId: string) => comptesTiers.compteClient(clientId));
+  ipcMain.handle("comptesTiers:soldesClients", (_evt, boutiqueId: string) => comptesTiers.soldesComptesClients(boutiqueId));
+  ipcMain.handle("comptesTiers:deposerClient", (_evt, clientId: string, op: comptesTiers.OperationCompte) =>
+    executerEnSecurite(() => comptesTiers.deposerSurCompteClient(clientId, op)),
+  );
+  ipcMain.handle("comptesTiers:rendreClient", (_evt, clientId: string, op: comptesTiers.OperationCompte) =>
+    executerEnSecurite(() => comptesTiers.rendreDuCompteClient(clientId, op)),
+  );
+  ipcMain.handle("comptesTiers:compteFournisseur", (_evt, fournisseurId: string) =>
+    comptesTiers.compteFournisseur(fournisseurId),
+  );
+  ipcMain.handle("comptesTiers:soldesFournisseurs", (_evt, boutiqueId: string) =>
+    comptesTiers.soldesComptesFournisseurs(boutiqueId),
+  );
+  ipcMain.handle("comptesTiers:verserAvance", (_evt, fournisseurId: string, op: comptesTiers.OperationCompte) =>
+    executerEnSecurite(() => comptesTiers.verserAvanceFournisseur(fournisseurId, op)),
+  );
+  ipcMain.handle("comptesTiers:remboursementFournisseur", (_evt, fournisseurId: string, op: comptesTiers.OperationCompte) =>
+    executerEnSecurite(() => comptesTiers.remboursementFournisseur(fournisseurId, op)),
+  );
+
   ipcMain.handle(
     "credits:rembourser",
     (_evt, id: string, montant: number, mode?: string, depotId?: string | null, utilisateurId?: string | null) =>

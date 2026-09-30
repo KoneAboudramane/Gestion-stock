@@ -23,6 +23,10 @@ export type CategorieMouvementCaisse =
   | "retrait"
   | "paiement_dette_fournisseur"
   | "paiement_fournisseur"
+  | "depot_client"
+  | "rendu_client"
+  | "avance_fournisseur"
+  | "remboursement_fournisseur"
   | "ajustement";
 // Union de suggestions (autocomplétion) + (string & {}) : garde l'IDE-hint des
 // valeurs connues tout en acceptant un type de dépense saisi librement (voir
@@ -257,6 +261,19 @@ export async function soldeMobileMoneyDisponible(
     .filter((p) => !p.supprime && p.mode === "mobile_money" && p.operateur === operateur && ventesId.has(p.vente_id))
     .reduce((somme, p) => somme + p.montant, 0);
 
+  // Dépôts / argent rendus sur le compte d'un client par Mobile Money : crédités à celui qui encaisse.
+  const clientsBoutique = new Set((await db.getAllFromIndex("clients", "boutique_id", boutiqueId)).map((c) => c.id));
+  const netComptes = (await db.getAll("mouvements_compte_client"))
+    .filter(
+      (m) =>
+        !m.supprime &&
+        m.mode === "mobile_money" &&
+        m.operateur === operateur &&
+        m.utilisateur_id === utilisateurSourceId &&
+        clientsBoutique.has(m.client_id),
+    )
+    .reduce((t, m) => t + (m.type === "depot" ? m.montant : m.type === "rendu" ? -m.montant : 0), 0);
+
   // transferts_caisse est indexé par dépôt, pas par boutique : filtrage manuel via les dépôts de la boutique.
   const depots = await db.getAllFromIndex("depots", "boutique_id", boutiqueId);
   const depotsId = new Set(depots.map((d) => d.id));
@@ -271,7 +288,7 @@ export async function soldeMobileMoneyDisponible(
     )
     .reduce((somme, t) => somme + t.montant, 0);
 
-  return encaisse - transfere;
+  return encaisse + netComptes - transfere;
 }
 
 export interface ParametresTransfertCaisse {

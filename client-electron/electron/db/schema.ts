@@ -387,6 +387,41 @@ CREATE TABLE IF NOT EXISTS paiements_credit (
   ${SUIVI_SYNC}
 );
 
+-- mouvements_compte_client : porte-monnaie du client (argent laissé d'avance).
+-- Solde calculé : depot + annulation − utilisation − rendu (voir services/comptesTiers.ts).
+CREATE TABLE IF NOT EXISTS mouvements_compte_client (
+  id TEXT PRIMARY KEY,
+  client_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  montant REAL NOT NULL,
+  mode TEXT DEFAULT '',
+  operateur TEXT DEFAULT '',
+  depot_id TEXT,
+  vente_id TEXT,
+  credit_id TEXT,
+  utilisateur_id TEXT,
+  motif TEXT DEFAULT '',
+  ${SUIVI_SYNC}
+);
+
+-- mouvements_compte_fournisseur : avances versées et avoirs de retour.
+-- Solde calculé : avance + avoir + annulation − utilisation − remboursement.
+CREATE TABLE IF NOT EXISTS mouvements_compte_fournisseur (
+  id TEXT PRIMARY KEY,
+  fournisseur_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  montant REAL NOT NULL,
+  mode TEXT DEFAULT '',
+  operateur TEXT DEFAULT '',
+  depot_id TEXT,
+  reception_id TEXT,
+  retour_id TEXT,
+  dette_id TEXT,
+  utilisateur_id TEXT,
+  motif TEXT DEFAULT '',
+  ${SUIVI_SYNC}
+);
+
 CREATE TABLE IF NOT EXISTS dettes_fournisseur (
   id TEXT PRIMARY KEY,
   fournisseur_id TEXT NOT NULL,

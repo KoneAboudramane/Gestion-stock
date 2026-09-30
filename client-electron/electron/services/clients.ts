@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { dansUneTransaction, executer, tousLesResultats, unResultat } from "../db/helpers";
 import { sauvegarder } from "../db/index";
 import { calculerEcheances, erreurTranches, type EcheanceDetail } from "./echeancier";
+import { ajouterMouvementCompteClient, soldeCompteClient } from "./comptesTiers";
 import { enregistrerMouvement } from "./tresorerie";
 
 /**
@@ -247,8 +248,15 @@ export function rembourserCredit(
   depotId: string | null = null,
   utilisateurId: string | null = null,
 ): void {
-  const credit = unResultat<{ montant_paye: number; solde: number; client_nom: string }>(
-    `SELECT cr.montant_paye as montant_paye, cr.solde as solde, cl.nom as client_nom
+  const credit = unResultat<{
+    montant_paye: number;
+    solde: number;
+    client_nom: string;
+    client_id: string;
+    vente_id: string | null;
+  }>(
+    `SELECT cr.montant_paye as montant_paye, cr.solde as solde, cl.nom as client_nom, cl.id as client_id,
+            cr.vente_id as vente_id
      FROM credits cr JOIN clients cl ON cl.id = cr.client_id WHERE cr.id = ?`,
     [creditId],
   );
@@ -259,6 +267,9 @@ export function rembourserCredit(
   if (montant > Number(credit.solde)) {
     throw new ErreurClient("Le montant remboursé ne peut pas dépasser le solde restant.");
   }
+  if (mode === "compte_client" && montant > soldeCompteClient(credit.client_id)) {
+    throw new ErreurClient("Le compte du client ne suffit pas.");
+  }
 
   dansUneTransaction(() => {
     const maintenant = new Date().toISOString();
@@ -268,6 +279,17 @@ export function rembourserCredit(
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [paiementId, creditId, montant, mode, utilisateurId, maintenant, maintenant],
     );
+    if (mode === "compte_client") {
+      ajouterMouvementCompteClient({
+        clientId: credit.client_id,
+        type: "utilisation",
+        montant,
+        creditId,
+        venteId: credit.vente_id,
+        utilisateurId,
+        motif: "Règlement de crédit",
+      });
+    }
 
     const nouveauMontantPaye = Number(credit.montant_paye) + montant;
     const nouveauSolde = Number(credit.solde) - montant;

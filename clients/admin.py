@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Client, Credit, EcheanceCredit, PaiementCredit
+from .models import Client, Credit, EcheanceCredit, MouvementCompteClient, PaiementCredit
 
 
 class CreditInline(admin.TabularInline):
@@ -33,3 +33,9 @@ class CreditAdmin(admin.ModelAdmin):
 class PaiementCreditAdmin(admin.ModelAdmin):
     list_display = ("credit", "montant", "mode", "date_creation")
     list_filter = ("mode",)
+
+
+@admin.register(MouvementCompteClient)
+class MouvementCompteClientAdmin(admin.ModelAdmin):
+    list_display = ("client", "type", "montant", "mode", "date_creation")
+    list_filter = ("type", "mode")

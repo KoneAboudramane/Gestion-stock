@@ -19,6 +19,10 @@ export type CategorieMouvementCaisse =
   | "retrait"
   | "paiement_dette_fournisseur"
   | "paiement_fournisseur"
+  | "depot_client"
+  | "rendu_client"
+  | "avance_fournisseur"
+  | "remboursement_fournisseur"
   | "ajustement";
 // Union de suggestions (autocomplétion) + (string & {}) : garde l'IDE-hint des
 // valeurs connues tout en acceptant un type de dépense saisi librement (voir
@@ -256,6 +260,15 @@ export function soldeMobileMoneyDisponible(
       [boutiqueId, utilisateurSourceId, operateur],
     )?.total ?? 0,
   );
+  // Dépôts / argent rendus sur le compte d'un client par Mobile Money : crédités à celui qui encaisse.
+  const comptes = unResultat<{ depots: number; rendus: number }>(
+    `SELECT COALESCE(SUM(CASE WHEN m.type = 'depot' THEN m.montant ELSE 0 END), 0) as depots,
+            COALESCE(SUM(CASE WHEN m.type = 'rendu' THEN m.montant ELSE 0 END), 0) as rendus
+     FROM mouvements_compte_client m JOIN clients c ON c.id = m.client_id
+     WHERE c.boutique_id = ? AND m.utilisateur_id = ? AND m.mode = 'mobile_money' AND m.operateur = ? AND m.supprime = 0`,
+    [boutiqueId, utilisateurSourceId, operateur],
+  );
+  const netComptes = Number(comptes?.depots ?? 0) - Number(comptes?.rendus ?? 0);
   const transfere = Number(
     unResultat<{ total: number }>(
       `SELECT COALESCE(SUM(t.montant), 0) as total
@@ -265,7 +278,7 @@ export function soldeMobileMoneyDisponible(
       [boutiqueId, utilisateurSourceId, operateur],
     )?.total ?? 0,
   );
-  return encaisse - transfere;
+  return encaisse + netComptes - transfere;
 }
 
 export interface ParametresTransfertCaisse {
