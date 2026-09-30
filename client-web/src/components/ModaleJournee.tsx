@@ -132,7 +132,7 @@ function FenetreParCaissier({
               </button>
             </div>
             <div className="modale-corps">
-              <div className="zone-tableau-scroll zone-commandes-fiche">
+              <div className="zone-tableau-scroll zone-commandes-fiche tableau-grille-journee">
                 <table className="tableau-catalogue carte-mobile">
                   <thead>
                     <tr>
@@ -164,6 +164,15 @@ function FenetreParCaissier({
                         </td>
                       </tr>
                     )}
+                    {Array.from({ length: Math.max(0, 12 - Math.max(1, ventesCaissier.length)) }).map((_, i) => (
+                      <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -209,7 +218,7 @@ function FenetreParCaissier({
                 <span className="sous-info">Cliquez sur un caissier pour voir ses ventes.</span>
                 <BoutonsExport titre={`Par caissier — ${titreJour}`} colonnes={colonnesExport} lignes={lignesExport} compact />
               </div>
-              <div className="zone-tableau-scroll zone-commandes-fiche">
+              <div className="zone-tableau-scroll zone-commandes-fiche tableau-grille-journee">
                 <table className="tableau-catalogue carte-mobile">
                   <thead>
                     <tr>
@@ -279,6 +288,19 @@ function FenetreParCaissier({
                         </td>
                       </tr>
                     )}
+                    {Array.from({ length: Math.max(0, 12 - Math.max(1, caissiers.length)) }).map((_, i) => (
+                      <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                      </tr>
+                    ))}
                   </tbody>
                   {caissiers.length > 1 && (
                     <tfoot>

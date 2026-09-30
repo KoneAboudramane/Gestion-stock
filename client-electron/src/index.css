@@ -7578,3 +7578,22 @@ tr.ligne-total-tableau td {
   font-weight: 700;
   border-top: 2px solid var(--bordure-tableau);
 }
+
+/* Par caissier : en-tête et total fixes, seules les lignes défilent ; grille visible. */
+.tableau-grille-journee thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.tableau-grille-journee tfoot td {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--surface-entete);
+}
+
+.tableau-grille-journee .tableau-catalogue td,
+.tableau-grille-journee .tableau-catalogue th {
+  border: 1px solid var(--bordure-tableau);
+}
