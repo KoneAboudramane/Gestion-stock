@@ -745,23 +745,12 @@ function OngletHistorique({
     CategorieActionCaisse | "historique" | "transfert" | "historiqueTransfert" | "cloture" | "journee" | null
   >(null);
   const [soldesMobileMoney, setSoldesMobileMoney] = useState<Record<OperateurMobileMoney, number> | null>(null);
-  // « Solde » (cumulé) ou « Aujourd'hui » (chiffres du jour du dépôt), retenu sur ce poste.
-  const [modeAffichage, setModeAffichage] = useState<"solde" | "jour">(() => {
-    try {
-      return localStorage.getItem("tresorerie-mode-affichage") === "jour" ? "jour" : "solde";
-    } catch {
-      return "solde";
-    }
-  });
+  // « Aujourd'hui » (chiffres du jour du dépôt) à chaque arrivée sur la page ; « Solde » (cumulé) sur demande.
+  const [modeAffichage, setModeAffichage] = useState<"solde" | "jour">("jour");
   const [aujourdhui, setAujourdhui] = useState<JourneeCaisse | null>(null);
 
   function changerModeAffichage(mode: "solde" | "jour") {
     setModeAffichage(mode);
-    try {
-      localStorage.setItem("tresorerie-mode-affichage", mode);
-    } catch {
-      // Stockage indisponible : le choix vaut pour cette visite seulement.
-    }
   }
 
   async function chargerAujourdhui() {
