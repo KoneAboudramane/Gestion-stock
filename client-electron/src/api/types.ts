@@ -347,6 +347,16 @@ export interface MouvementCompte {
   dateCreation: string;
 }
 
+export interface ResumeCompte {
+  id: string;
+  nom: string;
+  telephone: string;
+  solde: number;
+  derniereOperation: string | null;
+  entreesPeriode: number;
+  sortiesPeriode: number;
+}
+
 export interface CompteTiers {
   solde: number;
   mouvements: MouvementCompte[];
@@ -1679,6 +1689,8 @@ export interface WindowApi {
     listerPaiements(detteId: string): Promise<PaiementDetteDetail[]>;
   };
   comptesTiers: {
+    resumesClients(boutiqueId: string, depuis: string): Promise<ResumeCompte[]>;
+    resumesFournisseurs(boutiqueId: string, depuis: string): Promise<ResumeCompte[]>;
     compteClient(clientId: string): Promise<CompteTiers>;
     soldesClients(boutiqueId: string): Promise<Record<string, number>>;
     deposerClient(clientId: string, op: OperationCompte): Promise<ResultatEcriture<CompteTiers>>;

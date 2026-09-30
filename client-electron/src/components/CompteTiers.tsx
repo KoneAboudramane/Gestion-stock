@@ -162,8 +162,11 @@ export function PanneauCompte({
   const detteOuverte = ouverts.reduce((t, d) => t + d.solde, 0);
 
   function detail(m: (typeof lignes)[number]): string {
-    const morceaux = [m.venteNumero, m.commandeNumero, m.motif].filter(Boolean);
-    return [...new Set(morceaux)].join(" · ");
+    // Le motif reprend souvent le numéro (« Vente VTE-… ») : on ne le répète pas.
+    const numeros = [m.venteNumero, m.commandeNumero].filter(Boolean) as string[];
+    const motifUtile = m.motif && !numeros.some((n) => m.motif.includes(n)) ? m.motif : "";
+    const numeroMotif = numeros.length && m.motif && !motifUtile ? m.motif : numeros.join(" · ");
+    return [numeroMotif, motifUtile].filter(Boolean).join(" · ");
   }
 
   const libelleSolde = client ? "Sur son compte" : "À notre crédit chez lui";

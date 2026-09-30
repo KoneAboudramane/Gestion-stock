@@ -10,6 +10,7 @@ import Caisse from "./Caisse";
 import Clients from "./Clients";
 import type { OngletClients } from "./Clients";
 import Comptabilite from "./Comptabilite";
+import PageComptes from "../components/PageComptes";
 import Depense from "./Depense";
 import Produits from "./Produits";
 import Messages from "./Messages";
@@ -32,6 +33,7 @@ const ZONES = [
   { cle: "ventes", label: "Historique", icone: "📜", disponible: true },
   { cle: "achats", label: "Achats & fournisseurs", icone: "🚚", disponible: true },
   { cle: "clients", label: "Clients & crédit", icone: "👥", disponible: true },
+  { cle: "comptes", label: "Comptes", icone: "👛", disponible: true },
   { cle: "tresorerie", label: "Trésorerie", icone: "💰", disponible: true },
   { cle: "depense", label: "Dépenses", icone: "💸", disponible: true },
   { cle: "rapports", label: "Rapports", icone: "📈", disponible: true },
@@ -52,6 +54,7 @@ const TITRES_PAGE: Record<Zone, string> = {
   ventes: "Historique",
   achats: "Achats & fournisseurs",
   clients: "Clients & crédit",
+  comptes: "Comptes",
   tresorerie: "Trésorerie",
   depense: "Dépenses",
   rapports: "Rapports",
@@ -303,6 +306,7 @@ export default function Shell({
               statutCreditsInitial={statutCreditsInitial}
             />
           )}
+          {zone === "comptes" && <PageComptes session={session} />}
           {zone === "tresorerie" && <Tresorerie session={session} />}
           {zone === "depense" && <Depense session={session} />}
           {zone === "rapports" && (

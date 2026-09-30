@@ -373,3 +373,45 @@ export function remboursementFournisseur(fournisseurId: string, op: OperationCom
   sauvegarder();
   return compteFournisseur(fournisseurId);
 }
+
+// --- Vue d'ensemble (page « 👛 Comptes ») ---
+
+export interface ResumeCompte {
+  id: string;
+  nom: string;
+  telephone: string;
+  solde: number;
+  derniereOperation: string | null;
+  /** Entrées / sorties sur le compte depuis `depuis` (le début du mois à l'écran). */
+  entreesPeriode: number;
+  sortiesPeriode: number;
+}
+
+function resumes(table: string, colonneTiers: string, tableTiers: string, entrees: string[], boutiqueId: string, depuis: string): ResumeCompte[] {
+  const listeEntrees = entrees.map((t) => `'${t}'`).join(", ");
+  return tousLesResultats<ResumeCompte>(
+    `SELECT t.id as id, t.nom as nom, COALESCE(t.telephone, '') as telephone,
+            SUM(CASE WHEN m.type IN (${listeEntrees}) THEN m.montant ELSE -m.montant END) as solde,
+            MAX(m.date_creation) as derniereOperation,
+            SUM(CASE WHEN m.type IN (${listeEntrees}) AND m.date_creation >= ? THEN m.montant ELSE 0 END) as entreesPeriode,
+            SUM(CASE WHEN m.type NOT IN (${listeEntrees}) AND m.date_creation >= ? THEN m.montant ELSE 0 END) as sortiesPeriode
+     FROM ${table} m JOIN ${tableTiers} t ON t.id = m.${colonneTiers}
+     WHERE t.boutique_id = ? AND m.supprime = 0
+     GROUP BY t.id`,
+    [depuis, depuis, boutiqueId],
+  ).map((r) => ({
+    ...r,
+    solde: Number(r.solde),
+    entreesPeriode: Number(r.entreesPeriode),
+    sortiesPeriode: Number(r.sortiesPeriode),
+  }));
+}
+
+/** Clients qui ont (ou ont eu) un compte, même occasionnels. */
+export function resumesComptesClients(boutiqueId: string, depuis: string): ResumeCompte[] {
+  return resumes("mouvements_compte_client", "client_id", "clients", ENTREES_CLIENT, boutiqueId, depuis);
+}
+
+export function resumesComptesFournisseurs(boutiqueId: string, depuis: string): ResumeCompte[] {
+  return resumes("mouvements_compte_fournisseur", "fournisseur_id", "fournisseurs", ENTREES_FOURNISSEUR, boutiqueId, depuis);
+}

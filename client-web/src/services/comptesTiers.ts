@@ -378,3 +378,70 @@ export async function remboursementFournisseur(fournisseurId: string, op: Operat
   }
   return compteFournisseur(fournisseurId);
 }
+
+// --- Vue d'ensemble (page « 👛 Comptes ») ---
+
+export interface ResumeCompte {
+  id: string;
+  nom: string;
+  telephone: string;
+  solde: number;
+  derniereOperation: string | null;
+  /** Entrées / sorties sur le compte depuis `depuis` (le début du mois à l'écran). */
+  entreesPeriode: number;
+  sortiesPeriode: number;
+}
+
+function cumuler(
+  mouvements: { tiers: string; type: string; montant: number; date: string }[],
+  tiers: Map<string, { nom: string; telephone: string }>,
+  entrees: string[],
+  depuis: string,
+): ResumeCompte[] {
+  const parTiers = new Map<string, ResumeCompte>();
+  for (const m of mouvements) {
+    const info = tiers.get(m.tiers);
+    if (!info) continue;
+    const r = parTiers.get(m.tiers) ?? {
+      id: m.tiers,
+      nom: info.nom,
+      telephone: info.telephone ?? "",
+      solde: 0,
+      derniereOperation: null,
+      entreesPeriode: 0,
+      sortiesPeriode: 0,
+    };
+    const entree = entrees.includes(m.type);
+    r.solde += entree ? Number(m.montant) : -Number(m.montant);
+    if (!r.derniereOperation || m.date > r.derniereOperation) r.derniereOperation = m.date;
+    if (m.date >= depuis) {
+      if (entree) r.entreesPeriode += Number(m.montant);
+      else r.sortiesPeriode += Number(m.montant);
+    }
+    parTiers.set(m.tiers, r);
+  }
+  return [...parTiers.values()];
+}
+
+/** Clients qui ont (ou ont eu) un compte, même occasionnels. */
+export async function resumesComptesClients(boutiqueId: string, depuis: string): Promise<ResumeCompte[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const clients = new Map(
+    (await db.getAllFromIndex("clients", "boutique_id", boutiqueId)).map((c) => [c.id, { nom: c.nom, telephone: c.telephone }]),
+  );
+  const mouvements = (await db.getAll("mouvements_compte_client"))
+    .filter((m) => !m.supprime)
+    .map((m) => ({ tiers: m.client_id, type: m.type, montant: m.montant, date: m.date_creation }));
+  return cumuler(mouvements, clients, ENTREES_CLIENT, depuis);
+}
+
+export async function resumesComptesFournisseurs(boutiqueId: string, depuis: string): Promise<ResumeCompte[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const fournisseurs = new Map(
+    (await db.getAllFromIndex("fournisseurs", "boutique_id", boutiqueId)).map((f) => [f.id, { nom: f.nom, telephone: f.telephone }]),
+  );
+  const mouvements = (await db.getAll("mouvements_compte_fournisseur"))
+    .filter((m) => !m.supprime)
+    .map((m) => ({ tiers: m.fournisseur_id, type: m.type, montant: m.montant, date: m.date_creation }));
+  return cumuler(mouvements, fournisseurs, ENTREES_FOURNISSEUR, depuis);
+}

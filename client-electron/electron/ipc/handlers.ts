@@ -551,6 +551,12 @@ export function enregistrerLesHandlers(): void {
     executerEnSecurite(() => clients.planifierEcheancierCredit(creditId, tranches)),
   );
   // Comptes client / fournisseur (porte-monnaie, avances, avoirs).
+  ipcMain.handle("comptesTiers:resumesClients", (_evt, boutiqueId: string, depuis: string) =>
+    comptesTiers.resumesComptesClients(boutiqueId, depuis),
+  );
+  ipcMain.handle("comptesTiers:resumesFournisseurs", (_evt, boutiqueId: string, depuis: string) =>
+    comptesTiers.resumesComptesFournisseurs(boutiqueId, depuis),
+  );
   ipcMain.handle("comptesTiers:compteClient", (_evt, clientId: string) => comptesTiers.compteClient(clientId));
   ipcMain.handle("comptesTiers:soldesClients", (_evt, boutiqueId: string) => comptesTiers.soldesComptesClients(boutiqueId));
   ipcMain.handle("comptesTiers:deposerClient", (_evt, clientId: string, op: comptesTiers.OperationCompte) =>

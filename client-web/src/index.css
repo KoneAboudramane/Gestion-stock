@@ -8542,3 +8542,9 @@ tr.ligne-total-tableau td {
 .montant-sortie {
   color: var(--danger, #dc2626);
 }
+
+/* Page « 👛 Comptes » : compte ouvert depuis la liste (pas de fiche au-dessus). */
+.zone-compte-page {
+  height: calc(100vh - 25rem);
+  min-height: 16rem;
+}

@@ -9,6 +9,7 @@ import Accueil from "./Accueil";
 import Achats from "./Achats";
 import Caisse from "./Caisse";
 import Clients, { type SectionClients } from "./Clients";
+import PageComptes from "../components/PageComptes";
 import Comptabilite from "./Comptabilite";
 import Depense from "./Depense";
 import Messages from "./Messages";
@@ -30,6 +31,7 @@ const ZONES = [
   { cle: "ventes", label: "Historique", icone: "📜" },
   { cle: "achats", label: "Achats & fournisseurs", icone: "🚚", permission: "gerer_produits_stock_achats" },
   { cle: "clients", label: "Clients & crédit", icone: "👤" },
+  { cle: "comptes", label: "Comptes", icone: "👛" },
   { cle: "tresorerie", label: "Trésorerie", icone: "💰", permission: "consulter_tresorerie" },
   { cle: "depense", label: "Dépenses", icone: "💸" },
   { cle: "rapports", label: "Rapports", icone: "📈" },
@@ -252,6 +254,7 @@ export default function Shell({
               onOuvertureConsommee={() => setOuvrirNouvelleCommande(false)}
             />
           )}
+          {zone === "comptes" && <PageComptes session={session} />}
           {zone === "tresorerie" && <Tresorerie session={session} />}
           {zone === "depense" && <Depense session={session} />}
           {zone === "rapports" && (
