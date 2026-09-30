@@ -7597,3 +7597,25 @@ tr.ligne-total-tableau td {
 .tableau-grille-journee .tableau-catalogue th {
   border: 1px solid var(--bordure-tableau);
 }
+
+/* Trésorerie : bascule « Solde / Aujourd'hui ». */
+.bascule-mode-tresorerie {
+  margin: 0 0 0.8rem;
+  align-self: flex-start;
+}
+
+.onglet-solde--jour .carte-stat-label {
+  color: var(--avertissement-fonce, #d97706);
+}
+
+.onglet-solde--jour .carte-stat-solde-principal,
+.onglet-solde--jour .menu-solde-item {
+  border-color: var(--avertissement, #f59e0b);
+}
+
+.rappel-solde-jour {
+  margin-top: 0.4rem;
+  font-size: 0.95rem;
+  color: var(--gris-500);
+  text-align: center;
+}

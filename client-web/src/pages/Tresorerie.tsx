@@ -35,6 +35,8 @@ import {
   type ClotureCaisseResume,
   type MouvementCaisseResume,
   type TransfertCaisseResume,
+  journeeCaisse,
+  type JourneeCaisse,
 } from "../services/tresorerie";
 
 /**
@@ -743,6 +745,33 @@ function OngletHistorique({
     CategorieActionCaisse | "historique" | "transfert" | "historiqueTransfert" | "cloture" | "journee" | null
   >(null);
   const [soldesMobileMoney, setSoldesMobileMoney] = useState<Record<OperateurMobileMoney, number> | null>(null);
+  // « Solde » (cumulé) ou « Aujourd'hui » (chiffres du jour du dépôt), retenu sur ce poste.
+  const [modeAffichage, setModeAffichage] = useState<"solde" | "jour">(() => {
+    try {
+      return localStorage.getItem("tresorerie-mode-affichage") === "jour" ? "jour" : "solde";
+    } catch {
+      return "solde";
+    }
+  });
+  const [aujourdhui, setAujourdhui] = useState<JourneeCaisse | null>(null);
+
+  function changerModeAffichage(mode: "solde" | "jour") {
+    setModeAffichage(mode);
+    try {
+      localStorage.setItem("tresorerie-mode-affichage", mode);
+    } catch {
+      // Stockage indisponible : le choix vaut pour cette visite seulement.
+    }
+  }
+
+  async function chargerAujourdhui() {
+    if (!depotId) return;
+    const debut = new Date();
+    debut.setHours(0, 0, 0, 0);
+    const fin = new Date(debut);
+    fin.setDate(fin.getDate() + 1);
+    setAujourdhui(await journeeCaisse(session.boutiqueId, depotId, debut.toISOString(), fin.toISOString()));
+  }
   const [selection, setSelection] = useState<"caisse" | OperateurMobileMoney>("caisse");
 
   async function rafraichirSoldesMobileMoney() {
@@ -762,6 +791,7 @@ function OngletHistorique({
     setMouvements(await listerMouvements(depotId, 2000));
     setTransferts(await listerTransferts(depotId, 1000));
     setClotures(await listerClotures(depotId, 365));
+    await chargerAujourdhui();
   }
   useEffect(() => {
     rafraichir();
@@ -782,13 +812,23 @@ function OngletHistorique({
     ajustement: mouvements.filter((m) => m.categorie === "ajustement"),
   };
 
+  const modeJour = modeAffichage === "jour";
+  const encaisseAujourdhui = aujourdhui
+    ? aujourdhui.entrees
+        .filter((l) => l.categorie === "vente_especes" || l.categorie === "remboursement_credit")
+        .reduce((t, l) => t + l.montant, 0)
+    : null;
+  const mobileMoneyAujourdhui = (operateur: string) =>
+    aujourdhui ? (aujourdhui.mobileMoney.find((m) => m.operateur === operateur)?.montant ?? 0) : null;
   const itemsSolde: { cle: "caisse" | OperateurMobileMoney; label: string; valeur: number | null; alerte: boolean }[] =
     [
-      { cle: "caisse", label: "Solde de caisse", valeur: solde, alerte: (solde ?? 0) < 0 },
+      modeJour
+        ? { cle: "caisse", label: "Espèces encaissées aujourd'hui", valeur: encaisseAujourdhui, alerte: false }
+        : { cle: "caisse", label: "Solde de caisse", valeur: solde, alerte: (solde ?? 0) < 0 },
       ...OPERATEURS_MOBILE_MONEY.map((o) => ({
         cle: o.valeur as "caisse" | OperateurMobileMoney,
-        label: o.label,
-        valeur: soldesMobileMoney ? soldesMobileMoney[o.valeur] : null,
+        label: modeJour ? `${o.label} (aujourd'hui)` : o.label,
+        valeur: modeJour ? mobileMoneyAujourdhui(o.valeur) : soldesMobileMoney ? soldesMobileMoney[o.valeur] : null,
         alerte: false,
       })),
     ];
@@ -796,7 +836,15 @@ function OngletHistorique({
   const autresItems = itemsSolde.filter((i) => i.cle !== selection);
 
   return (
-    <div className="onglet-solde">
+    <div className={`onglet-solde${modeJour ? " onglet-solde--jour" : ""}`}>
+      <div className="bascule-vue bascule-mode-tresorerie" role="group" aria-label="Affichage">
+        <button type="button" className={!modeJour ? "actif" : ""} onClick={() => changerModeAffichage("solde")}>
+          💰 Solde
+        </button>
+        <button type="button" className={modeJour ? "actif" : ""} onClick={() => changerModeAffichage("jour")}>
+          📅 Aujourd'hui
+        </button>
+      </div>
       <div className="disposition-solde">
         <div className="detail-solde">
           <div className="carte-stat carte-stat-solde-principal">
@@ -809,6 +857,20 @@ function OngletHistorique({
             <span className={`carte-stat-valeur ${itemSelectionne.alerte ? "carte-stat-alerte" : ""}`}>
               {itemSelectionne.valeur !== null ? `${formaterMontant(itemSelectionne.valeur)} ${devise}` : "…"}
             </span>
+            {modeJour && aujourdhui && selection === "caisse" && (
+              <span className="rappel-solde-jour">
+                🧾 {aujourdhui.nombreVentes} vente{aujourdhui.nombreVentes > 1 ? "s" : ""} · CA{" "}
+                {formaterMontant(aujourdhui.chiffreAffaires)} {devise}
+                {aujourdhui.credit > 0 && ` · dont ${formaterMontant(aujourdhui.credit)} à crédit`}
+                <br />
+                Solde de caisse : {solde !== null ? `${formaterMontant(solde)} ${devise}` : "…"}
+              </span>
+            )}
+            {modeJour && selection !== "caisse" && soldesMobileMoney && (
+              <span className="rappel-solde-jour">
+                Solde disponible : {formaterMontant(soldesMobileMoney[selection])} {devise}
+              </span>
+            )}
           </div>
 
           {selection !== "caisse" && depotId && (
