@@ -2,6 +2,19 @@ import { randomUUID } from "node:crypto";
 
 import { dansUneTransaction, executer, tousLesResultats, unResultat } from "../db/helpers";
 import { sauvegarder } from "../db/index";
+import {
+  assemblerReleveClient,
+  assemblerReleveFournisseur,
+  type CommandeBrute,
+  type CreditBrut,
+  type MouvementBrut,
+  type OperationTiers,
+  type PaiementCreditBrut,
+  type PaiementDetteBrut,
+  type ReceptionBrute,
+  type RetourBrut,
+  type VenteBrute,
+} from "./relevesTiers";
 import { enregistrerMouvement } from "./tresorerie";
 
 /**
@@ -414,4 +427,81 @@ export function resumesComptesClients(boutiqueId: string, depuis: string): Resum
 
 export function resumesComptesFournisseurs(boutiqueId: string, depuis: string): ResumeCompte[] {
   return resumes("mouvements_compte_fournisseur", "fournisseur_id", "fournisseurs", ENTREES_FOURNISSEUR, boutiqueId, depuis);
+}
+
+// --- Relevé « Toutes les opérations » ---
+
+export function releveCompletClient(clientId: string): OperationTiers[] {
+  const ventes = tousLesResultats<Omit<VenteBrute, "paiements">>(
+    `SELECT id, numero, total_net as totalNet, statut, date_creation as dateCreation, date_modification as dateModification
+     FROM ventes WHERE client_id = ? AND supprime = 0`,
+    [clientId],
+  );
+  const paiements = tousLesResultats<{ venteId: string; mode: string; operateur: string; montant: number }>(
+    `SELECT p.vente_id as venteId, p.mode, COALESCE(p.operateur, '') as operateur, p.montant
+     FROM paiements p JOIN ventes v ON v.id = p.vente_id WHERE v.client_id = ? AND p.supprime = 0`,
+    [clientId],
+  );
+  const credits = tousLesResultats<CreditBrut>(
+    "SELECT id, vente_id as venteId, montant FROM credits WHERE client_id = ? AND supprime = 0",
+    [clientId],
+  );
+  const paiementsCredit = tousLesResultats<PaiementCreditBrut>(
+    `SELECT pc.id, pc.credit_id as creditId, v.numero as venteNumero, pc.montant, COALESCE(pc.mode, '') as mode,
+            pc.date_creation as dateCreation
+     FROM paiements_credit pc JOIN credits cr ON cr.id = pc.credit_id LEFT JOIN ventes v ON v.id = cr.vente_id
+     WHERE cr.client_id = ? AND pc.supprime = 0`,
+    [clientId],
+  );
+  const mouvements = tousLesResultats<MouvementBrut>(
+    `SELECT id, type, montant, COALESCE(mode, '') as mode, COALESCE(operateur, '') as operateur,
+            COALESCE(motif, '') as motif, date_creation as dateCreation
+     FROM mouvements_compte_client WHERE client_id = ? AND supprime = 0`,
+    [clientId],
+  );
+  return assemblerReleveClient(
+    ventes.map((v) => ({ ...v, paiements: paiements.filter((p) => p.venteId === v.id) })),
+    credits,
+    paiementsCredit,
+    mouvements,
+  );
+}
+
+export function releveCompletFournisseur(fournisseurId: string): OperationTiers[] {
+  const commandes = tousLesResultats<CommandeBrute>(
+    `SELECT id, numero, statut, total, date_creation as dateCreation
+     FROM commandes_achat WHERE fournisseur_id = ? AND supprime = 0`,
+    [fournisseurId],
+  );
+  const receptions = tousLesResultats<Omit<ReceptionBrute, "annulee"> & { annulee: number }>(
+    `SELECT r.id, c.numero as commandeNumero, r.valeur_recue as valeurRecue, r.montant_paye as montantPaye,
+            COALESCE(r.mode_paiement, '') as modePaiement, COALESCE(r.operateur_paiement, '') as operateurPaiement,
+            COALESCE(r.annulee, 0) as annulee, r.date_creation as dateCreation, r.date_annulation as dateAnnulation
+     FROM receptions r JOIN commandes_achat c ON c.id = r.commande_id
+     WHERE c.fournisseur_id = ? AND r.supprime = 0`,
+    [fournisseurId],
+  ).map((r) => ({ ...r, annulee: !!Number(r.annulee) }));
+  const retours = tousLesResultats<Omit<RetourBrut, "avoirSurCompte"> & { avoirSurCompte: number }>(
+    `SELECT rf.id, c.numero as commandeNumero, rf.montant, rf.avoir, COALESCE(rf.motif, '') as motif,
+            rf.date_creation as dateCreation,
+            EXISTS (SELECT 1 FROM mouvements_compte_fournisseur m WHERE m.retour_id = rf.id AND m.supprime = 0) as avoirSurCompte
+     FROM retours_fournisseur rf JOIN commandes_achat c ON c.id = rf.commande_id
+     WHERE c.fournisseur_id = ? AND rf.supprime = 0`,
+    [fournisseurId],
+  ).map((r) => ({ ...r, avoirSurCompte: !!Number(r.avoirSurCompte) }));
+  const paiementsDette = tousLesResultats<Omit<PaiementDetteBrut, "annulee"> & { annulee: number }>(
+    `SELECT pd.id, c.numero as commandeNumero, pd.montant, COALESCE(pd.mode, '') as mode, COALESCE(pd.annulee, 0) as annulee,
+            pd.date_creation as dateCreation, pd.date_annulation as dateAnnulation
+     FROM paiements_dette_fournisseur pd JOIN dettes_fournisseur d ON d.id = pd.dette_id
+     LEFT JOIN commandes_achat c ON c.id = d.commande_id
+     WHERE d.fournisseur_id = ? AND pd.supprime = 0`,
+    [fournisseurId],
+  ).map((p) => ({ ...p, annulee: !!Number(p.annulee) }));
+  const mouvements = tousLesResultats<MouvementBrut>(
+    `SELECT id, type, montant, COALESCE(mode, '') as mode, COALESCE(operateur, '') as operateur,
+            COALESCE(motif, '') as motif, date_creation as dateCreation
+     FROM mouvements_compte_fournisseur WHERE fournisseur_id = ? AND supprime = 0`,
+    [fournisseurId],
+  );
+  return assemblerReleveFournisseur(commandes, receptions, retours, paiementsDette, mouvements);
 }

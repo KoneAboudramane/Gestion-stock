@@ -8564,3 +8564,7 @@ tr.ligne-total-tableau td {
   flex: 0 1 8rem;
   min-width: 0;
 }
+
+.solde-compte-tiers strong.montant-sortie {
+  color: var(--danger, #dc2626);
+}

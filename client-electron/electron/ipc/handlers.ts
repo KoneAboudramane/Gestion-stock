@@ -557,6 +557,10 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("comptesTiers:resumesFournisseurs", (_evt, boutiqueId: string, depuis: string) =>
     comptesTiers.resumesComptesFournisseurs(boutiqueId, depuis),
   );
+  ipcMain.handle("comptesTiers:releveClient", (_evt, clientId: string) => comptesTiers.releveCompletClient(clientId));
+  ipcMain.handle("comptesTiers:releveFournisseur", (_evt, fournisseurId: string) =>
+    comptesTiers.releveCompletFournisseur(fournisseurId),
+  );
   ipcMain.handle("comptesTiers:compteClient", (_evt, clientId: string) => comptesTiers.compteClient(clientId));
   ipcMain.handle("comptesTiers:soldesClients", (_evt, boutiqueId: string) => comptesTiers.soldesComptesClients(boutiqueId));
   ipcMain.handle("comptesTiers:deposerClient", (_evt, clientId: string, op: comptesTiers.OperationCompte) =>

@@ -17,6 +17,8 @@ import {
   type OperationCompte,
 } from "../services/comptesTiers";
 import { listerDepotsDetail } from "../services/stock";
+import { releveCompletClient, releveCompletFournisseur } from "../services/comptesTiers";
+import type { OperationTiers } from "../services/relevesTiers";
 
 const donnees = {
   compte: (genre: GenreTiers, id: string): Promise<CompteTiers> =>
@@ -47,6 +49,9 @@ const donnees = {
     if (genre === "client") await rembourserCredit(duId, montant, "compte_client", null, utilisateurId);
     else await payerDette(duId, montant, "compte_fournisseur", null, utilisateurId);
   },
+  /** Toutes les opérations (achats, crédits, commandes, paiements…) avec leur effet. */
+  releve: (genre: GenreTiers, id: string): Promise<OperationTiers[]> =>
+    genre === "client" ? releveCompletClient(id) : releveCompletFournisseur(id),
   ouvrirLien: (url: string) => {
     window.open(url, "_blank", "noopener");
   },
@@ -136,6 +141,9 @@ export function PanneauCompte({
   const [debutPerso, setDebutPerso] = useState("");
   const [finPerso, setFinPerso] = useState("");
   const [formulaire, setFormulaire] = useState<Formulaire>(null);
+  // « Porte-monnaie » (l'argent d'avance) ou « Toutes les opérations » (achats, crédits, commandes…).
+  const [vue, setVue] = useState<"portemonnaie" | "tout">("portemonnaie");
+  const [releve, setReleve] = useState<OperationTiers[]>([]);
 
   const client = genre === "client";
   const peutEntree = client ? !!session.permissions.gerer_clients : !!session.permissions.gerer_produits_stock_achats;
@@ -145,6 +153,7 @@ export function PanneauCompte({
   async function rafraichir() {
     setCompte(await donnees.compte(genre, tiersId));
     setOuverts(await donnees.ouverts(genre, session.boutiqueId, tiersId));
+    setReleve(await donnees.releve(genre, tiersId));
   }
   useEffect(() => {
     rafraichir();
@@ -162,6 +171,19 @@ export function PanneauCompte({
     return toutes.filter((m) => dansPeriode(m.dateCreation, bornes)).reverse();
   }, [compte, periode, debutPerso, finPerso]);
 
+  // Position après chaque opération (+ en sa faveur / − en notre faveur).
+  const lignesTout = useMemo(() => {
+    let courant = 0;
+    const toutes = releve.map((o) => {
+      courant += o.effet;
+      return { ...o, positionApres: courant };
+    });
+    const bornes = bornesPeriode(periode, debutPerso, finPerso);
+    return toutes.filter((o) => dansPeriode(o.date, bornes)).reverse();
+  }, [releve, periode, debutPerso, finPerso]);
+  const position = releve.reduce((t, o) => t + o.effet, 0);
+  const vueTout = vue === "tout";
+
   const solde = compte?.solde ?? 0;
   const entrees = lignes.reduce((t, m) => t + Math.max(0, m.montant), 0);
   const sorties = lignes.reduce((t, m) => t + Math.max(0, -m.montant), 0);
@@ -176,6 +198,12 @@ export function PanneauCompte({
   }
 
   const libelleSolde = client ? "Sur son compte" : "À notre crédit chez lui";
+  function libellePosition(valeur: number): string {
+    if (Math.round(valeur) === 0) return "Soldé";
+    if (client) return valeur > 0 ? "À son crédit" : "Il nous doit";
+    return valeur > 0 ? "À notre crédit" : "Nous lui devons";
+  }
+  const texteMontant = (valeur: number) => `${formaterMontant(Math.abs(valeur))} ${devise}`;
   const colonnesExport: ColonneExport[] = [
     { cle: "date", libelle: "Date" },
     { cle: "operation", libelle: "Opération" },
@@ -185,6 +213,24 @@ export function PanneauCompte({
     { cle: "sortie", libelle: `Sortie (${devise})` },
     { cle: "solde", libelle: `Solde (${devise})` },
   ];
+  const colonnesExportTout: ColonneExport[] = [
+    { cle: "date", libelle: "Date" },
+    { cle: "operation", libelle: "Opération" },
+    { cle: "detail", libelle: "Détail" },
+    { cle: "mode", libelle: "Paiement" },
+    { cle: "montant", libelle: `Montant (${devise})` },
+    { cle: "effet", libelle: `Effet (${devise})` },
+    { cle: "position", libelle: "Position" },
+  ];
+  const lignesExportTout = lignesTout.map((o) => ({
+    date: new Date(o.date).toLocaleString("fr-FR"),
+    operation: o.operation.replace(/^\S+\s/, ""),
+    detail: o.detail,
+    mode: o.mode,
+    montant: o.montant,
+    effet: o.effet || "",
+    position: `${libellePosition(o.positionApres)} ${texteMontant(o.positionApres)}`,
+  }));
   const lignesExport = lignes.map((m) => ({
     date: new Date(m.dateCreation).toLocaleString("fr-FR"),
     operation: (LIBELLES_OPERATION[genre][m.type] ?? m.type).replace(/^\S+\s/, ""),
@@ -198,6 +244,33 @@ export function PanneauCompte({
   function envoyerWhatsApp() {
     const numero = telephone.replace(/\D/g, "");
     if (!numero || !compte) return;
+    if (vueTout) {
+      const texteTout = [
+        `Bonjour ${tiersNom},`,
+        client
+          ? `Voici le relevé de vos opérations chez ${session.boutiqueNom}.`
+          : `Voici le relevé de nos opérations avec vous (${session.boutiqueNom}).`,
+        "",
+        `Situation : ${libellePosition(position)}${Math.round(position) !== 0 ? ` ${texteMontant(position)}` : ""}`,
+        ...(lignesTout.length
+          ? [
+              "",
+              "Dernières opérations :",
+              ...lignesTout
+                .slice(0, 10)
+                .map(
+                  (o) =>
+                    `• ${new Date(o.date).toLocaleDateString("fr-FR")} — ${o.operation.replace(/^\S+\s/, "")}` +
+                    `${o.detail ? ` ${o.detail}` : ""} : ${formaterMontant(o.montant)} ${devise}`,
+                ),
+            ]
+          : []),
+        "",
+        "Merci.",
+      ].join("\n");
+      donnees.ouvrirLien(`https://wa.me/${numero}?text=${encodeURIComponent(texteTout)}`);
+      return;
+    }
     const dernieres = [...compte.mouvements].reverse().slice(0, 10);
     const texte = [
       `Bonjour ${tiersNom},`,
@@ -230,11 +303,23 @@ export function PanneauCompte({
     <>
       <div className="barre-compte-tiers">
         <div className="solde-compte-tiers">
-          <span className="sous-info">👛 {libelleSolde}</span>
-          <strong className="nowrap">
-            {formaterMontant(solde)} {devise}
-          </strong>
-          {detteOuverte > 0 && (
+          {vueTout ? (
+            <>
+              <span className="sous-info">📋 {libellePosition(position)}</span>
+              <strong className={`nowrap${position < 0 ? " montant-sortie" : ""}`}>{texteMontant(position)}</strong>
+              <span className="sous-info">
+                {libelleSolde} : {formaterMontant(solde)} {devise}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="sous-info">👛 {libelleSolde}</span>
+              <strong className="nowrap">
+                {formaterMontant(solde)} {devise}
+              </strong>
+            </>
+          )}
+          {!vueTout && detteOuverte > 0 && (
             <span className="sous-info">
               {client ? "Crédit dû" : "Nous lui devons"} : {formaterMontant(detteOuverte)} {devise}
             </span>
@@ -260,6 +345,14 @@ export function PanneauCompte({
       </div>
 
       <div className="barre-actions barre-filtres-historique">
+        <div className="bascule-vue" role="group" aria-label="Vue">
+          <button type="button" className={!vueTout ? "actif" : ""} onClick={() => setVue("portemonnaie")}>
+            👛 Porte-monnaie
+          </button>
+          <button type="button" className={vueTout ? "actif" : ""} onClick={() => setVue("tout")}>
+            📋 Toutes les opérations
+          </button>
+        </div>
         <FiltrePeriodeHistorique
           periode={periode}
           setPeriode={setPeriode}
@@ -268,18 +361,85 @@ export function PanneauCompte({
           finPerso={finPerso}
           setFinPerso={setFinPerso}
         />
-        <span className="sous-info nowrap">
-          Entrées <span className="montant-entree">+{formaterMontant(entrees)}</span> · Sorties{" "}
-          <span className="montant-sortie">−{formaterMontant(sorties)}</span> {devise}
-        </span>
+        {vueTout ? (
+          <span className="sous-info nowrap">
+            {lignesTout.length} opération{lignesTout.length > 1 ? "s" : ""}
+          </span>
+        ) : (
+          <span className="sous-info nowrap">
+            Entrées <span className="montant-entree">+{formaterMontant(entrees)}</span> · Sorties{" "}
+            <span className="montant-sortie">−{formaterMontant(sorties)}</span> {devise}
+          </span>
+        )}
         {telephone && (
-          <button type="button" onClick={envoyerWhatsApp} title="Envoyer le solde et les dernières opérations">
+          <button type="button" onClick={envoyerWhatsApp} title="Envoyer la vue affichée : situation et dernières opérations">
             📲 Relevé WhatsApp
           </button>
         )}
-        <BoutonsExport titre={`Compte — ${tiersNom}`} colonnes={colonnesExport} lignes={lignesExport} compact />
+        <BoutonsExport
+          titre={vueTout ? `Relevé des opérations — ${tiersNom}` : `Compte — ${tiersNom}`}
+          colonnes={vueTout ? colonnesExportTout : colonnesExport}
+          lignes={vueTout ? lignesExportTout : lignesExport}
+          compact
+        />
       </div>
 
+      {vueTout ? (
+      <div className={`zone-tableau-scroll ${classeZone}`}>
+        <table className="tableau-catalogue tableau-grille-journee">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Opération</th>
+              <th>Détail</th>
+              <th>Paiement</th>
+              <th>Montant</th>
+              <th title="Effet sur ce qu'il nous doit ou ce qu'on lui doit">Effet</th>
+              <th>Position</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lignesTout.map((o) => (
+              <tr key={o.id}>
+                <td className="nowrap" title={new Date(o.date).toLocaleString("fr-FR")}>
+                  {new Date(o.date).toLocaleDateString("fr-FR")}
+                </td>
+                <td className="nowrap">{o.operation}</td>
+                <td>{o.detail}</td>
+                <td>{o.mode}</td>
+                <td className="nowrap">{formaterMontant(o.montant)}</td>
+                <td className={`nowrap ${o.effet > 0 ? "montant-entree" : o.effet < 0 ? "montant-sortie" : ""}`}>
+                  {o.effet > 0 ? `+${formaterMontant(o.effet)}` : o.effet < 0 ? `−${formaterMontant(-o.effet)}` : "—"}
+                </td>
+                <td className="nowrap">
+                  <strong className={o.positionApres < 0 ? "montant-sortie" : undefined}>
+                    {Math.round(o.positionApres) === 0 ? "Soldé" : texteMontant(o.positionApres)}
+                  </strong>
+                </td>
+              </tr>
+            ))}
+            {lignesTout.length === 0 && (
+              <tr>
+                <td colSpan={7} className="liste-vide">
+                  {releve.length > 0 ? "Aucune opération sur cette période." : "Aucune opération pour l'instant."}
+                </td>
+              </tr>
+            )}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, lignesTout.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+                <td>&nbsp;</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      ) : (
       <div className={`zone-tableau-scroll ${classeZone}`}>
         <table className="tableau-catalogue tableau-grille-journee">
           <thead>
@@ -336,6 +496,7 @@ export function PanneauCompte({
           </tbody>
         </table>
       </div>
+      )}
 
       {(formulaire === "entree" || formulaire === "sortie") && (
         <FormulaireOperation
@@ -349,6 +510,7 @@ export function PanneauCompte({
           onFait={(c) => {
             setCompte(c);
             setFormulaire(null);
+            rafraichir();
             onModifie?.();
           }}
         />

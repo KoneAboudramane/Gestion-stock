@@ -1,6 +1,17 @@
 import { ouvrirBaseDeDonnees } from "../db";
 import { suiviSyncNeuf } from "../db/helpers";
 import type { MouvementCompteClientLocal, MouvementCompteFournisseurLocal } from "../db/schema";
+import {
+  assemblerReleveClient,
+  assemblerReleveFournisseur,
+  type MouvementBrut,
+  type OperationTiers,
+  type PaiementCreditBrut,
+  type PaiementDetteBrut,
+  type ReceptionBrute,
+  type RetourBrut,
+  type VenteBrute,
+} from "./relevesTiers";
 import { enregistrerMouvement } from "./tresorerie";
 
 /**
@@ -444,4 +455,134 @@ export async function resumesComptesFournisseurs(boutiqueId: string, depuis: str
     .filter((m) => !m.supprime)
     .map((m) => ({ tiers: m.fournisseur_id, type: m.type, montant: m.montant, date: m.date_creation }));
   return cumuler(mouvements, fournisseurs, ENTREES_FOURNISSEUR, depuis);
+}
+
+// --- Relevé « Toutes les opérations » ---
+
+export async function releveCompletClient(clientId: string): Promise<OperationTiers[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const client = await db.get("clients", clientId);
+  if (!client) return [];
+  const ventes = (await db.getAllFromIndex("ventes", "boutique_id", client.boutique_id)).filter(
+    (v) => !v.supprime && v.client_id === clientId,
+  );
+  const ventesBrutes: VenteBrute[] = [];
+  for (const v of ventes) {
+    const paiements = (await db.getAllFromIndex("paiements", "vente_id", v.id)).filter((p) => !p.supprime);
+    ventesBrutes.push({
+      id: v.id,
+      numero: v.numero,
+      totalNet: v.total_net,
+      statut: v.statut,
+      dateCreation: v.date_creation,
+      dateModification: v.date_modification,
+      paiements: paiements.map((p) => ({ mode: p.mode, operateur: p.operateur ?? "", montant: p.montant })),
+    });
+  }
+  const numeroVente = new Map(ventes.map((v) => [v.id, v.numero]));
+  const credits = (await db.getAllFromIndex("credits", "client_id", clientId)).filter((c) => !c.supprime);
+  const paiementsCredit: PaiementCreditBrut[] = [];
+  for (const c of credits) {
+    for (const p of await db.getAllFromIndex("paiements_credit", "credit_id", c.id)) {
+      if (p.supprime) continue;
+      paiementsCredit.push({
+        id: p.id,
+        creditId: c.id,
+        venteNumero: c.vente_id ? (numeroVente.get(c.vente_id) ?? null) : null,
+        montant: p.montant,
+        mode: p.mode ?? "",
+        dateCreation: p.date_creation,
+      });
+    }
+  }
+  const mouvements: MouvementBrut[] = (await mouvementsClient(clientId)).map((m) => ({
+    id: m.id,
+    type: m.type,
+    montant: m.montant,
+    mode: m.mode ?? "",
+    operateur: m.operateur ?? "",
+    motif: m.motif ?? "",
+    dateCreation: m.date_creation,
+  }));
+  return assemblerReleveClient(
+    ventesBrutes,
+    credits.map((c) => ({ id: c.id, venteId: c.vente_id ?? null, montant: c.montant })),
+    paiementsCredit,
+    mouvements,
+  );
+}
+
+export async function releveCompletFournisseur(fournisseurId: string): Promise<OperationTiers[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const fournisseur = await db.get("fournisseurs", fournisseurId);
+  if (!fournisseur) return [];
+  const commandes = (await db.getAllFromIndex("commandes_achat", "boutique_id", fournisseur.boutique_id)).filter(
+    (c) => !c.supprime && c.fournisseur_id === fournisseurId,
+  );
+  const numero = new Map(commandes.map((c) => [c.id, c.numero]));
+  const receptions: ReceptionBrute[] = [];
+  const retours: RetourBrut[] = [];
+  const avoirsSurCompte = new Set(
+    (await mouvementsFournisseur(fournisseurId)).filter((m) => m.retour_id).map((m) => m.retour_id as string),
+  );
+  for (const c of commandes) {
+    for (const r of await db.getAllFromIndex("receptions", "commande_id", c.id)) {
+      if (r.supprime) continue;
+      receptions.push({
+        id: r.id,
+        commandeNumero: c.numero,
+        valeurRecue: r.valeur_recue ?? 0,
+        montantPaye: r.montant_paye ?? 0,
+        modePaiement: r.mode_paiement ?? "",
+        operateurPaiement: r.operateur_paiement ?? "",
+        annulee: !!r.annulee,
+        dateCreation: r.date_creation,
+        dateAnnulation: r.date_annulation ?? null,
+      });
+    }
+    for (const rf of await db.getAllFromIndex("retours_fournisseur", "commande_id", c.id)) {
+      if (rf.supprime) continue;
+      retours.push({
+        id: rf.id,
+        commandeNumero: c.numero,
+        montant: rf.montant,
+        avoir: rf.avoir,
+        avoirSurCompte: avoirsSurCompte.has(rf.id),
+        motif: rf.motif ?? "",
+        dateCreation: rf.date_creation,
+      });
+    }
+  }
+  const paiementsDette: PaiementDetteBrut[] = [];
+  for (const d of await db.getAllFromIndex("dettes_fournisseur", "fournisseur_id", fournisseurId)) {
+    if (d.supprime) continue;
+    for (const p of await db.getAllFromIndex("paiements_dette_fournisseur", "dette_id", d.id)) {
+      if (p.supprime) continue;
+      paiementsDette.push({
+        id: p.id,
+        commandeNumero: d.commande_id ? (numero.get(d.commande_id) ?? null) : null,
+        montant: p.montant,
+        mode: p.mode ?? "",
+        annulee: !!p.annulee,
+        dateCreation: p.date_creation,
+        dateAnnulation: p.date_annulation ?? null,
+      });
+    }
+  }
+  const mouvements: MouvementBrut[] = (await mouvementsFournisseur(fournisseurId)).map((m) => ({
+    id: m.id,
+    type: m.type,
+    montant: m.montant,
+    mode: m.mode ?? "",
+    operateur: m.operateur ?? "",
+    motif: m.motif ?? "",
+    dateCreation: m.date_creation,
+  }));
+  return assemblerReleveFournisseur(
+    commandes.map((c) => ({ id: c.id, numero: c.numero, statut: c.statut, total: c.total, dateCreation: c.date_creation })),
+    receptions,
+    retours,
+    paiementsDette,
+    mouvements,
+  );
 }

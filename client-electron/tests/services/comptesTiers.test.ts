@@ -2,13 +2,15 @@ import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { executer, unResultat } from "../../electron/db/helpers";
-import { annulerReception, creerCommande, receptionnerCommande, retournerAuFournisseur } from "../../electron/services/achats";
+import { annulerReception, creerCommande, payerDette, receptionnerCommande, retournerAuFournisseur } from "../../electron/services/achats";
 import { rembourserCredit } from "../../electron/services/clients";
 import { genererEcrituresLocales } from "../../electron/services/comptabilite";
 import {
   ErreurCompte,
   compteClient,
   deposerSurCompteClient,
+  releveCompletClient,
+  releveCompletFournisseur,
   remboursementFournisseur,
   rendreDuCompteClient,
   soldeCompteClient,
@@ -173,5 +175,62 @@ describe("compte fournisseur (miroir de fournisseurs/services.py)", () => {
     remboursementFournisseur(fournisseurId, { montant: 300, mode: "especes", depotId });
     expect(soldeCompteFournisseur(fournisseurId)).toBe(0);
     expect(soldeCaisse(depotId)).toBe(300);
+  });
+});
+
+describe("relevé « Toutes les opérations » : la position finale égale compte − dû", () => {
+  const position = (ops: { effet: number }[]) => ops.reduce((t, o) => t + o.effet, 0);
+
+  it("client : achats (espèces, crédit, compte), règlements, annulation, dépôt, rendu", () => {
+    deposerSurCompteClient(clientId, { montant: 5000, mode: "especes", depotId });
+    const v1 = creerVente({
+      boutiqueId, depotId, utilisateurId: "1", clientId, statut: "credit",
+      lignes: [{ varianteId, quantite: 4 }],
+      paiements: [
+        { mode: "especes", montant: 1000 },
+        { mode: "compte_client", montant: 1000 },
+        { mode: "credit", montant: 2000 },
+      ],
+    });
+    const creditId = unResultat<{ id: string }>("SELECT id FROM credits WHERE vente_id = ?", [v1.id])!.id;
+    rembourserCredit(creditId, 500, "especes", depotId, "1");
+    rembourserCredit(creditId, 700, "compte_client", null, "1");
+    const v2 = creerVente({
+      boutiqueId, depotId, utilisateurId: "1", clientId, statut: "credit",
+      lignes: [{ varianteId, quantite: 3 }],
+      paiements: [{ mode: "credit", montant: 3000 }],
+    });
+    const credit2 = unResultat<{ id: string }>("SELECT id FROM credits WHERE vente_id = ?", [v2.id])!.id;
+    rembourserCredit(credit2, 1000, "especes", depotId, "1");
+    annulerVente(v2.id, "1");
+    rendreDuCompteClient(clientId, { montant: 300, mode: "especes", depotId });
+
+    const du = Number(unResultat<{ t: number }>("SELECT COALESCE(SUM(solde), 0) as t FROM credits WHERE client_id = ?", [clientId])!.t);
+    const ops = releveCompletClient(clientId);
+    expect(position(ops)).toBe(soldeCompteClient(clientId) - du);
+    expect(ops.map((o) => o.operation)).toContain("↺ Achat annulé");
+  });
+
+  it("fournisseur : commande, réception en partie par le compte, retour avec avoir, paiement, avance, remboursement", () => {
+    verserAvanceFournisseur(fournisseurId, { montant: 500, mode: "especes", depotId });
+    const commande = creerCommande({
+      boutiqueId, fournisseurId, utilisateurId: "1", statut: "commandee",
+      lignes: [{ varianteId, quantite: 10, prixAchat: 100 }],
+    });
+    const receptionId = receptionnerCommande({
+      commandeId: commande.id, depotId, utilisateurId: "1", montantDejaPaye: 500,
+      modePaiement: "compte_fournisseur", lignes: [{ varianteId, quantite: 10 }],
+    });
+    const detteId = unResultat<{ id: string }>("SELECT id FROM dettes_fournisseur WHERE reception_id = ?", [receptionId])!.id;
+    payerDette(detteId, 200, "especes", depotId, "1");
+    retournerAuFournisseur({ receptionId, utilisateurId: "1", lignes: [{ varianteId, quantite: 5 }] });
+    remboursementFournisseur(fournisseurId, { montant: 100, mode: "especes", depotId });
+
+    const du = Number(
+      unResultat<{ t: number }>("SELECT COALESCE(SUM(solde), 0) as t FROM dettes_fournisseur WHERE fournisseur_id = ?", [fournisseurId])!.t,
+    );
+    const ops = releveCompletFournisseur(fournisseurId);
+    expect(position(ops)).toBe(soldeCompteFournisseur(fournisseurId) - du);
+    expect(ops.map((o) => o.operation)).toContain("⬆️ Avance versée");
   });
 });

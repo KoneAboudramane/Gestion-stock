@@ -225,6 +225,8 @@ contextBridge.exposeInMainWorld("api", {
     listerPaiements: (detteId: string) => ipcRenderer.invoke("dettes:listerPaiements", detteId),
   },
   comptesTiers: {
+    releveClient: (clientId: string) => ipcRenderer.invoke("comptesTiers:releveClient", clientId),
+    releveFournisseur: (fournisseurId: string) => ipcRenderer.invoke("comptesTiers:releveFournisseur", fournisseurId),
     resumesClients: (boutiqueId: string, depuis: string) => ipcRenderer.invoke("comptesTiers:resumesClients", boutiqueId, depuis),
     resumesFournisseurs: (boutiqueId: string, depuis: string) =>
       ipcRenderer.invoke("comptesTiers:resumesFournisseurs", boutiqueId, depuis),

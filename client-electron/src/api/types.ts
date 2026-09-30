@@ -347,6 +347,18 @@ export interface MouvementCompte {
   dateCreation: string;
 }
 
+/** Ligne du relevé « Toutes les opérations » (miroir de electron/services/relevesTiers.ts). */
+export interface OperationTiers {
+  id: string;
+  date: string;
+  operation: string;
+  detail: string;
+  montant: number;
+  mode: string;
+  /** Effet sur la position (+ en sa faveur / − en notre faveur), 0 si aucun. */
+  effet: number;
+}
+
 export interface ResumeCompte {
   id: string;
   nom: string;
@@ -1689,6 +1701,8 @@ export interface WindowApi {
     listerPaiements(detteId: string): Promise<PaiementDetteDetail[]>;
   };
   comptesTiers: {
+    releveClient(clientId: string): Promise<OperationTiers[]>;
+    releveFournisseur(fournisseurId: string): Promise<OperationTiers[]>;
     resumesClients(boutiqueId: string, depuis: string): Promise<ResumeCompte[]>;
     resumesFournisseurs(boutiqueId: string, depuis: string): Promise<ResumeCompte[]>;
     compteClient(clientId: string): Promise<CompteTiers>;
