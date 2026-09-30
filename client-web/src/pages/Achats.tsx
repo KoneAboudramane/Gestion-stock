@@ -52,6 +52,7 @@ import { creerProduit, ErreurProduit, obtenirProduit } from "../services/produit
 import { listerDepotsDetail, type DepotResume, type LigneAchatInitiale } from "../services/stock";
 import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
 import BoutonsExport from "../components/BoutonsExport";
+import { PanneauCompte } from "../components/CompteTiers";
 import type { ColonneExport } from "../lib/export";
 import ModaleEcheancier from "../components/ModaleEcheancier";
 import FiltrePeriodeHistorique from "../components/FiltrePeriodeHistorique";
@@ -2384,7 +2385,7 @@ function ModaleFicheFournisseur({
   const [commandeOuverteId, setCommandeOuverteId] = useState<string | null>(null);
   const [detteOuverte, setDetteOuverte] = useState<DetteResume | null>(null);
   const [nouvelleCommande, setNouvelleCommande] = useState(false);
-  const [ongletFiche, setOngletFiche] = useState<"commandes" | "dettes">("commandes");
+  const [ongletFiche, setOngletFiche] = useState<"commandes" | "dettes" | "compte">("commandes");
 
   const valides = commandes.filter((c) => c.statut !== "annulee");
   const achete = valides.reduce((t, c) => t + c.valeurRecue, 0);
@@ -2456,6 +2457,14 @@ function ModaleFicheFournisseur({
               Dettes en cours
               <span className="compteur-menu-modale">{dettesEnCours.length}</span>
             </button>
+            <button
+              type="button"
+              className={ongletFiche === "compte" ? "actif" : ""}
+              onClick={() => setOngletFiche("compte")}
+            >
+              <span className="icone-menu-modale">📄</span>
+              Compte
+            </button>
           </nav>
         <div className="modale-corps">
           <div className="cartes-fiche">
@@ -2504,7 +2513,17 @@ function ModaleFicheFournisseur({
             </div>
           </div>
 
-          {ongletFiche === "dettes" ? (
+          {ongletFiche === "compte" ? (
+            <PanneauCompte
+              genre="fournisseur"
+              tiersId={fournisseur.id}
+              tiersNom={fournisseur.nom}
+              telephone={fournisseur.telephone ?? ""}
+              session={session}
+              classeZone="zone-commandes-fiche zone-compte-tiers"
+              onModifie={onModifie}
+            />
+          ) : ongletFiche === "dettes" ? (
             <div className="zone-tableau-scroll zone-commandes-fiche">
               <table className="tableau-catalogue carte-mobile">
                 <thead>

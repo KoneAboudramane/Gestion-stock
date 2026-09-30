@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 
 import type { Session } from "../api";
 import ChampMontant from "../components/ChampMontant";
+import { PanneauCompte } from "../components/CompteTiers";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import RecuCredit from "../components/RecuCredit";
 import { useDevise } from "../contexts/DeviseContext";
@@ -440,7 +441,7 @@ function DetailClient({ client, session, onRetour }: { client: ClientResume; ses
   const [adresse, setAdresse] = useState(client.adresse);
   const [erreurInfos, setErreurInfos] = useState<string | null>(null);
   const [enCoursInfos, setEnCoursInfos] = useState(false);
-  const [pageClient, setPageClient] = useState<"achats" | "credits">("achats");
+  const [pageClient, setPageClient] = useState<"achats" | "credits" | "compte">("achats");
   const devise = useDevise();
   // Chiffres du client : totaux du service (toutes ses ventes), pas seulement les 50 affichées.
   const panierMoyen = infos.nombreAchats > 0 ? Math.round(infos.totalAchats / infos.nombreAchats) : 0;
@@ -539,6 +540,14 @@ function DetailClient({ client, session, onRetour }: { client: ClientResume; ses
             <span className="icone-menu-modale">💳</span>
             Crédits
             <span className="compteur-menu-modale">{credits.length}</span>
+          </button>
+          <button
+            type="button"
+            className={pageClient === "compte" ? "actif" : ""}
+            onClick={() => setPageClient("compte")}
+          >
+            <span className="icone-menu-modale">📄</span>
+            Compte
           </button>
         </nav>
       <div className="modale-corps">
@@ -696,6 +705,18 @@ function DetailClient({ client, session, onRetour }: { client: ClientResume; ses
               </tbody>
             </table>
           </div>
+        )}
+
+        {pageClient === "compte" && (
+          <PanneauCompte
+            genre="client"
+            tiersId={clientId}
+            tiersNom={infos.nom}
+            telephone={infos.telephone ?? ""}
+            session={session}
+            classeZone="zone-tableau-scroll-client zone-compte-tiers"
+            onModifie={rafraichir}
+          />
         )}
 
         {pageClient === "credits" && (
