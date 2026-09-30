@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 
 import type { Session } from "../api";
 import ChampMontant from "../components/ChampMontant";
+import { compteClient } from "../services/comptesTiers";
 import {
   MODES_MONTANT_INITIAL,
   PanneauCompte,
@@ -77,12 +78,23 @@ function DetailCredit({ creditId, session, onRetour }: { creditId: string; sessi
   const [mode, setMode] = useState(MODES_REGLEMENT[0].valeur);
   const [depots, setDepots] = useState<DepotResume[]>([]);
   const [depotId, setDepotId] = useState(session.depotId ?? "");
+  // Argent laissé d'avance par le client : peut régler ce crédit.
+  const [soldeCompte, setSoldeCompte] = useState(0);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
   const [recuPaiementId, setRecuPaiementId] = useState<string | null>(null);
   const [reglementsOuverts, setReglementsOuverts] = useState(false);
   const [echeances, setEcheances] = useState<EcheanceDetail[]>([]);
   const [planification, setPlanification] = useState(false);
+
+  useEffect(() => {
+    if (!credit?.clientId) return;
+    compteClient(credit.clientId).then((c) => {
+      setSoldeCompte(c.solde);
+      // Compte vide : l'option disparaît, le mode ne doit pas rester dessus.
+      if (c.solde <= 0) setMode((m) => (m === "compte_client" ? MODES_REGLEMENT[0].valeur : m));
+    });
+  }, [credit]);
 
   async function rafraichir() {
     const resultat = await obtenirCredit(creditId);
@@ -301,6 +313,7 @@ function DetailCredit({ creditId, session, onRetour }: { creditId: string; sessi
                       {m.label}
                     </option>
                   ))}
+                  {soldeCompte > 0 && <option value="compte_client">👛 Compte (disponible {formaterMontant(soldeCompte)})</option>}
                 </select>
                 {!session.depotId && (
                   <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>

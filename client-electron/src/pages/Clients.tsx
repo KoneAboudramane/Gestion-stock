@@ -59,6 +59,8 @@ function DetailCredit({
   const [mode, setMode] = useState(MODES_REGLEMENT[0].valeur);
   const [depots, setDepots] = useState<DepotResume[]>([]);
   const [depotId, setDepotId] = useState(session.depotId ?? "");
+  // Argent laissé d'avance par le client : peut régler ce crédit.
+  const [soldeCompte, setSoldeCompte] = useState(0);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
   const [recuPaiementId, setRecuPaiementId] = useState<string | null>(null);
@@ -70,6 +72,15 @@ function DetailCredit({
     if (!session.depotId) api.depots.lister(session.boutiqueId).then(setDepots);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!credit?.clientId) return;
+    api.comptesTiers.compteClient(credit.clientId).then((c) => {
+      setSoldeCompte(c.solde);
+      // Compte vide : l'option disparaît, le mode ne doit pas rester dessus.
+      if (c.solde <= 0) setMode((m) => (m === "compte_client" ? MODES_REGLEMENT[0].valeur : m));
+    });
+  }, [credit]);
 
   async function rafraichir() {
     setCredit((await api.credits.obtenir(creditId)) ?? null);
@@ -295,6 +306,7 @@ function DetailCredit({
                     {m.label}
                   </option>
                 ))}
+                {soldeCompte > 0 && <option value="compte_client">👛 Compte (disponible {formaterMontant(soldeCompte)})</option>}
               </select>
               {!session.depotId && (
                 <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>

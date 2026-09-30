@@ -2707,6 +2707,16 @@ function ModaleDette({
   const [aAnnuler, setAAnnuler] = useState<PaiementDetteDetail | null>(null);
   const [tracesOuvertes, setTracesOuvertes] = useState(false);
   const [fournisseur, setFournisseur] = useState<FournisseurResume | null>(null);
+  // Ce que le fournisseur nous doit déjà (avances, avoirs) : peut régler cette dette.
+  const [soldeCompte, setSoldeCompte] = useState(0);
+  useEffect(() => {
+    if (!fournisseur) return;
+    compteFournisseur(fournisseur.id).then((c) => {
+      setSoldeCompte(c.solde);
+      // Compte vide : l'option disparaît, le mode ne doit pas rester dessus.
+      if (c.solde <= 0) setMode((m) => (m === "compte_fournisseur" ? MODES_REGLEMENT[0].valeur : m));
+    });
+  }, [fournisseur, dette]);
   useEffect(() => {
     listerFournisseurs(session.boutiqueId).then((liste) => setFournisseur(liste.find((f) => f.nom === dette.fournisseurNom) ?? null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2904,6 +2914,9 @@ function ModaleDette({
                         {m.label}
                       </option>
                     ))}
+                    {soldeCompte > 0 && (
+                      <option value="compte_fournisseur">👛 Compte fournisseur (disponible {formaterMontant(soldeCompte)})</option>
+                    )}
                   </select>
                   {!session.depotId && (
                     <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>

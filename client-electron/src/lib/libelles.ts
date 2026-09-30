@@ -107,8 +107,14 @@ export const MODES_REGLEMENT: { valeur: string; label: string }[] = [
   ...OPERATEURS_MOBILE_MONEY,
 ];
 
+const AUTRES_MODES_REGLEMENT: Record<string, string> = {
+  compte_client: "Compte client",
+  compte_fournisseur: "Compte fournisseur",
+  banque: "Banque",
+};
+
 export function libelleModeReglement(mode: string): string {
-  return MODES_REGLEMENT.find((m) => m.valeur === mode)?.label ?? mode;
+  return MODES_REGLEMENT.find((m) => m.valeur === mode)?.label ?? AUTRES_MODES_REGLEMENT[mode] ?? mode;
 }
 
 const LIBELLES_TYPE_MOUVEMENT_CAISSE: Record<TypeMouvementCaisse, string> = {
