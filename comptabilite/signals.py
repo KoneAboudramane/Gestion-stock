@@ -107,6 +107,30 @@ def sur_annulation_vente(sender, instance, created, **kwargs):
 
 # --- Achats ---
 
+def _contreparties_reception(reception):
+    """Crédits de l'écriture de réception : la part payée à la livraison sur
+    son compte de trésorerie (571 caisse, 55x Mobile Money, 521 banque), le
+    reste dû au fournisseur (401). Réceptions sans mode (antérieures à ce
+    suivi) : tout en 401 s'il reste un solde, sinon tout en 571, comme avant."""
+    valeur = reception.valeur_recue
+    paye = reception.montant_paye
+    mode = getattr(reception, "mode_paiement", "") or ""
+    if not mode:
+        return [{"compte": "401" if valeur - paye > 0 else "571", "credit": valeur}]
+    if mode == "especes":
+        compte_paye = "571"
+    elif mode == "mobile_money":
+        compte_paye = OPERATEUR_VERS_COMPTE.get(reception.operateur_paiement, "55")
+    else:
+        compte_paye = "521"
+    lignes = []
+    if paye > 0:
+        lignes.append({"compte": compte_paye, "credit": paye})
+    if valeur - paye > 0:
+        lignes.append({"compte": "401", "credit": valeur - paye})
+    return lignes
+
+
 @receiver(post_save, sender="achats.Reception")
 def sur_reception_achat(sender, instance, created, **kwargs):
     """Une écriture par réception (pas par commande) : une commande peut être
@@ -124,17 +148,7 @@ def sur_reception_achat(sender, instance, created, **kwargs):
         commande = instance.commande
 
         contexte = preparer_contexte(commande.boutique, instance.date_creation.date())
-        # achats/services.py::receptionner_commande ne trace pas séparément un
-        # paiement immédiat partiel à la réception (aucun MouvementCaisse créé
-        # pour lui, même limite côté trésorerie) : la réception finance donc
-        # tout le montant reçu via 401 dès qu'un solde subsiste après ce
-        # paiement, sinon tout est considéré payé comptant (571).
-        solde = valeur_recue - instance.montant_paye
-        compte_contrepartie = "401" if solde > 0 else "571"
-        lignes = [
-            {"compte": "601", "debit": valeur_recue},
-            {"compte": compte_contrepartie, "credit": valeur_recue},
-        ]
+        lignes = [{"compte": "601", "debit": valeur_recue}, *_contreparties_reception(instance)]
         creer_ecriture(
             contexte, "AC", instance.date_creation.date(),
             f"Réception {commande.numero or commande.id}",
@@ -158,13 +172,11 @@ def sur_annulation_reception(sender, instance, created, **kwargs):
             return
         commande = instance.commande
         date = instance.date_annulation.date() if instance.date_annulation else instance.date_modification.date()
-        solde = instance.valeur_recue - instance.montant_paye
-        compte_contrepartie = "401" if solde > 0 else "571"
         creer_ecriture(
             preparer_contexte(commande.boutique, date), "AC", date,
             f"Annulation réception {commande.numero or commande.id}",
             [
-                {"compte": compte_contrepartie, "debit": instance.valeur_recue},
+                *({"compte": l["compte"], "debit": l["credit"]} for l in _contreparties_reception(instance)),
                 {"compte": "601", "credit": instance.valeur_recue},
             ],
             reference_type="achats.Reception:annulation", reference_id=instance.id,

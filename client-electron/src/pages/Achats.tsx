@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { OPERATEURS_MOBILE_MONEY } from "../lib/libelles";
 import type { CSSProperties } from "react";
 
 import { api } from "../api/client";
@@ -570,6 +571,8 @@ function DetailCommande({
   const [depots, setDepots] = useState<Depot[]>([]);
   const [depotId, setDepotId] = useState("");
   const [montantDejaPaye, setMontantDejaPaye] = useState("0");
+  const [modePaiementReception, setModePaiementReception] = useState<"especes" | "mobile_money" | "banque">("especes");
+  const [operateurReception, setOperateurReception] = useState("orange_money");
   const [afficherReception, setAfficherReception] = useState(false);
   const [receptionReussie, setReceptionReussie] = useState<{ quantiteRecue: number; quantiteRestante: number } | null>(
     null,
@@ -687,6 +690,8 @@ function DetailCommande({
         depotId,
         utilisateurId: session.utilisateurId,
         montantDejaPaye: Number(montantDejaPaye) || 0,
+        modePaiement: (Number(montantDejaPaye) || 0) > 0 ? modePaiementReception : "",
+        operateurPaiement: modePaiementReception === "mobile_money" ? operateurReception : "",
         lignes: commande.lignes
           .map((l) => ({
             varianteId: l.varianteId,
@@ -1142,6 +1147,32 @@ function DetailCommande({
                 Montant déjà payé
                 <ChampMontant className="champ-montant-deja-paye" value={montantDejaPaye} onChange={setMontantDejaPaye} />
               </label>
+              {Number(montantDejaPaye) > 0 && (
+                <label>
+                  Payé par
+                  <select
+                    value={modePaiementReception}
+                    onChange={(e) => setModePaiementReception(e.target.value as "especes" | "mobile_money" | "banque")}
+                    title="Espèces : l'argent sort de la caisse du dépôt"
+                  >
+                    <option value="especes">💵 Espèces (caisse)</option>
+                    <option value="mobile_money">📱 Mobile Money</option>
+                    <option value="banque">🏦 Banque</option>
+                  </select>
+                </label>
+              )}
+              {Number(montantDejaPaye) > 0 && modePaiementReception === "mobile_money" && (
+                <label>
+                  Opérateur
+                  <select value={operateurReception} onChange={(e) => setOperateurReception(e.target.value)}>
+                    {OPERATEURS_MOBILE_MONEY.map((o) => (
+                      <option key={o.valeur} value={o.valeur}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <button type="button" onClick={() => setAfficherReception(false)}>
                 Annuler
               </button>

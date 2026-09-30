@@ -68,6 +68,11 @@ class Reception(ModeleBase):
     )
     valeur_recue = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     montant_paye = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Comment `montant_paye` a été réglé à la livraison : espèces (sortie de
+    # caisse du dépôt), Mobile Money (opérateur) ou banque. Vide pour les
+    # réceptions antérieures à ce suivi.
+    mode_paiement = models.CharField(max_length=20, blank=True, default="")
+    operateur_paiement = models.CharField(max_length=20, blank=True, default="")
     # Réception saisie par erreur (voir services.annuler_reception) : reste
     # visible, marquée annulée.
     annulee = models.BooleanField(default=False)

@@ -18,6 +18,7 @@ export type CategorieMouvementCaisse =
   | "depense"
   | "retrait"
   | "paiement_dette_fournisseur"
+  | "paiement_fournisseur"
   | "ajustement";
 // Union de suggestions (autocomplétion) + (string & {}) : garde l'IDE-hint des
 // valeurs connues tout en acceptant un type de dépense saisi librement (voir

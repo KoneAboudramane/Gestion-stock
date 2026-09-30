@@ -88,7 +88,8 @@ class ReceptionSerializer(serializers.ModelSerializer):
         model = Reception
         fields = [
             "id", "commande", "depot", "utilisateur", "date_creation",
-            "valeur_recue", "montant_paye", "montant_deja_paye", "lignes", "annulee", "date_annulation",
+            "valeur_recue", "montant_paye", "montant_deja_paye", "mode_paiement", "operateur_paiement",
+            "lignes", "annulee", "date_annulation",
         ]
         read_only_fields = [
             "id", "utilisateur", "date_creation", "valeur_recue", "montant_paye", "annulee", "date_annulation",
@@ -125,4 +126,6 @@ class ReceptionSerializer(serializers.ModelSerializer):
             utilisateur=request.user,
             montant_deja_paye=validated_data.get("montant_deja_paye") or 0,
             lignes=lignes_donnees,
+            mode_paiement=validated_data.get("mode_paiement") or "",
+            operateur_paiement=validated_data.get("operateur_paiement") or "",
         )

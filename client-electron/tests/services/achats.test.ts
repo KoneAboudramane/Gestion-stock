@@ -27,6 +27,7 @@ import {
   retournerAuFournisseur,
 } from "../../electron/services/achats";
 import { genererAlertesDestockage } from "../../electron/services/notifications";
+import { soldeCaisse } from "../../electron/services/tresorerie";
 import { creerBaseDeTest } from "../setup";
 
 describe("achats.creerCommande (miroir de achats/services.py::creer_commande)", () => {
@@ -179,6 +180,46 @@ describe("achats.receptionnerCommande (miroir de achats/services.py::receptionne
     );
     return resultat ? Number(resultat.quantite) : 0;
   }
+
+  it("payé en espèces à la réception : sortie de caisse, qui revient si la réception est annulée", () => {
+    const commande = creerCommande({
+      boutiqueId,
+      fournisseurId,
+      utilisateurId: "1",
+      statut: "commandee",
+      lignes: [{ varianteId, quantite: 5, prixAchat: 10000 }],
+    });
+    const receptionId = receptionnerCommande({
+      commandeId: commande.id,
+      depotId,
+      utilisateurId: "1",
+      montantDejaPaye: 20000,
+      modePaiement: "especes",
+      lignes: [{ varianteId, quantite: 5 }],
+    });
+    expect(soldeCaisse(depotId)).toBe(-20000);
+    annulerReception(receptionId, "1");
+    expect(soldeCaisse(depotId)).toBe(0);
+  });
+
+  it("payé par banque ou Mobile Money à la réception : la caisse ne bouge pas", () => {
+    const commande = creerCommande({
+      boutiqueId,
+      fournisseurId,
+      utilisateurId: "1",
+      statut: "commandee",
+      lignes: [{ varianteId, quantite: 5, prixAchat: 10000 }],
+    });
+    receptionnerCommande({
+      commandeId: commande.id,
+      depotId,
+      utilisateurId: "1",
+      montantDejaPaye: 20000,
+      modePaiement: "banque",
+      lignes: [{ varianteId, quantite: 5 }],
+    });
+    expect(soldeCaisse(depotId)).toBe(0);
+  });
 
   it("incrémente le stock, crée une dette fournisseur avec le bon solde, passe la commande à 'recue'", () => {
     const commande = creerCommande({

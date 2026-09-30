@@ -29,6 +29,16 @@ const OPERATEUR_VERS_COMPTE: Record<string, string> = {
   moov_money: "554",
 };
 
+/** Crédits de l'écriture de réception (miroir de comptabilite/signals.py::_contreparties_reception). */
+function contrepartiesReception(valeur: number, paye: number, mode: string, operateur: string): [string, number][] {
+  if (!mode) return [[valeur - paye > 0 ? "401" : "571", valeur]];
+  const comptePaye = mode === "especes" ? "571" : mode === "mobile_money" ? (OPERATEUR_VERS_COMPTE[operateur] ?? "55") : "521";
+  const lignes: [string, number][] = [];
+  if (paye > 0) lignes.push([comptePaye, paye]);
+  if (valeur - paye > 0) lignes.push(["401", valeur - paye]);
+  return lignes;
+}
+
 const CATEGORIE_DEPENSE_VERS_COMPTE: Record<string, string> = {
   transport: "61",
   reparation: "624",
@@ -139,9 +149,7 @@ export async function genererEcrituresLocales(boutiqueId: string): Promise<Ecrit
       (r) => !r.supprime && r.valeur_recue > 0,
     );
     for (const r of receptions) {
-      // Paiement immédiat partiel non tracé en caisse : tout passe par 401 dès
-      // qu'un solde subsiste, sinon tout est considéré payé comptant (571).
-      const compteContrepartie = r.valeur_recue - r.montant_paye > 0 ? "401" : "571";
+      const credits = contrepartiesReception(r.valeur_recue, r.montant_paye, r.mode_paiement ?? "", r.operateur_paiement ?? "");
       ecritures.push({
         id: `achat-reception-${r.id}`,
         date: r.date_creation.slice(0, 10),
@@ -149,7 +157,7 @@ export async function genererEcrituresLocales(boutiqueId: string): Promise<Ecrit
         libelle: `Réception ${commande.numero || commande.id}`,
         referenceType: "achats.Reception",
         referenceId: r.id,
-        lignes: [ligne("601", r.valeur_recue, 0), ligne(compteContrepartie, 0, r.valeur_recue)],
+        lignes: [ligne("601", r.valeur_recue, 0), ...credits.map(([compte, montant]) => ligne(compte, 0, montant))],
       });
       if (r.annulee) {
         ecritures.push({
@@ -159,7 +167,7 @@ export async function genererEcrituresLocales(boutiqueId: string): Promise<Ecrit
           libelle: `Annulation réception ${commande.numero || commande.id}`,
           referenceType: "achats.Reception:annulation",
           referenceId: r.id,
-          lignes: [ligne(compteContrepartie, r.valeur_recue, 0), ligne("601", 0, r.valeur_recue)],
+          lignes: [...credits.map(([compte, montant]) => ligne(compte, montant, 0)), ligne("601", 0, r.valeur_recue)],
         });
       }
     }

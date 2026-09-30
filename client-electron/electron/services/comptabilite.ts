@@ -26,6 +26,16 @@ const OPERATEUR_VERS_COMPTE: Record<string, string> = {
   moov_money: "554",
 };
 
+/** Crédits de l'écriture de réception (miroir de comptabilite/signals.py::_contreparties_reception). */
+function contrepartiesReception(valeur: number, paye: number, mode: string, operateur: string): [string, number][] {
+  if (!mode) return [[valeur - paye > 0 ? "401" : "571", valeur]];
+  const comptePaye = mode === "especes" ? "571" : mode === "mobile_money" ? (OPERATEUR_VERS_COMPTE[operateur] ?? "55") : "521";
+  const lignes: [string, number][] = [];
+  if (paye > 0) lignes.push([comptePaye, paye]);
+  if (valeur - paye > 0) lignes.push(["401", valeur - paye]);
+  return lignes;
+}
+
 const CATEGORIE_DEPENSE_VERS_COMPTE: Record<string, string> = {
   transport: "61",
   reparation: "624",
@@ -165,12 +175,15 @@ export function genererEcrituresLocales(boutiqueId: string): EcritureLocale[] {
     commandeId: string;
     valeurRecue: number;
     montantPaye: number;
+    modePaiement: string;
+    operateurPaiement: string;
     dateCreation: string;
     annulee: number;
     dateAnnulation: string | null;
   }>(
     `SELECT r.id as id, c.numero as numero, c.id as commandeId, r.valeur_recue as valeurRecue,
-            r.montant_paye as montantPaye, r.date_creation as dateCreation,
+            r.montant_paye as montantPaye, COALESCE(r.mode_paiement, '') as modePaiement,
+            COALESCE(r.operateur_paiement, '') as operateurPaiement, r.date_creation as dateCreation,
             COALESCE(r.annulee, 0) as annulee, r.date_annulation as dateAnnulation
      FROM receptions r
      JOIN commandes_achat c ON c.id = r.commande_id
@@ -178,10 +191,8 @@ export function genererEcrituresLocales(boutiqueId: string): EcritureLocale[] {
     [boutiqueId],
   );
   for (const r of receptions) {
-    // Paiement immédiat partiel non tracé en caisse : tout passe par 401 dès
-    // qu'un solde subsiste, sinon tout est considéré payé comptant (571).
     const valeur = Number(r.valeurRecue);
-    const compteContrepartie = valeur - Number(r.montantPaye) > 0 ? "401" : "571";
+    const credits = contrepartiesReception(valeur, Number(r.montantPaye), r.modePaiement, r.operateurPaiement);
     ecritures.push({
       id: `achat-reception-${r.id}`,
       date: r.dateCreation.slice(0, 10),
@@ -189,7 +200,7 @@ export function genererEcrituresLocales(boutiqueId: string): EcritureLocale[] {
       libelle: `Réception ${r.numero || r.commandeId}`,
       referenceType: "achats.Reception",
       referenceId: r.id,
-      lignes: [ligne("601", valeur, 0), ligne(compteContrepartie, 0, valeur)],
+      lignes: [ligne("601", valeur, 0), ...credits.map(([compte, montant]) => ligne(compte, 0, montant))],
     });
     if (Number(r.annulee)) {
       ecritures.push({
@@ -199,7 +210,7 @@ export function genererEcrituresLocales(boutiqueId: string): EcritureLocale[] {
         libelle: `Annulation réception ${r.numero || r.commandeId}`,
         referenceType: "achats.Reception:annulation",
         referenceId: r.id,
-        lignes: [ligne(compteContrepartie, valeur, 0), ligne("601", 0, valeur)],
+        lignes: [...credits.map(([compte, montant]) => ligne(compte, montant, 0)), ligne("601", 0, valeur)],
       });
     }
   }

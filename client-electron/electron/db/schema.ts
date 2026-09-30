@@ -205,6 +205,8 @@ CREATE TABLE IF NOT EXISTS receptions (
   utilisateur_id TEXT,
   valeur_recue REAL DEFAULT 0,
   montant_paye REAL DEFAULT 0,
+  mode_paiement TEXT DEFAULT '',
+  operateur_paiement TEXT DEFAULT '',
   annulee INTEGER DEFAULT 0,
   date_annulation TEXT,
   ${SUIVI_SYNC}

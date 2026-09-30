@@ -542,6 +542,9 @@ export interface ParametresReception {
   depotId: string;
   utilisateurId: string | null;
   montantDejaPaye?: number;
+  /** Comment le montant déjà payé a été réglé : espèces (sortie de caisse), Mobile Money ou banque. */
+  modePaiement?: "especes" | "mobile_money" | "banque" | "";
+  operateurPaiement?: string;
   lignes: LigneReceptionEntree[];
 }
 
@@ -553,6 +556,8 @@ export interface ParametresReception {
  */
 export async function receptionnerCommande(params: ParametresReception): Promise<string> {
   const { commandeId, depotId, utilisateurId, montantDejaPaye = 0, lignes: lignesEntree } = params;
+  const modePaiement = montantDejaPaye > 0 ? (params.modePaiement ?? "") : "";
+  const operateurPaiement = modePaiement === "mobile_money" ? (params.operateurPaiement ?? "") : "";
   const db = await ouvrirBaseDeDonnees();
   const commande = await db.get("commandes_achat", commandeId);
   if (!commande) throw new ErreurAchat("Commande introuvable.");
@@ -658,9 +663,25 @@ export async function receptionnerCommande(params: ParametresReception): Promise
     utilisateur_id: utilisateurId,
     valeur_recue: valeurRecue,
     montant_paye: montantDejaPaye,
+    mode_paiement: modePaiement,
+    operateur_paiement: operateurPaiement,
     ...suiviSyncNeuf(),
   };
   await db.put("receptions", reception);
+  // Payé en espèces à la livraison : l'argent sort de la caisse du dépôt
+  // (un achat de marchandise, pas une dépense : il n'apparaît pas dans Dépenses).
+  if (montantDejaPaye > 0 && modePaiement === "especes") {
+    await enregistrerMouvement({
+      depotId,
+      type: "sortie",
+      categorie: "paiement_fournisseur",
+      montant: montantDejaPaye,
+      motif: `Paiement réception ${commande.numero}`,
+      utilisateurId,
+      referenceType: "achats.Reception",
+      referenceId: receptionId,
+    });
+  }
 
   const solde = valeurRecue - montantDejaPaye;
   if (solde > 0) {
@@ -1434,6 +1455,22 @@ export async function annulerReception(receptionId: string, utilisateurId: strin
   }
   if (commande.statut === "recue") {
     await ecrireLigne("commandes_achat", { ...commande, statut: "commandee", date_modification: instant, synchronise: 0 });
+  }
+  // L'argent payé en espèces à la livraison revient dans la caisse.
+  const sortieCaisse = (await db.getAllFromIndex("mouvements_caisse", "depot_id", reception.depot_id)).some(
+    (m) => !m.supprime && m.type === "sortie" && m.reference_type === "achats.Reception" && m.reference_id === receptionId,
+  );
+  if (sortieCaisse) {
+    await enregistrerMouvement({
+      depotId: reception.depot_id,
+      type: "entree",
+      categorie: "paiement_fournisseur",
+      montant: reception.montant_paye,
+      motif: `Annulation réception ${commande.numero}`,
+      utilisateurId,
+      referenceType: "achats.Reception:annulation",
+      referenceId: receptionId,
+    });
   }
   await ecrireLigne("receptions", { ...reception, annulee: true, date_annulation: instant, date_modification: instant, synchronise: 0 });
   const depot = await db.get("depots", reception.depot_id);

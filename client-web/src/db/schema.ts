@@ -185,6 +185,9 @@ export interface ReceptionLocale extends SuiviSync {
   utilisateur_id: string | null;
   valeur_recue: number;
   montant_paye: number;
+  /** Comment le montant payé à la livraison a été réglé : especes, mobile_money, banque (vide avant ce suivi). */
+  mode_paiement?: string;
+  operateur_paiement?: string;
   annulee?: boolean | number;
   date_annulation?: string | null;
 }

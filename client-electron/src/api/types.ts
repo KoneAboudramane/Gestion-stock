@@ -675,6 +675,9 @@ export interface ParametresReception {
   depotId: string;
   utilisateurId: string | null;
   montantDejaPaye?: number;
+  /** Comment le montant déjà payé a été réglé : espèces (sortie de caisse), Mobile Money ou banque. */
+  modePaiement?: "especes" | "mobile_money" | "banque" | "";
+  operateurPaiement?: string;
   lignes: LigneReceptionEntree[];
 }
 
@@ -1350,6 +1353,7 @@ export type CategorieMouvementCaisse =
   | "depense"
   | "retrait"
   | "paiement_dette_fournisseur"
+  | "paiement_fournisseur"
   | "ajustement";
 export type CategorieDepense =
   | "transport"

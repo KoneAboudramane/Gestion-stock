@@ -8,6 +8,8 @@ from django.db.models import Sum
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from tresorerie.models import MouvementCaisse
+from tresorerie.services import enregistrer_mouvement
 from core.services import generer_numero_sequentiel
 from fournisseurs.models import DetteFournisseur
 from stock.models import MouvementStock, Stock
@@ -106,8 +108,13 @@ def modifier_commande(commande, fournisseur, statut, lignes_donnees=None, utilis
     return commande
 
 
+MODES_PAIEMENT_RECEPTION = ("especes", "mobile_money", "banque")
+
+
 @transaction.atomic
-def receptionner_commande(commande, depot, utilisateur, montant_deja_paye=0, lignes=None):
+def receptionner_commande(
+    commande, depot, utilisateur, montant_deja_paye=0, lignes=None, mode_paiement="", operateur_paiement="",
+):
     """Réceptionne tout ou partie d'une commande. `lignes` est une liste de
     {"ligne": LigneAchat, "quantite": Decimal, "prix_vente": Decimal|None} —
     seules les quantités indiquées sont reçues (réception partielle possible
@@ -135,13 +142,25 @@ def receptionner_commande(commande, depot, utilisateur, montant_deja_paye=0, lig
 
     if montant_deja_paye > valeur_recue:
         raise ValidationError("Le montant déjà payé ne peut pas dépasser la valeur reçue.")
+    if montant_deja_paye > 0 and mode_paiement and mode_paiement not in MODES_PAIEMENT_RECEPTION:
+        raise ValidationError("Mode de paiement inconnu.")
 
     # Créée avant les mouvements pour qu'ils puissent la référencer : c'est ce
     # lien qui permet de retrouver les articles livrés à chaque réception.
     reception = Reception.objects.create(
         commande=commande, depot=depot, utilisateur=utilisateur,
         valeur_recue=valeur_recue, montant_paye=montant_deja_paye,
+        mode_paiement=mode_paiement if montant_deja_paye > 0 else "",
+        operateur_paiement=operateur_paiement if mode_paiement == "mobile_money" else "",
     )
+    # Payé en espèces à la livraison : l'argent sort de la caisse du dépôt
+    # (un achat de marchandise, pas une dépense : il n'apparaît pas dans Dépenses).
+    if montant_deja_paye > 0 and mode_paiement == "especes":
+        enregistrer_mouvement(
+            depot, MouvementCaisse.Type.SORTIE, MouvementCaisse.Categorie.PAIEMENT_FOURNISSEUR,
+            montant_deja_paye, motif=f"Paiement réception {commande.numero}", utilisateur=utilisateur,
+            reference_type="achats.Reception", reference_id=reception.id,
+        )
 
     for donnee in lignes:
         ligne = donnee["ligne"]
@@ -295,6 +314,17 @@ def annuler_reception(reception, utilisateur=None):
     if commande.statut == CommandeAchat.Statut.RECUE:
         commande.statut = CommandeAchat.Statut.COMMANDEE
         commande.save(update_fields=["statut", "date_modification"])
+
+    # L'argent payé en espèces à la livraison revient dans la caisse.
+    if MouvementCaisse.objects.filter(
+        reference_type="achats.Reception", reference_id=reception.id,
+        type=MouvementCaisse.Type.SORTIE, supprime=False,
+    ).exists():
+        enregistrer_mouvement(
+            reception.depot, MouvementCaisse.Type.ENTREE, MouvementCaisse.Categorie.PAIEMENT_FOURNISSEUR,
+            reception.montant_paye, motif=f"Annulation réception {commande.numero}", utilisateur=utilisateur,
+            reference_type="achats.Reception:annulation", reference_id=reception.id,
+        )
 
     reception.annulee = True
     reception.date_annulation = timezone.now()

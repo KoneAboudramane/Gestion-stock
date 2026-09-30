@@ -566,3 +566,61 @@ class AnnulationRemboursementDetteTests(APITestCase):
             format="json",
         )
         self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class PaiementALaReceptionTests(APITestCase):
+    """Payé à la livraison : sortie de caisse si espèces, bon compte en comptabilité, retour en caisse à l'annulation."""
+
+    def setUp(self):
+        from catalogue.models import Produit, Variante
+        from comptes.services import inscrire_boutique
+        from fournisseurs.models import Fournisseur
+        from stock.models import Depot
+
+        from .models import CommandeAchat, LigneAchat
+
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique R"}, {"username": "patronR", "password": "UnMotDePasseSolide123"}
+        )
+        self.depot = Depot.objects.create(boutique=self.boutique, nom="Magasin")
+        self.variante = Variante.objects.create(
+            produit=Produit.objects.create(boutique=self.boutique, nom="Clou"), prix_achat=100, prix_vente=200,
+        )
+        fournisseur = Fournisseur.objects.create(boutique=self.boutique, nom="Grossiste")
+        self.commande = CommandeAchat.objects.create(
+            boutique=self.boutique, fournisseur=fournisseur, utilisateur=self.patron, numero="CMD-T", statut="commandee",
+        )
+        self.ligne = LigneAchat.objects.create(commande=self.commande, variante=self.variante, quantite=10, prix_achat=100, sous_total=1000)
+
+    def _recevoir(self, paye, mode):
+        from .services import receptionner_commande
+
+        return receptionner_commande(
+            self.commande, self.depot, self.patron, montant_deja_paye=paye,
+            lignes=[{"ligne": self.ligne, "quantite": 10, "prix_vente": None}], mode_paiement=mode,
+        )
+
+    def test_especes_sort_de_la_caisse_et_revient_a_l_annulation(self):
+        from tresorerie.services import solde_caisse
+
+        from .services import annuler_reception
+
+        reception = self._recevoir(600, "especes")
+        self.assertEqual(solde_caisse(self.depot), -600)
+        annuler_reception(reception, self.patron)
+        self.assertEqual(solde_caisse(self.depot), 0)
+
+    def test_mobile_money_et_banque_ne_touchent_pas_la_caisse(self):
+        from tresorerie.services import solde_caisse
+
+        self._recevoir(400, "banque")
+        self.assertEqual(solde_caisse(self.depot), 0)
+
+    def test_comptabilite_partage_paye_et_du(self):
+        from comptabilite.models import EcritureComptable
+
+        reception = self._recevoir(600, "banque")
+        ecriture = EcritureComptable.objects.get(reference_type="achats.Reception", reference_id=reception.id)
+        credits = {l.compte.numero: l.credit for l in ecriture.lignes.all() if l.credit}
+        self.assertEqual(credits.get("521"), 600)
+        self.assertEqual(credits.get("401"), 400)

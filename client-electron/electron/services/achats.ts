@@ -517,6 +517,9 @@ export interface ParametresReception {
   depotId: string;
   utilisateurId: string | null;
   montantDejaPaye?: number;
+  /** Comment le montant déjà payé a été réglé : espèces (sortie de caisse), Mobile Money ou banque. */
+  modePaiement?: "especes" | "mobile_money" | "banque" | "";
+  operateurPaiement?: string;
   lignes: LigneReceptionEntree[];
 }
 
@@ -528,6 +531,8 @@ export interface ParametresReception {
  */
 export function receptionnerCommande(params: ParametresReception): string {
   const { commandeId, depotId, utilisateurId, montantDejaPaye = 0, lignes: lignesEntree } = params;
+  const modePaiement = montantDejaPaye > 0 ? (params.modePaiement ?? "") : "";
+  const operateurPaiement = modePaiement === "mobile_money" ? (params.operateurPaiement ?? "") : "";
   const commande = unResultat<{ numero: string; statut: string; fournisseur_id: string }>(
     "SELECT numero, statut, fournisseur_id FROM commandes_achat WHERE id = ?",
     [commandeId],
@@ -634,10 +639,26 @@ export function receptionnerCommande(params: ParametresReception): string {
     }
 
     executer(
-      `INSERT INTO receptions (id, commande_id, depot_id, utilisateur_id, valeur_recue, montant_paye, date_creation, date_modification)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [receptionId, commandeId, depotId, utilisateurId, valeurRecue, montantDejaPaye, maintenant, maintenant],
+      `INSERT INTO receptions
+         (id, commande_id, depot_id, utilisateur_id, valeur_recue, montant_paye, mode_paiement, operateur_paiement,
+          date_creation, date_modification)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [receptionId, commandeId, depotId, utilisateurId, valeurRecue, montantDejaPaye, modePaiement, operateurPaiement, maintenant, maintenant],
     );
+    // Payé en espèces à la livraison : l'argent sort de la caisse du dépôt
+    // (un achat de marchandise, pas une dépense : il n'apparaît pas dans Dépenses).
+    if (montantDejaPaye > 0 && modePaiement === "especes") {
+      enregistrerMouvement({
+        depotId,
+        type: "sortie",
+        categorie: "paiement_fournisseur",
+        montant: montantDejaPaye,
+        motif: `Paiement réception ${commande.numero}`,
+        utilisateurId,
+        referenceType: "achats.Reception",
+        referenceId: receptionId,
+      });
+    }
 
     const solde = valeurRecue - montantDejaPaye;
     if (solde > 0) {
@@ -1091,6 +1112,24 @@ export function annulerReception(receptionId: string, utilisateurId: string | nu
         maintenant,
         reception.commande_id,
       ]);
+    }
+    // L'argent payé en espèces à la livraison revient dans la caisse.
+    const sortieCaisse = unResultat<{ n: number }>(
+      `SELECT COUNT(*) as n FROM mouvements_caisse
+       WHERE reference_type = 'achats.Reception' AND reference_id = ? AND type = 'sortie' AND supprime = 0`,
+      [receptionId],
+    );
+    if (Number(sortieCaisse?.n ?? 0) > 0) {
+      enregistrerMouvement({
+        depotId: reception.depot_id,
+        type: "entree",
+        categorie: "paiement_fournisseur",
+        montant: Number(reception.montant_paye),
+        motif: `Annulation réception ${commande.numero}`,
+        utilisateurId,
+        referenceType: "achats.Reception:annulation",
+        referenceId: receptionId,
+      });
     }
     executer("UPDATE receptions SET annulee = 1, date_annulation = ?, synchronise = 0, date_modification = ? WHERE id = ?", [
       maintenant,

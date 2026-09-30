@@ -58,6 +58,8 @@ function migrerColonnesManquantes(base: Database): void {
     { table: "variantes", colonne: "quantite_detail", definition: "REAL" },
     { table: "pertes_stock", colonne: "date_annulation", definition: "TEXT" },
     { table: "receptions", colonne: "annulee", definition: "INTEGER DEFAULT 0" },
+    { table: "receptions", colonne: "mode_paiement", definition: "TEXT DEFAULT ''" },
+    { table: "receptions", colonne: "operateur_paiement", definition: "TEXT DEFAULT ''" },
     { table: "receptions", colonne: "date_annulation", definition: "TEXT" },
     { table: "dettes_fournisseur", colonne: "reception_id", definition: "TEXT" },
     { table: "paiements_dette_fournisseur", colonne: "annulee", definition: "INTEGER DEFAULT 0" },

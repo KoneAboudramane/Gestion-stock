@@ -128,6 +128,7 @@ const LIBELLES_CATEGORIE_MOUVEMENT_CAISSE: Record<CategorieMouvementCaisse, stri
   depense: "Dépense",
   retrait: "Retrait",
   paiement_dette_fournisseur: "Paiement dette fournisseur",
+  paiement_fournisseur: "Paiement fournisseur (réception)",
   ajustement: "Ajustement",
 };
 
