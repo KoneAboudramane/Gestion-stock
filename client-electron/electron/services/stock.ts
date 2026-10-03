@@ -164,48 +164,244 @@ export interface ParametresEntreeProduction {
  * pour une production plutôt qu'une réception — même formule de coût unitaire
  * moyen pondéré, pour que la marge (prix_vente − prix_achat) reste juste.
  */
-export function creerEntreeProduction(params: ParametresEntreeProduction): string {
+/** Corps de l'entrée de production, sans transaction ni sauvegarde. */
+function entreeProductionSansTransaction(params: ParametresEntreeProduction): string {
   const { varianteId, depotId, quantite, prixAchat, prixVente, motif = "", utilisateurId = null } = params;
   if (!fabricationPropreActivePourDepot(depotId)) {
     throw new ErreurStock(MESSAGE_ENTREE_RESERVEE_FABRICATION);
   }
 
-  const resultat = dansUneTransaction(() => {
-    const variante = unResultat<{ prix_achat: number; prix_vente: number }>(
-      "SELECT prix_achat, prix_vente FROM variantes WHERE id = ?",
-      [varianteId],
-    );
-    if (!variante) throw new ErreurStock("Produit introuvable.");
+  const variante = unResultat<{ prix_achat: number; prix_vente: number }>(
+    "SELECT prix_achat, prix_vente FROM variantes WHERE id = ?",
+    [varianteId],
+  );
+  if (!variante) throw new ErreurStock("Produit introuvable.");
 
-    const stockActuel = Number(
-      unResultat<{ total: number }>(
-        "SELECT COALESCE(SUM(quantite), 0) as total FROM stocks WHERE variante_id = ?",
-        [varianteId],
-      )?.total ?? 0,
-    );
-    const ancienPrixAchat = Number(variante.prix_achat);
-    const nouveauPrixAchat =
-      stockActuel > 0
-        ? Math.round((stockActuel * ancienPrixAchat + quantite * prixAchat) / (stockActuel + quantite))
-        : prixAchat;
-    const nouveauPrixVente = prixVente ?? Number(variante.prix_vente);
+  const stockActuel = stockTotalVariante(varianteId);
+  const ancienPrixAchat = Number(variante.prix_achat);
+  const nouveauPrixAchat =
+    stockActuel > 0
+      ? Math.round((stockActuel * ancienPrixAchat + quantite * prixAchat) / (stockActuel + quantite))
+      : prixAchat;
+  const nouveauPrixVente = prixVente ?? Number(variante.prix_vente);
 
-    if (nouveauPrixVente < nouveauPrixAchat) {
-      throw new ErreurStock("Le prix de vente ne peut pas être inférieur au prix d'achat (CUMP).");
-    }
+  if (nouveauPrixVente < nouveauPrixAchat) {
+    throw new ErreurStock("Le prix de vente ne peut pas être inférieur au prix d'achat (CUMP).");
+  }
 
-    const maintenant = new Date().toISOString();
-    executer(
-      "UPDATE variantes SET prix_achat = ?, prix_vente = ?, synchronise = 0, date_modification = ? WHERE id = ?",
-      [nouveauPrixAchat, nouveauPrixVente, maintenant, varianteId],
-    );
+  const maintenant = new Date().toISOString();
+  executer(
+    "UPDATE variantes SET prix_achat = ?, prix_vente = ?, synchronise = 0, date_modification = ? WHERE id = ?",
+    [nouveauPrixAchat, nouveauPrixVente, maintenant, varianteId],
+  );
 
-    const motifComplet = `${motif} (Coût : ${ancienPrixAchat} → ${nouveauPrixAchat} FCFA [CUMP])`;
-    return appliquerMouvement({ varianteId, depotId, type: "entree", quantite, motif: motifComplet, utilisateurId });
+  const motifComplet = `${motif} (Coût : ${ancienPrixAchat} → ${nouveauPrixAchat} FCFA [CUMP])`;
+  return appliquerMouvement({
+    varianteId,
+    depotId,
+    type: "entree",
+    quantite,
+    motif: motifComplet,
+    utilisateurId,
+    referenceType: REFERENCE_ENTREE_FABRICATION,
   });
+}
 
+export function creerEntreeProduction(params: ParametresEntreeProduction): string {
+  const resultat = dansUneTransaction(() => entreeProductionSansTransaction(params));
   sauvegarder();
   return resultat;
+}
+
+// --- Entrée de stock hors achat (carte « Entrée de stock » de la page Stock) ---
+// L'achat rapide est dans achats.ts (achatRapide). Aucune écriture comptable
+// pour ces entrées : le module comptable ne valorise pas encore le stock
+// (même décision que pour les pertes, voir CLAUDE.md).
+
+/** Origines tracées dans MouvementStock.reference_type (sans document lié). */
+export const REFERENCE_ENTREE_OUVERTURE = "stock.EntreeOuverture";
+export const REFERENCE_ENTREE_FABRICATION = "stock.EntreeFabrication";
+export const REFERENCE_ENTREE_DON = "stock.EntreeDon";
+
+export interface LigneEntreeStock {
+  varianteId: string;
+  quantite: number;
+  /** Ouverture et fabrication : coût unitaire. Don : valeur estimée, seulement si l'article n'a pas encore de coût. */
+  prixAchat?: number;
+  /** Facultatif : nouveau prix de vente. */
+  prixVente?: number;
+}
+
+export interface ParametresEntreeStock {
+  depotId: string;
+  lignes: LigneEntreeStock[];
+  motif?: string;
+  utilisateurId?: string | null;
+}
+
+function verifierLignesEntree(lignes: LigneEntreeStock[]): void {
+  if (lignes.length === 0) throw new ErreurStock("Ajoutez au moins un article.");
+  if (new Set(lignes.map((l) => l.varianteId)).size !== lignes.length) {
+    throw new ErreurStock("Un même article apparaît deux fois.");
+  }
+  if (lignes.some((l) => !(l.quantite > 0))) throw new ErreurStock("Chaque quantité doit être supérieure à 0.");
+}
+
+function nomVariante(varianteId: string): string {
+  return (
+    unResultat<{ nom: string }>(
+      "SELECT p.nom FROM variantes va JOIN produits p ON p.id = va.produit_id WHERE va.id = ?",
+      [varianteId],
+    )?.nom ?? "Article"
+  );
+}
+
+/** Fabrication de plusieurs articles d'un coup, tout ou rien. */
+export function entreeFabrication(params: ParametresEntreeStock): number {
+  verifierLignesEntree(params.lignes);
+  dansUneTransaction(() => {
+    for (const ligne of params.lignes) {
+      if (!(Number(ligne.prixAchat) >= 0)) {
+        throw new ErreurStock(`${nomVariante(ligne.varianteId)} : indiquez le coût de fabrication.`);
+      }
+      entreeProductionSansTransaction({
+        varianteId: ligne.varianteId,
+        depotId: params.depotId,
+        quantite: ligne.quantite,
+        prixAchat: Number(ligne.prixAchat),
+        prixVente: ligne.prixVente,
+        motif: params.motif?.trim() || "Fabrication",
+        utilisateurId: params.utilisateurId ?? null,
+      });
+    }
+  });
+  sauvegarder();
+  return params.lignes.length;
+}
+
+/** Vrai si l'article n'a encore jamais bougé (aucun mouvement) : stock d'ouverture permis. */
+export function varianteSansMouvement(varianteId: string): boolean {
+  const resultat = unResultat<{ n: number }>(
+    "SELECT COUNT(*) as n FROM mouvements_stock WHERE variante_id = ? AND supprime = 0",
+    [varianteId],
+  );
+  return Number(resultat?.n ?? 0) === 0;
+}
+
+/**
+ * Articles actifs qui n'ont encore jamais eu de mouvement de stock (créés sans
+ * stock initial) : la liste à compléter du « Stock d'ouverture ».
+ */
+export function articlesSansStock(boutiqueId: string): VarianteSansStock[] {
+  return tousLesResultats<VarianteSansStock>(
+    `SELECT v.id as id, v.produit_id as produitId, p.nom as produitNom, v.reference as reference,
+            v.code_barres as codeBarres, v.prix_vente as prixVente, v.prix_achat as prixAchat,
+            v.seuil_alerte as seuilAlerte
+     FROM variantes v
+     JOIN produits p ON p.id = v.produit_id
+     WHERE p.boutique_id = ? AND p.actif = 1 AND v.actif = 1 AND p.supprime = 0 AND v.supprime = 0
+       AND NOT EXISTS (SELECT 1 FROM mouvements_stock m WHERE m.variante_id = v.id AND m.supprime = 0)
+     ORDER BY p.nom`,
+    [boutiqueId],
+  );
+}
+
+export interface VarianteSansStock {
+  id: string;
+  produitId: string;
+  produitNom: string;
+  reference: string;
+  codeBarres: string;
+  prixVente: number;
+  prixAchat: number;
+  seuilAlerte: number;
+}
+
+/**
+ * Stock d'ouverture : la marchandise déjà en boutique au démarrage avec
+ * l'application. Réservé aux articles qui n'ont encore jamais bougé, pour ne
+ * pas servir de raccourci aux Achats. Le coût saisi devient le prix d'achat.
+ */
+export function entreeStockOuverture(params: ParametresEntreeStock): number {
+  verifierLignesEntree(params.lignes);
+  dansUneTransaction(() => {
+    const maintenant = new Date().toISOString();
+    for (const ligne of params.lignes) {
+      const nom = nomVariante(ligne.varianteId);
+      if (!varianteSansMouvement(ligne.varianteId)) {
+        throw new ErreurStock(
+          `${nom} a déjà eu des mouvements de stock : le stock d'ouverture est réservé aux articles neufs. Passez par un achat rapide.`,
+        );
+      }
+      const variante = unResultat<{ prix_vente: number }>("SELECT prix_vente FROM variantes WHERE id = ?", [
+        ligne.varianteId,
+      ]);
+      if (!variante) throw new ErreurStock("Produit introuvable.");
+      const prixAchat = Number(ligne.prixAchat);
+      if (!(prixAchat >= 0)) throw new ErreurStock(`${nom} : indiquez le coût d'achat.`);
+      const prixVente = ligne.prixVente ?? Number(variante.prix_vente);
+      if (prixVente < prixAchat) {
+        throw new ErreurStock(`${nom} : le prix de vente ne peut pas être inférieur au prix d'achat.`);
+      }
+      executer(
+        "UPDATE variantes SET prix_achat = ?, prix_vente = ?, synchronise = 0, date_modification = ? WHERE id = ?",
+        [prixAchat, prixVente, maintenant, ligne.varianteId],
+      );
+      appliquerMouvement({
+        varianteId: ligne.varianteId,
+        depotId: params.depotId,
+        type: "entree",
+        quantite: ligne.quantite,
+        motif: params.motif?.trim() || "Stock d'ouverture",
+        utilisateurId: params.utilisateurId ?? null,
+        referenceType: REFERENCE_ENTREE_OUVERTURE,
+      });
+    }
+  });
+  sauvegarder();
+  return params.lignes.length;
+}
+
+/**
+ * Don ou échantillon reçu : entre au coût moyen actuel, qui ne bouge donc
+ * pas (les marges restent justes). Un article encore sans coût prend la
+ * valeur estimée saisie.
+ */
+export function entreeDon(params: ParametresEntreeStock): number {
+  verifierLignesEntree(params.lignes);
+  dansUneTransaction(() => {
+    const maintenant = new Date().toISOString();
+    for (const ligne of params.lignes) {
+      const variante = unResultat<{ prix_achat: number }>("SELECT prix_achat FROM variantes WHERE id = ?", [
+        ligne.varianteId,
+      ]);
+      if (!variante) throw new ErreurStock("Produit introuvable.");
+      if (Number(variante.prix_achat) <= 0) {
+        const valeur = Number(ligne.prixAchat);
+        if (!(valeur > 0)) {
+          throw new ErreurStock(
+            `${nomVariante(ligne.varianteId)} n'a pas encore de prix d'achat : indiquez sa valeur estimée.`,
+          );
+        }
+        executer("UPDATE variantes SET prix_achat = ?, synchronise = 0, date_modification = ? WHERE id = ?", [
+          valeur,
+          maintenant,
+          ligne.varianteId,
+        ]);
+      }
+      appliquerMouvement({
+        varianteId: ligne.varianteId,
+        depotId: params.depotId,
+        type: "entree",
+        quantite: ligne.quantite,
+        motif: params.motif?.trim() || "Don reçu",
+        utilisateurId: params.utilisateurId ?? null,
+        referenceType: REFERENCE_ENTREE_DON,
+      });
+    }
+  });
+  sauvegarder();
+  return params.lignes.length;
 }
 
 /**

@@ -52,6 +52,7 @@ import {
   type VenteDetail,
   type VenteResumeLocale,
 } from "../services/ventes";
+import { zoneAccessible } from "../lib/acces";
 
 /**
  * Port de client-electron/src/pages/Ventes.tsx : historique des ventes, local
@@ -469,32 +470,33 @@ type CarteHistorique =
   | "remboursementsFournisseurs"
   | "messages";
 
-/** Cartes de la page Historique ; « gestion » : réservée à qui gère stock et achats. */
+/** Cartes de la page Historique ; « zone » : visible seulement si cette page l'est (lib/acces.ts). */
 const CARTES_HISTORIQUE: {
   cle: CarteHistorique;
   label: string;
   icone: string;
-  gestion?: boolean;
+  zone?: string;
 }[] = [
   { cle: "ventes", label: "Historique des ventes", icone: "🧾" },
-  { cle: "achats", label: "Historique des achats", icone: "🚚", gestion: true },
-  { cle: "mouvements", label: "Mouvements de stock", icone: "📦" },
-  { cle: "transferts", label: "Transferts de stock", icone: "🔁" },
-  { cle: "pertes", label: "Pertes", icone: "🗑️" },
-  { cle: "deballages", label: "Historique des déballages / remballages", icone: "📦" },
-  { cle: "depenses", label: "Historique des dépenses", icone: "💸" },
-  { cle: "caisse", label: "Historique de la caisse", icone: "💰" },
-  { cle: "mobileMoney", label: "Transferts Mobile Money", icone: "📱" },
+  { cle: "achats", label: "Historique des achats", icone: "🚚", zone: "achats" },
+  { cle: "mouvements", label: "Mouvements de stock", icone: "📦", zone: "stock" },
+  { cle: "transferts", label: "Transferts de stock", icone: "🔁", zone: "stock" },
+  { cle: "pertes", label: "Pertes", icone: "🗑️", zone: "stock" },
+  { cle: "deballages", label: "Historique des déballages / remballages", icone: "📦", zone: "stock" },
+  { cle: "depenses", label: "Historique des dépenses", icone: "💸", zone: "depense" },
+  { cle: "caisse", label: "Historique de la caisse", icone: "💰", zone: "tresorerie" },
+  { cle: "mobileMoney", label: "Transferts Mobile Money", icone: "📱", zone: "tresorerie" },
   {
     cle: "remboursementsClients",
     label: "Remboursements clients",
     icone: "💳",
+    zone: "clients",
   },
   {
     cle: "remboursementsFournisseurs",
     label: "Remboursements fournisseurs",
     icone: "🏦",
-    gestion: true,
+    zone: "achats",
   },
   { cle: "messages", label: "Historique des messages", icone: "💬" },
 ];
@@ -728,7 +730,7 @@ export default function Ventes({ session }: { session: Session }) {
         </div>
       )}
       <div className="grille-documents-comptables">
-        {CARTES_HISTORIQUE.filter((c) => !c.gestion || peutGerer).map((c) => (
+        {CARTES_HISTORIQUE.filter((c) => !c.zone || zoneAccessible(c.zone, session.permissions)).map((c) => (
           <button
             key={c.cle}
             type="button"

@@ -276,3 +276,63 @@ class PullTests(APITestCase):
         self.assertLess(noms_tables.index("catalogue.Produit"), noms_tables.index("catalogue.Variante"))
         self.assertLess(noms_tables.index("catalogue.Variante"), noms_tables.index("ventes.Vente"))
         self.assertLess(noms_tables.index("ventes.Vente"), noms_tables.index("ventes.LigneVente"))
+
+
+class PushCommandeClientTests(APITestCase):
+    """Une commande client, sa ligne et la vente de livraison qui la référence
+    arrivent ensemble d'un appareil (ordre du registre : commande avant vente)."""
+
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique Commandes"}, {"username": "patronCmd", "password": "UnMotDePasseSolide123"}
+        )
+        self.boutique.synchro_autorisee = True
+        self.boutique.save(update_fields=["synchro_autorisee"])
+        self.depot = Depot.objects.create(boutique=self.boutique, nom="Magasin")
+        produit = Produit.objects.create(boutique=self.boutique, nom="Ciment")
+        self.variante = Variante.objects.create(produit=produit, prix_vente=5000)
+        self.client_boutique = Client.objects.create(boutique=self.boutique, nom="M. Traoré")
+        self.client.force_authenticate(user=self.patron)
+
+    def test_commande_ligne_et_livraison(self):
+        import uuid
+        from ventes.models import CommandeClient, Vente
+
+        commande_id, ligne_id, vente_id = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+        reponse = self.client.post(
+            reverse("sync-push"),
+            {
+                "changements": [
+                    {
+                        "table": "ventes.Vente", "action": "cree", "enregistrement_id": vente_id,
+                        "donnees": {
+                            "depot": str(self.depot.id), "client": str(self.client_boutique.id),
+                            "commande_client": commande_id, "numero": "VTE-1", "total_net": "50000",
+                        },
+                    },
+                    {
+                        "table": "ventes.LigneCommandeClient", "action": "cree", "enregistrement_id": ligne_id,
+                        "donnees": {
+                            "commande": commande_id, "variante": str(self.variante.id),
+                            "quantite": "20", "quantite_livree": "10", "prix_unitaire": "5000", "sous_total": "100000",
+                        },
+                    },
+                    {
+                        "table": "ventes.CommandeClient", "action": "cree", "enregistrement_id": commande_id,
+                        "donnees": {
+                            "client": str(self.client_boutique.id), "depot": str(self.depot.id),
+                            "numero": "CMC-1", "statut": "partielle", "date_livraison_prevue": "2026-10-09",
+                            "total": "100000", "avance": "20000",
+                        },
+                    },
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK, reponse.data)
+        self.assertTrue(all(r["statut"] == "synchronise" for r in reponse.data["resultats"]), reponse.data)
+
+        commande = CommandeClient.objects.get(id=commande_id)
+        self.assertEqual(commande.boutique, self.boutique)
+        self.assertEqual(commande.lignes.get().quantite_livree, 10)
+        self.assertEqual(Vente.objects.get(id=vente_id).commande_client, commande)

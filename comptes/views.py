@@ -7,7 +7,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 
 from core.permissions import EstMembreBoutique, FiltreBoutiqueMixin, a_la_permission
 
-from .models import Boutique, Role, Utilisateur
+from .models import Boutique, PaiementAbonnement, ReglagesPlateforme, Role, Utilisateur
 from .serializers import (
     AppliquerAbonnementSerializer,
     BoutiqueSerializer,
@@ -18,10 +18,17 @@ from .serializers import (
     ListerPatronsSerializer,
     ReinitialisationAdminSerializer,
     ReinitialisationMotDePasseSerializer,
+    DemandeRenouvellementSerializer,
     RoleSerializer,
     UtilisateurSerializer,
 )
-from .services import inscrire_boutique
+from .services import (
+    demander_renouvellement,
+    demarrer_essai,
+    enregistrer_periode_abonnement,
+    grille_tarifs,
+    inscrire_boutique,
+)
 
 
 class InscriptionView(APIView):
@@ -114,10 +121,28 @@ class AppliquerAbonnementView(APIView):
         except Boutique.DoesNotExist:
             return Response({"detail": "Boutique introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
-        for champ in ("formule", "date_expiration_abonnement", "synchro_autorisee"):
-            if champ in donnees:
-                setattr(boutique, champ, donnees[champ])
-        boutique.save(update_fields=[c for c in ("formule", "date_expiration_abonnement", "synchro_autorisee") if c in donnees])
+        montant = donnees.get("montant") or 0
+        periode_modifiee = (
+            "date_expiration_abonnement" in donnees
+            and donnees["date_expiration_abonnement"] != boutique.date_expiration_abonnement
+        ) or ("formule" in donnees and donnees["formule"] != boutique.formule)
+        # Une modification rejouée depuis un poste (déjà appliquée) n'ajoute pas de ligne au registre.
+        if periode_modifiee or montant:
+            enregistrer_periode_abonnement(
+                boutique,
+                donnees.get("date_expiration_abonnement", boutique.date_expiration_abonnement),
+                donnees.get("formule", boutique.formule),
+                nature=donnees.get("nature")
+                or (PaiementAbonnement.Nature.PAIEMENT if montant else PaiementAbonnement.Nature.AJUSTEMENT),
+                montant=montant,
+                mode=donnees.get("mode", ""),
+                reference=donnees.get("reference", ""),
+                note=donnees.get("note", ""),
+                par=utilisateur,
+            )
+        if "synchro_autorisee" in donnees:
+            boutique.synchro_autorisee = donnees["synchro_autorisee"]
+            boutique.save(update_fields=["synchro_autorisee"])
 
         return Response(BoutiqueSerializer(boutique).data)
 
@@ -227,6 +252,7 @@ class EnregistrerBoutiqueLocaleView(APIView):
                 "telephone": donnees.get("patron_telephone", ""),
             },
         )
+        demarrer_essai(boutique, par=admin)
         return Response({"boutique_id": str(boutique.id), "utilisateur_id": utilisateur.id})
 
 
@@ -254,6 +280,79 @@ class ReinitialisationMotDePasseView(APIView):
         return Response({"detail": "Mot de passe réinitialisé."})
 
 
+class AbonnementBoutiqueView(APIView):
+    """
+    Carte « Abonnement » de l'appli : l'historique des périodes de la boutique
+    (comptes.PaiementAbonnement) et où payer le renouvellement
+    (comptes.ReglagesPlateforme). Lecture seule, réservée au responsable.
+    """
+
+    def get_permissions(self):
+        return [EstMembreBoutique(), a_la_permission("gerer_utilisateurs_reglages")()]
+
+    def get(self, request):
+        boutique = request.user.boutique
+        reglages = ReglagesPlateforme.obtenir()
+        return Response({
+            "historique": [
+                {
+                    "date": p.date_creation,
+                    "nature": p.nature,
+                    "nature_libelle": p.get_nature_display(),
+                    "formule": p.formule,
+                    "date_debut": p.date_debut,
+                    "date_fin": p.date_fin,
+                    "montant": p.montant,
+                    "mode_libelle": p.get_mode_display() if p.mode else "",
+                    "reference": p.reference,
+                }
+                for p in boutique.paiements_abonnement.filter(supprime=False)
+            ],
+            "demandes": [
+                {
+                    "date": d.date_creation,
+                    "formule": d.formule,
+                    "duree_libelle": d.get_duree_mois_display(),
+                    "montant": d.montant,
+                    "mode_libelle": d.get_mode_display(),
+                    "reference": d.reference,
+                    "statut": d.statut,
+                    "statut_libelle": d.get_statut_display(),
+                    "motif_rejet": d.motif_rejet,
+                }
+                for d in boutique.demandes_renouvellement.filter(supprime=False)[:10]
+            ],
+            "tarifs": grille_tarifs(),
+            "renouvellement": {
+                "numeros": [
+                    {"operateur": libelle, "numero": numero}
+                    for libelle, numero in (
+                        ("Wave", reglages.numero_wave),
+                        ("Orange Money", reglages.numero_orange_money),
+                        ("MTN Mobile Money", reglages.numero_mtn),
+                        ("Moov Money", reglages.numero_moov),
+                    )
+                    if numero
+                ],
+                "whatsapp": reglages.whatsapp,
+                "instructions": reglages.instructions,
+            },
+        })
+
+
+class DemandeRenouvellementView(APIView):
+    """« J'ai payé » : le commerçant déclare son paiement Mobile Money, l'admin le valide ensuite."""
+
+    def get_permissions(self):
+        return [EstMembreBoutique(), a_la_permission("gerer_utilisateurs_reglages")()]
+
+    def post(self, request):
+        serializer = DemandeRenouvellementSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        demande = demander_renouvellement(request.user.boutique, request.user, **serializer.validated_data)
+        return Response({"id": str(demande.id), "statut": demande.statut}, status=status.HTTP_201_CREATED)
+
+
 class MoiView(APIView):
     """
     Infos à jour de l'utilisateur connecté : boutique, rôle, permissions et
@@ -274,6 +373,7 @@ class MoiView(APIView):
                 "role": RoleSerializer(user.role).data if user.role_id else None,
                 "depot_id": str(user.depot_id) if user.depot_id else None,
                 "depot_nom": user.depot.nom if user.depot_id else None,
+                "code_vendeur": user.code_vendeur,
             }
         )
 
@@ -300,6 +400,21 @@ class RoleViewSet(FiltreBoutiqueMixin, viewsets.ModelViewSet):
         if self.action in ("list", "retrieve"):
             return [EstMembreBoutique()]
         return [EstMembreBoutique(), a_la_permission("gerer_utilisateurs_reglages")()]
+
+    def perform_destroy(self, instance):
+        if instance.nom == "Patron":
+            raise serializers.ValidationError({"detail": "Le rôle Patron ne peut pas être supprimé."})
+        nombre = Utilisateur.objects.filter(role=instance).count()
+        if nombre:
+            raise serializers.ValidationError(
+                {
+                    "detail": (
+                        f"{nombre} utilisateur{'s ont' if nombre > 1 else ' a'} ce rôle : "
+                        "changez-leur de rôle avant de le supprimer."
+                    )
+                }
+            )
+        super().perform_destroy(instance)
 
 
 class UtilisateurViewSet(FiltreBoutiqueMixin, viewsets.ModelViewSet):
@@ -343,6 +458,27 @@ class UtilisateurViewSet(FiltreBoutiqueMixin, viewsets.ModelViewSet):
                 }
             )
         super().perform_create(serializer)
+
+    def perform_update(self, serializer):
+        # Passage de Pro à Essentiel : rien n'est supprimé, mais un compte en
+        # pause ne se réactive pas au-delà de la limite (le Patron choisit lesquels garder).
+        boutique = self.request.user.boutique
+        if (
+            serializer.validated_data.get("is_active")
+            and not serializer.instance.is_active
+            and boutique.formule == Boutique.Formule.ESSENTIEL
+            and Utilisateur.objects.filter(boutique=boutique, is_active=True).count()
+            >= self.LIMITE_UTILISATEURS_ESSENTIEL
+        ):
+            raise serializers.ValidationError(
+                {
+                    "detail": (
+                        "La formule Essentiel est limitée à 2 comptes actifs (le Patron + 1). "
+                        "Mettez d'abord un autre compte en pause, ou passez à la formule Pro."
+                    )
+                }
+            )
+        super().perform_update(serializer)
 
     def perform_destroy(self, instance):
         if instance.role_id and instance.role.nom == "Patron":

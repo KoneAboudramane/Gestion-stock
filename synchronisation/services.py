@@ -12,6 +12,7 @@ from datetime import datetime, timezone as dt_timezone
 
 from django.db import transaction
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from . import registre
 
@@ -156,9 +157,50 @@ def appliquer_changement(boutique, appareil, table, action, enregistrement_id, d
 
     if table == "stock.MouvementStock":
         paires_stock_a_recalculer.add((obj.variante_id, obj.depot_id))
+    if objet_existant is None:
+        _signaler_hors_abonnement(boutique, table, obj, donnees)
 
     _journaliser(boutique, appareil, table, enregistrement_id, action, "synchronise", donnees)
     return _resultat(table, enregistrement_id, "synchronise")
+
+
+def _signaler_hors_abonnement(boutique, table, obj, donnees):
+    """
+    Une création reçue hors des droits de la boutique (vente après le délai de
+    grâce, dépôt au-delà de la formule) est acceptée — jamais de perte de
+    données — mais signalée à l'administrateur (comptes.SignalementAbonnement).
+    L'appli bloque déjà ces cas : ils ne peuvent venir que d'un poste modifié.
+    """
+    from comptes.models import Boutique, SignalementAbonnement
+    from comptes.services import DELAI_GRACE_ABONNEMENT
+    from stock.models import Depot
+
+    boutique.refresh_from_db(fields=["date_expiration_abonnement", "formule"])
+    signalement = None
+    if table == "ventes.Vente" and boutique.date_expiration_abonnement:
+        # La date de la vente sur le poste, pas celle de sa réception : une vente
+        # faite hors ligne pendant l'abonnement peut arriver bien plus tard.
+        date_vente = parse_datetime(str(donnees.get("date_creation") or ""))
+        if date_vente is not None and timezone.is_naive(date_vente):
+            date_vente = timezone.make_aware(date_vente, dt_timezone.utc)
+        fin_grace = boutique.date_expiration_abonnement + DELAI_GRACE_ABONNEMENT
+        if date_vente is not None and date_vente > fin_grace:
+            signalement = (
+                SignalementAbonnement.Type.VENTE_HORS_ABONNEMENT,
+                f"Vente {obj.numero} du {date_vente:%d/%m/%Y}, abonnement expiré le "
+                f"{boutique.date_expiration_abonnement:%d/%m/%Y}",
+            )
+    elif table == "stock.Depot" and boutique.formule == Boutique.Formule.ESSENTIEL:
+        nombre = Depot.objects.filter(boutique=boutique, supprime=False).count()
+        if nombre > 1:
+            signalement = (
+                SignalementAbonnement.Type.DEPOT_HORS_FORMULE,
+                f"Dépôt « {obj.nom} » : {nombre} dépôts pour une formule Essentiel (1 permis)",
+            )
+    if signalement:
+        SignalementAbonnement.objects.create(
+            boutique=boutique, type=signalement[0], table=table, enregistrement_id=obj.pk, detail=signalement[1]
+        )
 
 
 def recalculer_stock(variante_id, depot_id):

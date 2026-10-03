@@ -81,9 +81,21 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
       "variante_id IN (SELECT v.id FROM variantes v JOIN produits p ON p.id = v.produit_id WHERE p.boutique_id = ?)",
   },
   {
+    table: "ventes.CommandeClient",
+    tableLocale: "commandes_client",
+    champsFK: ["boutique", "client", "depot", "utilisateur"],
+    clauseBoutique: "boutique_id = ?",
+  },
+  {
+    table: "ventes.LigneCommandeClient",
+    tableLocale: "lignes_commande_client",
+    champsFK: ["commande", "variante"],
+    clauseBoutique: "commande_id IN (SELECT id FROM commandes_client WHERE boutique_id = ?)",
+  },
+  {
     table: "ventes.Vente",
     tableLocale: "ventes",
-    champsFK: ["boutique", "depot", "client", "utilisateur"],
+    champsFK: ["boutique", "depot", "client", "utilisateur", "commande_client"],
     clauseBoutique: "boutique_id = ?",
   },
   {

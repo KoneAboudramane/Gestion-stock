@@ -1,5 +1,6 @@
 import { ouvrirBaseDeDonnees } from "../db";
 import { maintenant, suiviSyncNeuf } from "../db/helpers";
+import { DELAI_GRACE_JOURS, obtenirEtatAbonnement } from "./abonnement";
 import { echeancesEnCours } from "./achats";
 import { echeancesCreditsEnCours } from "./clients";
 import type { NotificationLocale } from "../db/schema";
@@ -20,7 +21,11 @@ export type TypeNotification =
   | "echeance_proche"
   | "echeance_retard"
   | "credit_proche"
-  | "credit_retard";
+  | "credit_retard"
+  | "commande_proche"
+  | "commande_retard"
+  | "abonnement_proche"
+  | "abonnement_expire";
 
 const FENETRE_ANTI_DOUBLON_HEURES = 24;
 
@@ -223,6 +228,38 @@ async function genererAlertesDestockageImpl(boutiqueId: string): Promise<string[
       );
     }
   }
+
+  // Commandes clients : livraison prévue aujourd'hui ou demain, puis en retard.
+  const commandesAlertees = new Set(
+    notifications
+      .filter((n) => n.type === "commande_proche" || n.type === "commande_retard")
+      .map((n) => `${n.type}:${n.reference_id}`),
+  );
+  const jourAujourdhui = jourLocal(aujourdhui);
+  const lendemain = new Date(aujourdhui);
+  lendemain.setDate(lendemain.getDate() + 1);
+  const dbCommandes = await ouvrirBaseDeDonnees();
+  for (const c of await dbCommandes.getAllFromIndex("commandes_client", "boutique_id", boutiqueId)) {
+    if (c.supprime || !["en_attente", "prete", "partielle"].includes(c.statut)) continue;
+    if (!c.date_livraison_prevue || c.date_livraison_prevue > jourLocal(lendemain)) continue;
+    const clientNom = (await dbCommandes.get("clients", c.client_id))?.nom ?? "";
+    const date = new Date(`${c.date_livraison_prevue}T00:00:00`).toLocaleDateString("fr-FR");
+    if (c.date_livraison_prevue < jourAujourdhui && !commandesAlertees.has(`commande_retard:${c.id}`)) {
+      await inserer(
+        "commande_retard",
+        `Commande en retard : ${clientNom} attend sa commande ${c.numero} depuis le ${date}. Clients → Commandes clients.`,
+        "ventes.CommandeClient",
+        c.id,
+      );
+    } else if (c.date_livraison_prevue >= jourAujourdhui && !commandesAlertees.has(`commande_proche:${c.id}`)) {
+      await inserer(
+        "commande_proche",
+        `Livraison ${c.date_livraison_prevue === jourAujourdhui ? "aujourd'hui" : "demain"} : commande ${c.numero} de ${clientNom}. Clients → Commandes clients.`,
+        "ventes.CommandeClient",
+        c.id,
+      );
+    }
+  }
   return idsCrees;
 }
 
@@ -235,6 +272,61 @@ export function genererAlertesDestockage(boutiqueId: string): Promise<string[]> 
     alertesDestockageEnCours = null;
   });
   return alertesDestockageEnCours;
+}
+
+// --- Fin d'abonnement (port de client-electron/electron/services/notifications.ts) ---
+
+/**
+ * Une alerte à J-7, une à J-3 et une à l'expiration — jamais deux fois pour la
+ * même étape, même si l'appli est ouverte plusieurs fois ou sur plusieurs postes.
+ */
+async function genererAlertesAbonnementImpl(boutiqueId: string): Promise<string[]> {
+  const etat = await obtenirEtatAbonnement(boutiqueId);
+  if (!etat.dateExpiration || etat.niveau === "ok") return [];
+  const db = await ouvrirBaseDeDonnees();
+  const expiration = new Date(etat.dateExpiration).getTime();
+  const date = (iso: string | number) => new Date(iso).toLocaleDateString("fr-FR");
+  const expire = etat.niveau === "grace" || etat.niveau === "bloque";
+  const type: TypeNotification = expire ? "abonnement_expire" : "abonnement_proche";
+  const debutEtape = new Date(expiration - (expire ? 0 : (etat.joursRestants ?? 0) <= 3 ? 3 : 7) * 86_400_000).toISOString();
+  const dejaAlertee = (await db.getAllFromIndex("notifications", "boutique_id", boutiqueId)).some(
+    (n) => !n.supprime && n.type === type && n.date_creation >= debutEtape,
+  );
+  if (dejaAlertee) return [];
+
+  const jours = etat.joursRestants ?? 0;
+  const quand = jours <= 0 ? "aujourd'hui" : jours === 1 ? "demain" : `dans ${jours} jours`;
+  const message = expire
+    ? `Abonnement expiré le ${date(expiration)}. ` +
+      (etat.niveau === "grace"
+        ? `La vente reste possible jusqu'au ${date(etat.finGrace!)} (délai de grâce de ${DELAI_GRACE_JOURS} jours), puis elle sera bloquée.`
+        : "La vente est bloquée ; vos données restent consultables.") +
+      " Renouvelez l'abonnement."
+    : `L'abonnement de la boutique se termine le ${date(expiration)} (${quand}). Pensez à le renouveler pour continuer à vendre sans interruption.`;
+  const notification: NotificationLocale = {
+    id: crypto.randomUUID(),
+    boutique_id: boutiqueId,
+    depot_id: null,
+    type,
+    message,
+    reference_type: "comptes.Boutique",
+    reference_id: boutiqueId,
+    lu: 0,
+    ...suiviSyncNeuf(),
+  };
+  await db.put("notifications", notification);
+  return [notification.id];
+}
+
+let alertesAbonnementEnCours: Promise<string[]> | null = null;
+
+/** Appelé à l'ouverture de l'appli (Shell.tsx). Verrou : StrictMode double-invoque les effets. */
+export function genererAlertesAbonnement(boutiqueId: string): Promise<string[]> {
+  if (alertesAbonnementEnCours) return alertesAbonnementEnCours;
+  alertesAbonnementEnCours = genererAlertesAbonnementImpl(boutiqueId).finally(() => {
+    alertesAbonnementEnCours = null;
+  });
+  return alertesAbonnementEnCours;
 }
 
 // --- Lecture ---

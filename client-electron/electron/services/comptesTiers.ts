@@ -166,33 +166,37 @@ function nomClient(clientId: string): string {
 
 export function deposerSurCompteClient(clientId: string, op: OperationCompte): CompteTiers {
   verifierOperation(op);
-  const nom = nomClient(clientId);
-  dansUneTransaction(() => {
-    const id = ajouterMouvementCompteClient({
-      clientId,
-      type: "depot",
-      montant: op.montant,
-      mode: op.mode,
-      operateur: op.mode === "mobile_money" ? op.operateur : "",
-      depotId: op.depotId ?? null,
-      utilisateurId: op.utilisateurId ?? null,
-      motif: op.motif,
-    });
-    if (op.mode === "especes") {
-      enregistrerMouvement({
-        depotId: op.depotId!,
-        type: "entree",
-        categorie: "depot_client",
-        montant: op.montant,
-        motif: `Dépôt de ${nom}`,
-        utilisateurId: op.utilisateurId ?? null,
-        referenceType: "clients.MouvementCompteClient",
-        referenceId: id,
-      });
-    }
-  });
+  dansUneTransaction(() => deposerSurCompteClientSansTransaction(clientId, op));
   sauvegarder();
   return compteClient(clientId);
+}
+
+/** Corps du dépôt (mouvement de compte + entrée en caisse si espèces), à appeler dans une transaction. */
+export function deposerSurCompteClientSansTransaction(clientId: string, op: OperationCompte): void {
+  verifierOperation(op);
+  const nom = nomClient(clientId);
+  const id = ajouterMouvementCompteClient({
+    clientId,
+    type: "depot",
+    montant: op.montant,
+    mode: op.mode,
+    operateur: op.mode === "mobile_money" ? op.operateur : "",
+    depotId: op.depotId ?? null,
+    utilisateurId: op.utilisateurId ?? null,
+    motif: op.motif,
+  });
+  if (op.mode === "especes") {
+    enregistrerMouvement({
+      depotId: op.depotId!,
+      type: "entree",
+      categorie: "depot_client",
+      montant: op.montant,
+      motif: `Dépôt de ${nom}`,
+      utilisateurId: op.utilisateurId ?? null,
+      referenceType: "clients.MouvementCompteClient",
+      referenceId: id,
+    });
+  }
 }
 
 export function rendreDuCompteClient(clientId: string, op: OperationCompte): CompteTiers {

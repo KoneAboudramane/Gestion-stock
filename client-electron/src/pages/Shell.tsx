@@ -24,6 +24,9 @@ import TableauDeBord from "./TableauDeBord";
 import Tresorerie from "./Tresorerie";
 import Ventes from "./Ventes";
 import { CLE_PARAMETRE_FABRICATION_PROPRE } from "../hooks/useFabricationPropre";
+import { zoneAccessible } from "../lib/acces";
+import BandeauAbonnement from "../components/BandeauAbonnement";
+import ModaleAbonnement from "../components/ModaleAbonnement";
 
 const ZONES = [
   { cle: "tableauDeBord", label: "Tableau de bord", icone: "📊", disponible: true },
@@ -76,6 +79,10 @@ export default function Shell({
   onVerrouiller: () => void;
 }) {
   const [zone, setZone] = useState<Zone>("accueil");
+  const [abonnementOuvert, setAbonnementOuvert] = useState(false);
+  const zonesAccessibles = ZONES.filter((z) => zoneAccessible(z.cle, session.permissions));
+  // Page interdite (lien d'une notification, d'un raccourci…) : message au lieu de la page.
+  const zoneAffichee = zoneAccessible(zone, session.permissions) ? zone : "interdite";
   const [barreReduite, setBarreReduite] = useState(
     () => localStorage.getItem("gs_barre_laterale_reduite") === "1",
   );
@@ -93,6 +100,10 @@ export default function Shell({
       .then(() => api.notifications.genererAlertesDestockage(session.boutiqueId))
       .catch(() => {});
   }, [session.boutiqueId]);
+  // Après chaque rafraîchissement de la session : l'échéance vient peut-être d'arriver du serveur.
+  useEffect(() => {
+    api.notifications.genererAlertesAbonnement(session.boutiqueId).catch(() => {});
+  }, [session]);
   const [notificationsNonLues, setNotificationsNonLues] = useState(0);
   const [ouvrirNouvelleCommande, setOuvrirNouvelleCommande] = useState(false);
   const [ongletRapportsInitial, setOngletRapportsInitial] = useState<OngletRapports | undefined>(undefined);
@@ -129,7 +140,9 @@ export default function Shell({
   }
 
   function naviguer(cible: string) {
-    if (cible === "achats:nouveau") {
+    if (cible === "abonnement") {
+      setAbonnementOuvert(true);
+    } else if (cible === "achats:nouveau") {
       setZone("achats");
       setOuvrirNouvelleCommande(true);
     } else if (cible === "rapports:topClients") {
@@ -146,6 +159,9 @@ export default function Shell({
       setZone("clients");
       setOngletClientsInitial("credits");
       setStatutCreditsInitial("en_cours");
+    } else if (cible === "clients:commandes") {
+      setZone("clients");
+      setOngletClientsInitial("commandes");
     } else if (cible === "stock:rupture") {
       setZone("stock");
       setFiltreRuptureInitial(true);
@@ -223,7 +239,7 @@ export default function Shell({
           </button>
         </div>
         <nav>
-          {ZONES.map((z) => (
+          {zonesAccessibles.map((z) => (
             <button
               key={z.cle}
               className={`item-nav ${zone === z.cle ? "actif" : ""}`}
@@ -274,15 +290,23 @@ export default function Shell({
           </div>
         </header>
         <main className="zone-contenu">
-          {zone === "accueil" && (
-            <Accueil session={session} raccourcis={ZONES} onNaviguer={naviguer} />
+          <BandeauAbonnement session={session} onVoirAbonnement={() => setAbonnementOuvert(true)} />
+          {abonnementOuvert && <ModaleAbonnement session={session} onFermer={() => setAbonnementOuvert(false)} />}
+          {zoneAffichee === "interdite" && (
+            <div className="detail-produit acces-reserve">
+              <h4>🔒 Accès réservé</h4>
+              <p className="note-aide">Votre rôle ne donne pas accès à cette partie. Demandez au responsable de la boutique.</p>
+            </div>
           )}
-          {zone === "tableauDeBord" && (
+          {zoneAffichee === "accueil" && (
+            <Accueil session={session} raccourcis={zonesAccessibles} onNaviguer={naviguer} />
+          )}
+          {zoneAffichee === "tableauDeBord" && (
             <TableauDeBord session={session} onNaviguer={naviguer} />
           )}
-          {zone === "caisse" && <Caisse session={session} />}
-          {zone === "produits" && <Produits session={session} />}
-          {zone === "stock" && (
+          {zoneAffichee === "caisse" && <Caisse session={session} />}
+          {zoneAffichee === "produits" && <Produits session={session} />}
+          {zoneAffichee === "stock" && (
             <Stock
               session={session}
               filtreRuptureInitial={filtreRuptureInitial}
@@ -290,8 +314,8 @@ export default function Shell({
               onCommander={commanderProduit}
             />
           )}
-          {zone === "ventes" && <Ventes session={session} />}
-          {zone === "achats" && (
+          {zoneAffichee === "ventes" && <Ventes session={session} />}
+          {zoneAffichee === "achats" && (
             <Achats
               session={session}
               ouvrirNouvelleCommande={ouvrirNouvelleCommande}
@@ -299,26 +323,26 @@ export default function Shell({
               onOuvertureConsommee={() => setOuvrirNouvelleCommande(false)}
             />
           )}
-          {zone === "clients" && (
+          {zoneAffichee === "clients" && (
             <Clients
               session={session}
               ongletInitial={ongletClientsInitial}
               statutCreditsInitial={statutCreditsInitial}
             />
           )}
-          {zone === "comptes" && <PageComptes session={session} />}
-          {zone === "tresorerie" && <Tresorerie session={session} />}
-          {zone === "depense" && <Depense session={session} />}
-          {zone === "rapports" && (
+          {zoneAffichee === "comptes" && <PageComptes session={session} />}
+          {zoneAffichee === "tresorerie" && <Tresorerie session={session} />}
+          {zoneAffichee === "depense" && <Depense session={session} />}
+          {zoneAffichee === "rapports" && (
             <Rapports
               session={session}
               ongletInitial={ongletRapportsInitial}
               periodeInitiale={periodeRapportsInitiale}
             />
           )}
-          {zone === "comptabilite" && <Comptabilite session={session} />}
-          {zone === "reglages" && <Reglages session={session} onSessionMiseAJour={onSessionMiseAJour} />}
-          {zone === "notifications" && (
+          {zoneAffichee === "comptabilite" && <Comptabilite session={session} />}
+          {zoneAffichee === "reglages" && <Reglages session={session} onSessionMiseAJour={onSessionMiseAJour} />}
+          {zoneAffichee === "notifications" && (
             <Notifications
               session={session}
               onLues={rafraichirNonLues}
@@ -326,7 +350,7 @@ export default function Shell({
               onCommander={commanderProduit}
             />
           )}
-          {zone === "messages" && <Messages session={session} onNaviguer={naviguer} />}
+          {zoneAffichee === "messages" && <Messages session={session} onNaviguer={naviguer} />}
         </main>
       </div>
     </div>

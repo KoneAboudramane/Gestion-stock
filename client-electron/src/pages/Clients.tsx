@@ -28,6 +28,7 @@ import ModaleEcheancier from "../components/ModaleEcheancier";
 import { formaterMontant, normaliserTelephone, telephoneValide } from "../lib/formatage";
 import { MODES_REGLEMENT, libelleModeReglement, libelleStatutVente } from "../lib/libelles";
 import { DetailVente } from "./Ventes";
+import { ModaleCommandesClients } from "./CommandesClients";
 
 function libelleStatutCredit(statut: StatutCredit): string {
   return statut === "solde" ? "Soldé" : "En cours";
@@ -799,6 +800,7 @@ function DetailClient({
 const SECTIONS = [
   { cle: "clients", label: "Clients", icone: "👤" },
   { cle: "credits", label: "Crédits", icone: "💳" },
+  { cle: "commandes", label: "Commandes clients", icone: "📋" },
 ] as const;
 
 export type OngletClients = (typeof SECTIONS)[number]["cle"];
@@ -1741,6 +1743,9 @@ export default function Clients({
       </div>
       {sectionOuverte === "clients" && (
         <ModaleClients session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
+      {sectionOuverte === "commandes" && (
+        <ModaleCommandesClients session={session} onFermer={() => setSectionOuverte(null)} />
       )}
       {sectionOuverte === "credits" && (
         <ModaleCredits session={session} statutInitial={statutCreditsInitial} onFermer={() => setSectionOuverte(null)} />

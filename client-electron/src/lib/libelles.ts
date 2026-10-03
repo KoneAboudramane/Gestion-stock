@@ -192,6 +192,9 @@ export type OrigineMouvement =
   | "transfert"
   | "detaillage"
   | "inventaire"
+  | "ouverture"
+  | "fabrication"
+  | "don"
   | "manuel";
 
 export const ORIGINES_MOUVEMENT: { valeur: OrigineMouvement; label: string }[] = [
@@ -202,6 +205,9 @@ export const ORIGINES_MOUVEMENT: { valeur: OrigineMouvement; label: string }[] =
   { valeur: "transfert", label: "Transfert" },
   { valeur: "detaillage", label: "Déballage / remballage" },
   { valeur: "inventaire", label: "Inventaire" },
+  { valeur: "ouverture", label: "Stock d'ouverture" },
+  { valeur: "fabrication", label: "Fabrication" },
+  { valeur: "don", label: "Don reçu" },
   { valeur: "manuel", label: "Saisie manuelle" },
 ];
 
@@ -213,6 +219,9 @@ export function origineMouvement(referenceType: string): OrigineMouvement {
   if (referenceType.startsWith("stock.TransfertStock")) return "transfert";
   if (referenceType.startsWith("stock.Detaillage")) return "detaillage";
   if (referenceType.startsWith("stock.Inventaire")) return "inventaire";
+  if (referenceType.startsWith("stock.EntreeOuverture")) return "ouverture";
+  if (referenceType.startsWith("stock.EntreeFabrication")) return "fabrication";
+  if (referenceType.startsWith("stock.EntreeDon")) return "don";
   return "manuel";
 }
 

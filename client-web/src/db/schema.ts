@@ -134,6 +134,34 @@ export interface VenteLocale extends SuiviSync {
   remise: number;
   total_net: number;
   statut: "payee" | "credit" | "annulee";
+  /** Livraison d'une commande client (absent pour une vente directe). */
+  commande_client_id?: string | null;
+}
+
+/** Commande d'un client avant livraison (ventes.CommandeClient). */
+export interface CommandeClientLocale extends SuiviSync {
+  id: string;
+  boutique_id: string;
+  client_id: string;
+  depot_id: string;
+  utilisateur_id: string | null;
+  numero: string;
+  statut: "en_attente" | "prete" | "partielle" | "livree" | "annulee";
+  date_livraison_prevue: string | null;
+  note: string;
+  total: number;
+  avance: number;
+  date_annulation: string | null;
+}
+
+export interface LigneCommandeClientLocale extends SuiviSync {
+  id: string;
+  commande_id: string;
+  variante_id: string;
+  quantite: number;
+  quantite_livree: number;
+  prix_unitaire: number;
+  sous_total: number;
 }
 
 export interface LigneVenteLocale extends SuiviSync {
@@ -586,6 +614,16 @@ export interface GestionStockDB extends DBSchema {
     value: MouvementCompteClientLocal;
     indexes: { client_id: string; synchronise: number };
   };
+  commandes_client: {
+    key: string;
+    value: CommandeClientLocale;
+    indexes: { boutique_id: string; synchronise: number };
+  };
+  lignes_commande_client: {
+    key: string;
+    value: LigneCommandeClientLocale;
+    indexes: { commande_id: string; synchronise: number };
+  };
   mouvements_compte_fournisseur: {
     key: string;
     value: MouvementCompteFournisseurLocal;
@@ -711,4 +749,4 @@ export interface GestionStockDB extends DBSchema {
 }
 
 export const NOM_BASE = "gestion-stock";
-export const VERSION_BASE = 13;
+export const VERSION_BASE = 14;

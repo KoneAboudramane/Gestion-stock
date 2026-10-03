@@ -41,6 +41,7 @@ import { enregistrerRelanceCredit } from "../services/messages";
 import { listerDepotsDetail, type DepotResume } from "../services/stock";
 import { listerVentesLocales, type VenteResumeLocale as VenteResume } from "../services/ventes";
 import { DetailVente } from "./Ventes";
+import { ModaleCommandesClients } from "./CommandesClients";
 
 /**
  * Port de client-electron/src/pages/Clients.tsx : gestion des clients et du
@@ -820,6 +821,7 @@ const CERCLES_FOND = [
 const SECTIONS = [
   { cle: "clients", label: "Clients", icone: "👤" },
   { cle: "credits", label: "Crédits", icone: "💳" },
+  { cle: "commandes", label: "Commandes clients", icone: "📋" },
 ] as const;
 
 type Section = (typeof SECTIONS)[number]["cle"];
@@ -1732,6 +1734,9 @@ export default function Clients({ session, sectionInitiale }: { session: Session
       )}
       {sectionOuverte === "credits" && (
         <ModaleCredits session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
+      {sectionOuverte === "commandes" && (
+        <ModaleCommandesClients session={session} onFermer={() => setSectionOuverte(null)} />
       )}
     </div>
   );

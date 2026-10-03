@@ -157,29 +157,25 @@ export interface ParametresEntreeProduction {
   utilisateurId?: string | null;
 }
 
-/**
- * Port de client-electron/electron/services/stock.ts::creerEntreeProduction :
- * entrée de stock pour une boutique sans fournisseur (fabrication propre) —
- * même formule de CUMP (coût unitaire moyen pondéré, tous dépôts confondus)
- * que la réception d'achat, pour que la marge (prix_vente − prix_achat) reste juste.
- */
-export async function creerEntreeProduction(params: ParametresEntreeProduction): Promise<string> {
-  const { varianteId, depotId, quantite, prixAchat, prixVente, motif = "", utilisateurId = null } = params;
-  if (!(await fabricationPropreActivePourDepot(depotId))) {
-    throw new ErreurStock(MESSAGE_ENTREE_RESERVEE_FABRICATION);
-  }
-
-  const variante = await obtenirLigne("variantes", varianteId);
-  if (!variante) throw new ErreurStock("Produit introuvable.");
-
+async function stockTotalVarianteWeb(varianteId: string): Promise<number> {
   const db = await ouvrirBaseDeDonnees();
-  const stocksVariante = await db.getAllFromIndex(
+  const stocks = await db.getAllFromIndex(
     "stocks",
     "variante_depot",
     IDBKeyRange.bound([varianteId, ""], [varianteId, "￿"]),
   );
-  const stockActuel = stocksVariante.reduce((total, s) => total + s.quantite, 0);
+  return stocks.reduce((total, s) => total + s.quantite, 0);
+}
 
+/** Coût et prix après une entrée de production, sans rien écrire (vérifie aussi prix de vente ≥ CUMP). */
+async function calculerEntreeProduction(
+  params: ParametresEntreeProduction,
+): Promise<{ ancienPrixAchat: number; nouveauPrixAchat: number; nouveauPrixVente: number }> {
+  const { varianteId, quantite, prixAchat, prixVente } = params;
+  const variante = await obtenirLigne("variantes", varianteId);
+  if (!variante) throw new ErreurStock("Produit introuvable.");
+
+  const stockActuel = await stockTotalVarianteWeb(varianteId);
   const ancienPrixAchat = variante.prix_achat;
   const nouveauPrixAchat =
     stockActuel > 0
@@ -190,17 +186,245 @@ export async function creerEntreeProduction(params: ParametresEntreeProduction):
   if (nouveauPrixVente < nouveauPrixAchat) {
     throw new ErreurStock("Le prix de vente ne peut pas être inférieur au prix d'achat (CUMP).");
   }
+  return { ancienPrixAchat, nouveauPrixAchat, nouveauPrixVente };
+}
 
+async function ecrireEntreeProduction(
+  params: ParametresEntreeProduction,
+  calcul: { ancienPrixAchat: number; nouveauPrixAchat: number; nouveauPrixVente: number },
+): Promise<string> {
+  const { varianteId, depotId, quantite, motif = "", utilisateurId = null } = params;
+  const variante = await obtenirLigne("variantes", varianteId);
+  if (!variante) throw new ErreurStock("Produit introuvable.");
   await ecrireLigne("variantes", {
     ...variante,
-    prix_achat: nouveauPrixAchat,
-    prix_vente: nouveauPrixVente,
+    prix_achat: calcul.nouveauPrixAchat,
+    prix_vente: calcul.nouveauPrixVente,
     date_modification: maintenant(),
     synchronise: 0,
   });
 
-  const motifComplet = `${motif} (Coût : ${ancienPrixAchat} → ${nouveauPrixAchat} FCFA [CUMP])`;
-  return appliquerMouvement({ varianteId, depotId, type: "entree", quantite, motif: motifComplet, utilisateurId });
+  const motifComplet = `${motif} (Coût : ${calcul.ancienPrixAchat} → ${calcul.nouveauPrixAchat} FCFA [CUMP])`;
+  return appliquerMouvement({
+    varianteId,
+    depotId,
+    type: "entree",
+    quantite,
+    motif: motifComplet,
+    utilisateurId,
+    referenceType: REFERENCE_ENTREE_FABRICATION,
+  });
+}
+
+/**
+ * Port de client-electron/electron/services/stock.ts::creerEntreeProduction :
+ * entrée de stock pour une boutique sans fournisseur (fabrication propre) —
+ * même formule de CUMP (coût unitaire moyen pondéré, tous dépôts confondus)
+ * que la réception d'achat, pour que la marge (prix_vente − prix_achat) reste juste.
+ */
+export async function creerEntreeProduction(params: ParametresEntreeProduction): Promise<string> {
+  if (!(await fabricationPropreActivePourDepot(params.depotId))) {
+    throw new ErreurStock(MESSAGE_ENTREE_RESERVEE_FABRICATION);
+  }
+  const calcul = await calculerEntreeProduction(params);
+  return ecrireEntreeProduction(params, calcul);
+}
+
+// --- Entrée de stock hors achat (carte « Entrée de stock » de la page Stock) ---
+// Port de client-electron/electron/services/stock.ts. L'achat rapide est dans
+// achats.ts (achatRapide). Toutes les lignes sont vérifiées avant la première
+// écriture (tout ou rien). Aucune écriture comptable pour ces entrées : le
+// module comptable ne valorise pas encore le stock (même décision que les pertes).
+
+/** Origines tracées dans MouvementStock.reference_type (sans document lié). */
+export const REFERENCE_ENTREE_OUVERTURE = "stock.EntreeOuverture";
+export const REFERENCE_ENTREE_FABRICATION = "stock.EntreeFabrication";
+export const REFERENCE_ENTREE_DON = "stock.EntreeDon";
+
+export interface LigneEntreeStock {
+  varianteId: string;
+  quantite: number;
+  /** Ouverture et fabrication : coût unitaire. Don : valeur estimée, seulement si l'article n'a pas encore de coût. */
+  prixAchat?: number;
+  /** Facultatif : nouveau prix de vente. */
+  prixVente?: number;
+}
+
+export interface ParametresEntreeStock {
+  depotId: string;
+  lignes: LigneEntreeStock[];
+  motif?: string;
+  utilisateurId?: string | null;
+}
+
+function verifierLignesEntree(lignes: LigneEntreeStock[]): void {
+  if (lignes.length === 0) throw new ErreurStock("Ajoutez au moins un article.");
+  if (new Set(lignes.map((l) => l.varianteId)).size !== lignes.length) {
+    throw new ErreurStock("Un même article apparaît deux fois.");
+  }
+  if (lignes.some((l) => !(l.quantite > 0))) throw new ErreurStock("Chaque quantité doit être supérieure à 0.");
+}
+
+/** Fabrication de plusieurs articles d'un coup, tout ou rien. */
+export async function entreeFabrication(params: ParametresEntreeStock): Promise<number> {
+  verifierLignesEntree(params.lignes);
+  if (!(await fabricationPropreActivePourDepot(params.depotId))) {
+    throw new ErreurStock(MESSAGE_ENTREE_RESERVEE_FABRICATION);
+  }
+  const aEcrire: { entree: ParametresEntreeProduction; calcul: Awaited<ReturnType<typeof calculerEntreeProduction>> }[] = [];
+  for (const ligne of params.lignes) {
+    if (!(Number(ligne.prixAchat) >= 0)) {
+      throw new ErreurStock(`${await nomVariante(ligne.varianteId)} : indiquez le coût de fabrication.`);
+    }
+    const entree: ParametresEntreeProduction = {
+      varianteId: ligne.varianteId,
+      depotId: params.depotId,
+      quantite: ligne.quantite,
+      prixAchat: Number(ligne.prixAchat),
+      prixVente: ligne.prixVente,
+      motif: params.motif?.trim() || "Fabrication",
+      utilisateurId: params.utilisateurId ?? null,
+    };
+    aEcrire.push({ entree, calcul: await calculerEntreeProduction(entree) });
+  }
+  for (const { entree, calcul } of aEcrire) await ecrireEntreeProduction(entree, calcul);
+  return params.lignes.length;
+}
+
+/** Vrai si l'article n'a encore jamais bougé (aucun mouvement) : stock d'ouverture permis. */
+export async function varianteSansMouvement(varianteId: string): Promise<boolean> {
+  const db = await ouvrirBaseDeDonnees();
+  const mouvements = await db.getAllFromIndex(
+    "mouvements_stock",
+    "variante_depot",
+    IDBKeyRange.bound([varianteId, ""], [varianteId, "￿"]),
+  );
+  return !mouvements.some((m) => !m.supprime);
+}
+
+/**
+ * Articles actifs qui n'ont encore jamais eu de mouvement de stock (créés sans
+ * stock initial) : la liste à compléter du « Stock d'ouverture ».
+ */
+export async function articlesSansStock(boutiqueId: string): Promise<VarianteSansStock[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const avecMouvement = new Set(
+    (await db.getAll("mouvements_stock")).filter((m) => !m.supprime).map((m) => m.variante_id),
+  );
+  const produits = (await db.getAllFromIndex("produits", "boutique_id", boutiqueId)).filter(
+    (p) => !p.supprime && p.actif,
+  );
+  const resultat: VarianteSansStock[] = [];
+  for (const p of produits) {
+    const variantes = (await db.getAllFromIndex("variantes", "produit_id", p.id)).filter(
+      (v) => !v.supprime && v.actif && !avecMouvement.has(v.id),
+    );
+    for (const v of variantes) {
+      resultat.push({
+        id: v.id,
+        produitId: p.id,
+        produitNom: p.nom,
+        reference: v.reference,
+        codeBarres: v.code_barres ?? "",
+        prixAchat: v.prix_achat,
+        prixVente: v.prix_vente,
+      });
+    }
+  }
+  return resultat.sort((a, b) => a.produitNom.localeCompare(b.produitNom, "fr"));
+}
+
+export interface VarianteSansStock {
+  id: string;
+  produitId: string;
+  produitNom: string;
+  reference: string;
+  codeBarres: string;
+  prixAchat: number;
+  prixVente: number;
+}
+
+/**
+ * Stock d'ouverture : la marchandise déjà en boutique au démarrage avec
+ * l'application. Réservé aux articles qui n'ont encore jamais bougé, pour ne
+ * pas servir de raccourci aux Achats. Le coût saisi devient le prix d'achat.
+ */
+export async function entreeStockOuverture(params: ParametresEntreeStock): Promise<number> {
+  verifierLignesEntree(params.lignes);
+  for (const ligne of params.lignes) {
+    const nom = await nomVariante(ligne.varianteId);
+    if (!(await varianteSansMouvement(ligne.varianteId))) {
+      throw new ErreurStock(
+        `${nom} a déjà eu des mouvements de stock : le stock d'ouverture est réservé aux articles neufs. Passez par un achat rapide.`,
+      );
+    }
+    const variante = await obtenirLigne("variantes", ligne.varianteId);
+    if (!variante) throw new ErreurStock("Produit introuvable.");
+    const prixAchat = Number(ligne.prixAchat);
+    if (!(prixAchat >= 0)) throw new ErreurStock(`${nom} : indiquez le coût d'achat.`);
+    if ((ligne.prixVente ?? variante.prix_vente) < prixAchat) {
+      throw new ErreurStock(`${nom} : le prix de vente ne peut pas être inférieur au prix d'achat.`);
+    }
+  }
+  for (const ligne of params.lignes) {
+    const variante = (await obtenirLigne("variantes", ligne.varianteId))!;
+    await ecrireLigne("variantes", {
+      ...variante,
+      prix_achat: Number(ligne.prixAchat),
+      prix_vente: ligne.prixVente ?? variante.prix_vente,
+      date_modification: maintenant(),
+      synchronise: 0,
+    });
+    await appliquerMouvement({
+      varianteId: ligne.varianteId,
+      depotId: params.depotId,
+      type: "entree",
+      quantite: ligne.quantite,
+      motif: params.motif?.trim() || "Stock d'ouverture",
+      utilisateurId: params.utilisateurId ?? null,
+      referenceType: REFERENCE_ENTREE_OUVERTURE,
+    });
+  }
+  return params.lignes.length;
+}
+
+/**
+ * Don ou échantillon reçu : entre au coût moyen actuel, qui ne bouge donc
+ * pas (les marges restent justes). Un article encore sans coût prend la
+ * valeur estimée saisie.
+ */
+export async function entreeDon(params: ParametresEntreeStock): Promise<number> {
+  verifierLignesEntree(params.lignes);
+  for (const ligne of params.lignes) {
+    const variante = await obtenirLigne("variantes", ligne.varianteId);
+    if (!variante) throw new ErreurStock("Produit introuvable.");
+    if (variante.prix_achat <= 0 && !(Number(ligne.prixAchat) > 0)) {
+      throw new ErreurStock(
+        `${await nomVariante(ligne.varianteId)} n'a pas encore de prix d'achat : indiquez sa valeur estimée.`,
+      );
+    }
+  }
+  for (const ligne of params.lignes) {
+    const variante = (await obtenirLigne("variantes", ligne.varianteId))!;
+    if (variante.prix_achat <= 0) {
+      await ecrireLigne("variantes", {
+        ...variante,
+        prix_achat: Number(ligne.prixAchat),
+        date_modification: maintenant(),
+        synchronise: 0,
+      });
+    }
+    await appliquerMouvement({
+      varianteId: ligne.varianteId,
+      depotId: params.depotId,
+      type: "entree",
+      quantite: ligne.quantite,
+      motif: params.motif?.trim() || "Don reçu",
+      utilisateurId: params.utilisateurId ?? null,
+      referenceType: REFERENCE_ENTREE_DON,
+    });
+  }
+  return params.lignes.length;
 }
 
 // --- Dépôts ---

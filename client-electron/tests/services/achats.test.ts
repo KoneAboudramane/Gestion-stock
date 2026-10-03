@@ -62,7 +62,7 @@ describe("achats.creerCommande (miroir de achats/services.py::creer_commande)", 
       lignes: [{ varianteId, quantite: 3, prixAchat: 10000 }],
     });
 
-    expect(resultat.numero).toMatch(/^CMD-\d{8}-0001$/);
+    expect(resultat.numero).toMatch(/^CMD-\d{8}-[A-Z0-9]+-0001$/);
     expect(resultat.total).toBe(30000);
 
     const ligne = unResultat<{ sous_total: number }>(

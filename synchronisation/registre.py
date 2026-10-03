@@ -53,6 +53,8 @@ REGISTRE = [
     EntreeRegistre("fournisseurs", "Fournisseur", "boutique"),
     EntreeRegistre("stock", "OperationDestockage", "boutique"),
     EntreeRegistre("stock", "Destockage", "variante__produit__boutique"),
+    EntreeRegistre("ventes", "CommandeClient", "boutique"),
+    EntreeRegistre("ventes", "LigneCommandeClient", "commande__boutique"),
     EntreeRegistre("ventes", "Vente", "boutique"),
     EntreeRegistre("achats", "CommandeAchat", "boutique"),
     EntreeRegistre("ventes", "LigneVente", "vente__boutique"),

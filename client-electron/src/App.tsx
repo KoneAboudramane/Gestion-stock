@@ -42,6 +42,7 @@ export default function App() {
   function surConnecte(s: Session) {
     setSession(s);
     setEcran("shell");
+    api.auth.rafraichirPermissions(s).then(setSession);
   }
 
   // Propage un changement de session (ex. dépôt de vente modifié dans

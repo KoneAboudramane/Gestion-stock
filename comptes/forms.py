@@ -1,7 +1,7 @@
 from django.contrib.auth.password_validation import validate_password
 from django import forms
 
-from .models import Boutique, Utilisateur
+from .models import Boutique, PaiementAbonnement, Utilisateur
 
 
 class FormulaireAbonnement(forms.Form):
@@ -14,6 +14,25 @@ class FormulaireAbonnement(forms.Form):
         input_formats=["%Y-%m-%dT%H:%M"],
     )
     formule = forms.ChoiceField(label="Formule", choices=Boutique.Formule.choices)
+
+
+class FormulaireRenouvellement(FormulaireAbonnement):
+    """Renouvellement depuis l'admin : la période est inscrite au registre des
+    abonnements avec ce qui a été payé (voir services.enregistrer_periode_abonnement)."""
+
+    nature = forms.ChoiceField(
+        label="Nature", choices=PaiementAbonnement.Nature.choices, initial=PaiementAbonnement.Nature.PAIEMENT
+    )
+    montant = forms.DecimalField(label="Montant reçu", max_digits=12, decimal_places=2, required=False, min_value=0)
+    mode = forms.ChoiceField(label="Payé par", choices=[("", "—")] + PaiementAbonnement.Mode.choices, required=False)
+    reference = forms.CharField(label="Référence (transaction Mobile Money…)", max_length=100, required=False)
+    note = forms.CharField(label="Note", max_length=255, required=False)
+
+    def clean(self):
+        donnees = super().clean()
+        if donnees.get("nature") == PaiementAbonnement.Nature.PAIEMENT and not donnees.get("montant"):
+            self.add_error("montant", "Indiquez le montant reçu pour un paiement.")
+        return donnees
 
 
 class FormulaireCreationBoutique(forms.Form):
@@ -44,3 +63,10 @@ class FormulaireCreationBoutique(forms.Form):
         if Utilisateur.objects.filter(email__iexact=email).exists():
             raise forms.ValidationError("Cet email est déjà utilisé par un autre compte.")
         return email
+
+
+class FormulaireRejetDemande(forms.Form):
+    motif = forms.CharField(
+        label="Motif (visible par le commerçant)", max_length=255,
+        initial="Transaction introuvable : vérifiez la référence et renvoyez la demande.",
+    )

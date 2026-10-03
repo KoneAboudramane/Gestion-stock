@@ -62,6 +62,7 @@ export default function App() {
   function surConnecte(s: Session) {
     definirSession(s);
     setEcran("shell");
+    api.auth.rafraichirPermissions(s).then((m) => m && definirSession(m)).catch(() => {});
   }
 
   function surDeconnexion() {

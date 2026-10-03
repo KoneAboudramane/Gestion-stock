@@ -5,6 +5,7 @@ import { verifierAbonnementActif } from "./abonnement";
 import { appliquerMouvement, destockageActif, terminerDestockageSiEpuise } from "./stock";
 import { ajouterMouvementCompteClient, soldeCompteClient } from "./comptesTiers";
 import { enregistrerMouvement } from "./tresorerie";
+import { prochainNumero } from "./numerotation";
 
 /**
  * Port navigateur de client-electron/electron/services/ventes.ts::creerVente
@@ -42,6 +43,8 @@ export interface ParametresVente {
   lignes: LigneVenteEntree[];
   paiements: PaiementEntree[];
   remiseGlobale?: number;
+  /** Livraison d'une commande client : la commande est mise à jour avec la vente. */
+  commandeClientId?: string | null;
 }
 
 export interface VenteCreee {
@@ -51,18 +54,19 @@ export interface VenteCreee {
   totalNet: number;
 }
 
-async function genererNumero(boutiqueId: string): Promise<string> {
-  const db = await ouvrirBaseDeDonnees();
-  const isoJour = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-  const ventesDuJour = (await db.getAllFromIndex("ventes", "boutique_id", boutiqueId)).filter((v) =>
-    v.date_creation.startsWith(isoJour),
-  );
-  const compteur = ventesDuJour.length + 1;
-  return `VTE-${isoJour.replace(/-/g, "")}-${String(compteur).padStart(4, "0")}`;
-}
 
 export async function creerVente(params: ParametresVente): Promise<VenteCreee> {
-  const { boutiqueId, depotId, utilisateurId, clientId = null, statut, lignes, paiements, remiseGlobale = 0 } = params;
+  const {
+    boutiqueId,
+    depotId,
+    utilisateurId,
+    clientId = null,
+    statut,
+    lignes,
+    paiements,
+    remiseGlobale = 0,
+    commandeClientId = null,
+  } = params;
 
   await verifierAbonnementActif(boutiqueId);
 
@@ -124,7 +128,7 @@ export async function creerVente(params: ParametresVente): Promise<VenteCreee> {
   // de transaction explicite (IndexedDB n'expose pas de rollback multi-store
   // aussi simplement que SQLite ici), mais aucune écriture n'a encore eu lieu
   // à ce stade puisque le calcul ci-dessus est fait avant la moindre écriture.
-  const numero = await genererNumero(boutiqueId);
+  const numero = await prochainNumero("ventes", "VTE", boutiqueId, utilisateurId);
   const venteId = crypto.randomUUID();
 
   const vente: VenteLocale = {
@@ -138,9 +142,17 @@ export async function creerVente(params: ParametresVente): Promise<VenteCreee> {
     remise: remiseGlobale,
     total_net: totalNet,
     statut,
+    commande_client_id: commandeClientId,
     ...suiviSyncNeuf(),
   };
   await db.put("ventes", vente);
+  if (commandeClientId) {
+    await majLivraisonsCommande(
+      commandeClientId,
+      lignes.map((l) => ({ varianteId: l.varianteId, quantite: l.quantite })),
+      1,
+    );
+  }
 
   for (const ligne of lignesCalculees) {
     const ligneVente: LigneVenteLocale = {
@@ -281,6 +293,47 @@ export interface VenteResumeLocale {
 }
 
 /** Liste l'historique des ventes depuis IndexedDB (données déjà synchronisées ou créées localement). */
+/**
+ * Livraison (sens 1) ou annulation d'une livraison (sens -1) d'une commande
+ * client : ajuste les quantités livrées puis recalcule le statut. Une commande
+ * annulée garde son statut. Port de client-electron (même règle).
+ */
+async function majLivraisonsCommande(
+  commandeId: string,
+  lignes: { varianteId: string; quantite: number }[],
+  sens: 1 | -1,
+): Promise<void> {
+  const db = await ouvrirBaseDeDonnees();
+  const lignesCommande = (await db.getAllFromIndex("lignes_commande_client", "commande_id", commandeId)).filter(
+    (l) => !l.supprime,
+  );
+  const maintenantIso = maintenant();
+  for (const ligne of lignes) {
+    const ligneCommande = lignesCommande.find((l) => l.variante_id === ligne.varianteId);
+    if (!ligneCommande) throw new ErreurVente("Cet article ne fait pas partie de la commande.");
+    const livree = ligneCommande.quantite_livree + sens * ligne.quantite;
+    if (livree > ligneCommande.quantite + 1e-9) {
+      throw new ErreurVente("On ne peut pas livrer plus que la quantité commandée.");
+    }
+    ligneCommande.quantite_livree = Math.max(0, livree);
+    await db.put("lignes_commande_client", { ...ligneCommande, synchronise: 0, date_modification: maintenantIso });
+  }
+  const commande = await db.get("commandes_client", commandeId);
+  if (!commande) throw new ErreurVente("Commande introuvable.");
+  if (commande.statut === "annulee") return;
+  const reste = lignesCommande.reduce((t, l) => t + Math.max(0, l.quantite - l.quantite_livree), 0);
+  const livre = lignesCommande.reduce((t, l) => t + l.quantite_livree, 0);
+  const statut =
+    reste <= 1e-9
+      ? "livree"
+      : livre > 0
+        ? "partielle"
+        : commande.statut === "partielle" || commande.statut === "livree"
+          ? "en_attente"
+          : commande.statut;
+  await db.put("commandes_client", { ...commande, statut, synchronise: 0, date_modification: maintenantIso });
+}
+
 export async function listerVentesLocales(
   boutiqueId: string,
   depotId?: string,
@@ -349,6 +402,14 @@ export async function annulerVente(venteId: string, utilisateurId: string | null
       referenceType: "ventes.Vente",
       referenceId: venteId,
     });
+  }
+  // Livraison d'une commande annulée : ces quantités sont de nouveau à livrer.
+  if (vente.commande_client_id) {
+    await majLivraisonsCommande(
+      vente.commande_client_id,
+      lignes.map((l) => ({ varianteId: l.variante_id, quantite: l.quantite })),
+      -1,
+    );
   }
 
   const paiementsEspeces = (await db.getAllFromIndex("paiements", "vente_id", venteId)).filter(

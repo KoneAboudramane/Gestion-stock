@@ -150,6 +150,7 @@ CREATE TABLE IF NOT EXISTS ventes (
   remise REAL DEFAULT 0,
   total_net REAL DEFAULT 0,
   statut TEXT DEFAULT 'payee',
+  commande_client_id TEXT,
   ${SUIVI_SYNC}
 );
 
@@ -384,6 +385,36 @@ CREATE TABLE IF NOT EXISTS paiements_credit (
   montant REAL NOT NULL,
   mode TEXT DEFAULT '',
   utilisateur_id TEXT,
+  ${SUIVI_SYNC}
+);
+
+-- commandes_client : commande d'un client avant livraison (ventes.CommandeClient).
+-- Le stock ne bouge qu'à la livraison (une vente avec commande_client_id) ;
+-- le restant à livrer (quantite - quantite_livree) est « réservé » dans le dépôt.
+CREATE TABLE IF NOT EXISTS commandes_client (
+  id TEXT PRIMARY KEY,
+  boutique_id TEXT NOT NULL,
+  client_id TEXT NOT NULL,
+  depot_id TEXT NOT NULL,
+  utilisateur_id TEXT,
+  numero TEXT DEFAULT '',
+  statut TEXT DEFAULT 'en_attente',
+  date_livraison_prevue TEXT,
+  note TEXT DEFAULT '',
+  total REAL DEFAULT 0,
+  avance REAL DEFAULT 0,
+  date_annulation TEXT,
+  ${SUIVI_SYNC}
+);
+
+CREATE TABLE IF NOT EXISTS lignes_commande_client (
+  id TEXT PRIMARY KEY,
+  commande_id TEXT NOT NULL,
+  variante_id TEXT NOT NULL,
+  quantite REAL NOT NULL,
+  quantite_livree REAL DEFAULT 0,
+  prix_unitaire REAL NOT NULL,
+  sous_total REAL DEFAULT 0,
   ${SUIVI_SYNC}
 );
 

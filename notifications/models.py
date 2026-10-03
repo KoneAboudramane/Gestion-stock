@@ -23,6 +23,10 @@ class Notification(ModeleBase):
         ECHEANCE_RETARD = "echeance_retard", "Échéance de dette fournisseur en retard"
         CREDIT_PROCHE = "credit_proche", "Échéance de crédit client proche"
         CREDIT_RETARD = "credit_retard", "Échéance de crédit client en retard"
+        COMMANDE_PROCHE = "commande_proche", "Livraison de commande client proche"
+        COMMANDE_RETARD = "commande_retard", "Commande client en retard"
+        ABONNEMENT_PROCHE = "abonnement_proche", "Fin d'abonnement proche"
+        ABONNEMENT_EXPIRE = "abonnement_expire", "Abonnement expiré"
 
     boutique = models.ForeignKey(
         "comptes.Boutique", on_delete=models.CASCADE, related_name="notifications"

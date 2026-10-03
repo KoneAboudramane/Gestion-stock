@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { dansUneTransaction, executer, tousLesResultats, unResultat } from "../db/helpers";
 import { sauvegarder } from "../db/index";
+import { prochainNumero } from "./numerotation";
 import { verifierAbonnementActif } from "./abonnement";
 import { appliquerMouvement, destockageActif, terminerDestockageSiEpuise } from "./stock";
 import { ajouterMouvementCompteClient, soldeCompteClient } from "./comptesTiers";
@@ -41,6 +42,8 @@ export interface ParametresVente {
   lignes: LigneVenteEntree[];
   paiements: PaiementEntree[];
   remiseGlobale?: number;
+  /** Livraison d'une commande client : la commande est mise à jour dans la même transaction. */
+  commandeClientId?: string | null;
 }
 
 export interface VenteCreee {
@@ -50,15 +53,6 @@ export interface VenteCreee {
   totalNet: number;
 }
 
-function genererNumero(boutiqueId: string): string {
-  const isoJour = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-  const resultat = unResultat<{ n: number }>(
-    "SELECT COUNT(*) as n FROM ventes WHERE boutique_id = ? AND date_creation BETWEEN ? AND ?",
-    [boutiqueId, `${isoJour}T00:00:00.000Z`, `${isoJour}T23:59:59.999Z`],
-  );
-  const compteur = (resultat ? Number(resultat.n) : 0) + 1;
-  return `VTE-${isoJour.replace(/-/g, "")}-${String(compteur).padStart(4, "0")}`;
-}
 
 export function creerVente(params: ParametresVente): VenteCreee {
   const {
@@ -70,6 +64,7 @@ export function creerVente(params: ParametresVente): VenteCreee {
     lignes,
     paiements,
     remiseGlobale = 0,
+    commandeClientId = null,
   } = params;
 
   verifierAbonnementActif(boutiqueId);
@@ -133,14 +128,15 @@ export function creerVente(params: ParametresVente): VenteCreee {
   // @transaction.atomic côté Django) pour qu'un stock insuffisant sur une
   // ligne annule TOUTE la vente, pas seulement cette ligne.
   const resultat = dansUneTransaction(() => {
-    const numero = genererNumero(boutiqueId);
+    const numero = prochainNumero("ventes", "VTE", boutiqueId, utilisateurId);
     const venteId = randomUUID();
     const maintenant = new Date().toISOString();
 
     executer(
       `INSERT INTO ventes
-         (id, boutique_id, depot_id, client_id, utilisateur_id, numero, total_brut, remise, total_net, statut, date_creation, date_modification)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, boutique_id, depot_id, client_id, utilisateur_id, numero, total_brut, remise, total_net, statut,
+          commande_client_id, date_creation, date_modification)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         venteId,
         boutiqueId,
@@ -152,10 +148,18 @@ export function creerVente(params: ParametresVente): VenteCreee {
         remiseGlobale,
         totalNet,
         statut,
+        commandeClientId,
         maintenant,
         maintenant,
       ],
     );
+    if (commandeClientId) {
+      majLivraisonsCommande(
+        commandeClientId,
+        lignes.map((l) => ({ varianteId: l.varianteId, quantite: l.quantite })),
+        1,
+      );
+    }
 
     for (const ligne of lignesCalculees) {
       executer(
@@ -240,6 +244,56 @@ export function creerVente(params: ParametresVente): VenteCreee {
 
   sauvegarder();
   return resultat;
+}
+
+/**
+ * Livraison (sens 1) ou annulation d'une livraison (sens -1) d'une commande
+ * client : ajuste les quantités livrées puis recalcule le statut (à appeler
+ * dans la transaction de la vente). Une commande annulée garde son statut.
+ */
+function majLivraisonsCommande(
+  commandeId: string,
+  lignes: { varianteId: string; quantite: number }[],
+  sens: 1 | -1,
+): void {
+  const maintenant = new Date().toISOString();
+  for (const ligne of lignes) {
+    const ligneCommande = unResultat<{ id: string; quantite: number; quantite_livree: number }>(
+      `SELECT id, quantite, quantite_livree FROM lignes_commande_client
+       WHERE commande_id = ? AND variante_id = ? AND supprime = 0`,
+      [commandeId, ligne.varianteId],
+    );
+    if (!ligneCommande) throw new ErreurVente("Cet article ne fait pas partie de la commande.");
+    const livree = Number(ligneCommande.quantite_livree) + sens * ligne.quantite;
+    if (livree > Number(ligneCommande.quantite) + 1e-9) {
+      throw new ErreurVente("On ne peut pas livrer plus que la quantité commandée.");
+    }
+    executer(
+      "UPDATE lignes_commande_client SET quantite_livree = ?, synchronise = 0, date_modification = ? WHERE id = ?",
+      [Math.max(0, livree), maintenant, ligneCommande.id],
+    );
+  }
+  const commande = unResultat<{ statut: string }>("SELECT statut FROM commandes_client WHERE id = ?", [commandeId]);
+  if (!commande) throw new ErreurVente("Commande introuvable.");
+  if (commande.statut === "annulee") return;
+  const etat = unResultat<{ reste: number; livre: number }>(
+    `SELECT COALESCE(SUM(MAX(quantite - quantite_livree, 0)), 0) as reste, COALESCE(SUM(quantite_livree), 0) as livre
+     FROM lignes_commande_client WHERE commande_id = ? AND supprime = 0`,
+    [commandeId],
+  )!;
+  const statut =
+    Number(etat.reste) <= 1e-9
+      ? "livree"
+      : Number(etat.livre) > 0
+        ? "partielle"
+        : commande.statut === "partielle" || commande.statut === "livree"
+          ? "en_attente"
+          : commande.statut;
+  executer("UPDATE commandes_client SET statut = ?, synchronise = 0, date_modification = ? WHERE id = ?", [
+    statut,
+    maintenant,
+    commandeId,
+  ]);
 }
 
 export interface VenteResume {
@@ -401,10 +455,13 @@ export function obtenirVente(id: string): VenteDetail | undefined {
  * si déjà annulée.
  */
 export function annulerVente(venteId: string, utilisateurId: string | null): void {
-  const vente = unResultat<{ numero: string; statut: string; depot_id: string; client_id: string | null }>(
-    "SELECT numero, statut, depot_id, client_id FROM ventes WHERE id = ?",
-    [venteId],
-  );
+  const vente = unResultat<{
+    numero: string;
+    statut: string;
+    depot_id: string;
+    client_id: string | null;
+    commande_client_id: string | null;
+  }>("SELECT numero, statut, depot_id, client_id, commande_client_id FROM ventes WHERE id = ?", [venteId]);
   if (!vente) throw new ErreurVente("Vente introuvable.");
   if (vente.statut === "annulee") {
     throw new ErreurVente("Cette vente est déjà annulée.");
@@ -426,6 +483,14 @@ export function annulerVente(venteId: string, utilisateurId: string | null): voi
         referenceType: "ventes.Vente",
         referenceId: venteId,
       });
+    }
+    // Livraison d'une commande annulée : ces quantités sont de nouveau à livrer.
+    if (vente.commande_client_id) {
+      majLivraisonsCommande(
+        vente.commande_client_id,
+        lignes.map((l) => ({ varianteId: l.variante_id, quantite: Number(l.quantite) })),
+        -1,
+      );
     }
 
     const paiementsEspeces = tousLesResultats<{ id: string; montant: number }>(

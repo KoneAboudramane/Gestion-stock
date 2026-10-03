@@ -34,5 +34,7 @@ urlpatterns = [
         name="reinitialiser-mot-de-passe",
     ),
     path("boutique/", views.BoutiqueDetailView.as_view(), name="boutique-detail"),
+    path("boutique/abonnement/", views.AbonnementBoutiqueView.as_view(), name="boutique-abonnement"),
+    path("boutique/abonnement/demandes/", views.DemandeRenouvellementView.as_view(), name="boutique-abonnement-demandes"),
     path("", include(router.urls)),
 ]

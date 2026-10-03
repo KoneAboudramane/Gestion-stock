@@ -45,9 +45,9 @@ interface LigneCompte extends Tiers {
   derniereOperation: string | null;
 }
 
-const SECTIONS: { cle: GenreTiers; label: string; icone: string }[] = [
-  { cle: "client", label: "Comptes clients", icone: "👥" },
-  { cle: "fournisseur", label: "Comptes fournisseurs", icone: "🚚" },
+const SECTIONS: { cle: GenreTiers; label: string; icone: string; permission: string }[] = [
+  { cle: "client", label: "Comptes clients", icone: "👥", permission: "gerer_clients" },
+  { cle: "fournisseur", label: "Comptes fournisseurs", icone: "🚚", permission: "gerer_produits_stock_achats" },
 ];
 
 /** Page « 👛 Comptes » : une carte par genre de compte, chacune ouvre sa modale. */
@@ -56,7 +56,7 @@ export default function PageComptes({ session }: { session: Session }) {
   return (
     <div className="page-produits page-accueil">
       <div className="grille-documents-comptables">
-        {SECTIONS.map((s) => (
+        {SECTIONS.filter((s) => session.permissions[s.permission]).map((s) => (
           <button key={s.cle} type="button" className="carte-document-comptable" onClick={() => setOuvert(s.cle)}>
             <span className="icone-document-comptable">{s.icone}</span>
             {s.label}

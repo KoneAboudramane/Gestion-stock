@@ -38,6 +38,7 @@ import {
 } from "../lib/libelles";
 import { useFabricationPropre } from "../hooks/useFabricationPropre";
 import { ModaleProduitsDormants } from "./Rapports";
+import { ModaleEntreeStock } from "./EntreeStock";
 import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
 import FiltrePeriodeHistorique from "../components/FiltrePeriodeHistorique";
 import BoutonsExport from "../components/BoutonsExport";
@@ -59,6 +60,7 @@ function versLigneAchatInitiale(l: LigneStock): LigneAchatInitiale {
 
 const SECTIONS = [
   { cle: "stock", label: "Stock", icone: "📦" },
+  { cle: "entree", label: "Entrée de stock", icone: "➕" },
   { cle: "mouvements", label: "Mouvements", icone: "🔄" },
   { cle: "transferts", label: "Transferts", icone: "🚚" },
   { cle: "pertes", label: "Pertes", icone: "🗑️" },
@@ -133,12 +135,18 @@ function OngletStockNiveau({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.boutiqueId, peutGerer]);
 
+  // Restant à livrer des commandes clients, par article et dépôt (« dont X réservés »).
+  const [reserves, setReserves] = useState<Map<string, number>>(new Map());
+
   function rechargerLignes() {
     api.stock.lister(session.boutiqueId, depotId || undefined, terme).then(setLignes);
+    api.commandesClient
+      .reservations(session.boutiqueId, depotId || undefined)
+      .then((liste) => setReserves(new Map(liste.map((r) => [`${r.varianteId}|${r.depotId}`, r.quantite]))));
   }
 
   useEffect(() => {
-    api.stock.lister(session.boutiqueId, depotId || undefined, terme).then(setLignes);
+    rechargerLignes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [depotId, terme]);
 
@@ -285,6 +293,11 @@ function OngletStockNiveau({
               <td>{l.produitNom}</td>
               <td>{l.depotNom}</td>
               <td><strong className={classeQuantite(l)}>{l.quantite}</strong>
+                {(reserves.get(`${l.varianteId}|${l.depotId}`) ?? 0) > 0 && (
+                  <span className="sous-info nowrap" title="Restant à livrer des commandes clients de ce dépôt">
+                    {" "}(dont {formaterMontant(reserves.get(`${l.varianteId}|${l.depotId}`) ?? 0)} réservés)
+                  </span>
+                )}
                 {complementGrosDetail(l)}
               </td>
               <td>{l.seuilAlerte}</td>
@@ -4105,7 +4118,7 @@ export default function Stock({
         {SECTIONS.filter(
           // Produits dormants : montre des coûts d'achat, réservé à la gestion du stock / aux rapports.
           (s) =>
-            (s.cle === "detailler" ? !!session.permissions.gerer_produits_stock_achats : true) &&
+            (s.cle === "detailler" || s.cle === "entree" ? !!session.permissions.gerer_produits_stock_achats : true) &&
             (s.cle !== "dormants" ||
             !!session.permissions.gerer_produits_stock_achats ||
             !!session.permissions.voir_rapports_complets),
@@ -4128,6 +4141,9 @@ export default function Stock({
           onCommander={onCommander}
           onFermer={() => setSectionOuverte(null)}
         />
+      )}
+      {sectionOuverte === "entree" && (
+        <ModaleEntreeStock session={session} onFermer={() => setSectionOuverte(null)} />
       )}
       {sectionOuverte === "mouvements" && (
         <ModaleHistoriqueStock

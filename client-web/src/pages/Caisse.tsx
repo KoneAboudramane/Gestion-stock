@@ -16,8 +16,10 @@ import {
   type VarianteCatalogue,
 } from "../services/catalogue";
 import { creerClient, listerClientsDetail, listerCredits } from "../services/clients";
+import { reservations, type Reservation } from "../services/commandesClient";
 import { compteClient } from "../services/comptesTiers";
 import { creerVente, ErreurVente, type VenteCreee } from "../services/ventes";
+import { ModaleCommandesClients, type CommandePreparee } from "./CommandesClients";
 
 /**
  * Port navigateur de client-electron/src/pages/Caisse.tsx : même UI/logique,
@@ -143,6 +145,29 @@ export default function Caisse({ session }: { session: Session }) {
   useEffect(() => {
     listerVariantesCatalogue(session.boutiqueId, depotId || undefined).then(setCatalogue);
   }, [session.boutiqueId, depotId]);
+
+  // Stock réservé par les commandes clients du dépôt : la caisse avertit (sans
+  // bloquer) quand la vente entame ce qui est promis à un client.
+  const [reservationsDepot, setReservationsDepot] = useState<Reservation[]>([]);
+  useEffect(() => {
+    if (!depotId) return setReservationsDepot([]);
+    reservations(session.boutiqueId, depotId).then(setReservationsDepot);
+  }, [session.boutiqueId, depotId, catalogue]);
+
+  const avertissementsReserve = useMemo(() => {
+    const stockParVariante = new Map(catalogue.map((v) => [v.id, v.quantiteDisponible]));
+    return panier.flatMap((ligne) => {
+      const reservation = reservationsDepot.find((r) => r.varianteId === ligne.varianteId);
+      if (!reservation) return [];
+      const libre = (stockParVariante.get(ligne.varianteId) ?? 0) - reservation.quantite;
+      if (ligne.quantite <= libre) return [];
+      const pour = reservation.commandes.map((c) => `${c.clientNom} (${c.numero})`).join(", ");
+      return [
+        `${ligne.produitNom} : ${formaterMontant(reservation.quantite)} réservé${reservation.quantite > 1 ? "s" : ""} pour ${pour}, ` +
+          `il n'en reste que ${formaterMontant(Math.max(0, libre))} de libre.`,
+      ];
+    });
+  }, [panier, catalogue, reservationsDepot]);
 
   const quantitesDisponiblesAjustees = useMemo(() => {
     const disponibles = new Map(catalogue.map((v) => [v.id, v.quantiteDisponible]));
@@ -276,7 +301,8 @@ export default function Caisse({ session }: { session: Session }) {
       setDetailEnCaisse({ gros, variante, cible });
       return;
     }
-    const message = `"${variante.produitNom}" est en rupture de stock dans ce dépôt.`;
+    // Pas de carton à déballer : la vente est impossible, la commande se fait à part.
+    const message = `"${variante.produitNom}" est en rupture dans ce dépôt : impossible de le vendre. Pour le livrer plus tard, utilisez « Passer commande ».`;
     if (cible === "panier") setErreur(message);
     else setErreurModale(message);
   }
@@ -470,10 +496,27 @@ export default function Caisse({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [totalNet, montantEspeces, montantCredit, montantMobileMoney, montantCompte, dernierChampPaiement]);
 
+  /** Premier article du panier qui dépasse le stock du dépôt (vente impossible, commande possible). */
+  function depassementStock(): string | null {
+    const stock = new Map(catalogue.map((v) => [v.id, v.quantiteDisponible]));
+    for (const l of panier) {
+      const disponible = stock.get(l.varianteId) ?? 0;
+      if (l.quantite > disponible) {
+        return `Stock insuffisant pour "${l.produitNom}" (${formaterMontant(Math.max(0, disponible))} en stock) : la vente est impossible. Utilisez « Passer commande » pour le livrer plus tard.`;
+      }
+    }
+    return null;
+  }
+
   async function validerVente() {
     setErreur(null);
     if (panier.length === 0) {
       setErreur("Le panier est vide.");
+      return;
+    }
+    const depassement = depassementStock();
+    if (depassement) {
+      setErreur(depassement);
       return;
     }
     if (!depotId) {
@@ -553,6 +596,37 @@ export default function Caisse({ session }: { session: Session }) {
     }
   }
 
+  // --- Passer commande : ouvre le formulaire « Nouvelle commande » (le même que dans
+  // Clients → Commandes clients), pré-rempli avec le panier s'il n'est pas vide. ---
+  const [commandePreparee, setCommandePreparee] = useState<CommandePreparee | null>(null);
+  const [infoCaisse, setInfoCaisse] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (panier.length > 0) setInfoCaisse(null);
+  }, [panier.length]);
+
+  function ouvrirMiseEnCommande() {
+    setErreur(null);
+    setInfoCaisse(null);
+    setCommandePreparee({
+      clientId: clientId || undefined,
+      clientNom: clientTerme,
+      depotId: depotId || undefined,
+      // Prix de la commande = prix après la remise de la ligne.
+      lignes: lignesCalculees.map((l) => ({
+        varianteId: l.varianteId,
+        produitNom: l.produitNom,
+        reference: l.reference,
+        quantite: l.quantite,
+        prixUnitaire: Math.round((l.sousTotal / l.quantite) * 100) / 100,
+      })),
+      avertissement:
+        panier.length > 0 && remiseGlobaleNombre > 0
+          ? "La remise globale du panier n'est pas reprise dans la commande : ajustez les prix si besoin."
+          : undefined,
+    });
+  }
+
   function plafonnerMontantPaiement(valeur: string): string {
     return (Number(valeur) || 0) > totalNet ? String(totalNet) : valeur;
   }
@@ -626,9 +700,25 @@ export default function Caisse({ session }: { session: Session }) {
               </ul>
             )}
           </div>
-          <button type="button" className="bouton-annuler-vente" disabled={enCours} onClick={() => (panier.length > 0 ? setConfirmationAnnulation(true) : annulerVente())}>
-            Annuler la vente
-          </button>
+          <div className="actions-bas-article">
+            <button
+              type="button"
+              className="bouton-annuler-vente"
+              disabled={enCours}
+              onClick={() => (panier.length > 0 ? setConfirmationAnnulation(true) : annulerVente())}
+            >
+              Annuler la vente
+            </button>
+            <button
+              type="button"
+              className="bouton-mettre-en-commande"
+              disabled={enCours}
+              title="Enregistrer une commande client, à livrer plus tard (le stock ne bouge pas). Le panier en cours la pré-remplit."
+              onClick={ouvrirMiseEnCommande}
+            >
+              📋 Passer commande
+            </button>
+          </div>
         </div>
 
         <div className="colonne-caisse colonne-modes-paiement">
@@ -711,7 +801,15 @@ export default function Caisse({ session }: { session: Session }) {
               </span>
             </div>
           </div>
-          <div className="zone-erreur-vente">{erreur && <div className="message-erreur">{erreur}</div>}</div>
+          <div className="zone-erreur-vente">
+            {infoCaisse && <div className="message-succes">{infoCaisse}</div>}
+            {erreur && <div className="message-erreur">{erreur}</div>}
+            {avertissementsReserve.map((texte) => (
+              <div key={texte} className="message-avertissement-reserve">
+                ⚠ {texte}
+              </div>
+            ))}
+          </div>
           <div className="boutons-validation">
             <button
               className="bouton-valider"
@@ -736,6 +834,18 @@ export default function Caisse({ session }: { session: Session }) {
             setARejouer({ varianteId: detailEnCaisse.variante.id, cible: detailEnCaisse.cible });
             setDetailEnCaisse(null);
             listerVariantesCatalogue(session.boutiqueId, depotId || undefined).then(setCatalogue);
+          }}
+        />
+      )}
+      {commandePreparee && (
+        <ModaleCommandesClients
+          session={session}
+          nouvelle={commandePreparee}
+          onFermer={() => setCommandePreparee(null)}
+          onCreee={(texte) => {
+            // Le panier est devenu une commande : la caisse repart à vide.
+            annulerVente();
+            setInfoCaisse(`${texte} Vous la retrouvez dans Clients → Commandes clients.`);
           }}
         />
       )}

@@ -5,6 +5,7 @@ import { app } from "electron";
 
 import { URL_BASE_API } from "../config";
 import { ErreurAccesBloque, fetchAvecRepliNavigateur } from "./httpClient";
+import { memoriserAbonnementBoutique } from "./abonnement";
 import { appelerAvecDelai } from "./sync";
 
 /**
@@ -37,6 +38,10 @@ export interface Session {
   // qu'à la connexion ou via rafraichirPermissions (pas de rafraîchissement
   // automatique en tâche de fond, voir BarreSynchro "Vérifier l'activation").
   synchroAutorisee: boolean;
+  // Abréviation de l'utilisateur dans les numéros de ses documents
+  // (VTE-20261002-AKO-0001, voir numerotation.ts). Absente des sessions
+  // enregistrées avant son introduction.
+  codeVendeur?: string;
 }
 
 interface IdentifiantLocal {
@@ -258,6 +263,7 @@ export async function connexion(username: string, password: string): Promise<Ses
     depotId: payload.depot_id ?? null,
     depotNom: payload.depot_nom ?? null,
     synchroAutorisee: payload.synchro_autorisee ?? false,
+    codeVendeur: payload.code_vendeur || undefined,
   };
   ouvrirSessionLocale(username, password, session);
   return session;
@@ -448,7 +454,15 @@ export async function rafraichirPermissions(session: Session): Promise<Session> 
       depotId: donnees.depot_id ?? null,
       depotNom: donnees.depot_nom ?? null,
       synchroAutorisee: donnees.boutique?.synchro_autorisee ?? false,
+      codeVendeur: donnees.code_vendeur || session.codeVendeur,
     };
+    if (donnees.boutique) {
+      try {
+        memoriserAbonnementBoutique(donnees.boutique);
+      } catch {
+        // Base locale pas encore ouverte : l'échéance arrivera au prochain rafraîchissement.
+      }
+    }
 
     fs.writeFileSync(cheminSession(), JSON.stringify(sessionMiseAJour, null, 2));
     const identifiants = chargerIdentifiantsLocaux();

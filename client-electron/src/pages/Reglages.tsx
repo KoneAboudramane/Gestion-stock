@@ -29,6 +29,7 @@ import type {
 } from "../api/client";
 import { appliquerTheme, themeActuel, type Theme } from "../lib/theme";
 import { CLE_PARAMETRE_FABRICATION_PROPRE } from "../hooks/useFabricationPropre";
+import ModaleAbonnement from "../components/ModaleAbonnement";
 
 const CLES_PERMISSIONS: { cle: string; label: string }[] = [
   { cle: "vendre", label: "Vendre / encaisser" },
@@ -40,6 +41,10 @@ const CLES_PERMISSIONS: { cle: string; label: string }[] = [
   { cle: "annuler_vente", label: "Annuler une vente" },
   { cle: "voir_rapports_complets", label: "Voir les rapports complets" },
   { cle: "gerer_utilisateurs_reglages", label: "Gérer les utilisateurs et réglages" },
+  { cle: "consulter_tresorerie", label: "Consulter la trésorerie" },
+  { cle: "enregistrer_depense", label: "Enregistrer une dépense" },
+  { cle: "gerer_tresorerie", label: "Gérer la trésorerie (retraits, apports, rendre l'argent)" },
+  { cle: "consulter_comptabilite", label: "Consulter la comptabilité" },
 ];
 
 function formaterDateSynchro(iso: string | null): string {
@@ -262,6 +267,8 @@ function OngletProfilBoutique({
     }
   }
 
+  const [abonnementOuvert, setAbonnementOuvert] = useState(false);
+
   function annuler() {
     setErreur(null);
     charger();
@@ -371,6 +378,12 @@ function OngletProfilBoutique({
                     : "Sans limite"}
                 </dd>
               </dl>
+              {session.permissions.gerer_utilisateurs_reglages && (
+                <button type="button" className="lien" onClick={() => setAbonnementOuvert(true)}>
+                  Renouveler et historique →
+                </button>
+              )}
+              {abonnementOuvert && <ModaleAbonnement session={session} onFermer={() => setAbonnementOuvert(false)} />}
             </section>
             {moi && (
               <section className="carte-profil">
@@ -382,6 +395,8 @@ function OngletProfilBoutique({
                   <dd>{session.role}</dd>
                   <dt>Téléphone</dt>
                   <dd>{moi.telephone || "—"}</dd>
+                  <dt>Code vendeur</dt>
+                  <dd>{session.codeVendeur || "—"}</dd>
                   <dt>Dépôt de vente</dt>
                   <dd>{depots.find((d) => d.id === depotId)?.nom || "Aucun"}</dd>
                 </dl>
@@ -529,34 +544,112 @@ function OngletProfilBoutique({
 
 function CarteRole({
   role,
+  nombreUtilisateurs,
   session,
   onModifie,
 }: {
   role: RoleResume;
+  /** Comptes qui ont ce rôle : tant qu'il y en a, le rôle ne peut pas être supprimé. */
+  nombreUtilisateurs: number;
   session: Session;
   onModifie: () => void;
 }) {
   const [enCours, setEnCours] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
+  const [nouveauNom, setNouveauNom] = useState<string | null>(null);
+  const [confirmationSuppression, setConfirmationSuppression] = useState(false);
+  // Le code s'appuie sur le nom « Patron » : ni renommé, ni supprimé, ni modifié.
   const estPatron = role.nom === "Patron";
 
-  async function basculer(cle: string) {
-    if (estPatron) return;
+  async function executer(action: () => Promise<{ succes: boolean; message?: string }>) {
     setEnCours(true);
     setErreur(null);
     try {
-      const nouvellesPermissions = { ...role.permissions, [cle]: !role.permissions[cle] };
-      const resultat = await api.comptes.modifierRole(session, role.id, nouvellesPermissions);
-      if (resultat.succes) onModifie();
-      else setErreur(resultat.message);
+      const resultat = await action();
+      if (resultat.succes) {
+        setNouveauNom(null);
+        onModifie();
+      } else setErreur(resultat.message ?? "Erreur inattendue.");
     } finally {
       setEnCours(false);
     }
   }
 
+  function basculer(cle: string) {
+    if (estPatron) return;
+    const nouvellesPermissions = { ...role.permissions, [cle]: !role.permissions[cle] };
+    executer(() => api.comptes.modifierRole(session, role.id, nouvellesPermissions));
+  }
+
+  function renommer() {
+    const nom = (nouveauNom ?? "").trim();
+    if (!nom) return setErreur("Indiquez le nom du rôle.");
+    if (nom === role.nom) return setNouveauNom(null);
+    executer(() => api.comptes.renommerRole(session, role.id, nom));
+  }
+
+  function commencerRenommage() {
+    setErreur(null);
+    setNouveauNom(role.nom);
+  }
+
+  function annulerRenommage() {
+    setNouveauNom(null);
+    setErreur(null);
+  }
+
   return (
-    <div className="detail-produit">
-      <h4>{role.nom}</h4>
+    <div className="detail-produit carte-role">
+      <div className="entete-detail">
+        {nouveauNom === null ? (
+          <h4 className="entete-detail-titre">
+            {role.nom}
+            <span className="statut-inline">
+              {nombreUtilisateurs === 0
+                ? "aucun utilisateur"
+                : `${nombreUtilisateurs} utilisateur${nombreUtilisateurs > 1 ? "s" : ""}`}
+            </span>
+          </h4>
+        ) : (
+          <span className="champ-renommer-role">
+            <input
+              value={nouveauNom}
+              onChange={(e) => setNouveauNom(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") renommer();
+                if (e.key === "Escape") annulerRenommage();
+              }}
+              autoFocus
+            />
+            <button type="button" className="bouton-primaire" disabled={enCours} onClick={renommer}>
+              Enregistrer
+            </button>
+            <button type="button" className="lien" onClick={annulerRenommage}>
+              Annuler
+            </button>
+          </span>
+        )}
+        {!estPatron && nouveauNom === null && (
+          <span className="entete-detail-actions">
+            <button type="button" className="lien-icone" title="Renommer" disabled={enCours} onClick={commencerRenommage}>
+              ✏️
+            </button>
+            <button
+              type="button"
+              className="lien-icone"
+              title={
+                nombreUtilisateurs > 0
+                  ? "Des utilisateurs ont ce rôle : changez-leur de rôle avant de le supprimer."
+                  : "Supprimer"
+              }
+              disabled={enCours || nombreUtilisateurs > 0}
+              onClick={() => setConfirmationSuppression(true)}
+            >
+              🗑
+            </button>
+          </span>
+        )}
+      </div>
       {erreur && <div className="message-erreur">{erreur}</div>}
       {estPatron && (
         <p className="note-aide">Le rôle Patron a toutes les permissions et ne peut pas être modifié.</p>
@@ -569,6 +662,104 @@ function CarteRole({
               checked={!!role.permissions[p.cle]}
               disabled={enCours || estPatron}
               onChange={() => basculer(p.cle)}
+            />
+            {p.label}
+          </label>
+        ))}
+      </div>
+      {confirmationSuppression && (
+        <ModaleConfirmation
+          titre={`Supprimer le rôle « ${role.nom} » ?`}
+          description="Il ne sera plus proposé pour les utilisateurs."
+          labelConfirmer="Supprimer"
+          dangereux
+          onAnnuler={() => setConfirmationSuppression(false)}
+          onConfirmer={() => {
+            setConfirmationSuppression(false);
+            executer(() => api.comptes.supprimerRole(session, role.id));
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Nouveau rôle : un nom et ses permissions, éventuellement copiées d'un rôle existant. */
+function FormulaireRole({
+  session,
+  roles,
+  onAnnuler,
+  onCree,
+}: {
+  session: Session;
+  roles: RoleResume[];
+  onAnnuler: () => void;
+  onCree: () => void;
+}) {
+  const [nom, setNom] = useState("");
+  const [modeleId, setModeleId] = useState("");
+  const [permissions, setPermissions] = useState<Record<string, boolean>>({});
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState(false);
+
+  function partirDe(id: string) {
+    setModeleId(id);
+    const modele = roles.find((r) => r.id === id);
+    setPermissions(modele ? { ...modele.permissions } : {});
+  }
+
+  async function creer() {
+    setErreur(null);
+    if (!nom.trim()) return setErreur("Indiquez le nom du rôle.");
+    setEnCours(true);
+    try {
+      const complet = Object.fromEntries(CLES_PERMISSIONS.map((p) => [p.cle, !!permissions[p.cle]]));
+      const resultat = await api.comptes.creerRole(session, nom.trim(), complet);
+      if (resultat.succes) onCree();
+      else setErreur(resultat.message);
+    } finally {
+      setEnCours(false);
+    }
+  }
+
+  return (
+    <div className="detail-produit carte-role carte-role-nouveau">
+      <div className="entete-detail">
+        <h4>Nouveau rôle</h4>
+        <span className="entete-detail-actions">
+          <button type="button" className="bouton-primaire" disabled={enCours} onClick={creer}>
+            {enCours ? "Création…" : "Créer le rôle"}
+          </button>
+          <button type="button" className="lien" onClick={onAnnuler}>
+            Annuler
+          </button>
+        </span>
+      </div>
+      {erreur && <div className="message-erreur">{erreur}</div>}
+      <div className="champs-nouveau-role">
+        <label>
+          Nom du rôle
+          <input value={nom} onChange={(e) => setNom(e.target.value)} placeholder="ex. Magasinier, Vendeur…" autoFocus />
+        </label>
+        <label>
+          Partir des permissions de
+          <select value={modeleId} onChange={(e) => partirDe(e.target.value)}>
+            <option value="">Aucune (tout décoché)</option>
+            {roles.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.nom}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="grille-permissions">
+        {CLES_PERMISSIONS.map((p) => (
+          <label key={p.cle}>
+            <input
+              type="checkbox"
+              checked={!!permissions[p.cle]}
+              onChange={() => setPermissions((actuel) => ({ ...actuel, [p.cle]: !actuel[p.cle] }))}
             />
             {p.label}
           </label>
@@ -802,6 +993,9 @@ function LigneUtilisateur({
   const [nouveauMotDePasse, setNouveauMotDePasse] = useState<string | null>(null);
   const [confirmationSuppression, setConfirmationSuppression] = useState(false);
   const roleActuel = roles.find((r) => r.id === utilisateur.role);
+  const [code, setCode] = useState(utilisateur.code_vendeur);
+
+  useEffect(() => setCode(utilisateur.code_vendeur), [utilisateur.code_vendeur]);
 
   async function reinitialiserMotDePasse() {
     setEnCours(true);
@@ -825,6 +1019,26 @@ function LigneUtilisateur({
       });
       if (resultat.succes) onModifie();
       else setErreur(resultat.message);
+    } finally {
+      setEnCours(false);
+    }
+  }
+
+  async function changerCode() {
+    const nouveau = code.trim().toUpperCase();
+    if (!nouveau || nouveau === utilisateur.code_vendeur) {
+      setCode(utilisateur.code_vendeur);
+      return;
+    }
+    setEnCours(true);
+    setErreur(null);
+    try {
+      const resultat = await api.comptes.modifierUtilisateur(session, utilisateur.id, { codeVendeur: nouveau });
+      if (resultat.succes) onModifie();
+      else {
+        setErreur(resultat.message);
+        setCode(utilisateur.code_vendeur);
+      }
     } finally {
       setEnCours(false);
     }
@@ -874,6 +1088,20 @@ function LigneUtilisateur({
   return (
     <tr>
       <td>{utilisateur.username}</td>
+      <td data-label="Code">
+        <input
+          className="champ-code-vendeur"
+          value={code}
+          maxLength={6}
+          disabled={enCours}
+          title="Dans les numéros de ses ventes et commandes (ex. VTE-20261002-AKO-0001)"
+          onChange={(e) => setCode(e.target.value.toUpperCase())}
+          onBlur={changerCode}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+          }}
+        />
+      </td>
       <td>
         {utilisateur.first_name} {utilisateur.last_name}
       </td>
@@ -958,8 +1186,13 @@ function OngletUtilisateursRoles({ session }: { session: Session }) {
   const [roles, setRoles] = useState<RoleResume[]>([]);
   const [depots, setDepots] = useState<DepotResume[]>([]);
   const [utilisateurs, setUtilisateurs] = useState<UtilisateurResume[]>([]);
+  // Nombre de comptes par rôle, y compris celui de l'utilisateur connecté.
+  const [comptesParRole, setComptesParRole] = useState<Map<string, number>>(new Map());
+  // Formule Essentiel avec plus de 2 comptes actifs (ex. après un passage de Pro à Essentiel).
+  const [comptesEnTrop, setComptesEnTrop] = useState(0);
   const [erreur, setErreur] = useState<string | null>(null);
   const [afficherForm, setAfficherForm] = useState(false);
+  const [afficherFormRole, setAfficherFormRole] = useState(false);
 
   async function rafraichir() {
     setErreur(null);
@@ -971,6 +1204,14 @@ function OngletUtilisateursRoles({ session }: { session: Session }) {
 
     const resultatUtilisateurs = await api.comptes.listerUtilisateurs(session);
     if (resultatUtilisateurs.succes) {
+      const compteur = new Map<string, number>();
+      for (const u of resultatUtilisateurs.resultat) {
+        if (u.role) compteur.set(u.role, (compteur.get(u.role) ?? 0) + 1);
+      }
+      setComptesParRole(compteur);
+      const boutique = await api.reglages.obtenirBoutique(session.boutiqueId);
+      const actifs = resultatUtilisateurs.resultat.filter((u) => u.is_active).length;
+      setComptesEnTrop(boutique?.formule === "essentiel" ? Math.max(0, actifs - 2) : 0);
       // Le Patron connecté gère ses propres infos dans "Informations boutique",
       // pas dans cette liste des utilisateurs qu'il a créés.
       setUtilisateurs(resultatUtilisateurs.resultat.filter((u) => u.id !== Number(session.utilisateurId)));
@@ -1031,9 +1272,52 @@ function OngletUtilisateursRoles({ session }: { session: Session }) {
               </button>
             </div>
           )}
-          {sousOnglet === "roles" && roles.map((r) => <CarteRole key={r.id} role={r} session={session} onModifie={rafraichir} />)}
+          {sousOnglet === "roles" && (
+            <>
+              <div className="barre-actions">
+                <span className="actions-ligne">
+                  <button
+                    type="button"
+                    className="bouton-ajouter-variante"
+                    onClick={() => setAfficherFormRole(true)}
+                    disabled={!!erreur || afficherFormRole}
+                  >
+                    + Nouveau rôle
+                  </button>
+                </span>
+              </div>
+              <div className="liste-roles">
+                {afficherFormRole && (
+                  <FormulaireRole
+                    session={session}
+                    roles={roles}
+                    onAnnuler={() => setAfficherFormRole(false)}
+                    onCree={() => {
+                      setAfficherFormRole(false);
+                      rafraichir();
+                    }}
+                  />
+                )}
+                {roles.map((r) => (
+                  <CarteRole
+                    key={r.id}
+                    role={r}
+                    nombreUtilisateurs={comptesParRole.get(r.id) ?? 0}
+                    session={session}
+                    onModifie={rafraichir}
+                  />
+                ))}
+              </div>
+            </>
+          )}
           {sousOnglet === "utilisateurs" && (
             <>
+              {comptesEnTrop > 0 && (
+                <div className="message-avertissement-reserve">
+                  Formule Essentiel : 2 comptes actifs au plus (le Patron + 1). Mettez {comptesEnTrop} compte
+                  {comptesEnTrop > 1 ? "s" : ""} en pause (bouton « Actif »), ou passez à la formule Pro.
+                </div>
+              )}
               <div className="barre-actions">
                 <span className="actions-ligne">
                   <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherForm(true)} disabled={!!erreur}>
@@ -1046,6 +1330,7 @@ function OngletUtilisateursRoles({ session }: { session: Session }) {
                   <thead>
                     <tr>
                       <th>Utilisateur</th>
+                      <th title="Dans les numéros de ses ventes et commandes">Code</th>
                       <th>Nom</th>
                       <th>Téléphone</th>
                       <th>Rôle</th>
@@ -1060,13 +1345,14 @@ function OngletUtilisateursRoles({ session }: { session: Session }) {
                     ))}
                     {utilisateurs.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="liste-vide">
+                        <td colSpan={8} className="liste-vide">
                           {erreur ? "Liste indisponible hors ligne." : "Aucun utilisateur."}
                         </td>
                       </tr>
                     )}
                     {Array.from({ length: Math.max(0, 10 - Math.max(1, utilisateurs.length)) }).map((_, i) => (
                       <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                        <td>&nbsp;</td>
                         <td>&nbsp;</td>
                         <td>&nbsp;</td>
                         <td>&nbsp;</td>

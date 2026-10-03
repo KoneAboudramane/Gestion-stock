@@ -76,6 +76,10 @@ export default function GererAbonnement({
   const [illimite, setIllimite] = useState(true);
   const [dateExpiration, setDateExpiration] = useState("");
   const [synchroAutorisee, setSynchroAutorisee] = useState(false);
+  const [nature, setNature] = useState<"paiement" | "offert" | "ajustement">("paiement");
+  const [montant, setMontant] = useState("");
+  const [mode, setMode] = useState("");
+  const [reference, setReference] = useState("");
   const [erreur, setErreur] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
@@ -99,6 +103,10 @@ export default function GererAbonnement({
     setIllimite(!boutique.dateExpirationAbonnement);
     setDateExpiration(boutique.dateExpirationAbonnement ? boutique.dateExpirationAbonnement.slice(0, 10) : "");
     setSynchroAutorisee(boutique.synchroAutorisee);
+    setNature("paiement");
+    setMontant("");
+    setMode("");
+    setReference("");
     setErreur(null);
     setModeEdition(true);
   }
@@ -109,11 +117,22 @@ export default function GererAbonnement({
     setErreur(null);
     setEnCours(true);
     try {
+      const nouvelleDate = illimite || !dateExpiration ? null : new Date(`${dateExpiration}T23:59:59`).toISOString();
+      // La période change : elle est inscrite au registre, avec le paiement reçu.
+      const periodeModifiee =
+        formule !== boutique.formule ||
+        (nouvelleDate?.slice(0, 10) ?? null) !== (boutique.dateExpirationAbonnement?.slice(0, 10) ?? null);
+      if (periodeModifiee && nature === "paiement" && !(Number(montant) > 0)) {
+        setErreur("Indiquez le montant reçu, ou choisissez « Offert » ou « Correction de date ».");
+        return;
+      }
       const champs: ChampsAbonnement = {
         formule,
-        dateExpirationAbonnement:
-          illimite || !dateExpiration ? null : new Date(`${dateExpiration}T23:59:59`).toISOString(),
+        dateExpirationAbonnement: nouvelleDate,
         ...(masquerSynchro ? {} : { synchroAutorisee }),
+        ...(periodeModifiee
+          ? { nature, ...(nature === "paiement" ? { montant: Number(montant), mode, reference: reference.trim() } : {}) }
+          : {}),
       };
       const resultat = await soumettreAbonnement(username, password, boutique.boutiqueId, boutique.boutiqueNom, champs);
       setBoutique({
@@ -252,6 +271,42 @@ export default function GererAbonnement({
                 />
               </label>
             )}
+            <fieldset className="paiement-abonnement">
+              <legend>Inscrit au registre des abonnements si la formule ou la date change</legend>
+              <label>
+                Nature
+                <select value={nature} onChange={(e) => setNature(e.target.value as typeof nature)}>
+                  <option value="paiement">Paiement reçu</option>
+                  <option value="offert">Offert (geste commercial)</option>
+                  <option value="ajustement">Correction de date</option>
+                </select>
+              </label>
+              {nature === "paiement" && (
+                <>
+                  <label>
+                    Montant reçu
+                    <input type="number" min={0} step="any" value={montant} onChange={(e) => setMontant(e.target.value)} />
+                  </label>
+                  <label>
+                    Payé par
+                    <select value={mode} onChange={(e) => setMode(e.target.value)}>
+                      <option value="">—</option>
+                      <option value="wave">Wave</option>
+                      <option value="orange_money">Orange Money</option>
+                      <option value="mtn">MTN Mobile Money</option>
+                      <option value="moov">Moov Money</option>
+                      <option value="especes">Espèces</option>
+                      <option value="banque">Banque</option>
+                      <option value="autre">Autre</option>
+                    </select>
+                  </label>
+                  <label>
+                    Référence de la transaction
+                    <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="ex. MP2410…" />
+                  </label>
+                </>
+              )}
+            </fieldset>
             {!masquerSynchro && (
               <label>
                 <input

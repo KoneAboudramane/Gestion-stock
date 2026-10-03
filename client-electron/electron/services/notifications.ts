@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { executer, tousLesResultats, unResultat } from "../db/helpers";
 import { sauvegarder } from "../db/index";
+import { DELAI_GRACE_JOURS, obtenirEtatAbonnement } from "./abonnement";
 import { echeancesEnCours } from "./achats";
 import { echeancesCreditsEnCours } from "./clients";
 import { produitsDormants } from "./rapports";
@@ -20,7 +21,11 @@ export type TypeNotification =
   | "echeance_proche"
   | "echeance_retard"
   | "credit_proche"
-  | "credit_retard";
+  | "credit_retard"
+  | "commande_proche"
+  | "commande_retard"
+  | "abonnement_proche"
+  | "abonnement_expire";
 
 const FENETRE_ANTI_DOUBLON_HEURES = 24;
 
@@ -244,6 +249,47 @@ export function genererAlertesDestockage(boutiqueId: string): string[] {
       );
     }
   }
+  // Commandes clients : livraison prévue aujourd'hui ou demain, puis en retard.
+  const commandesAlertees = new Set(
+    tousLesResultats<{ cle: string }>(
+      `SELECT type || ':' || reference_id as cle FROM notifications
+       WHERE boutique_id = ? AND type IN ('commande_proche', 'commande_retard') AND supprime = 0`,
+      [boutiqueId],
+    ).map((n) => n.cle),
+  );
+  const jourAujourdhui = jourLocal(aujourdhui);
+  const lendemain = new Date(aujourdhui);
+  lendemain.setDate(lendemain.getDate() + 1);
+  for (const c of tousLesResultats<{ id: string; numero: string; clientNom: string; date: string }>(
+    `SELECT c.id as id, c.numero as numero, cl.nom as clientNom, c.date_livraison_prevue as date
+     FROM commandes_client c JOIN clients cl ON cl.id = c.client_id
+     WHERE c.boutique_id = ? AND c.supprime = 0 AND c.statut IN ('en_attente', 'prete', 'partielle')
+       AND c.date_livraison_prevue IS NOT NULL AND c.date_livraison_prevue != '' AND c.date_livraison_prevue <= ?`,
+    [boutiqueId, jourLocal(lendemain)],
+  )) {
+    const date = new Date(`${c.date}T00:00:00`).toLocaleDateString("fr-FR");
+    if (c.date < jourAujourdhui && !commandesAlertees.has(`commande_retard:${c.id}`)) {
+      idsCrees.push(
+        insererAlerte(
+          boutiqueId,
+          "commande_retard",
+          `Commande en retard : ${c.clientNom} attend sa commande ${c.numero} depuis le ${date}. Clients → Commandes clients.`,
+          "ventes.CommandeClient",
+          c.id,
+        ),
+      );
+    } else if (c.date >= jourAujourdhui && !commandesAlertees.has(`commande_proche:${c.id}`)) {
+      idsCrees.push(
+        insererAlerte(
+          boutiqueId,
+          "commande_proche",
+          `Livraison ${c.date === jourAujourdhui ? "aujourd'hui" : "demain"} : commande ${c.numero} de ${c.clientNom}. Clients → Commandes clients.`,
+          "ventes.CommandeClient",
+          c.id,
+        ),
+      );
+    }
+  }
   if (idsCrees.length > 0) sauvegarder();
   return idsCrees;
 }
@@ -323,4 +369,37 @@ export function marquerNotificationsLues(boutiqueId: string, depotId?: string): 
   }
   executer(`UPDATE notifications SET lu = 1 WHERE ${conditions.join(" AND ")}`, parametres);
   sauvegarder();
+}
+
+/**
+ * Fin d'abonnement (voir abonnement.ts) : une alerte à J-7, une à J-3 et une à
+ * l'expiration — jamais deux fois pour la même étape, même si l'appli est
+ * ouverte plusieurs fois ou sur plusieurs postes (les alertes se synchronisent).
+ */
+export function genererAlertesAbonnement(boutiqueId: string): string[] {
+  const etat = obtenirEtatAbonnement(boutiqueId);
+  if (!etat.dateExpiration || etat.niveau === "ok") return [];
+  const expiration = new Date(etat.dateExpiration).getTime();
+  const date = (iso: string | number) => new Date(iso).toLocaleDateString("fr-FR");
+  const expire = etat.niveau === "grace" || etat.niveau === "bloque";
+  const type: TypeNotification = expire ? "abonnement_expire" : "abonnement_proche";
+  const debutEtape = new Date(expiration - (expire ? 0 : (etat.joursRestants ?? 0) <= 3 ? 3 : 7) * 86_400_000).toISOString();
+  const dejaAlertee = unResultat<{ n: number }>(
+    "SELECT COUNT(*) as n FROM notifications WHERE boutique_id = ? AND type = ? AND date_creation >= ? AND supprime = 0",
+    [boutiqueId, type, debutEtape],
+  );
+  if (Number(dejaAlertee?.n ?? 0) > 0) return [];
+
+  const jours = etat.joursRestants ?? 0;
+  const quand = jours <= 0 ? "aujourd'hui" : jours === 1 ? "demain" : `dans ${jours} jours`;
+  const message = expire
+    ? `Abonnement expiré le ${date(expiration)}. ` +
+      (etat.niveau === "grace"
+        ? `La vente reste possible jusqu'au ${date(etat.finGrace!)} (délai de grâce de ${DELAI_GRACE_JOURS} jours), puis elle sera bloquée.`
+        : "La vente est bloquée ; vos données restent consultables.") +
+      " Renouvelez l'abonnement."
+    : `L'abonnement de la boutique se termine le ${date(expiration)} (${quand}). Pensez à le renouveler pour continuer à vendre sans interruption.`;
+  const id = insererAlerte(boutiqueId, type, message, "comptes.Boutique", boutiqueId);
+  sauvegarder();
+  return [id];
 }

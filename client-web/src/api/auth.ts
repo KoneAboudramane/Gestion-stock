@@ -17,6 +17,7 @@ import {
   extraireMessageErreur,
   type ResultatEcriture,
 } from "./transport";
+import { memoriserAbonnementBoutique } from "../services/abonnement";
 
 export interface Session {
   accessToken: string;
@@ -33,6 +34,8 @@ export interface Session {
   // comptes.Boutique.synchro_autorisee côté backend) — certains commerçants
   // ne veulent pas que leurs données quittent leur poste.
   synchroAutorisee: boolean;
+  /** Abréviation dans les numéros de ses documents (VTE-20261002-AKO-0001, voir services/numerotation.ts). */
+  codeVendeur?: string;
 }
 
 function decoderPayloadJWT(token: string): Record<string, any> {
@@ -104,6 +107,7 @@ async function connexionBrute(username: string, password: string): Promise<Sessi
     depotId: payload.depot_id ?? null,
     depotNom: payload.depot_nom ?? null,
     synchroAutorisee: payload.synchro_autorisee ?? false,
+    codeVendeur: payload.code_vendeur || undefined,
   };
   definirJetons({ accessToken: session.accessToken, refreshToken: session.refreshToken });
   await enregistrerIdentifiantLocal(username, password, session);
@@ -142,6 +146,10 @@ export async function rafraichirPermissions(session: Session): Promise<Session |
   const reponse = await apiFetch("/auth/moi/");
   if (!reponse.ok) return null;
   const donnees = await reponse.json();
+  if (donnees.boutique) {
+    // Formule et échéance écrites sur le poste même sans synchro (voir services/abonnement.ts).
+    await memoriserAbonnementBoutique(donnees.boutique).catch(() => {});
+  }
   return {
     ...session,
     role: donnees.role?.nom ?? null,
@@ -149,6 +157,7 @@ export async function rafraichirPermissions(session: Session): Promise<Session |
     depotId: donnees.depot_id ?? null,
     depotNom: donnees.depot_nom ?? null,
     synchroAutorisee: donnees.boutique?.synchro_autorisee ?? false,
+    codeVendeur: donnees.code_vendeur || session.codeVendeur,
   };
 }
 

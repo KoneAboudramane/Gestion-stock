@@ -47,7 +47,7 @@ describe("ventes.creerVente (miroir de ventes/services.py::creer_vente)", () => 
       paiements: [{ mode: "especes", montant: 1050 }],
     });
 
-    expect(resultat.numero).toMatch(/^VTE-\d{8}-0001$/);
+    expect(resultat.numero).toMatch(/^VTE-\d{8}-[A-Z0-9]+-0001$/);
     expect(resultat.totalNet).toBe(1050);
 
     const ligne = unResultat<{ cout_unitaire: number }>(

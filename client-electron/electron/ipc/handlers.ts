@@ -1,5 +1,6 @@
 import { app, ipcMain, shell } from "electron";
 
+import * as abonnement from "../services/abonnement";
 import * as abonnementAdmin from "../services/abonnementAdmin";
 import * as achats from "../services/achats";
 import * as alertesSysteme from "../services/alertesSysteme";
@@ -8,6 +9,7 @@ import * as clients from "../services/clients";
 import * as comptabilite from "../services/comptabilite";
 import * as comptes from "../services/comptes";
 import * as comptesTiers from "../services/comptesTiers";
+import * as commandesClient from "../services/commandesClient";
 import * as exportService from "../services/export";
 import * as inscriptionLocale from "../services/inscriptionLocale";
 import * as messages from "../services/messages";
@@ -124,6 +126,7 @@ export function enregistrerLesHandlers(): void {
     auth.listerPatrons(usernameAdmin, passwordAdmin),
   );
 
+  ipcMain.handle("abonnement:etat", (_evt, boutiqueId: string) => abonnement.obtenirEtatAbonnement(boutiqueId));
   ipcMain.handle("admin:boutiqueLocale", () => abonnementAdmin.obtenirBoutiqueLocale());
   ipcMain.handle("admin:abonnementEnAttente", () => abonnementAdmin.lireAbonnementEnAttente());
   ipcMain.handle(
@@ -360,6 +363,51 @@ export function enregistrerLesHandlers(): void {
     if (resultat.succes) signalerRuptureEnSecurite(params.depotId);
     return resultat;
   });
+
+  ipcMain.handle("entreesStock:achatRapide", (_evt, params: achats.ParametresAchatRapide) =>
+    executerEnSecurite(() => achats.achatRapide(params)),
+  );
+  ipcMain.handle("entreesStock:ouverture", (_evt, params: stock.ParametresEntreeStock) =>
+    executerEnSecurite(() => stock.entreeStockOuverture(params)),
+  );
+  ipcMain.handle("entreesStock:fabrication", (_evt, params: stock.ParametresEntreeStock) =>
+    executerEnSecurite(() => stock.entreeFabrication(params)),
+  );
+  ipcMain.handle("entreesStock:don", (_evt, params: stock.ParametresEntreeStock) =>
+    executerEnSecurite(() => stock.entreeDon(params)),
+  );
+  ipcMain.handle("entreesStock:articlesSansStock", (_evt, boutiqueId: string) =>
+    stock.articlesSansStock(boutiqueId),
+  );
+
+  ipcMain.handle("commandesClient:lister", (_evt, boutiqueId: string) => commandesClient.listerCommandesClient(boutiqueId));
+  ipcMain.handle("commandesClient:obtenir", (_evt, id: string) => commandesClient.obtenirCommandeClient(id));
+  ipcMain.handle("commandesClient:creer", (_evt, params: commandesClient.ParametresCommandeClient) =>
+    executerEnSecurite(() => commandesClient.creerCommandeClient(params)),
+  );
+  ipcMain.handle("commandesClient:modifier", (_evt, id: string, champs: commandesClient.ModificationCommandeClient) =>
+    executerEnSecurite(() => commandesClient.modifierCommandeClient(id, champs)),
+  );
+  ipcMain.handle("commandesClient:marquerPrete", (_evt, id: string, prete: boolean) =>
+    executerEnSecurite(() => commandesClient.marquerCommandePrete(id, prete)),
+  );
+  ipcMain.handle("commandesClient:annuler", (_evt, id: string) =>
+    executerEnSecurite(() => commandesClient.annulerCommandeClient(id)),
+  );
+  ipcMain.handle("commandesClient:verserAvance", (_evt, id: string, op: comptesTiers.OperationCompte) =>
+    executerEnSecurite(() => commandesClient.verserAvanceCommande(id, op)),
+  );
+  ipcMain.handle("commandesClient:livrer", (_evt, params: commandesClient.ParametresLivraison) => {
+    const resultat = executerEnSecurite(() => commandesClient.livrerCommandeClient(params));
+    if (resultat.succes) {
+      const depot = commandesClient.obtenirCommandeClient(params.commandeId)?.depotId;
+      if (depot) signalerRuptureEnSecurite(depot);
+    }
+    return resultat;
+  });
+  ipcMain.handle("commandesClient:reservations", (_evt, boutiqueId: string, depotId?: string) =>
+    commandesClient.reservations(boutiqueId, depotId),
+  );
 
   ipcMain.handle("transferts:creer", (_evt, params: stock.ParametresTransfert) => {
     const resultat = executerEnSecurite(() => stock.transfererStock(params));
@@ -743,6 +791,25 @@ export function enregistrerLesHandlers(): void {
     (_evt, session: auth.Session, id: string, permissions: Record<string, boolean>) =>
       executerEnSecuriteAsync(() => comptes.modifierRole(session, id, permissions)),
   );
+  ipcMain.handle(
+    "comptes:creerRole",
+    (_evt, session: auth.Session, nom: string, permissions: Record<string, boolean>) =>
+      executerEnSecuriteAsync(() => comptes.creerRole(session, nom, permissions)),
+  );
+  ipcMain.handle("comptes:renommerRole", (_evt, session: auth.Session, id: string, nom: string) =>
+    executerEnSecuriteAsync(() => comptes.renommerRole(session, id, nom)),
+  );
+  ipcMain.handle("comptes:supprimerRole", (_evt, session: auth.Session, id: string) =>
+    executerEnSecuriteAsync(() => comptes.supprimerRole(session, id)),
+  );
+  ipcMain.handle("comptes:abonnementBoutique", (_evt, session: auth.Session) =>
+    executerEnSecuriteAsync(() => comptes.abonnementBoutique(session)),
+  );
+  ipcMain.handle(
+    "comptes:declarerPaiementAbonnement",
+    (_evt, session: auth.Session, declaration: comptes.DeclarationPaiementAbonnement) =>
+      executerEnSecuriteAsync(() => comptes.declarerPaiementAbonnement(session, declaration)),
+  );
   ipcMain.handle("comptes:listerUtilisateurs", (_evt, session: auth.Session) =>
     executerEnSecuriteAsync(() => comptes.listerUtilisateurs(session)),
   );
@@ -775,6 +842,9 @@ export function enregistrerLesHandlers(): void {
   );
   ipcMain.handle("notifications:genererAlertesDestockage", (_evt, boutiqueId: string) =>
     executerEnSecurite(() => notifications.genererAlertesDestockage(boutiqueId)),
+  );
+  ipcMain.handle("notifications:genererAlertesAbonnement", (_evt, boutiqueId: string) =>
+    executerEnSecurite(() => notifications.genererAlertesAbonnement(boutiqueId)),
   );
   ipcMain.handle("notifications:genererAlertesRupture", (_evt, boutiqueId: string) =>
     executerEnSecurite(() => notifications.genererAlertesRupture(boutiqueId)),

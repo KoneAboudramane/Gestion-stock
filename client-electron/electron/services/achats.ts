@@ -4,6 +4,7 @@ import { dansUneTransaction, executer, tousLesResultats, unResultat } from "../d
 import { calculerEcheances, erreurTranches, type EcheanceDetail, type StatutEcheance } from "./echeancier";
 export type { EcheanceDetail, StatutEcheance } from "./echeancier";
 import { sauvegarder } from "../db/index";
+import { prochainNumero } from "./numerotation";
 import { appliquerMouvement } from "./stock";
 import { ajouterMouvementCompteFournisseur, soldeCompteFournisseur } from "./comptesTiers";
 import { enregistrerMouvement } from "./tresorerie";
@@ -164,18 +165,6 @@ export function supprimerFournisseur(id: string): void {
     id,
   ]);
   sauvegarder();
-}
-
-// --- Numérotation ---
-
-function genererNumeroCommande(boutiqueId: string): string {
-  const isoJour = new Date().toISOString().slice(0, 10);
-  const resultat = unResultat<{ n: number }>(
-    "SELECT COUNT(*) as n FROM commandes_achat WHERE boutique_id = ? AND date_creation BETWEEN ? AND ?",
-    [boutiqueId, `${isoJour}T00:00:00.000Z`, `${isoJour}T23:59:59.999Z`],
-  );
-  const compteur = (resultat ? Number(resultat.n) : 0) + 1;
-  return `CMD-${isoJour.replace(/-/g, "")}-${String(compteur).padStart(4, "0")}`;
 }
 
 // --- Commandes ---
@@ -388,38 +377,48 @@ function noterEtape(
   );
 }
 
-export function creerCommande(params: ParametresCommande): { id: string; numero: string; total: number } {
+/** Écrit la commande et ses lignes (à appeler dans une transaction). */
+function insererCommande(
+  params: ParametresCommande,
+  detailEtape?: string,
+): { id: string; numero: string; total: number } {
   const { boutiqueId, fournisseurId, utilisateurId, statut, lignes } = params;
   if (lignes.length === 0) {
     throw new ErreurAchat("Une commande doit contenir au moins une ligne.");
   }
 
   const { lignes: lignesCalculees, total } = calculerLignesEtTotal(lignes);
+  const numero = prochainNumero("commandes_achat", "CMD", boutiqueId, utilisateurId);
+  const commandeId = randomUUID();
+  const maintenant = new Date().toISOString();
 
-  const resultat = dansUneTransaction(() => {
-    const numero = genererNumeroCommande(boutiqueId);
-    const commandeId = randomUUID();
-    const maintenant = new Date().toISOString();
+  executer(
+    `INSERT INTO commandes_achat
+       (id, boutique_id, fournisseur_id, utilisateur_id, numero, statut, total, date_creation, date_modification)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [commandeId, boutiqueId, fournisseurId, utilisateurId, numero, statut, total, maintenant, maintenant],
+  );
 
+  for (const ligne of lignesCalculees) {
     executer(
-      `INSERT INTO commandes_achat
-         (id, boutique_id, fournisseur_id, utilisateur_id, numero, statut, total, date_creation, date_modification)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [commandeId, boutiqueId, fournisseurId, utilisateurId, numero, statut, total, maintenant, maintenant],
+      `INSERT INTO lignes_achat (id, commande_id, variante_id, quantite, prix_achat, sous_total, date_creation, date_modification)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [randomUUID(), commandeId, ligne.varianteId, ligne.quantite, ligne.prixAchat, ligne.sousTotal, maintenant, maintenant],
     );
+  }
+  noterEtape(
+    commandeId,
+    "creee",
+    utilisateurId,
+    detailEtape ?? (statut === "commandee" ? "Directement commandée" : "En brouillon"),
+    total,
+  );
 
-    for (const ligne of lignesCalculees) {
-      executer(
-        `INSERT INTO lignes_achat (id, commande_id, variante_id, quantite, prix_achat, sous_total, date_creation, date_modification)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [randomUUID(), commandeId, ligne.varianteId, ligne.quantite, ligne.prixAchat, ligne.sousTotal, maintenant, maintenant],
-      );
-    }
-    noterEtape(commandeId, "creee", utilisateurId, statut === "commandee" ? "Directement commandée" : "En brouillon", total);
+  return { id: commandeId, numero, total };
+}
 
-    return { id: commandeId, numero, total };
-  });
-
+export function creerCommande(params: ParametresCommande): { id: string; numero: string; total: number } {
+  const resultat = dansUneTransaction(() => insererCommande(params));
   sauvegarder();
   return resultat;
 }
@@ -531,7 +530,8 @@ export interface ParametresReception {
  * plusieurs livraisons). La commande ne repasse au statut "recue" que
  * lorsque toutes ses lignes ont atteint leur quantité commandée.
  */
-export function receptionnerCommande(params: ParametresReception): string {
+/** Corps de la réception, sans transaction ni sauvegarde (voir receptionnerCommande, achatRapide). */
+function receptionnerSansTransaction(params: ParametresReception): string {
   const { commandeId, depotId, utilisateurId, montantDejaPaye = 0, lignes: lignesEntree } = params;
   const modePaiement = montantDejaPaye > 0 ? (params.modePaiement ?? "") : "";
   const operateurPaiement = modePaiement === "mobile_money" ? (params.operateurPaiement ?? "") : "";
@@ -579,152 +579,238 @@ export function receptionnerCommande(params: ParametresReception): string {
 
   const receptionId = randomUUID();
 
-  dansUneTransaction(() => {
-    const maintenant = new Date().toISOString();
+  const maintenant = new Date().toISOString();
 
-    for (const donnee of aReceptionner) {
-      const ligne = ligneParVariante.get(donnee.varianteId)!;
-      const prixAchatReception = Number(ligne.prix_achat);
-      let motif = `Réception ${commande.numero}`;
+  for (const donnee of aReceptionner) {
+    const ligne = ligneParVariante.get(donnee.varianteId)!;
+    const prixAchatReception = Number(ligne.prix_achat);
+    let motif = `Réception ${commande.numero}`;
 
-      if (donnee.prixVente !== undefined) {
-        const variante = unResultat<{ prix_achat: number; prix_vente: number }>(
-          "SELECT prix_achat, prix_vente FROM variantes WHERE id = ?",
-          [ligne.variante_id],
-        );
-        if (variante) {
-          // CUMP (coût unitaire moyen pondéré) : on pondère le prix d'achat existant par le
-          // stock encore présent plutôt que de l'écraser par le dernier prix reçu — sinon la
-          // valorisation du stock et le bénéfice des ventes seraient faussés dès que le prix
-          // d'achat varie d'une commande à l'autre. Sans stock restant, rien à pondérer : on
-          // repart simplement du prix de cette réception.
-          const stockActuel = Number(
-            unResultat<{ total: number }>("SELECT COALESCE(SUM(quantite), 0) as total FROM stocks WHERE variante_id = ?", [
-              ligne.variante_id,
-            ])?.total ?? 0,
-          );
-          const ancienPrixAchat = Number(variante.prix_achat);
-          const nouveauPrixAchat =
-            stockActuel > 0
-              ? Math.round(
-                  (stockActuel * ancienPrixAchat + donnee.quantite * prixAchatReception) / (stockActuel + donnee.quantite),
-                )
-              : prixAchatReception;
-
-          if (donnee.prixVente < nouveauPrixAchat) {
-            throw new ErreurAchat("Le prix de vente ne peut pas être inférieur au prix d'achat (CUMP).");
-          }
-
-          motif += ` (Prix achat : ${ancienPrixAchat} → ${nouveauPrixAchat} FCFA [CUMP], Prix vente : ${Number(variante.prix_vente)} → ${donnee.prixVente} FCFA)`;
-          executer(
-            "UPDATE variantes SET prix_achat = ?, prix_vente = ?, synchronise = 0, date_modification = ? WHERE id = ?",
-            [nouveauPrixAchat, donnee.prixVente, maintenant, ligne.variante_id],
-          );
-        }
-      }
-
-      appliquerMouvement({
-        varianteId: ligne.variante_id,
-        depotId,
-        type: "entree",
-        quantite: donnee.quantite,
-        motif,
-        utilisateurId,
-        // Référencé sur la réception (pas la commande) pour pouvoir
-        // retrouver ce qui a été livré à chaque livraison, voir
-        // listerReceptionsCommande.
-        referenceType: "achats.Reception",
-        referenceId: receptionId,
-      });
-
-      executer(
-        "UPDATE lignes_achat SET quantite_recue = quantite_recue + ?, synchronise = 0, date_modification = ? WHERE id = ?",
-        [donnee.quantite, maintenant, ligne.id],
+    if (donnee.prixVente !== undefined) {
+      const variante = unResultat<{ prix_achat: number; prix_vente: number }>(
+        "SELECT prix_achat, prix_vente FROM variantes WHERE id = ?",
+        [ligne.variante_id],
       );
+      if (variante) {
+        // CUMP (coût unitaire moyen pondéré) : on pondère le prix d'achat existant par le
+        // stock encore présent plutôt que de l'écraser par le dernier prix reçu — sinon la
+        // valorisation du stock et le bénéfice des ventes seraient faussés dès que le prix
+        // d'achat varie d'une commande à l'autre. Sans stock restant, rien à pondérer : on
+        // repart simplement du prix de cette réception.
+        const stockActuel = Number(
+          unResultat<{ total: number }>("SELECT COALESCE(SUM(quantite), 0) as total FROM stocks WHERE variante_id = ?", [
+            ligne.variante_id,
+          ])?.total ?? 0,
+        );
+        const ancienPrixAchat = Number(variante.prix_achat);
+        const nouveauPrixAchat =
+          stockActuel > 0
+            ? Math.round(
+                (stockActuel * ancienPrixAchat + donnee.quantite * prixAchatReception) / (stockActuel + donnee.quantite),
+              )
+            : prixAchatReception;
+
+        if (donnee.prixVente < nouveauPrixAchat) {
+          throw new ErreurAchat("Le prix de vente ne peut pas être inférieur au prix d'achat (CUMP).");
+        }
+
+        motif += ` (Prix achat : ${ancienPrixAchat} → ${nouveauPrixAchat} FCFA [CUMP], Prix vente : ${Number(variante.prix_vente)} → ${donnee.prixVente} FCFA)`;
+        executer(
+          "UPDATE variantes SET prix_achat = ?, prix_vente = ?, synchronise = 0, date_modification = ? WHERE id = ?",
+          [nouveauPrixAchat, donnee.prixVente, maintenant, ligne.variante_id],
+        );
+      }
     }
+
+    appliquerMouvement({
+      varianteId: ligne.variante_id,
+      depotId,
+      type: "entree",
+      quantite: donnee.quantite,
+      motif,
+      utilisateurId,
+      // Référencé sur la réception (pas la commande) pour pouvoir
+      // retrouver ce qui a été livré à chaque livraison, voir
+      // listerReceptionsCommande.
+      referenceType: "achats.Reception",
+      referenceId: receptionId,
+    });
 
     executer(
-      `INSERT INTO receptions
-         (id, commande_id, depot_id, utilisateur_id, valeur_recue, montant_paye, mode_paiement, operateur_paiement,
-          date_creation, date_modification)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [receptionId, commandeId, depotId, utilisateurId, valeurRecue, montantDejaPaye, modePaiement, operateurPaiement, maintenant, maintenant],
+      "UPDATE lignes_achat SET quantite_recue = quantite_recue + ?, synchronise = 0, date_modification = ? WHERE id = ?",
+      [donnee.quantite, maintenant, ligne.id],
     );
-    // Payé en espèces à la livraison : l'argent sort de la caisse du dépôt
-    // (un achat de marchandise, pas une dépense : il n'apparaît pas dans Dépenses).
-    if (montantDejaPaye > 0 && modePaiement === "especes") {
-      enregistrerMouvement({
-        depotId,
-        type: "sortie",
-        categorie: "paiement_fournisseur",
-        montant: montantDejaPaye,
-        motif: `Paiement réception ${commande.numero}`,
-        utilisateurId,
-        referenceType: "achats.Reception",
-        referenceId: receptionId,
-      });
-    }
-    // Payé avec ce que le fournisseur nous doit déjà (avance, avoir).
-    if (montantDejaPaye > 0 && modePaiement === "compte_fournisseur") {
-      ajouterMouvementCompteFournisseur({
-        fournisseurId: commande.fournisseur_id,
-        type: "utilisation",
-        montant: montantDejaPaye,
-        receptionId,
-        depotId,
-        utilisateurId,
-        motif: `Réception ${commande.numero}`,
-      });
-    }
+  }
 
-    const solde = valeurRecue - montantDejaPaye;
-    if (solde > 0) {
-      executer(
-        `INSERT INTO dettes_fournisseur
-           (id, fournisseur_id, commande_id, reception_id, montant, montant_paye, solde, statut, date_creation, date_modification)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          randomUUID(),
-          commande.fournisseur_id,
-          commandeId,
-          receptionId,
-          valeurRecue,
-          montantDejaPaye,
-          solde,
-          "en_cours",
-          maintenant,
-          maintenant,
-        ],
-      );
-    }
-
-    const totalementRecue = tousLesResultats<{ n: number }>(
-      "SELECT COUNT(*) as n FROM lignes_achat WHERE commande_id = ? AND quantite_recue < quantite",
-      [commandeId],
-    )[0]?.n === 0;
-    if (totalementRecue) {
-      executer(
-        "UPDATE commandes_achat SET statut = 'recue', synchronise = 0, date_modification = ? WHERE id = ?",
-        [maintenant, commandeId],
-      );
-    }
-    const depotNom = unResultat<{ nom: string }>("SELECT nom FROM depots WHERE id = ?", [depotId])?.nom ?? "";
-    noterEtape(
-      commandeId,
-      "reception",
+  executer(
+    `INSERT INTO receptions
+       (id, commande_id, depot_id, utilisateur_id, valeur_recue, montant_paye, mode_paiement, operateur_paiement,
+        date_creation, date_modification)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [receptionId, commandeId, depotId, utilisateurId, valeurRecue, montantDejaPaye, modePaiement, operateurPaiement, maintenant, maintenant],
+  );
+  // Payé en espèces à la livraison : l'argent sort de la caisse du dépôt
+  // (un achat de marchandise, pas une dépense : il n'apparaît pas dans Dépenses).
+  if (montantDejaPaye > 0 && modePaiement === "especes") {
+    enregistrerMouvement({
+      depotId,
+      type: "sortie",
+      categorie: "paiement_fournisseur",
+      montant: montantDejaPaye,
+      motif: `Paiement réception ${commande.numero}`,
       utilisateurId,
-      `${texteArticles(aReceptionner.reduce((t, l) => t + l.quantite, 0))} reçus au dépôt ${depotNom} · ` +
-        (totalementRecue ? "commande complète" : "reçue en partie"),
-      valeurRecue,
+      referenceType: "achats.Reception",
+      referenceId: receptionId,
+    });
+  }
+  // Payé avec ce que le fournisseur nous doit déjà (avance, avoir).
+  if (montantDejaPaye > 0 && modePaiement === "compte_fournisseur") {
+    ajouterMouvementCompteFournisseur({
+      fournisseurId: commande.fournisseur_id,
+      type: "utilisation",
+      montant: montantDejaPaye,
       receptionId,
+      depotId,
+      utilisateurId,
+      motif: `Réception ${commande.numero}`,
+    });
+  }
+
+  const solde = valeurRecue - montantDejaPaye;
+  if (solde > 0) {
+    executer(
+      `INSERT INTO dettes_fournisseur
+         (id, fournisseur_id, commande_id, reception_id, montant, montant_paye, solde, statut, date_creation, date_modification)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        randomUUID(),
+        commande.fournisseur_id,
+        commandeId,
+        receptionId,
+        valeurRecue,
+        montantDejaPaye,
+        solde,
+        "en_cours",
+        maintenant,
+        maintenant,
+      ],
     );
-    if (montantDejaPaye > 0) {
-      noterEtape(commandeId, "paiement", utilisateurId, "Payé à la réception", montantDejaPaye, receptionId);
-    }
+  }
+
+  const totalementRecue = tousLesResultats<{ n: number }>(
+    "SELECT COUNT(*) as n FROM lignes_achat WHERE commande_id = ? AND quantite_recue < quantite",
+    [commandeId],
+  )[0]?.n === 0;
+  if (totalementRecue) {
+    executer(
+      "UPDATE commandes_achat SET statut = 'recue', synchronise = 0, date_modification = ? WHERE id = ?",
+      [maintenant, commandeId],
+    );
+  }
+  const depotNom = unResultat<{ nom: string }>("SELECT nom FROM depots WHERE id = ?", [depotId])?.nom ?? "";
+  noterEtape(
+    commandeId,
+    "reception",
+    utilisateurId,
+    `${texteArticles(aReceptionner.reduce((t, l) => t + l.quantite, 0))} reçus au dépôt ${depotNom} · ` +
+      (totalementRecue ? "commande complète" : "reçue en partie"),
+    valeurRecue,
+    receptionId,
+  );
+  if (montantDejaPaye > 0) {
+    noterEtape(commandeId, "paiement", utilisateurId, "Payé à la réception", montantDejaPaye, receptionId);
+  }
+
+  return receptionId;
+}
+
+export function receptionnerCommande(params: ParametresReception): string {
+  const receptionId = dansUneTransaction(() => receptionnerSansTransaction(params));
+  sauvegarder();
+  return receptionId;
+}
+
+// --- Achat rapide (carte « Entrée de stock » de la page Stock) ---
+
+/** Fournisseur par défaut d'un achat rapide sans fournisseur choisi. */
+export const NOM_FOURNISSEUR_DIVERS = "Divers";
+
+/** Retrouve (ou crée, sans sauvegarder) le fournisseur « Divers » de la boutique. */
+function fournisseurDivers(boutiqueId: string): string {
+  const cle = cleNomFournisseur(NOM_FOURNISSEUR_DIVERS);
+  const existant = listerFournisseurs(boutiqueId).find((f) => cleNomFournisseur(f.nom) === cle);
+  if (existant) return existant.id;
+  const id = randomUUID();
+  const maintenant = new Date().toISOString();
+  executer(
+    `INSERT INTO fournisseurs (id, boutique_id, nom, telephone, adresse, contact, date_creation, date_modification)
+     VALUES (?, ?, ?, '', '', '', ?, ?)`,
+    [id, boutiqueId, NOM_FOURNISSEUR_DIVERS, maintenant, maintenant],
+  );
+  return id;
+}
+
+export interface LigneAchatRapide {
+  varianteId: string;
+  quantite: number;
+  prixAchat: number;
+  prixVente: number;
+}
+
+export interface ParametresAchatRapide {
+  boutiqueId: string;
+  depotId: string;
+  /** null : rattaché au fournisseur « Divers », créé au besoin. */
+  fournisseurId: string | null;
+  utilisateurId: string | null;
+  lignes: LigneAchatRapide[];
+  montantPaye: number;
+  modePaiement?: ParametresReception["modePaiement"];
+  operateurPaiement?: string;
+}
+
+/**
+ * Commande + réception complète en une seule fois, tout ou rien : la
+ * marchandise entre au dépôt avec son coût (CUMP), la caisse, la dette
+ * fournisseur et la comptabilité suivent exactement comme une réception
+ * faite depuis les Achats.
+ */
+export function achatRapide(params: ParametresAchatRapide): { commandeId: string; numero: string; total: number } {
+  const { boutiqueId, depotId, utilisateurId, lignes } = params;
+  if (lignes.length === 0) throw new ErreurAchat("Ajoutez au moins un article.");
+  if (new Set(lignes.map((l) => l.varianteId)).size !== lignes.length) {
+    throw new ErreurAchat("Un même article apparaît deux fois.");
+  }
+  if (lignes.some((l) => !(l.quantite > 0))) throw new ErreurAchat("Chaque quantité doit être supérieure à 0.");
+  if (lignes.some((l) => !(l.prixAchat >= 0))) throw new ErreurAchat("Indiquez le prix d'achat de chaque article.");
+
+  const resultat = dansUneTransaction(() => {
+    const fournisseurId = params.fournisseurId || fournisseurDivers(boutiqueId);
+    const commande = insererCommande(
+      {
+        boutiqueId,
+        fournisseurId,
+        utilisateurId,
+        statut: "commandee",
+        lignes: lignes.map((l) => ({ varianteId: l.varianteId, quantite: l.quantite, prixAchat: l.prixAchat })),
+      },
+      "Achat rapide (page Stock)",
+    );
+    receptionnerSansTransaction({
+      commandeId: commande.id,
+      depotId,
+      utilisateurId,
+      // Plafonné à la valeur exacte reçue (le total de la commande arrondit chaque ligne).
+      montantDejaPaye: Math.min(params.montantPaye, lignes.reduce((t, l) => t + l.quantite * l.prixAchat, 0)),
+      modePaiement: params.modePaiement,
+      operateurPaiement: params.operateurPaiement,
+      lignes: lignes.map((l) => ({ varianteId: l.varianteId, quantite: l.quantite, prixVente: l.prixVente })),
+    });
+    return { commandeId: commande.id, numero: commande.numero, total: commande.total };
   });
 
   sauvegarder();
-  return receptionId;
+  return resultat;
 }
 
 export interface LigneReceptionDetail {

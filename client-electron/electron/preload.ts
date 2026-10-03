@@ -34,6 +34,9 @@ contextBridge.exposeInMainWorld("api", {
     listerPatrons: (usernameAdmin: string, passwordAdmin: string) =>
       ipcRenderer.invoke("auth:listerPatrons", usernameAdmin, passwordAdmin),
   },
+  abonnement: {
+    etat: (boutiqueId: string) => ipcRenderer.invoke("abonnement:etat", boutiqueId),
+  },
   admin: {
     boutiqueLocale: () => ipcRenderer.invoke("admin:boutiqueLocale"),
     abonnementEnAttente: () => ipcRenderer.invoke("admin:abonnementEnAttente"),
@@ -145,6 +148,13 @@ contextBridge.exposeInMainWorld("api", {
     creer: (params: unknown) => ipcRenderer.invoke("mouvements:creer", params),
     creerEntreeProduction: (params: unknown) => ipcRenderer.invoke("mouvements:creerEntreeProduction", params),
   },
+  entreesStock: {
+    achatRapide: (params: unknown) => ipcRenderer.invoke("entreesStock:achatRapide", params),
+    ouverture: (params: unknown) => ipcRenderer.invoke("entreesStock:ouverture", params),
+    fabrication: (params: unknown) => ipcRenderer.invoke("entreesStock:fabrication", params),
+    don: (params: unknown) => ipcRenderer.invoke("entreesStock:don", params),
+    articlesSansStock: (boutiqueId: string) => ipcRenderer.invoke("entreesStock:articlesSansStock", boutiqueId),
+  },
   destockages: {
     lister: (boutiqueId: string) => ipcRenderer.invoke("destockages:lister", boutiqueId),
     demarrer: (params: unknown) => ipcRenderer.invoke("destockages:demarrer", params),
@@ -223,6 +233,18 @@ contextBridge.exposeInMainWorld("api", {
     payer: (id: string, montant: number, mode?: string, depotId?: string | null, utilisateurId?: string | null) =>
       ipcRenderer.invoke("dettes:payer", id, montant, mode, depotId, utilisateurId),
     listerPaiements: (detteId: string) => ipcRenderer.invoke("dettes:listerPaiements", detteId),
+  },
+  commandesClient: {
+    lister: (boutiqueId: string) => ipcRenderer.invoke("commandesClient:lister", boutiqueId),
+    obtenir: (id: string) => ipcRenderer.invoke("commandesClient:obtenir", id),
+    creer: (params: unknown) => ipcRenderer.invoke("commandesClient:creer", params),
+    modifier: (id: string, champs: unknown) => ipcRenderer.invoke("commandesClient:modifier", id, champs),
+    marquerPrete: (id: string, prete: boolean) => ipcRenderer.invoke("commandesClient:marquerPrete", id, prete),
+    annuler: (id: string) => ipcRenderer.invoke("commandesClient:annuler", id),
+    verserAvance: (id: string, op: unknown) => ipcRenderer.invoke("commandesClient:verserAvance", id, op),
+    livrer: (params: unknown) => ipcRenderer.invoke("commandesClient:livrer", params),
+    reservations: (boutiqueId: string, depotId?: string) =>
+      ipcRenderer.invoke("commandesClient:reservations", boutiqueId, depotId),
   },
   comptesTiers: {
     releveClient: (clientId: string) => ipcRenderer.invoke("comptesTiers:releveClient", clientId),
@@ -331,6 +353,14 @@ contextBridge.exposeInMainWorld("api", {
     listerRoles: (session: unknown) => ipcRenderer.invoke("comptes:listerRoles", session),
     modifierRole: (session: unknown, id: string, permissions: unknown) =>
       ipcRenderer.invoke("comptes:modifierRole", session, id, permissions),
+    creerRole: (session: unknown, nom: string, permissions: unknown) =>
+      ipcRenderer.invoke("comptes:creerRole", session, nom, permissions),
+    renommerRole: (session: unknown, id: string, nom: string) =>
+      ipcRenderer.invoke("comptes:renommerRole", session, id, nom),
+    supprimerRole: (session: unknown, id: string) => ipcRenderer.invoke("comptes:supprimerRole", session, id),
+    abonnementBoutique: (session: unknown) => ipcRenderer.invoke("comptes:abonnementBoutique", session),
+    declarerPaiementAbonnement: (session: unknown, declaration: unknown) =>
+      ipcRenderer.invoke("comptes:declarerPaiementAbonnement", session, declaration),
     listerUtilisateurs: (session: unknown) => ipcRenderer.invoke("comptes:listerUtilisateurs", session),
     annuaire: (session: unknown) => ipcRenderer.invoke("comptes:annuaire", session),
     creerUtilisateur: (session: unknown, params: unknown) =>
@@ -347,6 +377,8 @@ contextBridge.exposeInMainWorld("api", {
   notifications: {
     lister: (boutiqueId: string, filtres?: unknown) => ipcRenderer.invoke("notifications:lister", boutiqueId, filtres),
     genererAlertesDestockage: (boutiqueId: string) => ipcRenderer.invoke("notifications:genererAlertesDestockage", boutiqueId),
+    genererAlertesAbonnement: (boutiqueId: string) =>
+      ipcRenderer.invoke("notifications:genererAlertesAbonnement", boutiqueId),
     genererAlertesRupture: (boutiqueId: string) =>
       ipcRenderer.invoke("notifications:genererAlertesRupture", boutiqueId),
     compterNonLues: (boutiqueId: string, depotId?: string) =>

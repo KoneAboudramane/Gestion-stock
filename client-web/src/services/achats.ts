@@ -17,6 +17,7 @@ import type {
 import { appliquerMouvement } from "./stock";
 import { ajouterMouvementCompteFournisseur, soldeCompteFournisseur } from "./comptesTiers";
 import { enregistrerMouvement } from "./tresorerie";
+import { prochainNumero } from "./numerotation";
 
 /**
  * Port navigateur de client-electron/electron/services/achats.ts : une
@@ -171,36 +172,40 @@ export interface VarianteAchat {
   produitId: string;
   produitNom: string;
   reference: string;
+  codeBarres: string;
   prixAchat: number;
+  prixVente: number;
 }
 
+/** Recherche par nom, référence ou code-barres exact (douchette). */
 export async function rechercherVariantesAchat(boutiqueId: string, terme: string): Promise<VarianteAchat[]> {
-  const termeNormalise = terme.trim().toLowerCase();
+  const brut = terme.trim();
+  const termeNormalise = brut.toLowerCase();
   if (!termeNormalise) return [];
   const db = await ouvrirBaseDeDonnees();
-  const produits = (await db.getAllFromIndex("produits", "boutique_id", boutiqueId)).filter(
-    (p) => !p.supprime && p.nom.toLowerCase().includes(termeNormalise),
-  );
+  const produits = (await db.getAllFromIndex("produits", "boutique_id", boutiqueId)).filter((p) => !p.supprime);
   const resultat: VarianteAchat[] = [];
   for (const p of produits) {
+    const nomCorrespond = p.nom.toLowerCase().includes(termeNormalise);
     const variantes = (await db.getAllFromIndex("variantes", "produit_id", p.id)).filter((v) => !v.supprime);
     for (const v of variantes) {
-      resultat.push({ id: v.id, produitId: p.id, produitNom: p.nom, reference: v.reference, prixAchat: v.prix_achat });
+      const correspond =
+        nomCorrespond ||
+        (v.reference ?? "").toLowerCase().includes(termeNormalise) ||
+        (!!v.code_barres && v.code_barres === brut);
+      if (!correspond) continue;
+      resultat.push({
+        id: v.id,
+        produitId: p.id,
+        produitNom: p.nom,
+        reference: v.reference,
+        codeBarres: v.code_barres ?? "",
+        prixAchat: v.prix_achat,
+        prixVente: v.prix_vente,
+      });
     }
   }
   return resultat;
-}
-
-// --- Numérotation ---
-
-async function genererNumeroCommande(boutiqueId: string): Promise<string> {
-  const db = await ouvrirBaseDeDonnees();
-  const isoJour = new Date().toISOString().slice(0, 10);
-  const commandesDuJour = (await db.getAllFromIndex("commandes_achat", "boutique_id", boutiqueId)).filter((c) =>
-    c.date_creation.startsWith(isoJour),
-  );
-  const compteur = commandesDuJour.length + 1;
-  return `CMD-${isoJour.replace(/-/g, "")}-${String(compteur).padStart(4, "0")}`;
 }
 
 // --- Commandes ---
@@ -418,7 +423,10 @@ async function noterEtape(
   await ecrireLigne("evenements_commande", evenement);
 }
 
-export async function creerCommande(params: ParametresCommande): Promise<{ id: string; numero: string; total: number }> {
+export async function creerCommande(
+  params: ParametresCommande,
+  detailEtape?: string,
+): Promise<{ id: string; numero: string; total: number }> {
   const { boutiqueId, fournisseurId, utilisateurId, statut, lignes } = params;
   if (lignes.length === 0) {
     throw new ErreurAchat("Une commande doit contenir au moins une ligne.");
@@ -426,7 +434,7 @@ export async function creerCommande(params: ParametresCommande): Promise<{ id: s
 
   const { lignes: lignesCalculees, total } = calculerLignesEtTotal(lignes);
   const db = await ouvrirBaseDeDonnees();
-  const numero = await genererNumeroCommande(boutiqueId);
+  const numero = await prochainNumero("commandes_achat", "CMD", boutiqueId, utilisateurId);
   const commandeId = crypto.randomUUID();
 
   const commande: CommandeAchatLocale = {
@@ -454,7 +462,13 @@ export async function creerCommande(params: ParametresCommande): Promise<{ id: s
     };
     await db.put("lignes_achat", ligneAchat);
   }
-  await noterEtape(commandeId, "creee", utilisateurId, statut === "commandee" ? "Directement commandée" : "En brouillon", total);
+  await noterEtape(
+    commandeId,
+    "creee",
+    utilisateurId,
+    detailEtape ?? (statut === "commandee" ? "Directement commandée" : "En brouillon"),
+    total,
+  );
 
   return { id: commandeId, numero, total };
 }
@@ -736,6 +750,106 @@ export async function receptionnerCommande(params: ParametresReception): Promise
   }
 
   return receptionId;
+}
+
+// --- Achat rapide (carte « Entrée de stock » de la page Stock) ---
+// Port de client-electron/electron/services/achats.ts::achatRapide. Sans
+// transaction ici : tout ce qui pourrait faire échouer la réception est
+// vérifié avant la première écriture (tout ou rien).
+
+/** Fournisseur par défaut d'un achat rapide sans fournisseur choisi. */
+export const NOM_FOURNISSEUR_DIVERS = "Divers";
+
+async function fournisseurDivers(boutiqueId: string): Promise<string> {
+  const cle = cleNomFournisseur(NOM_FOURNISSEUR_DIVERS);
+  const existant = (await listerFournisseurs(boutiqueId)).find((f) => cleNomFournisseur(f.nom) === cle);
+  if (existant) return existant.id;
+  return creerFournisseur(boutiqueId, NOM_FOURNISSEUR_DIVERS);
+}
+
+export interface LigneAchatRapide {
+  varianteId: string;
+  quantite: number;
+  prixAchat: number;
+  prixVente: number;
+}
+
+export interface ParametresAchatRapide {
+  boutiqueId: string;
+  depotId: string;
+  /** null : rattaché au fournisseur « Divers », créé au besoin. */
+  fournisseurId: string | null;
+  utilisateurId: string | null;
+  lignes: LigneAchatRapide[];
+  montantPaye: number;
+  modePaiement?: ParametresReception["modePaiement"];
+  operateurPaiement?: string;
+}
+
+/**
+ * Commande + réception complète en une seule fois : la marchandise entre au
+ * dépôt avec son coût (CUMP), la caisse, la dette fournisseur et la
+ * comptabilité suivent exactement comme une réception faite depuis les Achats.
+ */
+export async function achatRapide(
+  params: ParametresAchatRapide,
+): Promise<{ commandeId: string; numero: string; total: number }> {
+  const { boutiqueId, depotId, utilisateurId, lignes } = params;
+  if (lignes.length === 0) throw new ErreurAchat("Ajoutez au moins un article.");
+  if (new Set(lignes.map((l) => l.varianteId)).size !== lignes.length) {
+    throw new ErreurAchat("Un même article apparaît deux fois.");
+  }
+  if (lignes.some((l) => !(l.quantite > 0))) throw new ErreurAchat("Chaque quantité doit être supérieure à 0.");
+  if (lignes.some((l) => !(l.prixAchat >= 0))) throw new ErreurAchat("Indiquez le prix d'achat de chaque article.");
+
+  // Mêmes contrôles que receptionnerCommande, faits avant d'écrire quoi que ce soit.
+  const db = await ouvrirBaseDeDonnees();
+  for (const ligne of lignes) {
+    const variante = await db.get("variantes", ligne.varianteId);
+    if (!variante) throw new ErreurAchat("Produit introuvable.");
+    const stocks = await db.getAllFromIndex(
+      "stocks",
+      "variante_depot",
+      IDBKeyRange.bound([ligne.varianteId, ""], [ligne.varianteId, "￿"]),
+    );
+    const stockActuel = stocks.reduce((somme, s) => somme + s.quantite, 0);
+    const nouveauPrixAchat =
+      stockActuel > 0
+        ? Math.round((stockActuel * variante.prix_achat + ligne.quantite * ligne.prixAchat) / (stockActuel + ligne.quantite))
+        : ligne.prixAchat;
+    if (ligne.prixVente < nouveauPrixAchat) {
+      throw new ErreurAchat("Le prix de vente ne peut pas être inférieur au prix d'achat (CUMP).");
+    }
+  }
+  // Plafonné à la valeur exacte reçue (le total de la commande arrondit chaque ligne).
+  const montantPaye = Math.min(params.montantPaye, lignes.reduce((t, l) => t + l.quantite * l.prixAchat, 0));
+  if (montantPaye > 0 && params.modePaiement === "compte_fournisseur") {
+    if (!params.fournisseurId || montantPaye > (await soldeCompteFournisseur(params.fournisseurId))) {
+      throw new ErreurAchat("Le compte du fournisseur ne suffit pas.");
+    }
+  }
+
+  const fournisseurId = params.fournisseurId || (await fournisseurDivers(boutiqueId));
+  const commande = await creerCommande(
+    {
+      boutiqueId,
+      fournisseurId,
+      utilisateurId,
+      statut: "commandee",
+      lignes: lignes.map((l) => ({ varianteId: l.varianteId, quantite: l.quantite, prixAchat: l.prixAchat })),
+    },
+    "Achat rapide (page Stock)",
+  );
+  await receptionnerCommande({
+    commandeId: commande.id,
+    depotId,
+    utilisateurId,
+    montantDejaPaye: montantPaye,
+    modePaiement: params.modePaiement,
+    operateurPaiement: params.operateurPaiement,
+    lignes: lignes.map((l) => ({ varianteId: l.varianteId, quantite: l.quantite, prixVente: l.prixVente })),
+  });
+  return { commandeId: commande.id, numero: commande.numero, total: commande.total };
 }
 
 // --- Dettes fournisseur ---

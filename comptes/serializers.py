@@ -1,11 +1,15 @@
+from decimal import Decimal
+
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from stock.models import Depot
 
-from .models import Boutique, DemandeInscription, Role, Utilisateur
+from .codes_vendeur import FORMAT_CODE_VENDEUR
+from .models import Boutique, DemandeInscription, DemandeRenouvellement, PaiementAbonnement, Role, Utilisateur
 from .services import (
+    attribuer_code_vendeur,
     demande_en_attente_existe,
     demander_inscription,
     demander_reinitialisation_mot_de_passe,
@@ -68,6 +72,28 @@ class AppliquerAbonnementSerializer(serializers.Serializer):
     formule = serializers.ChoiceField(choices=Boutique.Formule.choices, required=False)
     date_expiration_abonnement = serializers.DateTimeField(required=False, allow_null=True)
     synchro_autorisee = serializers.BooleanField(required=False)
+    # Inscrits au registre des abonnements (comptes.PaiementAbonnement) avec la nouvelle période.
+    nature = serializers.ChoiceField(choices=PaiementAbonnement.Nature.choices, required=False)
+    montant = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, min_value=0)
+    mode = serializers.ChoiceField(choices=PaiementAbonnement.Mode.choices, required=False, allow_blank=True)
+    reference = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    note = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+
+class DemandeRenouvellementSerializer(serializers.Serializer):
+    """Paiement déclaré par le commerçant (voir comptes/views.py::DemandeRenouvellementView)."""
+
+    formule = serializers.ChoiceField(choices=Boutique.Formule.choices)
+    duree_mois = serializers.ChoiceField(choices=DemandeRenouvellement.Duree.choices)
+    montant = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("1"))
+    mode = serializers.ChoiceField(choices=PaiementAbonnement.Mode.choices)
+    reference = serializers.CharField(max_length=100)
+    note = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+    def validate_reference(self, valeur):
+        if not valeur.strip():
+            raise serializers.ValidationError("Indiquez la référence de la transaction.")
+        return valeur.strip()
 
 
 class ReinitialisationAdminSerializer(serializers.Serializer):
@@ -103,6 +129,32 @@ class RoleSerializer(serializers.ModelSerializer):
         fields = ["id", "nom", "permissions"]
         read_only_fields = ["id"]
 
+    def validate_nom(self, valeur):
+        nom = valeur.strip()
+        if not nom:
+            raise serializers.ValidationError("Indiquez le nom du rôle.")
+        # Le code s'appuie sur le nom « Patron » (mot de passe oublié, rôle
+        # non retirable...) : il n'y en a qu'un, et il garde son nom.
+        if self.instance is not None and self.instance.nom == "Patron":
+            if nom != "Patron":
+                raise serializers.ValidationError("Le rôle Patron ne peut pas être renommé.")
+            return nom
+        if nom.lower() == "patron":
+            raise serializers.ValidationError("Le nom « Patron » est réservé.")
+        doublons = Role.objects.filter(
+            boutique=self.context["request"].user.boutique, supprime=False, nom__iexact=nom
+        )
+        if self.instance is not None:
+            doublons = doublons.exclude(pk=self.instance.pk)
+        if doublons.exists():
+            raise serializers.ValidationError(f"Un rôle « {nom} » existe déjà.")
+        return nom
+
+    def validate_permissions(self, valeur):
+        if not isinstance(valeur, dict) or not all(isinstance(v, bool) for v in valeur.values()):
+            raise serializers.ValidationError("Permissions invalides.")
+        return valeur
+
     def update(self, instance, validated_data):
         if (
             instance.nom == "Patron"
@@ -122,7 +174,7 @@ class UtilisateurSerializer(serializers.ModelSerializer):
         model = Utilisateur
         fields = [
             "id", "username", "password", "first_name", "last_name",
-            "email", "telephone", "role", "depot", "is_active", "date_joined",
+            "email", "telephone", "role", "depot", "code_vendeur", "is_active", "date_joined",
         ]
         read_only_fields = ["id", "date_joined"]
 
@@ -131,11 +183,29 @@ class UtilisateurSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if request and request.user.is_authenticated and request.user.boutique_id:
             self.fields["depot"].queryset = Depot.objects.filter(boutique=request.user.boutique)
+            self.fields["role"].queryset = Role.objects.filter(boutique=request.user.boutique, supprime=False)
+
+    def validate_code_vendeur(self, valeur):
+        code = valeur.strip().upper()
+        if not code:
+            # Vide à la création : attribué automatiquement ; vide à la modification : inchangé.
+            return self.instance.code_vendeur if self.instance is not None else ""
+        if not FORMAT_CODE_VENDEUR.match(code):
+            raise serializers.ValidationError("De 1 à 6 lettres ou chiffres, sans espace.")
+        request = self.context.get("request")
+        boutique_id = self.instance.boutique_id if self.instance is not None else request.user.boutique_id
+        doublons = Utilisateur.objects.filter(boutique_id=boutique_id, code_vendeur__iexact=code)
+        if self.instance is not None:
+            doublons = doublons.exclude(pk=self.instance.pk)
+        if doublons.exists():
+            raise serializers.ValidationError(f"Le code « {code} » est déjà pris par un autre utilisateur.")
+        return code
 
     def create(self, validated_data):
         mot_de_passe = validated_data.pop("password")
         utilisateur = Utilisateur(**validated_data)
         utilisateur.set_password(mot_de_passe)
+        attribuer_code_vendeur(utilisateur)
         utilisateur.save()
         return utilisateur
 
@@ -253,5 +323,6 @@ class ConnexionSerializer(TokenObtainPairSerializer):
         token["permissions"] = user.role.permissions if user.role_id else {}
         token["depot_id"] = str(user.depot_id) if user.depot_id else None
         token["depot_nom"] = user.depot.nom if user.depot_id else None
+        token["code_vendeur"] = user.code_vendeur
         token["synchro_autorisee"] = bool(user.boutique.synchro_autorisee) if user.boutique_id else False
         return token

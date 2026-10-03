@@ -3,6 +3,7 @@ Logique métier de l'app comptes : inscription d'un commerçant (boutique + rôl
 par défaut + premier utilisateur). Reprend la matrice de permissions du cahier
 des charges (§7 "Rôles et permissions").
 """
+import calendar
 import secrets
 from datetime import timedelta
 
@@ -14,12 +15,27 @@ from django.db import models, transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from .models import Boutique, DemandeInscription, Role, Utilisateur
+from .codes_vendeur import calculer_code_vendeur
+from .models import (
+    Boutique,
+    DemandeInscription,
+    DemandeRenouvellement,
+    PaiementAbonnement,
+    Role,
+    Utilisateur,
+)
 
 # Durée de validité du code de réinitialisation envoyé par email : court
 # volontairement (code à 5 chiffres, donc peu d'essais nécessaires pour le
 # deviner par force brute) plutôt que les 3 jours par défaut d'un jeton long.
 DUREE_VALIDITE_CODE_REINITIALISATION = timedelta(minutes=15)
+
+# Même valeur que les clients (services/abonnement.ts::DELAI_GRACE_JOURS) : après la fin
+# de l'abonnement, la vente reste permise ce nombre de jours, puis elle est bloquée.
+DELAI_GRACE_ABONNEMENT = timedelta(days=3)
+
+# Essai gratuit à l'ouverture d'une boutique, quelle que soit la formule (décision du 2026-10-03).
+DUREE_ESSAI = timedelta(days=15)
 
 ROLES_PAR_DEFAUT = {
     "Patron": {
@@ -110,6 +126,7 @@ def inscrire_boutique(donnees_boutique, donnees_utilisateur, mot_de_passe_deja_h
         utilisateur.password = mot_de_passe
     else:
         utilisateur.set_password(mot_de_passe)
+    attribuer_code_vendeur(utilisateur)
     utilisateur.save()
 
     return boutique, utilisateur
@@ -193,9 +210,13 @@ def approuver_inscription(demande, date_expiration_abonnement, formule=None):
         },
         mot_de_passe_deja_hache=True,
     )
-    boutique.date_expiration_abonnement = date_expiration_abonnement
-    boutique.formule = formule or demande.formule
-    boutique.save(update_fields=["date_expiration_abonnement", "formule"])
+    enregistrer_periode_abonnement(
+        boutique,
+        date_expiration_abonnement,
+        formule or demande.formule,
+        nature=PaiementAbonnement.Nature.ESSAI,
+        note="Période d'essai à l'ouverture du compte",
+    )
 
     demande.statut = DemandeInscription.Statut.APPROUVEE
     demande.save(update_fields=["statut"])
@@ -225,6 +246,34 @@ def point_depart_renouvellement(boutique):
     if expiration_actuelle and expiration_actuelle > maintenant:
         return expiration_actuelle
     return maintenant
+
+
+@transaction.atomic
+def enregistrer_periode_abonnement(
+    boutique, date_fin, formule, nature, montant=0, mode="", reference="", note="", par=None
+):
+    """
+    Ajoute une ligne au registre des abonnements (comptes.PaiementAbonnement)
+    et en reporte la date de fin et la formule sur la boutique. Un paiement,
+    un essai ou un geste offert démarre là où l'abonnement en cours s'arrête
+    (point_depart_renouvellement) ; un ajustement corrige la date à partir
+    d'aujourd'hui. `date_fin` None : sans limite.
+    """
+    debut = timezone.now() if nature == PaiementAbonnement.Nature.AJUSTEMENT else point_depart_renouvellement(boutique)
+    periode = PaiementAbonnement.objects.create(
+        boutique=boutique,
+        nature=nature,
+        formule=formule,
+        date_debut=debut,
+        date_fin=date_fin,
+        montant=montant or 0,
+        mode=mode or "",
+        reference=reference or "",
+        note=note or "",
+        enregistre_par=par if par is not None and par.pk else None,
+    )
+    renouveler_abonnement(boutique, date_fin, formule=formule)
+    return periode
 
 
 def renouveler_abonnement(boutique, date_expiration_abonnement, formule=None):
@@ -330,3 +379,134 @@ def supprimer_boutique_definitivement(boutique):
     apps.get_model("stock", "Detaillage").objects.filter(depot__boutique=boutique).delete()
     apps.get_model("stock", "Destockage").objects.filter(variante__produit__boutique=boutique).delete()
     boutique.delete()
+
+
+def attribuer_code_vendeur(utilisateur):
+    """Donne au compte son code vendeur s'il n'en a pas encore (voir comptes/codes_vendeur.py)."""
+    if utilisateur.code_vendeur or not utilisateur.boutique_id:
+        return
+    codes_pris = (
+        Utilisateur.objects.filter(boutique_id=utilisateur.boutique_id)
+        .exclude(pk=utilisateur.pk)
+        .values_list("code_vendeur", flat=True)
+    )
+    utilisateur.code_vendeur = calculer_code_vendeur(
+        utilisateur.first_name, utilisateur.last_name, utilisateur.username, codes_pris
+    )
+
+
+# --- Demandes de renouvellement (paiement déclaré par le commerçant, validé par l'admin) ---
+
+
+def ajouter_mois(date, mois):
+    """Même jour `mois` mois plus tard (31 janvier + 1 mois = 28/29 février)."""
+    total = date.month - 1 + mois
+    annee, mois_cible = date.year + total // 12, total % 12 + 1
+    jour = min(date.day, calendar.monthrange(annee, mois_cible)[1])
+    return date.replace(year=annee, month=mois_cible, day=jour)
+
+
+def demander_renouvellement(boutique, demandeur, formule, duree_mois, montant, mode, reference, note=""):
+    reference = reference.strip()
+    if DemandeRenouvellement.objects.filter(reference__iexact=reference).exclude(
+        statut=DemandeRenouvellement.Statut.REJETEE
+    ).exists() or PaiementAbonnement.objects.filter(reference__iexact=reference).exists():
+        # Une même transaction ne paie qu'une fois.
+        raise ValidationError({"reference": "Cette référence de transaction a déjà été déclarée."})
+    demande = DemandeRenouvellement.objects.create(
+        boutique=boutique,
+        demandeur=demandeur,
+        formule=formule,
+        duree_mois=duree_mois,
+        montant=montant,
+        mode=mode,
+        reference=reference,
+        note=note,
+    )
+    if settings.ADMIN_EMAIL:
+        send_mail(
+            subject=f"Paiement d'abonnement à vérifier — {boutique.nom}",
+            message=(
+                f"Boutique : {boutique.nom}\n"
+                f"Formule : {demande.get_formule_display()}, {demande.get_duree_mois_display()}\n"
+                f"Montant : {montant} par {demande.get_mode_display()}\n"
+                f"Référence : {reference}\n\n"
+                "À valider dans l'espace admin : /admin/comptes/demanderenouvellement/"
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[settings.ADMIN_EMAIL],
+            fail_silently=True,
+        )
+    return demande
+
+
+@transaction.atomic
+def valider_demande_renouvellement(demande, par=None):
+    """Inscrit la période payée au registre : elle démarre à la fin de l'abonnement en cours."""
+    if demande.statut != DemandeRenouvellement.Statut.EN_ATTENTE:
+        raise ValidationError("Cette demande a déjà été traitée.")
+    boutique = demande.boutique
+    fin = ajouter_mois(point_depart_renouvellement(boutique), demande.duree_mois)
+    demande.paiement = enregistrer_periode_abonnement(
+        boutique,
+        fin,
+        demande.formule,
+        nature=PaiementAbonnement.Nature.PAIEMENT,
+        montant=demande.montant,
+        mode=demande.mode,
+        reference=demande.reference,
+        note=f"Déclaré dans l'appli ({demande.get_duree_mois_display()})",
+        par=par,
+    )
+    demande.statut = DemandeRenouvellement.Statut.VALIDEE
+    demande.traitee_par = par if par is not None and par.pk else None
+    demande.date_traitement = timezone.now()
+    demande.save()
+    return demande
+
+
+def rejeter_demande_renouvellement(demande, motif, par=None):
+    if demande.statut != DemandeRenouvellement.Statut.EN_ATTENTE:
+        raise ValidationError("Cette demande a déjà été traitée.")
+    demande.statut = DemandeRenouvellement.Statut.REJETEE
+    demande.motif_rejet = motif
+    demande.traitee_par = par if par is not None and par.pk else None
+    demande.date_traitement = timezone.now()
+    demande.save()
+    return demande
+
+
+def demarrer_essai(boutique, par=None):
+    """Essai gratuit de DUREE_ESSAI, inscrit au registre, pour une boutique qui vient d'être créée."""
+    return enregistrer_periode_abonnement(
+        boutique,
+        timezone.now() + DUREE_ESSAI,
+        boutique.formule,
+        nature=PaiementAbonnement.Nature.ESSAI,
+        note="Essai gratuit à l'ouverture du compte",
+        par=par,
+    )
+
+
+def grille_tarifs():
+    """Prix de chaque formule pour 1, 3, 6 et 12 mois (comptes.ReglagesPlateforme), arrondis à l'unité."""
+    from decimal import ROUND_HALF_UP, Decimal
+
+    from .models import ReglagesPlateforme
+
+    reglages = ReglagesPlateforme.obtenir()
+    remises = {1: Decimal(0), 3: reglages.remise_3_mois, 6: reglages.remise_6_mois, 12: reglages.remise_12_mois}
+    tarifs = []
+    for formule, mensuel in ((Boutique.Formule.ESSENTIEL, reglages.prix_mensuel_essentiel), (Boutique.Formule.PRO, reglages.prix_mensuel_pro)):
+        if not mensuel:
+            continue
+        for mois, remise in remises.items():
+            prix = (mensuel * mois * (100 - remise) / 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            tarifs.append({
+                "formule": formule.value,
+                "formule_libelle": formule.label,
+                "duree_mois": mois,
+                "prix": prix,
+                "remise": remise,
+            })
+    return tarifs

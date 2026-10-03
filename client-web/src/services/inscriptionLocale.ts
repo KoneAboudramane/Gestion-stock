@@ -34,6 +34,13 @@ const PERMISSIONS_PATRON: Record<string, boolean> = {
   consulter_comptabilite: true,
 };
 
+/** Essai gratuit de 15 jours à l'ouverture (même durée que comptes/services.py::DUREE_ESSAI). */
+const DUREE_ESSAI_JOURS = 15;
+
+function finEssai(): string {
+  return new Date(Date.now() + DUREE_ESSAI_JOURS * 86_400_000).toISOString();
+}
+
 export class ErreurInscriptionLocale extends Error {}
 
 export interface BoutiqueLocaleEnAttente {
@@ -100,7 +107,7 @@ export async function creerBoutiqueLocale(params: {
     email: params.email,
     devise: "FCFA",
     actif: 1,
-    date_expiration_abonnement: null,
+    date_expiration_abonnement: finEssai(),
     formule: "essentiel",
     synchro_autorisee: 0,
     date_creation: maintenantIso,
@@ -198,7 +205,7 @@ export async function creerBoutiqueEnLigne(
       email: params.email,
       devise: "FCFA",
       actif: 1,
-      date_expiration_abonnement: null,
+      date_expiration_abonnement: finEssai(),
       formule: "essentiel",
       synchro_autorisee: 0,
       date_creation: maintenantIso,

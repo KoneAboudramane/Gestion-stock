@@ -27,6 +27,97 @@ export function modifierRole(id: string, permissions: Record<string, boolean>): 
   });
 }
 
+export function creerRole(nom: string, permissions: Record<string, boolean>): Promise<ResultatEcriture<RoleResume>> {
+  return executerEnSecurite(async () => {
+    const reponse = await apiFetch("/roles/", {
+      method: "POST",
+      body: JSON.stringify({ nom, permissions }),
+    });
+    if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
+    return reponse.json();
+  });
+}
+
+export function renommerRole(id: string, nom: string): Promise<ResultatEcriture<RoleResume>> {
+  return executerEnSecurite(async () => {
+    const reponse = await apiFetch(`/roles/${id}/`, {
+      method: "PATCH",
+      body: JSON.stringify({ nom }),
+    });
+    if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
+    return reponse.json();
+  });
+}
+
+export function supprimerRole(id: string): Promise<ResultatEcriture<void>> {
+  return executerEnSecurite(async () => {
+    const reponse = await apiFetch(`/roles/${id}/`, { method: "DELETE" });
+    if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
+  });
+}
+
+/** Carte « Abonnement » : historique des périodes et où payer (GET /boutique/abonnement/). */
+export interface AbonnementDetail {
+  historique: {
+    date: string;
+    nature: string;
+    nature_libelle: string;
+    formule: string;
+    date_debut: string;
+    date_fin: string | null;
+    montant: string;
+    mode_libelle: string;
+    reference: string;
+  }[];
+  demandes: {
+    date: string;
+    formule: string;
+    duree_libelle: string;
+    montant: string;
+    mode_libelle: string;
+    reference: string;
+    statut: "en_attente" | "validee" | "rejetee";
+    statut_libelle: string;
+    motif_rejet: string;
+  }[];
+  /** Vide tant que l'administrateur n'a pas saisi ses prix. */
+  tarifs: { formule: string; formule_libelle: string; duree_mois: number; prix: string; remise: string }[];
+  renouvellement: { numeros: { operateur: string; numero: string }[]; whatsapp: string; instructions: string };
+}
+
+/** « J'ai payé » : paiement Mobile Money déclaré, à valider par l'administrateur. */
+export interface DeclarationPaiementAbonnement {
+  formule: string;
+  dureeMois: number;
+  montant: number;
+  mode: string;
+  reference: string;
+}
+
+export function abonnementBoutique(): Promise<ResultatEcriture<AbonnementDetail>> {
+  return executerEnSecurite(async () => {
+    const reponse = await apiFetch("/boutique/abonnement/");
+    if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
+    return reponse.json();
+  });
+}
+
+export function declarerPaiementAbonnement(declaration: DeclarationPaiementAbonnement): Promise<ResultatEcriture<void>> {
+  return executerEnSecurite(async () => {
+    const reponse = await apiFetch("/boutique/abonnement/demandes/", {
+      method: "POST",
+      body: JSON.stringify({
+        formule: declaration.formule,
+        duree_mois: declaration.dureeMois,
+        montant: declaration.montant,
+        mode: declaration.mode,
+        reference: declaration.reference,
+      }),
+    });
+    if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
+  });
+}
+
 // --- Utilisateurs ---
 
 export interface UtilisateurResume {
@@ -38,6 +129,8 @@ export interface UtilisateurResume {
   telephone: string;
   role: string | null;
   depot: string | null;
+  /** Abréviation dans les numéros de ses documents (VTE-20261002-AKO-0001). */
+  code_vendeur: string;
   is_active: boolean;
   date_joined: string;
 }
@@ -101,6 +194,7 @@ export interface ChampsUtilisateur {
   lastName?: string;
   email?: string;
   telephone?: string;
+  codeVendeur?: string;
 }
 
 export function modifierUtilisateur(
@@ -111,6 +205,7 @@ export function modifierUtilisateur(
     const corps: Record<string, unknown> = {};
     if (champs.roleId !== undefined) corps.role = champs.roleId;
     if (champs.depotId !== undefined) corps.depot = champs.depotId;
+    if (champs.codeVendeur !== undefined) corps.code_vendeur = champs.codeVendeur;
     if (champs.isActive !== undefined) corps.is_active = champs.isActive;
     if (champs.password) corps.password = champs.password;
     if (champs.firstName !== undefined) corps.first_name = champs.firstName;

@@ -6,6 +6,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import AccessToken
 
+from .codes_vendeur import calculer_code_vendeur
 from .models import Boutique, DemandeInscription, Role, Utilisateur
 from .services import (
     approuver_inscription,
@@ -229,6 +230,7 @@ class ConnexionTests(APITestCase):
         self.assertEqual(payload["boutique_nom"], "Boutique A")
         self.assertEqual(payload["role"], "Patron")
         self.assertTrue(payload["permissions"]["gerer_utilisateurs_reglages"])
+        self.assertEqual(payload["code_vendeur"], "PAT")
 
 
 class VerifierSessionAdminTests(APITestCase):
@@ -439,6 +441,148 @@ class IsolationEtPermissionsTests(APITestCase):
 
         role_caissier.refresh_from_db()
         self.assertTrue(role_caissier.permissions["annuler_vente"])
+
+    # --- Rôles personnalisés ---
+
+    def test_creer_un_role_personnalise(self):
+        self.client.force_authenticate(user=self.patron_a)
+        reponse = self.client.post(
+            reverse("role-list"),
+            {"nom": "  Magasinier ", "permissions": {"consulter_stock": True, "gerer_produits_stock_achats": True}},
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+        role = Role.objects.get(id=reponse.data["id"])
+        self.assertEqual(role.nom, "Magasinier")
+        self.assertEqual(role.boutique, self.boutique_a)
+        self.assertTrue(role.permissions["gerer_produits_stock_achats"])
+
+    def test_creer_un_role_refuse_au_caissier(self):
+        self.client.force_authenticate(user=self.caissier_a)
+        reponse = self.client.post(reverse("role-list"), {"nom": "Vendeur", "permissions": {}}, format="json")
+        self.assertEqual(reponse.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_nom_de_role_unique_dans_la_boutique_mais_pas_entre_boutiques(self):
+        self.client.force_authenticate(user=self.patron_a)
+        reponse = self.client.post(reverse("role-list"), {"nom": "caissier", "permissions": {}}, format="json")
+        self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("existe déjà", str(reponse.data["nom"][0]))
+
+        self.client.post(reverse("role-list"), {"nom": "Vendeur", "permissions": {}}, format="json")
+        self.client.force_authenticate(user=self.patron_b)
+        reponse = self.client.post(reverse("role-list"), {"nom": "Vendeur", "permissions": {}}, format="json")
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+
+    def test_nom_patron_reserve(self):
+        self.client.force_authenticate(user=self.patron_a)
+        reponse = self.client.post(reverse("role-list"), {"nom": "PATRON", "permissions": {}}, format="json")
+        self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
+
+        role_caissier = Role.objects.get(boutique=self.boutique_a, nom="Caissier")
+        reponse = self.client.patch(reverse("role-detail", args=[role_caissier.id]), {"nom": "Patron"}, format="json")
+        self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_renommer_un_role_mais_pas_le_patron(self):
+        self.client.force_authenticate(user=self.patron_a)
+        role_caissier = Role.objects.get(boutique=self.boutique_a, nom="Caissier")
+        reponse = self.client.patch(reverse("role-detail", args=[role_caissier.id]), {"nom": "Vendeur"}, format="json")
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK, reponse.data)
+        role_caissier.refresh_from_db()
+        self.assertEqual(role_caissier.nom, "Vendeur")
+
+        role_patron = Role.objects.get(boutique=self.boutique_a, nom="Patron")
+        reponse = self.client.patch(reverse("role-detail", args=[role_patron.id]), {"nom": "Chef"}, format="json")
+        self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
+        role_patron.refresh_from_db()
+        self.assertEqual(role_patron.nom, "Patron")
+
+    def test_supprimer_un_role_sans_utilisateur(self):
+        self.client.force_authenticate(user=self.patron_a)
+        role_gerant = Role.objects.get(boutique=self.boutique_a, nom="Gérant")
+        reponse = self.client.delete(reverse("role-detail", args=[role_gerant.id]))
+        self.assertEqual(reponse.status_code, status.HTTP_204_NO_CONTENT)
+        noms = {r["nom"] for r in self.client.get(reverse("role-list")).data}
+        self.assertNotIn("Gérant", noms)
+        # Le nom redevient libre.
+        reponse = self.client.post(reverse("role-list"), {"nom": "Gérant", "permissions": {}}, format="json")
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+
+    def test_supprimer_un_role_attribue_est_refuse(self):
+        self.client.force_authenticate(user=self.patron_a)
+        role_caissier = Role.objects.get(boutique=self.boutique_a, nom="Caissier")
+        reponse = self.client.delete(reverse("role-detail", args=[role_caissier.id]))
+        self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("1 utilisateur a ce rôle", str(reponse.data["detail"]))
+        role_caissier.refresh_from_db()
+        self.assertFalse(role_caissier.supprime)
+
+    def test_supprimer_le_role_patron_est_refuse(self):
+        self.client.force_authenticate(user=self.patron_a)
+        role_patron = Role.objects.get(boutique=self.boutique_a, nom="Patron")
+        reponse = self.client.delete(reverse("role-detail", args=[role_patron.id]))
+        self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_attribuer_un_role_dune_autre_boutique_est_refuse(self):
+        self.client.force_authenticate(user=self.patron_a)
+        role_b = Role.objects.get(boutique=self.boutique_b, nom="Gérant")
+        reponse = self.client.patch(
+            reverse("utilisateur-detail", args=[self.caissier_a.id]), {"role": str(role_b.id)}, format="json"
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class CodeVendeurTests(APITestCase):
+    """Code vendeur : abréviation unique dans la boutique, glissée dans les numéros de documents."""
+
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique A", "formule": Boutique.Formule.PRO},
+            {"username": "patronA", "password": "UnMotDePasseSolide123", "first_name": "Aboudramane", "last_name": "Koné"},
+        )
+        self.client.force_authenticate(user=self.patron)
+
+    def creer(self, **champs):
+        return self.client.post(
+            reverse("utilisateur-list"), {"password": "UnMotDePasseSolide123", **champs}, format="json"
+        )
+
+    def test_calcul_initiales_accents_et_suffixe(self):
+        self.assertEqual(calculer_code_vendeur("Aboudramane", "Koné", "x", set()), "AKO")
+        self.assertEqual(calculer_code_vendeur("Élise", "Ouédraogo", "x", set()), "EOU")
+        self.assertEqual(calculer_code_vendeur("", "", "caissier.1", set()), "CAI")
+        self.assertEqual(calculer_code_vendeur("Abou", "Konaté", "x", {"AKO", "ako2"}), "AKO3")
+
+    def test_patron_recoit_un_code_a_linscription(self):
+        self.assertEqual(self.patron.code_vendeur, "AKO")
+
+    def test_nouvel_utilisateur_recoit_un_code_unique(self):
+        reponse = self.creer(username="abou", first_name="Abou", last_name="Konaté")
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+        self.assertEqual(reponse.data["code_vendeur"], "AKO2")
+
+    def test_meme_code_permis_dans_une_autre_boutique(self):
+        _, autre = inscrire_boutique(
+            {"nom": "Boutique B"},
+            {"username": "patronB", "password": "UnMotDePasseSolide123", "first_name": "Ali", "last_name": "Kouyaté"},
+        )
+        self.assertEqual(autre.code_vendeur, "AKO")
+
+    def test_code_modifiable_unique_et_au_bon_format(self):
+        cree = self.creer(username="awa", first_name="Awa", last_name="Diallo").data
+        url = reverse("utilisateur-detail", args=[cree["id"]])
+        self.assertEqual(self.client.patch(url, {"code_vendeur": "ako"}, format="json").status_code, 400)
+        self.assertEqual(self.client.patch(url, {"code_vendeur": "A B"}, format="json").status_code, 400)
+        self.assertEqual(self.client.patch(url, {"code_vendeur": "TROPLONG"}, format="json").status_code, 400)
+        reponse = self.client.patch(url, {"code_vendeur": "awa1"}, format="json")
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK, reponse.data)
+        self.assertEqual(reponse.data["code_vendeur"], "AWA1")
+        # Vide : le code reste inchangé.
+        reponse = self.client.patch(url, {"code_vendeur": ""}, format="json")
+        self.assertEqual(reponse.data["code_vendeur"], "AWA1")
+
+    def test_moi_renvoie_le_code(self):
+        reponse = self.client.get(reverse("moi"))
+        self.assertEqual(reponse.data["code_vendeur"], "AKO")
 
 
 class MotDePasseOublieTests(APITestCase):

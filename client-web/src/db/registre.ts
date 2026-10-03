@@ -60,9 +60,21 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
     champsNumeriques: ["prix_normal", "prix_destockage"],
   },
   {
+    table: "ventes.CommandeClient",
+    store: "commandes_client",
+    champsFK: ["boutique", "client", "depot", "utilisateur"],
+    champsNumeriques: ["total", "avance"],
+  },
+  {
+    table: "ventes.LigneCommandeClient",
+    store: "lignes_commande_client",
+    champsFK: ["commande", "variante"],
+    champsNumeriques: ["quantite", "quantite_livree", "prix_unitaire", "sous_total"],
+  },
+  {
     table: "ventes.Vente",
     store: "ventes",
-    champsFK: ["boutique", "depot", "client", "utilisateur"],
+    champsFK: ["boutique", "depot", "client", "utilisateur", "commande_client"],
     champsNumeriques: ["total_brut", "remise", "total_net"],
   },
   {

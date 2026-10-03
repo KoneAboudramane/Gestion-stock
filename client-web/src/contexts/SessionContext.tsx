@@ -11,7 +11,8 @@ import { definirJetons, surDeconnexionForcee, surRafraichissementJetons } from "
  */
 const CLE_STOCKAGE = "gestion-stock:session";
 
-function chargerSession(): Session | null {
+/** Session enregistrée, lisible hors React (ex. services/numerotation.ts). */
+export function sessionEnregistree(): Session | null {
   try {
     const brut = localStorage.getItem(CLE_STOCKAGE);
     return brut ? (JSON.parse(brut) as Session) : null;
@@ -29,7 +30,7 @@ const SessionContext = createContext<ContexteSession>({ session: null, definirSe
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSessionInterne] = useState<Session | null>(() => {
-    const restauree = chargerSession();
+    const restauree = sessionEnregistree();
     if (restauree) definirJetons({ accessToken: restauree.accessToken, refreshToken: restauree.refreshToken });
     return restauree;
   });

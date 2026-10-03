@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import LigneVente, Paiement, Vente
+from .models import CommandeClient, LigneCommandeClient, LigneVente, Paiement, Vente
 
 
 class LigneVenteInline(admin.TabularInline):
@@ -39,3 +39,16 @@ class LigneVenteAdmin(admin.ModelAdmin):
 class PaiementAdmin(admin.ModelAdmin):
     list_display = ("vente", "mode", "operateur", "montant")
     list_filter = ("mode", "operateur")
+
+
+class LigneCommandeClientInline(admin.TabularInline):
+    model = LigneCommandeClient
+    extra = 0
+
+
+@admin.register(CommandeClient)
+class CommandeClientAdmin(admin.ModelAdmin):
+    list_display = ("numero", "boutique", "client", "depot", "statut", "date_livraison_prevue", "total", "avance")
+    search_fields = ("numero", "client__nom")
+    list_filter = ("boutique", "statut")
+    inlines = [LigneCommandeClientInline]

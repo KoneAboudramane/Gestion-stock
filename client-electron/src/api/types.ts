@@ -13,6 +13,16 @@ export interface Session {
   // comptes.Boutique.synchro_autorisee côté backend) — certains commerçants
   // ne veulent pas que leurs données quittent leur poste.
   synchroAutorisee: boolean;
+  /** Abréviation dans les numéros de ses documents (VTE-20261002-AKO-0001). */
+  codeVendeur?: string;
+}
+
+/** Voir electron/services/abonnement.ts::etatAbonnement. */
+export interface EtatAbonnement {
+  niveau: "ok" | "bientot" | "grace" | "bloque";
+  dateExpiration: string | null;
+  finGrace: string | null;
+  joursRestants: number | null;
 }
 
 export interface AbonnementBoutique {
@@ -27,6 +37,11 @@ export interface ChampsAbonnement {
   formule?: string;
   dateExpirationAbonnement?: string | null;
   synchroAutorisee?: boolean;
+  /** Inscrits au registre des abonnements avec la nouvelle période (voir comptes/views.py::AppliquerAbonnementView). */
+  nature?: "paiement" | "offert" | "ajustement";
+  montant?: number;
+  mode?: string;
+  reference?: string;
 }
 
 export interface AbonnementEnAttente {
@@ -374,6 +389,94 @@ export interface CompteTiers {
   mouvements: MouvementCompte[];
 }
 
+// --- Commandes clients (ventes.CommandeClient) ---
+
+export type StatutCommandeClient = "en_attente" | "prete" | "partielle" | "livree" | "annulee";
+
+export interface LigneCommandeClientEntree {
+  varianteId: string;
+  quantite: number;
+  prixUnitaire: number;
+}
+
+export interface ParametresCommandeClient {
+  boutiqueId: string;
+  clientId: string;
+  depotId: string;
+  utilisateurId: string | null;
+  dateLivraisonPrevue: string | null;
+  note?: string;
+  lignes: LigneCommandeClientEntree[];
+}
+
+export interface ModificationCommandeClient {
+  clientId?: string;
+  depotId?: string;
+  dateLivraisonPrevue?: string | null;
+  note?: string;
+  lignes?: LigneCommandeClientEntree[];
+}
+
+export interface CommandeClientResume {
+  id: string;
+  numero: string;
+  clientId: string;
+  clientNom: string;
+  clientTelephone: string;
+  depotId: string;
+  depotNom: string;
+  statut: StatutCommandeClient;
+  dateLivraisonPrevue: string | null;
+  note: string;
+  total: number;
+  avance: number;
+  resteALivrer: number;
+  nombreArticles: number;
+  dateCreation: string;
+  utilisateurId: string | null;
+}
+
+export interface LigneCommandeClientDetail {
+  id: string;
+  varianteId: string;
+  produitNom: string;
+  reference: string;
+  quantite: number;
+  quantiteLivree: number;
+  prixUnitaire: number;
+  sousTotal: number;
+  stockDepot: number;
+  reserveAutres: number;
+}
+
+export interface LivraisonCommande {
+  venteId: string;
+  numero: string;
+  dateCreation: string;
+  totalNet: number;
+  statut: string;
+}
+
+export interface CommandeClientDetail extends CommandeClientResume {
+  lignes: LigneCommandeClientDetail[];
+  livraisons: LivraisonCommande[];
+  soldeCompteClient: number;
+}
+
+export interface ParametresLivraison {
+  commandeId: string;
+  utilisateurId: string | null;
+  lignes: { varianteId: string; quantite: number }[];
+  paiements: PaiementEntree[];
+}
+
+export interface Reservation {
+  varianteId: string;
+  depotId: string;
+  quantite: number;
+  commandes: { numero: string; clientNom: string; quantite: number }[];
+}
+
 export interface OperationCompte {
   montant: number;
   mode: ModeArgent;
@@ -419,6 +522,40 @@ export interface ParametresEntreeProduction {
   prixVente?: number;
   motif?: string;
   utilisateurId?: string | null;
+}
+
+export interface LigneEntreeStock {
+  varianteId: string;
+  quantite: number;
+  /** Ouverture et fabrication : coût unitaire. Don : valeur estimée (article encore sans coût). */
+  prixAchat?: number;
+  prixVente?: number;
+}
+
+export interface ParametresEntreeStock {
+  depotId: string;
+  lignes: LigneEntreeStock[];
+  motif?: string;
+  utilisateurId?: string | null;
+}
+
+export interface LigneAchatRapide {
+  varianteId: string;
+  quantite: number;
+  prixAchat: number;
+  prixVente: number;
+}
+
+export interface ParametresAchatRapide {
+  boutiqueId: string;
+  depotId: string;
+  /** null : rattaché au fournisseur « Divers », créé au besoin. */
+  fournisseurId: string | null;
+  utilisateurId: string | null;
+  lignes: LigneAchatRapide[];
+  montantPaye: number;
+  modePaiement?: "especes" | "mobile_money" | "banque" | "compte_fournisseur" | "";
+  operateurPaiement?: string;
 }
 
 export interface LigneStock {
@@ -1289,6 +1426,44 @@ export interface RoleResume {
   permissions: Record<string, boolean>;
 }
 
+/** Carte « Abonnement » : historique des périodes et où payer (GET /boutique/abonnement/). */
+export interface AbonnementDetail {
+  historique: {
+    date: string;
+    nature: string;
+    nature_libelle: string;
+    formule: string;
+    date_debut: string;
+    date_fin: string | null;
+    montant: string;
+    mode_libelle: string;
+    reference: string;
+  }[];
+  demandes: {
+    date: string;
+    formule: string;
+    duree_libelle: string;
+    montant: string;
+    mode_libelle: string;
+    reference: string;
+    statut: "en_attente" | "validee" | "rejetee";
+    statut_libelle: string;
+    motif_rejet: string;
+  }[];
+  /** Vide tant que l'administrateur n'a pas saisi ses prix. */
+  tarifs: { formule: string; formule_libelle: string; duree_mois: number; prix: string; remise: string }[];
+  renouvellement: { numeros: { operateur: string; numero: string }[]; whatsapp: string; instructions: string };
+}
+
+/** « J'ai payé » : paiement Mobile Money déclaré, à valider par l'administrateur. */
+export interface DeclarationPaiementAbonnement {
+  formule: string;
+  dureeMois: number;
+  montant: number;
+  mode: string;
+  reference: string;
+}
+
 export interface UtilisateurResume {
   id: number;
   username: string;
@@ -1298,6 +1473,8 @@ export interface UtilisateurResume {
   telephone: string;
   role: string | null;
   depot: string | null;
+  /** Abréviation dans les numéros de ses documents (VTE-20261002-AKO-0001). */
+  code_vendeur: string;
   is_active: boolean;
   date_joined: string;
 }
@@ -1322,6 +1499,7 @@ export interface ChampsUtilisateur {
   lastName?: string;
   email?: string;
   telephone?: string;
+  codeVendeur?: string;
 }
 
 export type ResultatComptes<T> = { succes: true; resultat: T } | { succes: false; message: string };
@@ -1353,7 +1531,11 @@ export type TypeNotification =
   | "echeance_proche"
   | "echeance_retard"
   | "credit_proche"
-  | "credit_retard";
+  | "credit_retard"
+  | "commande_proche"
+  | "commande_retard"
+  | "abonnement_proche"
+  | "abonnement_expire";
 
 export interface NotificationResume {
   id: string;
@@ -1501,6 +1683,9 @@ export interface WindowApi {
     ): Promise<ResultatEcriture<void>>;
     listerPatrons(usernameAdmin: string, passwordAdmin: string): Promise<PatronResume[]>;
   };
+  abonnement: {
+    etat(boutiqueId: string): Promise<EtatAbonnement>;
+  };
   admin: {
     boutiqueLocale(): Promise<AbonnementBoutique | null>;
     abonnementEnAttente(): Promise<AbonnementEnAttente | null>;
@@ -1608,6 +1793,14 @@ export interface WindowApi {
     creer(params: ParametresMouvement): Promise<ResultatEcriture<string>>;
     creerEntreeProduction(params: ParametresEntreeProduction): Promise<ResultatEcriture<string>>;
   };
+  entreesStock: {
+    achatRapide(params: ParametresAchatRapide): Promise<ResultatEcriture<{ commandeId: string; numero: string; total: number }>>;
+    ouverture(params: ParametresEntreeStock): Promise<ResultatEcriture<number>>;
+    fabrication(params: ParametresEntreeStock): Promise<ResultatEcriture<number>>;
+    don(params: ParametresEntreeStock): Promise<ResultatEcriture<number>>;
+    /** Articles actifs jamais entrés en stock (créés sans stock initial) : à compléter en stock d'ouverture. */
+    articlesSansStock(boutiqueId: string): Promise<VarianteRecherchee[]>;
+  };
   destockages: {
     lister(boutiqueId: string): Promise<DestockageResume[]>;
     demarrer(params: ParametresDestockage): Promise<ResultatEcriture<string>>;
@@ -1699,6 +1892,17 @@ export interface WindowApi {
       utilisateurId?: string | null,
     ): Promise<ResultatEcriture<void>>;
     listerPaiements(detteId: string): Promise<PaiementDetteDetail[]>;
+  };
+  commandesClient: {
+    lister(boutiqueId: string): Promise<CommandeClientResume[]>;
+    obtenir(id: string): Promise<CommandeClientDetail | undefined>;
+    creer(params: ParametresCommandeClient): Promise<ResultatEcriture<{ id: string; numero: string; total: number }>>;
+    modifier(id: string, champs: ModificationCommandeClient): Promise<ResultatEcriture<void>>;
+    marquerPrete(id: string, prete: boolean): Promise<ResultatEcriture<void>>;
+    annuler(id: string): Promise<ResultatEcriture<void>>;
+    verserAvance(id: string, op: OperationCompte): Promise<ResultatEcriture<void>>;
+    livrer(params: ParametresLivraison): Promise<ResultatEcriture<VenteCreee>>;
+    reservations(boutiqueId: string, depotId?: string): Promise<Reservation[]>;
   };
   comptesTiers: {
     releveClient(clientId: string): Promise<OperationTiers[]>;
@@ -1801,6 +2005,11 @@ export interface WindowApi {
   comptes: {
     listerRoles(session: Session): Promise<ResultatComptes<RoleResume[]>>;
     modifierRole(session: Session, id: string, permissions: Record<string, boolean>): Promise<ResultatComptes<RoleResume>>;
+    creerRole(session: Session, nom: string, permissions: Record<string, boolean>): Promise<ResultatComptes<RoleResume>>;
+    renommerRole(session: Session, id: string, nom: string): Promise<ResultatComptes<RoleResume>>;
+    supprimerRole(session: Session, id: string): Promise<ResultatComptes<void>>;
+    abonnementBoutique(session: Session): Promise<ResultatComptes<AbonnementDetail>>;
+    declarerPaiementAbonnement(session: Session, declaration: DeclarationPaiementAbonnement): Promise<ResultatComptes<void>>;
     listerUtilisateurs(session: Session): Promise<ResultatComptes<UtilisateurResume[]>>;
     annuaire(session: Session): Promise<ResultatComptes<{ id: number; nom: string }[]>>;
     creerUtilisateur(
@@ -1820,6 +2029,7 @@ export interface WindowApi {
   };
   notifications: {
     genererAlertesDestockage(boutiqueId: string): Promise<ResultatEcriture<string[]>>;
+    genererAlertesAbonnement(boutiqueId: string): Promise<ResultatEcriture<string[]>>;
     lister(boutiqueId: string, filtres?: FiltresNotifications): Promise<NotificationResume[]>;
     genererAlertesRupture(boutiqueId: string): Promise<ResultatEcriture<string[]>>;
     compterNonLues(boutiqueId: string, depotId?: string): Promise<number>;

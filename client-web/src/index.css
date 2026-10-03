@@ -8568,3 +8568,837 @@ tr.ligne-total-tableau td {
 .solde-compte-tiers strong.montant-sortie {
   color: var(--danger, #dc2626);
 }
+
+/* Carte « Entrée de stock » (EntreeStock.tsx) : choix de l'origine, puis saisie.
+   Chaque origine a sa couleur d'accent (bandeau, pastille, bouton Enregistrer). */
+.entree-achat {
+  --accent-entree: #2563eb;
+}
+
+.entree-ouverture {
+  --accent-entree: #7c3aed;
+}
+
+.entree-fabrication {
+  --accent-entree: #ea580c;
+}
+
+.entree-don {
+  --accent-entree: #16a34a;
+}
+
+.grille-origines-entree {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+.carte-origine-entree .aide-origine-entree {
+  font-weight: 400;
+  text-align: center;
+  line-height: 1.35;
+}
+
+.carte-origine-entree:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Le formulaire ne défile pas : le tableau descend jusqu'au bas de la modale
+   et seules ses lignes défilent (en-tête du tableau figé). */
+.modale-selection-produits > .formulaire-mouvement-groupe.formulaire-entree-stock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  overflow: hidden;
+}
+
+.formulaire-entree-stock > .modale-entete,
+.formulaire-entree-stock > .regle-entree,
+.formulaire-entree-stock > .message-erreur,
+.formulaire-entree-stock .colonne-recherche-groupe {
+  flex-shrink: 0;
+}
+
+/* Plus précis que les règles de thème (:root[data-theme] .modale-entete). */
+.modale-selection-produits > .formulaire-entree-stock > .modale-entete.entete-fixe {
+  border-bottom: 3px solid var(--accent-entree);
+}
+
+.formulaire-entree-stock .pastille-entree {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  margin-right: 0.3rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent-entree), transparent 80%);
+}
+
+.formulaire-entree-stock .bouton-primaire {
+  background: var(--accent-entree);
+  box-shadow: 0 8px 18px -8px color-mix(in srgb, var(--accent-entree), transparent 40%);
+}
+
+.formulaire-entree-stock .bouton-primaire:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-entree), black 15%);
+}
+
+.regle-entree {
+  padding: 0.5rem 0.8rem;
+  border-left: 4px solid var(--accent-entree);
+  border-radius: var(--rayon-sm);
+  background: color-mix(in srgb, var(--accent-entree), transparent 90%);
+  font-size: 0.88rem;
+}
+
+.formulaire-entree-stock .colonnes-mouvement-groupe {
+  flex: 1;
+  min-height: 0;
+  margin-top: 0;
+  gap: 0.9rem;
+}
+
+.formulaire-entree-stock .colonne-lignes-groupe {
+  display: flex;
+  flex-direction: column;
+}
+
+.formulaire-entree-stock .lignes-groupe-scrollable {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+/* Peu de lignes : le tableau s'étire jusqu'au bas de la zone (pas de bande vide). */
+.formulaire-entree-stock .lignes-groupe-scrollable > .tableau-catalogue {
+  min-height: 100%;
+}
+
+/* Dépôt, Fournisseur/Motif et recherche sur une seule ligne. */
+.formulaire-entree-stock .ligne-champs-recherche-commande {
+  flex-wrap: nowrap;
+}
+
+.recherche-entree-stock.recherche-commande-combobox {
+  flex: 1;
+  min-width: 260px;
+  max-width: none;
+}
+
+.recherche-entree-stock input {
+  max-width: none;
+  padding-top: 0.45rem;
+  padding-bottom: 0.45rem;
+  font-size: 0.95rem;
+  border: 2px solid color-mix(in srgb, var(--accent-entree), transparent 50%);
+}
+
+.recherche-entree-stock input:focus {
+  border-color: var(--accent-entree);
+}
+
+.recherche-entree-stock .resultats-recherche {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.recherche-entree-stock .resultats-recherche li {
+  align-items: baseline;
+  gap: 1rem;
+}
+
+.recherche-entree-stock .resultats-recherche .liste-vide {
+  height: auto;
+  min-height: 0;
+  cursor: default;
+}
+
+.resultat-entree-infos {
+  white-space: nowrap;
+}
+
+.formulaire-entree-stock .champ-prix-entree {
+  width: 130px;
+  text-align: right;
+}
+
+.formulaire-entree-stock td input.champ-quantite-entree {
+  width: 85px;
+}
+
+.formulaire-entree-stock .col-montant-entree {
+  text-align: right;
+}
+
+.formulaire-entree-stock .col-designation-groupe .sous-info {
+  font-size: 0.78rem;
+}
+
+.formulaire-entree-stock .stock-avant-apres strong {
+  color: var(--accent-entree);
+}
+
+.formulaire-entree-stock .invite-entree-vide {
+  text-align: center;
+  color: var(--gris-500);
+  font-style: italic;
+}
+
+.carte-origine-entree .badge-sans-stock {
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: var(--avertissement-clair, #fef3c7);
+  color: var(--avertissement-fonce, #92400e);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+/* Barre au-dessus du tableau : nombre d'articles à gauche, prix à droite. */
+.barre-totaux-entree {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.resume-entree-stock {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.recap-paiement-entree {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  flex-wrap: wrap;
+  margin-left: auto;
+  padding: 0.45rem 1rem;
+  border: 2px solid var(--accent-entree);
+  border-radius: var(--rayon-md);
+  background: var(--surface);
+}
+
+.ligne-recap-entree {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ligne-recap-entree strong {
+  font-size: 1.05rem;
+  white-space: nowrap;
+}
+
+.ligne-recap-paiement .champ-montant-deja-paye {
+  max-width: 120px;
+}
+
+.ligne-recap-reste {
+  padding-left: 1.1rem;
+  border-left: 1px dashed var(--bordure-tableau);
+}
+
+.ligne-recap-reste.reste-du strong {
+  color: var(--danger);
+}
+
+/* Carte « Commandes clients » (CommandesClients.tsx) : liste, fiche, saisie,
+   livraison. Le tableau descend jusqu'en bas, seules ses lignes défilent. */
+.modale-commandes-clients .corps-commandes-clients {
+  overflow: hidden;
+}
+
+.modale-commandes-clients .zone-tableau-scroll {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+.modale-commandes-clients .ligne-cliquable {
+  cursor: pointer;
+}
+
+.modale-commandes-clients .ligne-cliquable:hover td {
+  background: var(--couleur-primaire-clair);
+}
+
+.modale-commandes-clients .col-montant-commande {
+  text-align: right;
+}
+
+.modale-commandes-clients .texte-manque-stock {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.formulaire-commande-client {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  flex: 1;
+  min-height: 0;
+  padding: 0 1.4rem 1.4rem;
+  overflow: hidden;
+}
+
+.formulaire-commande-client > .modale-entete {
+  margin: 0 -1.4rem;
+}
+
+.ligne-champs-commande-client {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.ligne-champs-commande-client label,
+.champ-client-commande {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+}
+
+.champ-client-commande {
+  flex: 1;
+  min-width: 260px;
+}
+
+.champ-note-commande {
+  flex: 1;
+  min-width: 200px;
+}
+
+.recherche-client-commande.recherche-commande-combobox,
+.recherche-article-commande.recherche-commande-combobox {
+  max-width: none;
+  flex: none;
+}
+
+.recherche-client-commande input,
+.recherche-article-commande input {
+  max-width: none;
+}
+
+.recherche-article-commande {
+  flex-shrink: 0;
+}
+
+.recherche-commande-combobox .resultats-recherche {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.recherche-client-commande .resultats-recherche li,
+.recherche-article-commande .resultats-recherche li {
+  align-items: baseline;
+  gap: 1rem;
+}
+
+.ajout-client-commande {
+  font-weight: 600;
+  color: var(--couleur-primaire-fonce);
+}
+
+.nouveau-client-commande {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.barre-total-commande {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.zone-lignes-commande .champ-quantite-commande {
+  width: 90px;
+}
+
+.zone-lignes-commande .champ-prix-commande {
+  width: 130px;
+  text-align: right;
+}
+
+.livraisons-commande {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex-shrink: 0;
+}
+
+.recap-livraison-commande {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  padding: 0.7rem 1rem;
+  border: 2px solid var(--couleur-primaire-fonce);
+  border-radius: var(--rayon-md);
+}
+
+.ligne-recap-livraison {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.ligne-recap-livraison strong {
+  white-space: nowrap;
+}
+
+.choix-reglement-livraison {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Caisse : la vente entame du stock réservé par une commande client (avertit, ne bloque pas). */
+.message-avertissement-reserve {
+  margin-top: 0.4rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--rayon-sm);
+  background: var(--avertissement-clair);
+  color: var(--avertissement-fonce);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* Caisse : « Passer commande » (le panier devient une commande client). */
+.bouton-mettre-en-commande {
+  padding: 0.5rem;
+  border-radius: var(--rayon-md);
+  font-weight: 700;
+  background: var(--surface);
+  border: 2px solid var(--couleur-primaire-fonce);
+  color: var(--couleur-primaire-fonce);
+}
+
+.champs-mise-en-commande {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0.6rem 0;
+}
+
+.champs-mise-en-commande label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+}
+
+/* Les messages sous le total (erreur, avertissement, commande enregistrée)
+   passent à la ligne sans élargir la colonne, ni écraser Article / Paiement. */
+.colonne-totaux .zone-erreur-vente {
+  width: 0;
+  min-width: 100%;
+}
+
+/* Bas de la colonne Article : « Annuler la vente » et « Passer commande » côte à côte. */
+.actions-bas-article {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: auto;
+}
+
+.actions-bas-article .bouton-annuler-vente {
+  margin-top: 0;
+}
+
+.actions-bas-article .bouton-mettre-en-commande {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
+  border-width: 1px;
+}
+
+/* Caisse : seules les lignes du panier défilent, l'en-tête du tableau reste
+   figé (un overflow: hidden sur le tableau empêchait le sticky des th). */
+.panier-scrollable > .tableau-panier {
+  overflow: visible;
+}
+
+/* Caisse, « Ajouter des articles » : même règle que le panier, seules les
+   lignes défilent et l'en-tête du tableau reste figé. */
+.catalogue-caisse > .tableau-catalogue {
+  overflow: visible;
+}
+
+/* Commandes clients : lignes vides qui prolongent le quadrillage jusqu'en bas
+   (45 px bordure comprise, comme HAUTEUR_LIGNE_VIDE dans CommandesClients.tsx). */
+.modale-commandes-clients .tableau-catalogue tr.ligne-groupe-vide td {
+  height: 45px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/* Commandes clients : tuiles qui filtrent la liste, retard surligné, case « Prête ». */
+.modale-commandes-clients .tuile-filtre-commande {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color var(--transition), background var(--transition);
+}
+
+.modale-commandes-clients .tuile-filtre-commande:hover {
+  border-color: var(--couleur-primaire-fonce);
+}
+
+.modale-commandes-clients .tuile-filtre-commande--active {
+  border: 2px solid var(--couleur-primaire-fonce);
+  background: var(--couleur-primaire-clair);
+}
+
+.modale-commandes-clients .ligne-commande-en-retard td {
+  background: color-mix(in srgb, var(--danger), transparent 88%);
+}
+
+.modale-commandes-clients .col-prete-commande {
+  width: 70px;
+  text-align: center;
+}
+
+.modale-commandes-clients .col-prete-commande input {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+/* Fiche : actions secondaires sous l'en-tête, avancement de la livraison. */
+.barre-actions-commande {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  padding: 0.6rem 1.4rem 0;
+}
+
+.barre-actions-commande button {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.82rem;
+}
+
+.barre-actions-commande .bouton-annuler-commande {
+  margin-left: auto;
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger), transparent 50%);
+  background: transparent;
+}
+
+.progression-commande {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.progression-commande-texte {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.88rem;
+}
+
+.progression-commande-barre {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--gris-200);
+  overflow: hidden;
+}
+
+.progression-commande-barre > div {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--succes, #16a34a);
+  transition: width 0.3s ease;
+}
+
+/* Livraison : raccourcis de quantités et résumé avant de confirmer. */
+.raccourcis-livraison {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.raccourcis-livraison button {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+.resume-livraison {
+  margin: 0.4rem 0 0.8rem;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+/* Formulaire : raccourcis de date de livraison. */
+.raccourcis-date-commande {
+  display: flex;
+  gap: 0.6rem;
+  font-size: 0.78rem;
+}
+
+.raccourcis-date-commande .lien {
+  padding: 0;
+}
+
+/* Formulaire de commande : champs alignés par le haut (les raccourcis de date
+   sous « Livraison prévue » ne décalent plus les autres champs). */
+.formulaire-commande-client > .ligne-champs-commande-client {
+  align-items: flex-start;
+}
+
+/* Nouvelle commande client : même présentation que la commande fournisseur.
+   Le formulaire ne défile pas : le tableau descend jusqu'au bas de la modale
+   et seules ses lignes défilent (en-tête du tableau figé). */
+.modale-selection-produits > .formulaire-mouvement-groupe.formulaire-saisie-commande-client {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  overflow: hidden;
+}
+
+.formulaire-saisie-commande-client > .modale-entete,
+.formulaire-saisie-commande-client > .message-erreur,
+.formulaire-saisie-commande-client > .message-avertissement-reserve,
+.formulaire-saisie-commande-client .colonne-recherche-groupe {
+  flex-shrink: 0;
+}
+
+.formulaire-saisie-commande-client .colonnes-mouvement-groupe {
+  flex: 1;
+  min-height: 0;
+  margin-top: 0;
+  gap: 0.9rem;
+}
+
+.formulaire-saisie-commande-client .lignes-groupe-scrollable {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+/* Client, dépôt, livraison, note : alignés par le haut (raccourcis de date dessous). */
+.formulaire-saisie-commande-client .ligne-champs-recherche-commande:first-child {
+  align-items: flex-start;
+}
+
+.formulaire-saisie-commande-client .champ-client-commande .libelle-champ {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--gris-900);
+}
+
+.formulaire-saisie-commande-client .champ-note-commande input {
+  max-width: none;
+}
+
+/* Recherche d'article, nombre d'articles et encadré Total sur une ligne. */
+.formulaire-saisie-commande-client .ligne-champs-recherche-commande:last-child {
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.formulaire-saisie-commande-client .recherche-article-commande.recherche-commande-combobox {
+  flex: 1;
+}
+
+.formulaire-saisie-commande-client .nombre-articles-commande {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.formulaire-saisie-commande-client .total-net-commande {
+  margin-left: 0;
+}
+
+/* Réglages → Utilisateurs & rôles : rôles personnalisés. */
+.liste-roles {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.carte-role-nouveau {
+  border: 2px solid var(--couleur-primaire);
+}
+
+.champ-renommer-role,
+.champs-nouveau-role {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.champs-nouveau-role {
+  margin-bottom: 0.9rem;
+}
+
+.champs-nouveau-role label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  min-width: 240px;
+}
+
+.champ-renommer-role input {
+  min-width: 240px;
+}
+
+.carte-role .entete-detail h4 {
+  margin: 0;
+}
+
+/* Utilisateurs : code vendeur modifiable dans la liste. */
+.champ-code-vendeur {
+  width: 5.5rem;
+  text-transform: uppercase;
+}
+
+/* Bandeau de fin d'abonnement (components/BandeauAbonnement.tsx). */
+.bandeau-abonnement {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin: 0 0 1rem;
+  padding: 0.65rem 1rem;
+  border-radius: var(--rayon-md);
+  border-left: 5px solid;
+  font-size: 0.92rem;
+}
+
+.bandeau-abonnement--bientot {
+  background: var(--avertissement-clair);
+  color: var(--avertissement-fonce);
+  border-color: var(--avertissement);
+}
+
+.bandeau-abonnement--grace,
+.bandeau-abonnement--bloque {
+  background: var(--danger-clair);
+  color: var(--danger-fonce);
+  border-color: var(--danger);
+}
+
+.bandeau-abonnement-icone {
+  font-size: 1.2rem;
+}
+
+.bandeau-abonnement-texte {
+  flex: 1;
+}
+
+.bandeau-abonnement-lien {
+  color: inherit;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.bandeau-abonnement-fermer {
+  color: inherit;
+  font-size: 1.2rem;
+}
+
+/* Fenêtre « Abonnement » (components/ModaleAbonnement.tsx). */
+.modale-abonnement {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.resume-abonnement {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.valeur-abonnement {
+  margin: 0.3rem 0 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.renouveler-abonnement dl {
+  display: flex;
+  flex-direction: column;
+  margin: 0.5rem 0 0.9rem;
+}
+
+.ligne-numero-abonnement {
+  display: flex;
+  gap: 1rem;
+  padding: 0.25rem 0;
+}
+
+.ligne-numero-abonnement dt {
+  min-width: 10rem;
+}
+
+.instructions-abonnement {
+  white-space: pre-line;
+  margin: 0.4rem 0 0.6rem;
+}
+
+.historique-abonnement h4 {
+  margin: 0 0 0.5rem;
+}
+
+/* Espace admin : paiement inscrit au registre avec la nouvelle période. */
+.paiement-abonnement {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  border: 1px solid var(--bordure, rgba(148, 163, 184, 0.35));
+  border-radius: var(--rayon-md);
+  padding: 0.8rem 1rem;
+}
+
+.paiement-abonnement legend {
+  padding: 0 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+/* « J'ai payé » : paiement déclaré par le commerçant (ModaleAbonnement). */
+.bouton-j-ai-paye {
+  align-self: flex-start;
+}
+
+.champs-declaration-paiement {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin: 0.6rem 0 0.9rem;
+}
+
+.champs-declaration-paiement label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.champ-reference-paiement {
+  grid-column: span 2;
+}

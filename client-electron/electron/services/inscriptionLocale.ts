@@ -37,6 +37,13 @@ const PERMISSIONS_PATRON: Record<string, boolean> = {
   consulter_comptabilite: true,
 };
 
+/** Essai gratuit de 15 jours à l'ouverture (même durée que comptes/services.py::DUREE_ESSAI). */
+const DUREE_ESSAI_JOURS = 15;
+
+function finEssai(): string {
+  return new Date(Date.now() + DUREE_ESSAI_JOURS * 86_400_000).toISOString();
+}
+
 export class ErreurInscriptionLocale extends Error {}
 
 export interface BoutiqueLocaleEnAttente {
@@ -99,8 +106,8 @@ export function creerBoutiqueLocale(params: {
     `INSERT INTO boutiques
        (id, nom, adresse, telephone, email, devise, actif, date_expiration_abonnement, formule,
         synchro_autorisee, date_creation, date_modification, synchronise, supprime)
-     VALUES (?, ?, '', '', ?, 'FCFA', 1, NULL, 'essentiel', 0, ?, ?, 0, 0)`,
-    [boutiqueId, params.boutiqueNom, params.email, maintenant, maintenant],
+     VALUES (?, ?, '', '', ?, 'FCFA', 1, ?, 'essentiel', 0, ?, ?, 0, 0)`,
+    [boutiqueId, params.boutiqueNom, params.email, finEssai(), maintenant, maintenant],
   );
   sauvegarder();
 
@@ -182,8 +189,8 @@ export async function creerBoutiqueEnLigne(
       `INSERT INTO boutiques
          (id, nom, adresse, telephone, email, devise, actif, date_expiration_abonnement, formule,
           synchro_autorisee, date_creation, date_modification, synchronise, supprime)
-       VALUES (?, ?, '', '', ?, 'FCFA', 1, NULL, 'essentiel', 0, ?, ?, 1, 0)`,
-      [boutiqueId, params.boutiqueNom, params.email, maintenant, maintenant],
+       VALUES (?, ?, '', '', ?, 'FCFA', 1, ?, 'essentiel', 0, ?, ?, 1, 0)`,
+      [boutiqueId, params.boutiqueNom, params.email, finEssai(), maintenant, maintenant],
     );
     sauvegarder();
 

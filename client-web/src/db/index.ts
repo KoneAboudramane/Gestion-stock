@@ -232,6 +232,16 @@ export function ouvrirBaseDeDonnees(): Promise<IDBPDatabase<GestionStockDB>> {
           comptesFournisseur.createIndex("fournisseur_id", "fournisseur_id");
           comptesFournisseur.createIndex("synchronise", "synchronise");
         }
+
+        // v14 : commandes clients (avant livraison).
+        if (oldVersion < 14) {
+          const commandes = db.createObjectStore("commandes_client", { keyPath: "id" });
+          commandes.createIndex("boutique_id", "boutique_id");
+          commandes.createIndex("synchronise", "synchronise");
+          const lignes = db.createObjectStore("lignes_commande_client", { keyPath: "id" });
+          lignes.createIndex("commande_id", "commande_id");
+          lignes.createIndex("synchronise", "synchronise");
+        }
       },
     });
   }

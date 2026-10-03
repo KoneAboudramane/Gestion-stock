@@ -38,6 +38,7 @@ export async function ouvrirBaseDeDonnees(): Promise<Database> {
 function migrerColonnesManquantes(base: Database): void {
   const colonnesAAjouter: { table: string; colonne: string; definition: string }[] = [
     { table: "inventaires", colonne: "date_validation", definition: "TEXT" },
+    { table: "ventes", colonne: "commande_client_id", definition: "TEXT" },
     { table: "lignes_inventaire", colonne: "prix_achat_fige", definition: "REAL DEFAULT 0" },
     { table: "boutiques", colonne: "date_expiration_abonnement", definition: "TEXT" },
     { table: "boutiques", colonne: "formule", definition: "TEXT DEFAULT 'essentiel'" },

@@ -20,6 +20,10 @@ const INFOS_TYPE: Record<TypeNotification, { titre: string; icone: string; retar
   echeance_retard: { titre: "Échéance fournisseur en retard", icone: "🚚", retard: true, actions: [{ libelle: "Ouvrir Achats → Dettes", cible: "achats" }] },
   credit_proche: { titre: "Échéance de crédit client proche", icone: "💳", retard: false, actions: [{ libelle: "Ouvrir les crédits clients", cible: "clients:credits" }] },
   credit_retard: { titre: "Crédit client en retard", icone: "💳", retard: true, actions: [{ libelle: "Ouvrir les crédits clients", cible: "clients:credits" }] },
+  commande_proche: { titre: "Livraison de commande proche", icone: "📋", retard: false, actions: [{ libelle: "Ouvrir les commandes clients", cible: "clients:commandes" }] },
+  commande_retard: { titre: "Commande client en retard", icone: "📋", retard: true, actions: [{ libelle: "Ouvrir les commandes clients", cible: "clients:commandes" }] },
+  abonnement_proche: { titre: "Fin d'abonnement proche", icone: "⭐", retard: false, actions: [{ libelle: "Voir l'abonnement", cible: "abonnement" }] },
+  abonnement_expire: { titre: "Abonnement expiré", icone: "⭐", retard: true, actions: [{ libelle: "Voir l'abonnement", cible: "abonnement" }] },
 };
 
 const CATEGORIES: { cle: string; label: string; icone: string; types: TypeNotification[] | null }[] = [
@@ -27,6 +31,8 @@ const CATEGORIES: { cle: string; label: string; icone: string; types: TypeNotifi
   { cle: "rupture", label: "Ruptures de stock", icone: "📦", types: ["alerte_rupture"] },
   { cle: "echeances", label: "Échéances fournisseurs", icone: "🚚", types: ["echeance_proche", "echeance_retard"] },
   { cle: "credits", label: "Crédits clients", icone: "💳", types: ["credit_proche", "credit_retard"] },
+  { cle: "commandes", label: "Commandes clients", icone: "📋", types: ["commande_proche", "commande_retard"] },
+  { cle: "abonnement", label: "Abonnement", icone: "⭐", types: ["abonnement_proche", "abonnement_expire"] },
   { cle: "destockage", label: "Déstockages", icone: "🏷️", types: ["fin_destockage"] },
   { cle: "dormants", label: "Produits dormants", icone: "😴", types: ["alerte_dormants"] },
 ];

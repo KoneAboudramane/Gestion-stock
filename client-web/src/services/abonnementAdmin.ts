@@ -37,6 +37,11 @@ export interface ChampsAbonnement {
   formule?: string;
   dateExpirationAbonnement?: string | null;
   synchroAutorisee?: boolean;
+  /** Inscrits au registre des abonnements avec la nouvelle période (voir comptes/views.py::AppliquerAbonnementView). */
+  nature?: "paiement" | "offert" | "ajustement";
+  montant?: number;
+  mode?: string;
+  reference?: string;
 }
 
 /**
@@ -117,6 +122,10 @@ export async function soumettreAbonnement(
           ? { date_expiration_abonnement: champs.dateExpirationAbonnement }
           : {}),
         ...(champs.synchroAutorisee !== undefined ? { synchro_autorisee: champs.synchroAutorisee } : {}),
+        ...(champs.nature ? { nature: champs.nature } : {}),
+        ...(champs.montant ? { montant: champs.montant } : {}),
+        ...(champs.mode ? { mode: champs.mode } : {}),
+        ...(champs.reference ? { reference: champs.reference } : {}),
       }),
     });
     if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));

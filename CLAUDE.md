@@ -16,7 +16,7 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 6. **Montants et quantités** : `DecimalField(max_digits=12, decimal_places=2)`. Jamais de FloatField pour l'argent.
 7. Les labels d'app sont le nom du dossier : `core, comptes, catalogue, stock, ventes, achats, clients, fournisseurs, configuration, synchronisation`.
 
-## Les 10 apps et leurs 40 modèles
+## Les 10 apps et leurs modèles
 
 ### core
 - `ModeleBase` (abstrait) — hérité par tous. Champs : id (UUID), date_creation, date_modification, synchronise, date_synchronisation.
@@ -49,7 +49,9 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 - `LigneInventaire` — inventaire (FK → lignes), variante (FK), qte_theorique, qte_physique, ecart.
 
 ### ventes  (une vente sort du stock d'un dépôt)
-- `Vente` — boutique (FK), **depot (FK, PROTECT)**, client (FK clients.Client, null), utilisateur (FK), numero, total_brut, remise, total_net, statut {payee|credit|annulee}.
+- `Vente` — boutique (FK), **depot (FK, PROTECT)**, client (FK clients.Client, null), utilisateur (FK), numero, total_brut, remise, total_net, statut {payee|credit|annulee}, commande_client (FK CommandeClient → livraisons, null : la vente est la livraison de cette commande).
+- `CommandeClient` — boutique (FK), client (FK clients.Client, PROTECT), depot (FK, PROTECT), utilisateur (FK), numero (CMC-…), statut {en_attente|prete|partielle|livree|annulee}, date_livraison_prevue (null), note, total, avance, date_annulation. **Commande enregistrée avant livraison** (carte « Commandes clients » de la page Clients) : le stock ne bouge qu'à la livraison, qui est une `Vente` au prix figé de la commande (livraison partielle possible). D'ici là, le restant à livrer est **réservé** dans le dépôt (affiché dans Stock, la caisse avertit sans bloquer). L'avance va dans le porte-monnaie du client (`MouvementCompteClient` dépôt) et paie la livraison ; `avance` n'en garde que le total. Annuler une vente de livraison remet ses quantités à livrer. Alertes `commande_proche` (aujourd'hui/demain) et `commande_retard`.
+- `LigneCommandeClient` — commande (FK → lignes), variante (FK, PROTECT), quantite, quantite_livree, prix_unitaire (figé à la commande), sous_total.
 - `LigneVente` — vente (FK → lignes), variante (FK catalogue.Variante, PROTECT), quantite, prix_unitaire, remise, sous_total, prix_normal (null), destockage (FK stock.Destockage, null) — ces deux derniers seulement si vendue en déstockage (bilan : marge, manque à gagner).
 - `Paiement` — vente (FK → paiements), mode {especes|mobile_money|carte|credit}, montant.
 
