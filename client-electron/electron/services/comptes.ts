@@ -150,6 +150,32 @@ export async function declarerPaiementAbonnement(
   if (!reponse.ok) throw new ErreurComptes(await extraireMessageErreur(reponse));
 }
 
+// --- Réseau de la boutique : demande d'activation à l'administrateur ---
+
+export interface EtatDemandeReseau {
+  reseau_autorise: boolean;
+  /** Date de la demande en attente, sinon null. */
+  demande_en_attente: string | null;
+  /** Numéro WhatsApp de l'administrateur (ReglagesPlateforme), vide s'il n'est pas saisi. */
+  whatsapp: string;
+}
+
+export async function etatDemandeReseau(session: Session): Promise<EtatDemandeReseau> {
+  const reponse = await appelerAvecDelai(`${URL_BASE_API}/boutique/reseau/`, { headers: entetes(session) });
+  if (!reponse.ok) throw new ErreurComptes(await extraireMessageErreur(reponse));
+  return reponse.json();
+}
+
+export async function demanderActivationReseau(session: Session, note: string): Promise<EtatDemandeReseau> {
+  const reponse = await appelerAvecDelai(`${URL_BASE_API}/boutique/reseau/`, {
+    method: "POST",
+    headers: entetes(session),
+    body: JSON.stringify({ note }),
+  });
+  if (!reponse.ok) throw new ErreurComptes(await extraireMessageErreur(reponse));
+  return reponse.json();
+}
+
 // --- Utilisateurs ---
 
 export interface UtilisateurResume {

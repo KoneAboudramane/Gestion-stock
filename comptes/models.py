@@ -44,6 +44,15 @@ class Boutique(ModeleBase):
     # hors application (téléphone/WhatsApp) — pas de workflow de demande dans
     # l'appli elle-même.
     synchro_autorisee = models.BooleanField(default=False)
+    # Date de la dernière sauvegarde faite par le poste principal (docs/plan_reseau_local.md,
+    # lot 7) — jamais le contenu, qui reste chiffré sur le Drive de la boutique. Envoyée
+    # par l'appli (BoutiqueSauvegardeView), protégée de la synchro (synchronisation/registre.py).
+    date_derniere_sauvegarde = models.DateTimeField(null=True, blank=True)
+    # Réseau de la boutique (ordinateurs reliés sans internet, docs/plan_reseau_local.md) :
+    # activé par l'administrateur à la demande de la boutique (DemandeReseau), désactivé
+    # par défaut. Réglé dans l'admin Django ou dans l'Espace Admin de l'appli
+    # (AppliquerAbonnementView) ; protégé de la synchro (synchronisation/registre.py).
+    reseau_autorise = models.BooleanField(default=False)
 
     def __str__(self):
         return self.nom
@@ -88,6 +97,9 @@ class Utilisateur(AbstractUser):
     # Abréviation unique dans la boutique, dans les numéros de ses documents
     # (VTE-20261002-AKO-0001) : voir comptes/codes_vendeur.py.
     code_vendeur = models.CharField(max_length=6, blank=True, default="")
+    # Mot de passe provisoire donné par l'administrateur (Espace Admin → Réinitialiser
+    # mot de passe) : l'utilisateur choisit le sien à sa prochaine connexion.
+    doit_changer_mot_de_passe = models.BooleanField(default=False)
 
     # Réinitialisation de mot de passe (Patron uniquement, voir comptes/services.py) :
     # code court à 5 chiffres envoyé par email, valable un temps limité.
@@ -295,3 +307,35 @@ class DemandeRenouvellement(ModeleBase):
 
     def __str__(self):
         return f"{self.boutique.nom} · {self.montant} ({self.get_statut_display()})"
+
+
+class DemandeReseau(ModeleBase):
+    """
+    Demande d'activation du réseau de la boutique, envoyée par le responsable
+    depuis l'appli (Réseau de la boutique → « Demander l'activation »).
+    L'administrateur l'accepte en un clic (Boutique.reseau_autorise) ou la refuse.
+    """
+
+    class Statut(models.TextChoices):
+        EN_ATTENTE = "en_attente", "En attente"
+        ACCEPTEE = "acceptee", "Acceptée"
+        REFUSEE = "refusee", "Refusée"
+
+    boutique = models.ForeignKey(Boutique, on_delete=models.CASCADE, related_name="demandes_reseau")
+    demandeur = models.ForeignKey(
+        "comptes.Utilisateur", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    note = models.CharField(max_length=255, blank=True)
+    statut = models.CharField(max_length=20, choices=Statut.choices, default=Statut.EN_ATTENTE)
+    traitee_par = models.ForeignKey(
+        "comptes.Utilisateur", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    date_traitement = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-date_creation"]
+        verbose_name = "demande d'activation du réseau"
+        verbose_name_plural = "demandes d'activation du réseau"
+
+    def __str__(self):
+        return f"{self.boutique.nom} · réseau ({self.get_statut_display()})"

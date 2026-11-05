@@ -3,6 +3,7 @@ import type { SqlValue } from "sql.js";
 
 import { dansUneTransaction, executer, tousLesResultats, unResultat } from "../db/helpers";
 import { sauvegarder } from "../db/index";
+import { besoinsRecette, coutUnitaireRecette, obtenirRecette } from "./recettes";
 
 /**
  * Miroir de stock/services.py::appliquer_mouvement (Django, Étape 3) : le
@@ -147,6 +148,60 @@ export function creerMouvementManuel(params: ParametresMouvement): string {
   return id;
 }
 
+export interface ParametresMouvementsGroupe {
+  depotId: string;
+  type: "sortie" | "ajustement";
+  motif: string;
+  utilisateurId?: string | null;
+  /** Sortie : quantité à sortir. Ajustement : quantité réellement comptée (l'écart est calculé à l'enregistrement). */
+  lignes: { varianteId: string; quantite: number }[];
+}
+
+/**
+ * Formulaire « Nouveau mouvement » : plusieurs articles d'un coup, tout ou rien.
+ * Ajustement : on reçoit la quantité comptée, l'écart avec le stock du dépôt est
+ * calculé ici (au moment d'enregistrer, pas sur un stock affiché périmé).
+ */
+export function creerMouvementsGroupe(params: ParametresMouvementsGroupe): number {
+  const motif = params.motif.trim();
+  if (!motif) throw new ErreurStock("Indiquez le motif du mouvement.");
+  if (params.lignes.length === 0) throw new ErreurStock("Ajoutez au moins un article.");
+  if (new Set(params.lignes.map((l) => l.varianteId)).size !== params.lignes.length) {
+    throw new ErreurStock("Un même article apparaît deux fois.");
+  }
+  let nombre = 0;
+  dansUneTransaction(() => {
+    for (const ligne of params.lignes) {
+      const nom = nomVariante(ligne.varianteId);
+      const enStock = stockVarianteDepot(ligne.varianteId, params.depotId);
+      let quantite: number;
+      if (params.type === "sortie") {
+        if (!(ligne.quantite > 0)) throw new ErreurStock(`${nom} : la quantité doit être supérieure à 0.`);
+        if (ligne.quantite > enStock) {
+          throw new ErreurStock(`${nom} : il n'y en a que ${formaterQuantite(enStock)} dans ce dépôt.`);
+        }
+        quantite = ligne.quantite;
+      } else {
+        if (!(ligne.quantite >= 0)) throw new ErreurStock(`${nom} : la quantité comptée ne peut pas être négative.`);
+        quantite = arrondiQuantite(ligne.quantite - enStock);
+        if (quantite === 0) continue;
+      }
+      appliquerMouvement({
+        varianteId: ligne.varianteId,
+        depotId: params.depotId,
+        type: params.type,
+        quantite,
+        motif,
+        utilisateurId: params.utilisateurId ?? null,
+      });
+      nombre++;
+    }
+    if (nombre === 0) throw new ErreurStock("Aucun écart : les quantités comptées sont égales au stock.");
+  });
+  sauvegarder();
+  return nombre;
+}
+
 export interface ParametresEntreeProduction {
   varianteId: string;
   depotId: string;
@@ -222,6 +277,8 @@ export function creerEntreeProduction(params: ParametresEntreeProduction): strin
 export const REFERENCE_ENTREE_OUVERTURE = "stock.EntreeOuverture";
 export const REFERENCE_ENTREE_FABRICATION = "stock.EntreeFabrication";
 export const REFERENCE_ENTREE_DON = "stock.EntreeDon";
+/** Sortie d'un ingrédient consommé par une fabrication avec recette. */
+export const REFERENCE_CONSOMMATION_FABRICATION = "stock.ConsommationFabrication";
 
 export interface LigneEntreeStock {
   varianteId: string;
@@ -237,6 +294,8 @@ export interface ParametresEntreeStock {
   lignes: LigneEntreeStock[];
   motif?: string;
   utilisateurId?: string | null;
+  /** Don : fournisseur qui a offert la marchandise (gardé dans reference_id du mouvement). */
+  fournisseurId?: string | null;
 }
 
 function verifierLignesEntree(lignes: LigneEntreeStock[]): void {
@@ -256,19 +315,69 @@ function nomVariante(varianteId: string): string {
   );
 }
 
-/** Fabrication de plusieurs articles d'un coup, tout ou rien. */
+/** Arrondi au centième, comme les quantités du serveur (DecimalField à 2 décimales). */
+function arrondiQuantite(quantite: number): number {
+  return Math.round(quantite * 100) / 100;
+}
+
+function formaterQuantite(quantite: number): string {
+  return String(arrondiQuantite(quantite)).replace(".", ",");
+}
+
+/**
+ * Fabrication de plusieurs articles d'un coup, tout ou rien. Un article avec
+ * recette : ses ingrédients sortent du stock du dépôt (refusé s'il en manque)
+ * et son coût est celui de la recette, le coût saisi est ignoré. Sans recette :
+ * coût saisi, aucun ingrédient ne bouge.
+ */
 export function entreeFabrication(params: ParametresEntreeStock): number {
   verifierLignesEntree(params.lignes);
+  if (!fabricationPropreActivePourDepot(params.depotId)) throw new ErreurStock(MESSAGE_ENTREE_RESERVEE_FABRICATION);
+  const recettes = new Map(params.lignes.map((l) => [l.varianteId, obtenirRecette(l.varianteId)]));
+  const besoins = new Map<string, number>();
+  for (const ligne of params.lignes) {
+    const recette = recettes.get(ligne.varianteId);
+    if (!recette) continue;
+    for (const [ingredientId, quantite] of besoinsRecette(recette, ligne.quantite)) {
+      besoins.set(ingredientId, (besoins.get(ingredientId) ?? 0) + arrondiQuantite(quantite));
+    }
+  }
+  for (const [ingredientId, besoin] of besoins) {
+    const enStock = stockVarianteDepot(ingredientId, params.depotId);
+    if (enStock < arrondiQuantite(besoin)) {
+      throw new ErreurStock(
+        `${nomVariante(ingredientId)} : il manque ${formaterQuantite(besoin - enStock)} dans ce dépôt (il faut ${formaterQuantite(besoin)}, il y a ${formaterQuantite(enStock)}).`,
+      );
+    }
+  }
+
   dansUneTransaction(() => {
     for (const ligne of params.lignes) {
-      if (!(Number(ligne.prixAchat) >= 0)) {
+      const recette = recettes.get(ligne.varianteId);
+      const prixAchat = recette ? coutUnitaireRecette(recette) : Number(ligne.prixAchat);
+      if (!(prixAchat >= 0)) {
         throw new ErreurStock(`${nomVariante(ligne.varianteId)} : indiquez le coût de fabrication.`);
+      }
+      if (recette) {
+        const motifIngredient = `Fabrication de ${formaterQuantite(ligne.quantite)} × ${nomVariante(ligne.varianteId)}`;
+        for (const [ingredientId, quantite] of besoinsRecette(recette, ligne.quantite)) {
+          if (arrondiQuantite(quantite) <= 0) continue;
+          appliquerMouvement({
+            varianteId: ingredientId,
+            depotId: params.depotId,
+            type: "sortie",
+            quantite: arrondiQuantite(quantite),
+            motif: motifIngredient,
+            utilisateurId: params.utilisateurId ?? null,
+            referenceType: REFERENCE_CONSOMMATION_FABRICATION,
+          });
+        }
       }
       entreeProductionSansTransaction({
         varianteId: ligne.varianteId,
         depotId: params.depotId,
         quantite: ligne.quantite,
-        prixAchat: Number(ligne.prixAchat),
+        prixAchat,
         prixVente: ligne.prixVente,
         motif: params.motif?.trim() || "Fabrication",
         utilisateurId: params.utilisateurId ?? null,
@@ -279,20 +388,25 @@ export function entreeFabrication(params: ParametresEntreeStock): number {
   return params.lignes.length;
 }
 
-/** Vrai si l'article n'a encore jamais bougé (aucun mouvement) : stock d'ouverture permis. */
-export function varianteSansMouvement(varianteId: string): boolean {
+/**
+ * Vrai si l'article n'a encore jamais bougé (aucun mouvement) — dans ce dépôt
+ * si `depotId` est donné, sinon nulle part : stock d'ouverture permis.
+ */
+export function varianteSansMouvement(varianteId: string, depotId?: string): boolean {
   const resultat = unResultat<{ n: number }>(
-    "SELECT COUNT(*) as n FROM mouvements_stock WHERE variante_id = ? AND supprime = 0",
-    [varianteId],
+    "SELECT COUNT(*) as n FROM mouvements_stock WHERE variante_id = ? AND supprime = 0 AND (? IS NULL OR depot_id = ?)",
+    [varianteId, depotId ?? null, depotId ?? null],
   );
   return Number(resultat?.n ?? 0) === 0;
 }
 
 /**
- * Articles actifs qui n'ont encore jamais eu de mouvement de stock (créés sans
- * stock initial) : la liste à compléter du « Stock d'ouverture ».
+ * Articles actifs qui n'ont encore jamais eu de mouvement de stock — dans ce
+ * dépôt si `depotId` est donné (liste à compléter du « Stock d'ouverture » :
+ * un article déjà ouvert dans un dépôt reste proposé pour les autres), sinon
+ * nulle part (articles créés sans stock initial).
  */
-export function articlesSansStock(boutiqueId: string): VarianteSansStock[] {
+export function articlesSansStock(boutiqueId: string, depotId?: string): VarianteSansStock[] {
   return tousLesResultats<VarianteSansStock>(
     `SELECT v.id as id, v.produit_id as produitId, p.nom as produitNom, v.reference as reference,
             v.code_barres as codeBarres, v.prix_vente as prixVente, v.prix_achat as prixAchat,
@@ -300,9 +414,12 @@ export function articlesSansStock(boutiqueId: string): VarianteSansStock[] {
      FROM variantes v
      JOIN produits p ON p.id = v.produit_id
      WHERE p.boutique_id = ? AND p.actif = 1 AND v.actif = 1 AND p.supprime = 0 AND v.supprime = 0
-       AND NOT EXISTS (SELECT 1 FROM mouvements_stock m WHERE m.variante_id = v.id AND m.supprime = 0)
+       AND NOT EXISTS (
+         SELECT 1 FROM mouvements_stock m
+         WHERE m.variante_id = v.id AND m.supprime = 0 AND (? IS NULL OR m.depot_id = ?)
+       )
      ORDER BY p.nom`,
-    [boutiqueId],
+    [boutiqueId, depotId ?? null, depotId ?? null],
   );
 }
 
@@ -319,8 +436,10 @@ export interface VarianteSansStock {
 
 /**
  * Stock d'ouverture : la marchandise déjà en boutique au démarrage avec
- * l'application. Réservé aux articles qui n'ont encore jamais bougé, pour ne
- * pas servir de raccourci aux Achats. Le coût saisi devient le prix d'achat.
+ * l'application. Une fois par dépôt : réservé aux articles qui n'ont encore
+ * jamais bougé dans ce dépôt, pour ne pas servir de raccourci aux Achats. Le
+ * coût saisi devient le prix d'achat, ou se moyenne (CUMP) avec le stock déjà
+ * ouvert dans les autres dépôts.
  */
 export function entreeStockOuverture(params: ParametresEntreeStock): number {
   verifierLignesEntree(params.lignes);
@@ -328,17 +447,26 @@ export function entreeStockOuverture(params: ParametresEntreeStock): number {
     const maintenant = new Date().toISOString();
     for (const ligne of params.lignes) {
       const nom = nomVariante(ligne.varianteId);
-      if (!varianteSansMouvement(ligne.varianteId)) {
+      if (!varianteSansMouvement(ligne.varianteId, params.depotId)) {
         throw new ErreurStock(
-          `${nom} a déjà eu des mouvements de stock : le stock d'ouverture est réservé aux articles neufs. Passez par un achat rapide.`,
+          `${nom} a déjà eu des mouvements de stock dans ce dépôt : le stock d'ouverture n'y est plus possible. Passez par un achat rapide.`,
         );
       }
-      const variante = unResultat<{ prix_vente: number }>("SELECT prix_vente FROM variantes WHERE id = ?", [
-        ligne.varianteId,
-      ]);
+      const variante = unResultat<{ prix_achat: number; prix_vente: number }>(
+        "SELECT prix_achat, prix_vente FROM variantes WHERE id = ?",
+        [ligne.varianteId],
+      );
       if (!variante) throw new ErreurStock("Produit introuvable.");
-      const prixAchat = Number(ligne.prixAchat);
-      if (!(prixAchat >= 0)) throw new ErreurStock(`${nom} : indiquez le coût d'achat.`);
+      const prixSaisi = Number(ligne.prixAchat);
+      if (!(prixSaisi >= 0)) throw new ErreurStock(`${nom} : indiquez le coût d'achat.`);
+      // Déjà du stock dans un autre dépôt : le coût se moyenne avec lui (CUMP).
+      const stockAilleurs = stockTotalVariante(ligne.varianteId);
+      const prixAchat =
+        stockAilleurs > 0
+          ? Math.round(
+              (stockAilleurs * Number(variante.prix_achat) + ligne.quantite * prixSaisi) / (stockAilleurs + ligne.quantite),
+            )
+          : prixSaisi;
       const prixVente = ligne.prixVente ?? Number(variante.prix_vente);
       if (prixVente < prixAchat) {
         throw new ErreurStock(`${nom} : le prix de vente ne peut pas être inférieur au prix d'achat.`);
@@ -363,9 +491,10 @@ export function entreeStockOuverture(params: ParametresEntreeStock): number {
 }
 
 /**
- * Don ou échantillon reçu : entre au coût moyen actuel, qui ne bouge donc
- * pas (les marges restent justes). Un article encore sans coût prend la
- * valeur estimée saisie.
+ * Don ou échantillon reçu : reçu gratuitement, il entre à 0 et le coût moyen
+ * baisse d'autant (le bénéfice reste juste à la vente). Le fournisseur
+ * éventuel est gardé dans reference_id du mouvement (relevé « Toutes les
+ * opérations » du fournisseur).
  */
 export function entreeDon(params: ParametresEntreeStock): number {
   verifierLignesEntree(params.lignes);
@@ -376,27 +505,27 @@ export function entreeDon(params: ParametresEntreeStock): number {
         ligne.varianteId,
       ]);
       if (!variante) throw new ErreurStock("Produit introuvable.");
-      if (Number(variante.prix_achat) <= 0) {
-        const valeur = Number(ligne.prixAchat);
-        if (!(valeur > 0)) {
-          throw new ErreurStock(
-            `${nomVariante(ligne.varianteId)} n'a pas encore de prix d'achat : indiquez sa valeur estimée.`,
-          );
-        }
+      let motif = params.motif?.trim() || "Don reçu";
+      const stockActuel = Math.max(0, stockTotalVariante(ligne.varianteId));
+      const ancienPrixAchat = Number(variante.prix_achat);
+      const nouveauPrixAchat = Math.round((stockActuel * ancienPrixAchat) / (stockActuel + ligne.quantite));
+      if (nouveauPrixAchat !== ancienPrixAchat) {
         executer("UPDATE variantes SET prix_achat = ?, synchronise = 0, date_modification = ? WHERE id = ?", [
-          valeur,
+          nouveauPrixAchat,
           maintenant,
           ligne.varianteId,
         ]);
+        motif += ` (Coût : ${ancienPrixAchat} → ${nouveauPrixAchat} FCFA [CUMP])`;
       }
       appliquerMouvement({
         varianteId: ligne.varianteId,
         depotId: params.depotId,
         type: "entree",
         quantite: ligne.quantite,
-        motif: params.motif?.trim() || "Don reçu",
+        motif,
         utilisateurId: params.utilisateurId ?? null,
         referenceType: REFERENCE_ENTREE_DON,
+        referenceId: params.fournisseurId || null,
       });
     }
   });
@@ -569,6 +698,8 @@ export function depotsSupprimesAvecStock(boutiqueId: string): DepotSupprimeAvecS
 
 export interface LigneStock {
   id: string;
+  /** Unité de l'article (ex. « carton »). */
+  unite?: string | null;
   varianteId: string;
   produitId: string;
   produitNom: string;
@@ -605,6 +736,7 @@ export function listerStock(boutiqueId: string, depotId?: string, terme = ""): L
     `SELECT s.id as id, v.id as varianteId, p.id as produitId, p.nom as produitNom, v.reference as reference,
             d.id as depotId, d.nom as depotNom, s.quantite as quantite, v.seuil_alerte as seuilAlerte,
             v.prix_achat as prixAchat, v.prix_vente as prixVente,
+            (SELECT un.nom FROM unites un WHERE un.id = p.unite_id) as unite,
             CASE WHEN s.quantite <= v.seuil_alerte THEN 1 ELSE 0 END as enRupture,
             pd.nom as detailNom, v.quantite_detail as quantiteDetail,
             (SELECT un.nom FROM unites un WHERE un.id = pd.unite_id) as detailUnite,
@@ -656,27 +788,60 @@ export interface MouvementResume {
   utilisateurId: string | null;
   /** Document à l'origine du mouvement (ex. « ventes.Vente ») ; vide pour une saisie manuelle. */
   referenceType: string;
+  /** Identifiant de ce document (vente, réception, perte, inventaire…). */
+  referenceId?: string | null;
+  /** Réception ou retour fournisseur : la commande d'achat, pour l'ouvrir. */
+  commandeId?: string | null;
+  /** Unité de l'article (abréviation, ex. « kg »). */
+  unite?: string;
+  /** Coût moyen actuel de l'article, pour estimer la valeur des mouvements. */
+  prixAchat?: number;
 }
 
-export function listerMouvements(boutiqueId: string, depotId?: string, limite = 100): MouvementResume[] {
+/**
+ * Mouvements de la boutique, les plus récents d'abord. `limite` null = tous ;
+ * `depuis` / `jusqua` (ISO, fin exclue) bornent la période — la modale
+ * Mouvements charge ainsi toute la période choisie, sans plafond.
+ */
+export function listerMouvements(
+  boutiqueId: string,
+  depotId?: string,
+  limite: number | null = 100,
+  depuis?: string | null,
+  jusqua?: string | null,
+): MouvementResume[] {
   const conditions = ["d.boutique_id = ?", "m.supprime = 0"];
   const params: SqlValue[] = [boutiqueId];
   if (depotId) {
     conditions.push("m.depot_id = ?");
     params.push(depotId);
   }
-  params.push(limite);
+  if (depuis) {
+    conditions.push("m.date_creation >= ?");
+    params.push(depuis);
+  }
+  if (jusqua) {
+    conditions.push("m.date_creation < ?");
+    params.push(jusqua);
+  }
+  if (limite !== null) params.push(limite);
   return tousLesResultats<MouvementResume>(
     `SELECT m.id as id, p.nom as produitNom, v.reference as reference, d.nom as depotNom,
             m.type as type, m.quantite as quantite, m.motif as motif, m.date_creation as dateCreation,
-            m.utilisateur_id as utilisateurId, COALESCE(m.reference_type, '') as referenceType
+            m.utilisateur_id as utilisateurId, COALESCE(m.reference_type, '') as referenceType,
+            m.reference_id as referenceId, COALESCE(u.abreviation, '') as unite, v.prix_achat as prixAchat,
+            CASE
+              WHEN m.reference_type LIKE 'achats.Reception%' THEN (SELECT r.commande_id FROM receptions r WHERE r.id = m.reference_id)
+              WHEN m.reference_type = 'achats.RetourFournisseur' THEN (SELECT rf.commande_id FROM retours_fournisseur rf WHERE rf.id = m.reference_id)
+            END as commandeId
      FROM mouvements_stock m
      JOIN variantes v ON v.id = m.variante_id
      JOIN produits p ON p.id = v.produit_id
+     LEFT JOIN unites u ON u.id = p.unite_id
      JOIN depots d ON d.id = m.depot_id
      WHERE ${conditions.join(" AND ")}
      ORDER BY m.date_creation DESC
-     LIMIT ?`,
+     ${limite !== null ? "LIMIT ?" : ""}`,
     params,
   );
 }
@@ -710,6 +875,47 @@ export interface ParametresTransfert {
 }
 
 export function transfererStock(params: ParametresTransfert): string {
+  const transfertId = dansUneTransaction(() => transfererSansTransaction(params));
+  sauvegarder();
+  return transfertId;
+}
+
+export interface ParametresTransfertsGroupe {
+  depotSourceId: string;
+  depotDestinationId: string;
+  utilisateurId: string | null;
+  lignes: { varianteId: string; quantite: number }[];
+}
+
+/** Formulaire « Nouveau transfert » : plusieurs articles d'un coup, tout ou rien. */
+export function creerTransfertsGroupe(params: ParametresTransfertsGroupe): number {
+  if (params.lignes.length === 0) throw new ErreurStock("Ajoutez au moins un article.");
+  if (new Set(params.lignes.map((l) => l.varianteId)).size !== params.lignes.length) {
+    throw new ErreurStock("Un même article apparaît deux fois.");
+  }
+  dansUneTransaction(() => {
+    for (const ligne of params.lignes) {
+      const enStock = stockVarianteDepot(ligne.varianteId, params.depotSourceId);
+      if (ligne.quantite > enStock) {
+        throw new ErreurStock(
+          `${nomVariante(ligne.varianteId)} : il n'y en a que ${formaterQuantite(enStock)} dans le dépôt de départ.`,
+        );
+      }
+      transfererSansTransaction({
+        varianteId: ligne.varianteId,
+        depotSourceId: params.depotSourceId,
+        depotDestinationId: params.depotDestinationId,
+        quantite: ligne.quantite,
+        utilisateurId: params.utilisateurId,
+      });
+    }
+  });
+  sauvegarder();
+  return params.lignes.length;
+}
+
+/** Un transfert (sortie au départ + entrée à l'arrivée), sans transaction ni sauvegarde. */
+function transfererSansTransaction(params: ParametresTransfert): string {
   const { varianteId, depotSourceId, depotDestinationId, quantite, utilisateurId } = params;
   if (depotSourceId === depotDestinationId) {
     throw new ErreurStock("Le dépôt source et destination doivent être différents.");
@@ -721,7 +927,7 @@ export function transfererStock(params: ParametresTransfert): string {
   const depotSource = unResultat<{ nom: string }>("SELECT nom FROM depots WHERE id = ?", [depotSourceId]);
   const depotDestination = unResultat<{ nom: string }>("SELECT nom FROM depots WHERE id = ?", [depotDestinationId]);
 
-  const transfertId = dansUneTransaction(() => {
+  {
     const id = randomUUID();
     const maintenant = new Date().toISOString();
     executer(
@@ -753,10 +959,7 @@ export function transfererStock(params: ParametresTransfert): string {
     });
 
     return id;
-  });
-
-  sauvegarder();
-  return transfertId;
+  }
 }
 
 export interface TransfertResume {
@@ -769,22 +972,49 @@ export interface TransfertResume {
   dateCreation: string;
   /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
   utilisateurId: string | null;
+  /** Unité de l'article (ex. « carton »). */
+  unite?: string;
+  /** Coût moyen actuel de l'article, pour estimer la valeur déplacée. */
+  prixAchat?: number;
+  varianteId?: string;
 }
 
-export function listerTransferts(boutiqueId: string, limite = 100): TransfertResume[] {
+/**
+ * Transferts de la boutique, les plus récents d'abord. `limite` null = tous ;
+ * `depuis` / `jusqua` (ISO, fin exclue) bornent la période.
+ */
+export function listerTransferts(
+  boutiqueId: string,
+  limite: number | null = 100,
+  depuis?: string | null,
+  jusqua?: string | null,
+): TransfertResume[] {
+  const conditions = ["ds.boutique_id = ?", "t.supprime = 0"];
+  const params: SqlValue[] = [boutiqueId];
+  if (depuis) {
+    conditions.push("t.date_creation >= ?");
+    params.push(depuis);
+  }
+  if (jusqua) {
+    conditions.push("t.date_creation < ?");
+    params.push(jusqua);
+  }
+  if (limite !== null) params.push(limite);
   return tousLesResultats<TransfertResume>(
     `SELECT t.id as id, p.nom as produitNom, v.reference as reference,
             ds.nom as depotSourceNom, dd.nom as depotDestinationNom,
-            t.quantite as quantite, t.date_creation as dateCreation, t.utilisateur_id as utilisateurId
+            t.quantite as quantite, t.date_creation as dateCreation, t.utilisateur_id as utilisateurId,
+            v.id as varianteId, v.prix_achat as prixAchat, COALESCE(u.nom, '') as unite
      FROM transferts_stock t
      JOIN variantes v ON v.id = t.variante_id
      JOIN produits p ON p.id = v.produit_id
+     LEFT JOIN unites u ON u.id = p.unite_id
      JOIN depots ds ON ds.id = t.depot_source_id
      JOIN depots dd ON dd.id = t.depot_destination_id
-     WHERE ds.boutique_id = ? AND t.supprime = 0
+     WHERE ${conditions.join(" AND ")}
      ORDER BY t.date_creation DESC
-     LIMIT ?`,
-    [boutiqueId, limite],
+     ${limite !== null ? "LIMIT ?" : ""}`,
+    params,
   );
 }
 
@@ -817,6 +1047,43 @@ export interface ParametresPerte {
  * pertes reste juste même si le prix d'achat évolue ensuite.
  */
 export function declarerPerte(params: ParametresPerte): string {
+  const perteId = dansUneTransaction(() => declarerPerteSansTransaction(params));
+  sauvegarder();
+  return perteId;
+}
+
+export interface ParametresPertesGroupe {
+  depotId: string;
+  utilisateurId: string | null;
+  /** Chaque ligne a son motif (ex. 3 yaourts périmés + 1 carton abîmé dans la même déclaration). */
+  lignes: { varianteId: string; quantite: number; motif: MotifPerte; detail?: string }[];
+}
+
+/** Formulaire « Déclarer une perte » : plusieurs articles d'un coup, tout ou rien. */
+export function declarerPertesGroupe(params: ParametresPertesGroupe): number {
+  if (params.lignes.length === 0) throw new ErreurStock("Ajoutez au moins un article.");
+  if (new Set(params.lignes.map((l) => l.varianteId)).size !== params.lignes.length) {
+    throw new ErreurStock("Un même article apparaît deux fois.");
+  }
+  dansUneTransaction(() => {
+    for (const ligne of params.lignes) {
+      const nom = nomVariante(ligne.varianteId);
+      const enStock = stockVarianteDepot(ligne.varianteId, params.depotId);
+      if (ligne.quantite > enStock) {
+        throw new ErreurStock(`${nom} : il n'y en a que ${formaterQuantite(enStock)} dans ce dépôt.`);
+      }
+      if (ligne.motif === "autre" && !(ligne.detail ?? "").trim()) {
+        throw new ErreurStock(`${nom} : précisez la raison de la perte (motif « Autre »).`);
+      }
+      declarerPerteSansTransaction({ ...ligne, depotId: params.depotId, utilisateurId: params.utilisateurId });
+    }
+  });
+  sauvegarder();
+  return params.lignes.length;
+}
+
+/** Une perte (fiche + sortie de stock), sans transaction ni sauvegarde. */
+function declarerPerteSansTransaction(params: ParametresPerte): string {
   const { varianteId, depotId, quantite, motif, utilisateurId } = params;
   const detail = (params.detail ?? "").trim();
   if (!(quantite > 0)) throw new ErreurStock("La quantité doit être strictement positive.");
@@ -826,7 +1093,7 @@ export function declarerPerte(params: ParametresPerte): string {
   const variante = unResultat<{ prix_achat: number }>("SELECT prix_achat FROM variantes WHERE id = ?", [varianteId]);
   if (!variante) throw new ErreurStock("Produit introuvable.");
 
-  const perteId = dansUneTransaction(() => {
+  {
     const id = randomUUID();
     const maintenant = new Date().toISOString();
     executer(
@@ -858,9 +1125,7 @@ export function declarerPerte(params: ParametresPerte): string {
     });
     terminerDestockageSiEpuise(varianteId);
     return id;
-  });
-  sauvegarder();
-  return perteId;
+  }
 }
 
 /** Perte saisie par erreur : remet la quantité en stock, la perte reste visible (annulée). */
@@ -905,6 +1170,9 @@ export interface PerteResume {
   utilisateurId: string | null;
   /** Perte annulée (saisie par erreur) : visible mais hors des totaux. */
   annulee: boolean;
+  /** Unité de l'article (ex. « carton »). */
+  unite?: string;
+  varianteId?: string;
 }
 
 /** Pertes de la boutique, les plus récentes d'abord ; debut/fin (ISO) optionnels. */
@@ -922,10 +1190,12 @@ export function listerPertes(boutiqueId: string, debut?: string, fin?: string): 
   return tousLesResultats<PerteResume>(
     `SELECT pe.id as id, pe.date_creation as dateCreation, p.nom as produitNom, COALESCE(v.reference, '') as reference,
             d.nom as depotNom, pe.quantite as quantite, pe.motif as motif, COALESCE(pe.detail, '') as detail,
-            pe.valeur as valeur, pe.utilisateur_id as utilisateurId, COALESCE(pe.annulee, 0) as annulee
+            pe.valeur as valeur, pe.utilisateur_id as utilisateurId, COALESCE(pe.annulee, 0) as annulee,
+            v.id as varianteId, COALESCE(u.nom, '') as unite
      FROM pertes_stock pe
      JOIN variantes v ON v.id = pe.variante_id
      JOIN produits p ON p.id = v.produit_id
+     LEFT JOIN unites u ON u.id = p.unite_id
      JOIN depots d ON d.id = pe.depot_id
      WHERE ${conditions.join(" AND ")}
      ORDER BY pe.date_creation DESC`,

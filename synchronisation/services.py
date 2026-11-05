@@ -99,7 +99,10 @@ def _journaliser(boutique, appareil, table, enregistrement_id, action, statut, d
     )
 
 
-def appliquer_changement(boutique, appareil, table, action, enregistrement_id, donnees, paires_stock_a_recalculer):
+def appliquer_changement(
+    boutique, appareil, table, action, enregistrement_id, donnees, paires_stock_a_recalculer,
+    catalogue_a_verifier=None,
+):
     entree = registre.resoudre(table)
     if entree is None:
         return _resultat(table, enregistrement_id, "erreur", "Table inconnue ou non synchronisable.")
@@ -159,6 +162,13 @@ def appliquer_changement(boutique, appareil, table, action, enregistrement_id, d
         paires_stock_a_recalculer.add((obj.variante_id, obj.depot_id))
     if objet_existant is None:
         _signaler_hors_abonnement(boutique, table, obj, donnees)
+    if table in ("catalogue.Produit", "catalogue.Variante") and not obj.supprime:
+        # Vérifié en fin de push (traiter_push) : l'alerte que le poste a pu
+        # créer lui-même pour ce doublon arrive dans le même envoi, plus loin.
+        if catalogue_a_verifier is not None:
+            catalogue_a_verifier.append((table, obj.pk))
+        else:
+            _signaler_doublon_catalogue(boutique, table, obj)
 
     _journaliser(boutique, appareil, table, enregistrement_id, action, "synchronise", donnees)
     return _resultat(table, enregistrement_id, "synchronise")
@@ -203,6 +213,64 @@ def _signaler_hors_abonnement(boutique, table, obj, donnees):
         )
 
 
+def _signaler_doublon_catalogue(boutique, table, obj):
+    """
+    Nom ou code-barres d'article déjà pris dans la boutique : l'appli le refuse,
+    mais deux postes hors ligne peuvent créer chacun « Café » avant de se
+    synchroniser. L'article est accepté — jamais de perte de données, il peut
+    déjà avoir des ventes et du stock — et une alerte « Article en double »
+    (redescendue sur les postes au prochain pull) invite à le renommer.
+    Une seule alerte par groupe et par 24 h, y compris celle que le poste a
+    créée lui-même à l'ouverture (même préfixe de message, voir
+    client-electron/electron/services/notifications.ts::genererAlertesDoublons).
+    """
+    from django.db.models.functions import Trim
+
+    from catalogue.models import Produit, Variante
+    from catalogue.services import cle_nom_article
+    from notifications.models import Notification
+
+    if table == "catalogue.Produit":
+        cle = cle_nom_article(obj.nom)
+        groupe = [
+            p for p in Produit.objects.filter(boutique=boutique, supprime=False).order_by("date_creation").only("id", "nom")
+            if cle_nom_article(p.nom) == cle
+        ]
+        prefixe = "Article en double"
+        message = (
+            f"{prefixe} : {len(groupe)} articles s'appellent « {groupe[0].nom if groupe else obj.nom} »."
+            " Renommez-les pour ne pas les confondre en caisse."
+        )
+    else:
+        code = (obj.code_barres or "").strip()
+        if not code:
+            return
+        groupe = []
+        for variante in (
+            Variante.objects.filter(produit__boutique=boutique, produit__supprime=False, supprime=False)
+            .annotate(code_nettoye=Trim("code_barres")).filter(code_nettoye=code)
+            .select_related("produit").order_by("produit__date_creation")
+        ):
+            if variante.produit not in groupe:
+                groupe.append(variante.produit)
+        prefixe = "Code-barres en double"
+        noms = ", ".join(f"« {p.nom} »" for p in groupe)
+        message = f"{prefixe} : {code} est porté par {noms}. Changez-le pour que le scan trouve le bon article."
+    if len(groupe) < 2:
+        return
+    seuil = timezone.now() - timezone.timedelta(hours=24)
+    if Notification.objects.filter(
+        boutique=boutique, type=Notification.Type.DOUBLON_ARTICLE, supprime=False, date_creation__gte=seuil,
+        message__startswith=prefixe, reference_id__in=[p.pk for p in groupe],
+    ).exists():
+        return
+    produit = obj if table == "catalogue.Produit" else obj.produit
+    Notification.objects.create(
+        boutique=boutique, type=Notification.Type.DOUBLON_ARTICLE, message=message,
+        reference_type="catalogue.Produit", reference_id=produit.pk,
+    )
+
+
 def recalculer_stock(variante_id, depot_id):
     from stock.models import MouvementStock, Stock
 
@@ -225,13 +293,14 @@ def traiter_push(boutique, appareil, changements):
 
     resultats = []
     paires_stock = set()
+    catalogue_a_verifier = []
     tables_traitees = set()
 
     for entree in registre.pour_pull():
         for item in par_table.get(entree.table, []):
             resultats.append(appliquer_changement(
                 boutique, appareil, entree.table, item["action"], item["enregistrement_id"],
-                item.get("donnees") or {}, paires_stock,
+                item.get("donnees") or {}, paires_stock, catalogue_a_verifier,
             ))
         tables_traitees.add(entree.table)
 
@@ -241,11 +310,18 @@ def traiter_push(boutique, appareil, changements):
         for item in items:
             resultats.append(appliquer_changement(
                 boutique, appareil, table, item["action"], item["enregistrement_id"],
-                item.get("donnees") or {}, paires_stock,
+                item.get("donnees") or {}, paires_stock, catalogue_a_verifier,
             ))
 
     for variante_id, depot_id in paires_stock:
         recalculer_stock(variante_id, depot_id)
+
+    from django.apps import apps
+
+    for table, pk in catalogue_a_verifier:
+        obj = apps.get_model(table).objects.filter(pk=pk, supprime=False).first()
+        if obj is not None:
+            _signaler_doublon_catalogue(boutique, table, obj)
 
     return resultats
 

@@ -1,0 +1,41 @@
+/** Libellés lisibles des actions du journal (administration/…: journaliser(…, action)). */
+export const LIBELLES_ACTIONS: Record<string, string> = {
+  connexion: "Connexion",
+  deconnexion: "Déconnexion",
+  code_refuse: "Code de vérification refusé",
+  double_verification_configuree: "Double vérification configurée",
+  double_verification_activee: "Double vérification exigée",
+  double_verification_desactivee: "Double vérification retirée",
+  double_verification_reinitialisee: "Double vérification réinitialisée",
+  mot_de_passe_change: "A changé son mot de passe",
+  admin_cree: "Administrateur créé",
+  admin_modifie: "Administrateur modifié",
+  admin_droits_modifies: "Droits modifiés",
+  admin_desactive: "Administrateur désactivé",
+  admin_reactive: "Administrateur réactivé",
+  admin_mot_de_passe_reinitialise: "Mot de passe d'un admin réinitialisé",
+  reglages_modifies: "Réglages de la plateforme modifiés",
+  boutique_creee: "Boutique créée",
+  inscription_approuvee: "Inscription approuvée",
+  inscription_rejetee: "Inscription rejetée",
+  synchro_activee: "Synchronisation activée",
+  synchro_desactivee: "Synchronisation désactivée",
+  reseau_active: "Réseau activé",
+  reseau_desactive: "Réseau désactivé",
+  reseau_refuse: "Demande de réseau refusée",
+  paiement_valide: "Paiement validé",
+  paiement_rejete: "Paiement rejeté",
+  abonnement_paiement: "Paiement enregistré",
+  abonnement_offert: "Mois offerts",
+  abonnement_ajustement: "Date de fin corrigée",
+  abonnement_modifie: "Abonnement modifié",
+  code_activation: "Code d'activation généré",
+  signalement_traite: "Signalement traité",
+  signalement_rouvert: "Signalement rouvert",
+  mot_de_passe_reinitialise: "Mot de passe d'un compte réinitialisé",
+  cle_secours_utilisee: "Clé de secours utilisée",
+};
+
+export function libelleAction(action: string): string {
+  return LIBELLES_ACTIONS[action] ?? action;
+}

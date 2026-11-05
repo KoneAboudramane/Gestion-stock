@@ -146,3 +146,59 @@ class CatalogueParDefautTests(APITestCase):
         self.assertTrue(ValeurAttribut.objects.filter(attribut__boutique=boutique, valeur="XL").exists())
         creer_catalogue_par_defaut(boutique)  # une seconde fois : rien de plus
         self.assertEqual(Unite.objects.filter(boutique=boutique).count(), len(UNITES_PAR_DEFAUT))
+
+
+class UniciteNomCodeBarresTests(APITestCase):
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique A"}, {"username": "patronUnicite", "password": "UnMotDePasseSolide123"}
+        )
+        self.client.force_authenticate(user=self.patron)
+        self.lait = Produit.objects.create(boutique=self.boutique, nom="Lait Nido carton")
+        Variante.objects.create(produit=self.lait, code_barres="6111")
+
+    def test_refuse_un_nom_deja_pris_sans_tenir_compte_majuscules_accents_espaces(self):
+        reponse = self.client.post(reverse("produit-list"), {"nom": "  lait  nido CARTON "}, format="json")
+        self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("existe déjà", str(reponse.data["nom"]))
+
+    def test_accepte_le_nom_d_un_article_supprime(self):
+        self.lait.supprime = True
+        self.lait.save(update_fields=["supprime"])
+        reponse = self.client.post(reverse("produit-list"), {"nom": "Lait Nido carton"}, format="json")
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+
+    def test_le_meme_nom_reste_permis_dans_une_autre_boutique(self):
+        boutique_b, _ = inscrire_boutique(
+            {"nom": "Boutique B"}, {"username": "patronUniciteB", "password": "UnMotDePasseSolide123"}
+        )
+        Produit.objects.create(boutique=boutique_b, nom="Café")
+        reponse = self.client.post(reverse("produit-list"), {"nom": "Café"}, format="json")
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+
+    def test_renommer_vers_un_nom_pris_est_refuse_garder_le_sien_est_permis(self):
+        sucre = Produit.objects.create(boutique=self.boutique, nom="Sucre")
+        url = reverse("produit-detail", args=[sucre.id])
+        self.assertEqual(
+            self.client.patch(url, {"nom": "LAIT NIDO CARTON"}, format="json").status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(self.client.patch(url, {"nom": "sucre"}, format="json").status_code, status.HTTP_200_OK)
+
+    def test_refuse_un_code_barres_deja_utilise(self):
+        reponse = self.client.post(reverse("produit-list"), {"nom": "Huile", "code_barres": " 6111 "}, format="json")
+        self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Lait Nido carton", str(reponse.data["code_barres"]))
+
+        sel = Produit.objects.create(boutique=self.boutique, nom="Sel")
+        variante_sel = Variante.objects.create(produit=sel, code_barres="6222")
+        url = reverse("variante-detail", args=[variante_sel.id])
+        self.assertEqual(
+            self.client.patch(url, {"code_barres": "6111"}, format="json").status_code, status.HTTP_400_BAD_REQUEST
+        )
+        self.assertEqual(self.client.patch(url, {"code_barres": "6222"}, format="json").status_code, status.HTTP_200_OK)
+
+    def test_plusieurs_articles_sans_code_barres(self):
+        for nom in ("Article A", "Article B"):
+            reponse = self.client.post(reverse("produit-list"), {"nom": nom}, format="json")
+            self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)

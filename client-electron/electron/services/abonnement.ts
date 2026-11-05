@@ -4,6 +4,7 @@ import { app } from "electron";
 
 import { executer, unResultat } from "../db/helpers";
 import { sauvegarder } from "../db/index";
+import { appliquerCodeActivation, dateExpirationParCode, type CodeActivationLu } from "./activation";
 
 /**
  * Vérification de l'abonnement de la boutique, en lecture seule si expiré
@@ -108,6 +109,27 @@ export function rafraichirDatePlafond(): string {
   return nouveauPlafond;
 }
 
+/**
+ * Date de fin retenue : la plus lointaine entre celle du serveur et celle d'un
+ * code d'activation saisi sur le poste (activation.ts). Sans date du serveur
+ * (null = sans limite), rien ne la restreint.
+ */
+export function dateExpirationEffective(boutiqueId: string, dateServeur: string | null | undefined): string | null {
+  if (!dateServeur) return dateServeur ?? null;
+  const parCode = dateExpirationParCode(boutiqueId);
+  return parCode && new Date(parCode).getTime() > new Date(dateServeur).getTime() ? parCode : dateServeur;
+}
+
+/** Saisie d'un code d'activation (sans internet) ; renvoie le nouvel état de l'abonnement. */
+export function activerParCode(boutiqueId: string, code: string): { code: CodeActivationLu; etat: EtatAbonnement } {
+  const boutique = unResultat<{ date_expiration_abonnement: string | null }>(
+    "SELECT date_expiration_abonnement FROM boutiques WHERE id = ?",
+    [boutiqueId],
+  );
+  const lu = appliquerCodeActivation(code, boutiqueId, dateExpirationEffective(boutiqueId, boutique?.date_expiration_abonnement));
+  return { code: lu, etat: obtenirEtatAbonnement(boutiqueId) };
+}
+
 /** Lève ErreurAbonnement si l'abonnement de cette boutique est expiré. */
 export function verifierAbonnementActif(boutiqueId: string): void {
   const boutique = unResultat<{ date_expiration_abonnement: string | null }>(
@@ -117,7 +139,7 @@ export function verifierAbonnementActif(boutiqueId: string): void {
   // Boutique pas encore synchronisée localement : on ne bloque jamais faute de donnée.
   if (!boutique) return;
 
-  const etat = etatAbonnement(boutique.date_expiration_abonnement, rafraichirDatePlafond());
+  const etat = etatAbonnement(dateExpirationEffective(boutiqueId, boutique.date_expiration_abonnement), rafraichirDatePlafond());
   if (etat.niveau === "bloque") throw new ErreurAbonnement(messageBlocage(etat));
 }
 
@@ -127,7 +149,7 @@ export function obtenirEtatAbonnement(boutiqueId: string): EtatAbonnement {
     "SELECT date_expiration_abonnement FROM boutiques WHERE id = ?",
     [boutiqueId],
   );
-  return etatAbonnement(boutique?.date_expiration_abonnement, rafraichirDatePlafond());
+  return etatAbonnement(dateExpirationEffective(boutiqueId, boutique?.date_expiration_abonnement), rafraichirDatePlafond());
 }
 
 /** Boutique telle que renvoyée par /auth/moi/ (comptes.BoutiqueSerializer). */
@@ -138,6 +160,8 @@ export interface BoutiqueServeur {
   formule: string;
   date_expiration_abonnement: string | null;
   synchro_autorisee: boolean;
+  /** Absent d'un serveur pas encore à jour : le réglage du poste est alors gardé. */
+  reseau_autorise?: boolean;
 }
 
 /**
@@ -164,11 +188,16 @@ export function memoriserAbonnementBoutique(boutique: BoutiqueServeur): void {
       maintenant,
     ],
   );
-  executer("UPDATE boutiques SET formule = ?, date_expiration_abonnement = ?, synchro_autorisee = ? WHERE id = ?", [
-    boutique.formule,
-    boutique.date_expiration_abonnement,
-    boutique.synchro_autorisee ? 1 : 0,
-    boutique.id,
-  ]);
+  executer(
+    `UPDATE boutiques SET formule = ?, date_expiration_abonnement = ?, synchro_autorisee = ?,
+       reseau_autorise = COALESCE(?, reseau_autorise) WHERE id = ?`,
+    [
+      boutique.formule,
+      boutique.date_expiration_abonnement,
+      boutique.synchro_autorisee ? 1 : 0,
+      boutique.reseau_autorise === undefined ? null : boutique.reseau_autorise ? 1 : 0,
+      boutique.id,
+    ],
+  );
   sauvegarder();
 }

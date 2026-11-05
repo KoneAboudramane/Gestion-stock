@@ -3,6 +3,7 @@ from django.contrib import admin
 from .models import (
     Attribut,
     Categorie,
+    LigneRecette,
     Produit,
     Unite,
     ValeurAttribut,
@@ -72,3 +73,9 @@ class VarianteAdmin(admin.ModelAdmin):
 class VarianteValeurAdmin(admin.ModelAdmin):
     list_display = ("variante", "valeur_attribut")
     list_filter = ("valeur_attribut__attribut",)
+
+
+@admin.register(LigneRecette)
+class LigneRecetteAdmin(admin.ModelAdmin):
+    list_display = ("variante", "ingredient", "quantite", "supprime")
+    list_filter = ("variante__produit__boutique",)

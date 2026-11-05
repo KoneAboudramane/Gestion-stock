@@ -1,0 +1,13 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div class="module">
+  <p>{{ description }}</p>
+  {% if code %}
+    <p><strong>Code à envoyer au commerçant (WhatsApp ou SMS, à copier tel quel) :</strong></p>
+    <textarea readonly rows="4" style="width: 100%; font-family: monospace; font-size: 15px;" onclick="this.select()">{{ code }}</textarea>
+    <p class="help">Sur le poste principal de la boutique : Gérer l'abonnement → « Code d'activation », coller le code, puis Activer. La vérification se fait sans internet ; les caisses branchées reçoivent la nouvelle date.</p>
+  {% endif %}
+  <p><a href="{{ back_url }}" class="button">Retour</a></p>
+</div>
+{% endblock %}

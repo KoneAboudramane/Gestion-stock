@@ -15,6 +15,8 @@ export interface Session {
   synchroAutorisee: boolean;
   /** Abréviation dans les numéros de ses documents (VTE-20261002-AKO-0001). */
   codeVendeur?: string;
+  /** Mot de passe provisoire (Espace Admin) : l'utilisateur doit choisir le sien avant d'entrer. */
+  doitChangerMotDePasse?: boolean;
 }
 
 /** Voir electron/services/abonnement.ts::etatAbonnement. */
@@ -25,18 +27,83 @@ export interface EtatAbonnement {
   joursRestants: number | null;
 }
 
+/** Options choisies dans l'assistant « Créer une boutique ». */
+export interface OptionsCreationBoutique {
+  formule: string;
+  /** Fin de l'abonnement choisi ; null = essai gratuit de 15 jours. */
+  dateFin: string | null;
+  nature?: "paiement" | "offert";
+  montant?: number;
+  mode?: string;
+  reference?: string;
+  synchroAutorisee: boolean;
+  reseauAutorise: boolean;
+}
+
+/** Assistant « Créer une boutique ». */
+export interface ParametresCreationBoutique {
+  boutiqueNom: string;
+  telephone?: string;
+  adresse?: string;
+  devise?: string;
+  username: string;
+  password: string;
+  email: string;
+  patronTelephone?: string;
+  prenom?: string;
+  nom?: string;
+  /** Le patron choisira son propre mot de passe à sa première connexion. */
+  doitChanger?: boolean;
+  options?: OptionsCreationBoutique;
+}
+
+/** Compte vu de l'Espace Admin → Réinitialiser mot de passe. */
+export interface CompteAdmin {
+  username: string;
+  nom: string;
+  boutiqueNom: string;
+  role: string;
+  telephone: string;
+  actif: boolean;
+  derniereConnexion: string | null;
+  doitChangerMotDePasse: boolean;
+}
+
 export interface AbonnementBoutique {
   boutiqueId: string;
   boutiqueNom: string;
   formule: string;
   dateExpirationAbonnement: string | null;
   synchroAutorisee: boolean;
+  reseauAutorise: boolean;
+}
+
+/** Espace Admin → Réseau de la boutique (comptes/views.py::AdminReseauBoutiqueView). */
+export interface EtatReseauAdmin {
+  reseau_autorise: boolean;
+  demandes: {
+    date: string;
+    demandeur: string;
+    note: string;
+    statut: "en_attente" | "acceptee" | "refusee";
+    statut_libelle: string;
+    date_traitement: string | null;
+  }[];
+}
+
+/** Réseau de la boutique : activé ou non, demande d'activation en cours. */
+export interface EtatDemandeReseau {
+  reseau_autorise: boolean;
+  demande_en_attente: string | null;
+  whatsapp: string;
 }
 
 export interface ChampsAbonnement {
   formule?: string;
   dateExpirationAbonnement?: string | null;
   synchroAutorisee?: boolean;
+  /** Réseau de la boutique (ordinateurs reliés sans internet). */
+  reseauAutorise?: boolean;
   /** Inscrits au registre des abonnements avec la nouvelle période (voir comptes/views.py::AppliquerAbonnementView). */
   nature?: "paiement" | "offert" | "ajustement";
   montant?: number;
@@ -270,6 +337,13 @@ export interface ProduitResume {
   seuilAlerte: number;
   /** Stock valorisé au prix d'achat de chaque variante. */
   valeurStock: number;
+  /** Dépôts où l'article a une ligne de stock (même à 0) : quantité et valeur dans ce dépôt. */
+  stocksParDepot: Record<string, { quantite: number; valeur: number }>;
+  /**
+   * Vente au détail : « gros » = se déballe en `quantite` unités de l'article `autreNom` ;
+   * « detail » = article vendu à l'unité, détail de l'article `autreNom`. null = ni l'un ni l'autre.
+   */
+  venteDetail: { role: "gros" | "detail"; autreNom: string; quantite: number } | null;
 }
 
 export interface VarianteDetail {
@@ -532,11 +606,153 @@ export interface LigneEntreeStock {
   prixVente?: number;
 }
 
+/** État de la sauvegarde de ce poste (voir electron/services/sauvegarde.ts). */
+export interface EtatSauvegarde {
+  configuree: boolean;
+  dossier: string | null;
+  heure: string | null;
+  /** « progressive » : chaque jour 30 j, puis chaque semaine jusqu'à 6 mois, puis chaque mois ; « illimitee » : tout est gardé. */
+  conservation: "progressive" | "illimitee" | null;
+  /** Prochaine sauvegarde prévue. */
+  prochaine: string | null;
+  /** Clé de secours chez l'administrateur (accord du patron). */
+  secours: boolean;
+  derniereSauvegarde: string | null;
+  dernierFichier: string | null;
+  derniereErreur: string | null;
+  echecsConsecutifs: number;
+  alerte: "aucune" | "echecs" | "ancienne";
+}
+
+/** Une copie de sauvegarde (fichier .gsbak) et pourquoi elle est gardée. */
+export interface CopieSauvegarde {
+  nom: string;
+  chemin: string;
+  date: string;
+  taille: number;
+  categorie: "jour" | "semaine" | "mois";
+}
+
+export interface ListeSauvegardes {
+  dossier: string | null;
+  accessible: boolean;
+  copies: CopieSauvegarde[];
+  tailleTotale: number;
+}
+
+/** Appareil (caisse) branché au poste principal. */
+export interface AppareilBranche {
+  id: string;
+  nom: string;
+  dateBranchement: string;
+  derniereConnexion: string | null;
+  /** Vu il y a moins de 15 s (il synchronise toutes les 4 s). */
+  relie: boolean;
+}
+
+/** État du réseau de la boutique vu depuis cet ordinateur (voir electron/services/reseauPrincipal.ts). */
+/** Poste principal trouvé sur le réseau de la boutique. */
+export interface PostePrincipalTrouve {
+  boutiqueId: string;
+  boutiqueNom: string;
+  nomPoste: string;
+  adresse: string;
+}
+
+/** Caisse : liaison avec le poste principal. */
+export interface EtatCaisse {
+  nomPostePrincipal: string;
+  adresse: string;
+  relie: boolean;
+  derniereSynchro: string | null;
+  erreur: string | null;
+  /** Lignes pas encore envoyées au poste principal. */
+  enAttente: number;
+  /** Internet vu du poste principal (dernier échange réussi). */
+  internetPrincipal: { derniereSynchro: string | null; enAttente: number } | null;
+}
+
+export interface EtatReseau {
+  role: "seul" | "principal" | "caisse";
+  caisse?: EtatCaisse;
+  nomPoste: string | null;
+  enMarche: boolean;
+  /** Serveur mis en pause à la main (les caisses restent branchées). */
+  enPause: boolean;
+  port: number | null;
+  adresses: string[];
+  code: { valeur: string; expire: string } | null;
+  appareils: AppareilBranche[];
+  postesMax: number;
+  erreur: string | null;
+  /** Nom Windows de l'ordinateur (nom proposé pour le poste principal). */
+  nomOrdinateur: string;
+  /** Rubrique Serveur du poste principal. */
+  demarreLe: string | null;
+  requetesRecues: number;
+  /** Le poste principal s'annonce sur le réseau (les caisses le trouvent par « Rechercher »). */
+  annonceActive: boolean;
+  /** Envoi en ligne vu du poste principal. */
+  internet: { derniereSynchro: string | null; enAttente: number } | null;
+  /** Réseau de la boutique activé par l'administrateur. */
+  reseauAutorise: boolean;
+}
+
+/** Ingrédient d'une recette (quantité pour le lot entier, coût moyen actuel). */
+export interface IngredientRecette {
+  ingredientId: string;
+  produitNom: string;
+  reference: string;
+  unite: string;
+  quantite: number;
+  coutUnitaire: number;
+}
+
+/** Recette d'un article fabriqué : ingrédients pour un lot de `quantiteLot`, plus des frais par unité. */
+export interface Recette {
+  varianteId: string;
+  quantiteLot: number;
+  fraisParUnite: number;
+  lignes: IngredientRecette[];
+}
+
+export interface ParametresRecette {
+  varianteId: string;
+  quantiteLot: number;
+  fraisParUnite: number;
+  lignes: { ingredientId: string; quantite: number }[];
+}
+
+export interface ParametresMouvementsGroupe {
+  depotId: string;
+  type: "sortie" | "ajustement";
+  motif: string;
+  utilisateurId?: string | null;
+  /** Sortie : quantité à sortir. Ajustement : quantité réellement comptée (l'écart est calculé à l'enregistrement). */
+  lignes: { varianteId: string; quantite: number }[];
+}
+
+export interface ParametresTransfertsGroupe {
+  depotSourceId: string;
+  depotDestinationId: string;
+  utilisateurId: string | null;
+  lignes: { varianteId: string; quantite: number }[];
+}
+
+export interface ParametresPertesGroupe {
+  depotId: string;
+  utilisateurId: string | null;
+  /** Chaque ligne a son motif (ex. 3 yaourts périmés + 1 carton abîmé dans la même déclaration). */
+  lignes: { varianteId: string; quantite: number; motif: MotifPerte; detail?: string }[];
+}
+
 export interface ParametresEntreeStock {
   depotId: string;
   lignes: LigneEntreeStock[];
   motif?: string;
   utilisateurId?: string | null;
+  /** Don : fournisseur qui a offert la marchandise (gardé dans reference_id du mouvement). */
+  fournisseurId?: string | null;
 }
 
 export interface LigneAchatRapide {
@@ -560,6 +776,8 @@ export interface ParametresAchatRapide {
 
 export interface LigneStock {
   id: string;
+  /** Unité de l'article (ex. « carton »). */
+  unite?: string | null;
   varianteId: string;
   produitId: string;
   produitNom: string;
@@ -597,6 +815,14 @@ export interface MouvementResume {
   utilisateurId: string | null;
   /** Document à l'origine du mouvement (ex. « ventes.Vente ») ; vide pour une saisie manuelle. */
   referenceType: string;
+  /** Identifiant de ce document (vente, réception, perte, inventaire…). */
+  referenceId?: string | null;
+  /** Réception ou retour fournisseur : la commande d'achat, pour l'ouvrir. */
+  commandeId?: string | null;
+  /** Unité de l'article (abréviation, ex. « kg »). */
+  unite?: string;
+  /** Coût moyen actuel de l'article, pour estimer la valeur des mouvements. */
+  prixAchat?: number;
 }
 
 export interface ParametresMouvement {
@@ -628,6 +854,11 @@ export interface TransfertResume {
   dateCreation: string;
   /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
   utilisateurId: string | null;
+  /** Unité de l'article (ex. « carton »). */
+  unite?: string;
+  /** Coût moyen actuel de l'article, pour estimer la valeur déplacée. */
+  prixAchat?: number;
+  varianteId?: string;
 }
 
 export interface ReleveDormants {
@@ -734,6 +965,9 @@ export interface PerteResume {
   /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
   utilisateurId: string | null;
   annulee: boolean;
+  /** Unité de l'article (ex. « carton »). */
+  unite?: string;
+  varianteId?: string;
 }
 
 export interface InventaireResume {
@@ -1427,6 +1661,22 @@ export interface RoleResume {
 }
 
 /** Carte « Abonnement » : historique des périodes et où payer (GET /boutique/abonnement/). */
+/** Espace Admin → Gérer abonnement (comptes/views.py::AdminAbonnementBoutiqueView). */
+export interface AbonnementDetailAdmin extends AbonnementDetail {
+  boutique: {
+    id: string;
+    nom: string;
+    formule: string;
+    date_expiration_abonnement: string | null;
+    synchro_autorisee: boolean;
+    reseau_autorise: boolean;
+    actif: boolean;
+  };
+  paiements_en_attente: number;
+  /** Code d'activation tout juste généré (action « code »). */
+  code: string | null;
+}
+
 export interface AbonnementDetail {
   historique: {
     date: string;
@@ -1440,6 +1690,8 @@ export interface AbonnementDetail {
     reference: string;
   }[];
   demandes: {
+    /** Présent depuis l'Espace Admin (pour valider / rejeter). */
+    id?: string;
     date: string;
     formule: string;
     duree_libelle: string;
@@ -1535,7 +1787,8 @@ export type TypeNotification =
   | "commande_proche"
   | "commande_retard"
   | "abonnement_proche"
-  | "abonnement_expire";
+  | "abonnement_expire"
+  | "doublon_article";
 
 export interface NotificationResume {
   id: string;
@@ -1675,20 +1928,60 @@ export interface WindowApi {
       code: string,
       nouveauMotDePasse: string,
     ): Promise<ResultatEcriture<void>>;
+    /** « local » : sans internet, sur ce poste seulement (à refaire en ligne). */
     reinitialiserMotDePasseAdmin(
       usernameAdmin: string,
       passwordAdmin: string,
       usernameCible: string,
       nouveauMotDePasse: string,
-    ): Promise<ResultatEcriture<void>>;
+      doitChanger?: boolean,
+    ): Promise<ResultatEcriture<{ statut: "enLigne" | "local" }>>;
     listerPatrons(usernameAdmin: string, passwordAdmin: string): Promise<PatronResume[]>;
+    /** Tous les comptes (serveur) ; sans internet, ceux connus de ce poste. */
+    listerComptesAdmin(
+      usernameAdmin: string,
+      passwordAdmin: string,
+    ): Promise<ResultatEcriture<{ source: "serveur" | "poste"; comptes: CompteAdmin[] }>>;
+    /** Écran de connexion de l'Espace Admin : serveur joint ? admins du poste ? attente anti-essais ? */
+    etatConnexionAdmin(): Promise<{ serveurJoint: boolean; adminsDuPoste: string[]; echecs: number; attenteSecondes: number }>;
+    /** Page de connexion : boutique, abonnement, réseau, internet, comptes du poste, attente anti-essais. */
+    etatPosteConnexion(): Promise<{
+      serveurJoint: boolean;
+      boutique: { nom: string; synchroAutorisee: boolean } | null;
+      abonnement: { niveau: "ok" | "bientot" | "grace" | "bloque"; joursRestants: number | null; finGrace: string | null } | null;
+      reseau: { role: "seul" | "principal" | "caisse"; nomPostePrincipal: string | null; relie: boolean } | null;
+      comptesDuPoste: number;
+      echecs: number;
+      attenteSecondes: number;
+    }>;
+    /** Connexion à l'Espace Admin (anti-essais, messages clairs). */
+    connexionAdmin(username: string, password: string): Promise<ResultatEcriture<{ source: "serveur" | "poste" }>>;
+    /** Comptes réinitialisés sans internet sur ce poste, à refaire en ligne. */
+    reinitialisationsARefaire(): Promise<string[]>;
+    /** L'utilisateur choisit son mot de passe (obligatoire après un provisoire). */
+    changerMotDePasse(session: Session, nouveau: string, ancien?: string): Promise<ResultatEcriture<Session>>;
   };
   abonnement: {
     etat(boutiqueId: string): Promise<EtatAbonnement>;
+    /** Code d'activation reçu de l'administrateur (vérifié sans internet). */
+    activerParCode(
+      boutiqueId: string,
+      code: string,
+    ): Promise<ResultatEcriture<{ code: { boutiqueId: string; dateFin: string; formule: string }; etat: EtatAbonnement }>>;
   };
   admin: {
     boutiqueLocale(): Promise<AbonnementBoutique | null>;
     abonnementEnAttente(): Promise<AbonnementEnAttente | null>;
+    /** Gérer abonnement : détail lu sur le serveur ; valider / rejeter un paiement déclaré ; code d'activation. */
+    detailAbonnement(
+      username: string,
+      password: string,
+      boutiqueId: string,
+      action?: "valider" | "rejeter" | "code",
+      params?: { demandeId?: string; motif?: string },
+    ): Promise<ResultatEcriture<AbonnementDetailAdmin>>;
+    /** Réseau de la boutique : état et demandes lus sur le serveur ; « refuser » la demande en attente. */
+    etatReseau(username: string, password: string, boutiqueId: string, action?: "refuser"): Promise<ResultatEcriture<EtatReseauAdmin>>;
     soumettreAbonnement(
       username: string,
       password: string,
@@ -1696,17 +1989,14 @@ export interface WindowApi {
       boutiqueNom: string,
       champs: ChampsAbonnement,
     ): Promise<ResultatEcriture<ResultatAbonnement>>;
-    creerBoutiqueLocale(params: {
-      boutiqueNom: string;
-      username: string;
-      password: string;
-      email: string;
-    }): Promise<ResultatEcriture<Session>>;
+    creerBoutiqueLocale(params: ParametresCreationBoutique): Promise<ResultatEcriture<Session>>;
     creerBoutiqueEnLigne(
       usernameAdmin: string,
       passwordAdmin: string,
-      params: { boutiqueNom: string; username: string; password: string; email: string },
+      params: ParametresCreationBoutique,
     ): Promise<ResultatEcriture<ResultatCreationEnLigne>>;
+    /** L'identifiant du patron est-il libre ? null sans internet. */
+    identifiantDisponible(usernameAdmin: string, passwordAdmin: string, identifiant: string): Promise<boolean | null>;
     boutiqueLocaleEnAttente(): Promise<BoutiqueLocaleEnAttente | null>;
     activerEnLigne(
       usernameAdmin: string,
@@ -1717,6 +2007,8 @@ export interface WindowApi {
   };
   catalogue: {
     rechercherVariantes(boutiqueId: string, terme: string): Promise<VarianteRecherchee[]>;
+    /** Tous les articles actifs, sans limite (bouton « ☰ Tous les articles » des entrées de stock). */
+    listerVariantesActives(boutiqueId: string): Promise<(VarianteRecherchee & { categorieNom: string | null })[]>;
     listerVariantesCatalogue(boutiqueId: string, depotId?: string): Promise<VarianteCatalogue[]>;
     listerDepots(boutiqueId: string): Promise<Depot[]>;
     listerClients(boutiqueId: string): Promise<ClientBoutique[]>;
@@ -1744,6 +2036,7 @@ export interface WindowApi {
     supprimer(id: string): Promise<ResultatEcriture<void>>;
     usagesCatalogue(boutiqueId: string): Promise<UsagesCatalogue>;
     prochaineReference(boutiqueId: string): Promise<string>;
+    attribuerReferencesManquantes(boutiqueId: string): Promise<ResultatEcriture<number>>;
   };
   variantes: {
     creer(params: ParametresVarianteEntree): Promise<ResultatEcriture<string>>;
@@ -1788,18 +2081,96 @@ export interface WindowApi {
     obtenirLigne(id: string): Promise<LigneStock | undefined>;
   };
   mouvements: {
-    lister(boutiqueId: string, depotId?: string, limite?: number): Promise<MouvementResume[]>;
+    /** `limite` null = tous ; `depuis` / `jusqua` (ISO, fin exclue) bornent la période. */
+    lister(
+      boutiqueId: string,
+      depotId?: string,
+      limite?: number | null,
+      depuis?: string | null,
+      jusqua?: string | null,
+    ): Promise<MouvementResume[]>;
     listerParProduit(produitId: string, limite?: number): Promise<MouvementResume[]>;
     creer(params: ParametresMouvement): Promise<ResultatEcriture<string>>;
+    /** Formulaire « Nouveau mouvement » : plusieurs articles, tout ou rien ; renvoie le nombre de mouvements créés. */
+    creerGroupe(params: ParametresMouvementsGroupe): Promise<ResultatEcriture<number>>;
     creerEntreeProduction(params: ParametresEntreeProduction): Promise<ResultatEcriture<string>>;
+  };
+  /** Sauvegarde chiffrée de la boutique (docs/plan_reseau_local.md, lot 7). */
+  sauvegarde: {
+    etat(): Promise<EtatSauvegarde>;
+    /** Copies présentes dans le dossier de la sauvegarde (ou un autre, pour restaurer sur un nouvel ordinateur). */
+    lister(dossier?: string | null): Promise<ListeSauvegardes>;
+    ouvrirDossier(dossier: string): Promise<void>;
+    configurer(params: {
+      boutiqueId: string;
+      boutiqueNom: string;
+      dossier: string;
+      heure: string;
+      conservation: "progressive" | "illimitee";
+      motDePasse: string;
+      secours?: boolean;
+    }): Promise<ResultatEcriture<EtatSauvegarde>>;
+    modifierReglages(params: {
+      dossier: string;
+      heure: string;
+      conservation: "progressive" | "illimitee";
+      secours?: boolean;
+    }): Promise<ResultatEcriture<EtatSauvegarde>>;
+    changerMotDePasse(motDePasse: string): Promise<ResultatEcriture<EtatSauvegarde>>;
+    desactiver(): Promise<EtatSauvegarde>;
+    maintenant(): Promise<ResultatEcriture<EtatSauvegarde>>;
+    choisirDossier(): Promise<string | null>;
+    choisirFichier(): Promise<string | null>;
+    /** Restaure puis redémarre l'appli (la base actuelle est mise de côté). */
+    restaurer(fichier: string, motDePasse: string): Promise<ResultatEcriture<void>>;
+    /** La copie a-t-elle une clé de secours ? */
+    aUneCleSecours(fichier: string): Promise<boolean>;
+    /** Patron sans mot de passe : clé de secours ouverte par le serveur (identifiants admin, internet). */
+    restaurerAvecSecours(fichier: string, username: string, password: string): Promise<ResultatEcriture<{ boutiqueNom: string }>>;
+  };
+  /** Réseau de la boutique (docs/plan_reseau_local.md) — poste principal. */
+  reseau: {
+    etat(): Promise<EtatReseau>;
+    devenirPrincipal(params: { boutiqueId: string; boutiqueNom: string; nomPoste?: string }): Promise<ResultatEcriture<EtatReseau>>;
+    quitterPrincipal(): Promise<ResultatEcriture<EtatReseau>>;
+    nouveauCode(): Promise<{ valeur: string; expire: string }>;
+    /** Arrête le code en cours (les caisses déjà branchées restent reliées). */
+    annulerCode(): Promise<void>;
+    /** Pause du serveur : les caisses restent branchées mais vendent seules jusqu'à la reprise. */
+    mettreEnPause(): Promise<ResultatEcriture<EtatReseau>>;
+    reprendre(): Promise<ResultatEcriture<EtatReseau>>;
+    /** Arrêt puis démarrage du serveur ; les caisses gardent leur branchement. */
+    redemarrer(): Promise<ResultatEcriture<EtatReseau>>;
+    debrancher(appareilId: string): Promise<EtatReseau>;
+    /** Caisse : postes principaux qui s'annoncent sur le réseau de la boutique (≈ 3 s d'écoute). */
+    rechercher(): Promise<PostePrincipalTrouve[]>;
+    seBrancher(params: { adresse: string; code: string; boutiqueId: string; nomAppareil?: string }): Promise<ResultatEcriture<EtatReseau>>;
+    /** Ordinateur neuf, avant toute connexion : rejoindre le réseau et recevoir boutique, données et comptes. */
+    rejoindreAvantConnexion(params: {
+      adresse: string;
+      code: string;
+      nomAppareil?: string;
+    }): Promise<ResultatEcriture<{ boutiqueNom: string; nomPostePrincipal: string; relie: boolean; comptes: number }>>;
+    seDebrancher(): Promise<EtatReseau>;
+    synchroniser(): Promise<EtatReseau>;
+  };
+  recettes: {
+    obtenir(varianteId: string): Promise<Recette | null>;
+    /** Toutes les recettes de la boutique (modale Fabrication). */
+    lister(boutiqueId: string): Promise<Recette[]>;
+    enregistrer(params: ParametresRecette): Promise<ResultatEcriture<void>>;
+    supprimer(varianteId: string): Promise<ResultatEcriture<void>>;
   };
   entreesStock: {
     achatRapide(params: ParametresAchatRapide): Promise<ResultatEcriture<{ commandeId: string; numero: string; total: number }>>;
     ouverture(params: ParametresEntreeStock): Promise<ResultatEcriture<number>>;
     fabrication(params: ParametresEntreeStock): Promise<ResultatEcriture<number>>;
     don(params: ParametresEntreeStock): Promise<ResultatEcriture<number>>;
-    /** Articles actifs jamais entrés en stock (créés sans stock initial) : à compléter en stock d'ouverture. */
-    articlesSansStock(boutiqueId: string): Promise<VarianteRecherchee[]>;
+    /**
+     * Articles actifs jamais entrés en stock — dans ce dépôt si `depotId` est donné
+     * (liste du stock d'ouverture), sinon nulle part (créés sans stock initial).
+     */
+    articlesSansStock(boutiqueId: string, depotId?: string): Promise<VarianteRecherchee[]>;
   };
   destockages: {
     lister(boutiqueId: string): Promise<DestockageResume[]>;
@@ -1822,12 +2193,22 @@ export interface WindowApi {
   };
   pertes: {
     declarer(params: ParametresPerte): Promise<ResultatEcriture<string>>;
+    /** Formulaire « Déclarer une perte » : plusieurs articles (motif par ligne), tout ou rien. */
+    declarerGroupe(params: ParametresPertesGroupe): Promise<ResultatEcriture<number>>;
     annuler(id: string, utilisateurId: string | null): Promise<ResultatEcriture<void>>;
     lister(boutiqueId: string, debut?: string, fin?: string): Promise<PerteResume[]>;
   };
   transferts: {
     creer(params: ParametresTransfert): Promise<ResultatEcriture<string>>;
-    lister(boutiqueId: string, limite?: number): Promise<TransfertResume[]>;
+    /** Formulaire « Nouveau transfert » : plusieurs articles, tout ou rien. */
+    creerGroupe(params: ParametresTransfertsGroupe): Promise<ResultatEcriture<number>>;
+    /** `limite` null = tous ; `depuis` / `jusqua` (ISO, fin exclue) bornent la période. */
+    lister(
+      boutiqueId: string,
+      limite?: number | null,
+      depuis?: string | null,
+      jusqua?: string | null,
+    ): Promise<TransfertResume[]>;
   };
   inventaires: {
     lister(boutiqueId: string): Promise<InventaireResume[]>;
@@ -2009,6 +2390,9 @@ export interface WindowApi {
     renommerRole(session: Session, id: string, nom: string): Promise<ResultatComptes<RoleResume>>;
     supprimerRole(session: Session, id: string): Promise<ResultatComptes<void>>;
     abonnementBoutique(session: Session): Promise<ResultatComptes<AbonnementDetail>>;
+    /** Réseau de la boutique : activé ou non, demande en cours (comptes/views.py::DemandeReseauView). */
+    etatDemandeReseau(session: Session): Promise<ResultatComptes<EtatDemandeReseau>>;
+    demanderActivationReseau(session: Session, note: string): Promise<ResultatComptes<EtatDemandeReseau>>;
     declarerPaiementAbonnement(session: Session, declaration: DeclarationPaiementAbonnement): Promise<ResultatComptes<void>>;
     listerUtilisateurs(session: Session): Promise<ResultatComptes<UtilisateurResume[]>>;
     annuaire(session: Session): Promise<ResultatComptes<{ id: number; nom: string }[]>>;
@@ -2030,6 +2414,7 @@ export interface WindowApi {
   notifications: {
     genererAlertesDestockage(boutiqueId: string): Promise<ResultatEcriture<string[]>>;
     genererAlertesAbonnement(boutiqueId: string): Promise<ResultatEcriture<string[]>>;
+    genererAlertesDoublons(boutiqueId: string): Promise<ResultatEcriture<string[]>>;
     lister(boutiqueId: string, filtres?: FiltresNotifications): Promise<NotificationResume[]>;
     genererAlertesRupture(boutiqueId: string): Promise<ResultatEcriture<string[]>>;
     compterNonLues(boutiqueId: string, depotId?: string): Promise<number>;

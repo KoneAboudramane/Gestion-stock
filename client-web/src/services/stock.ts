@@ -1,5 +1,6 @@
 import { ouvrirBaseDeDonnees } from "../db";
 import { listerParIndex, maintenant, obtenirLigne, ecrireLigne, suiviSyncNeuf } from "../db/helpers";
+import { besoinsRecette, coutUnitaireRecette, obtenirRecette, type Recette } from "./recettes";
 import type {
   DetaillageLocal,
   DepotLocal,
@@ -71,6 +72,58 @@ async function verifierEntreeManuelle(varianteId: string, depotId: string): Prom
 export async function creerMouvementManuel(params: ParametresMouvement): Promise<string> {
   if (params.type === "entree") await verifierEntreeManuelle(params.varianteId, params.depotId);
   return appliquerMouvement(params);
+}
+
+export interface ParametresMouvementsGroupe {
+  depotId: string;
+  type: "sortie" | "ajustement";
+  motif: string;
+  utilisateurId?: string | null;
+  /** Sortie : quantité à sortir. Ajustement : quantité réellement comptée (l'écart est calculé à l'enregistrement). */
+  lignes: { varianteId: string; quantite: number }[];
+}
+
+/**
+ * Formulaire « Nouveau mouvement » : plusieurs articles d'un coup, tout ou rien.
+ * Ajustement : on reçoit la quantité comptée, l'écart avec le stock du dépôt est
+ * calculé ici (au moment d'enregistrer, pas sur un stock affiché périmé).
+ */
+export async function creerMouvementsGroupe(params: ParametresMouvementsGroupe): Promise<number> {
+  const motif = params.motif.trim();
+  if (!motif) throw new ErreurStock("Indiquez le motif du mouvement.");
+  if (params.lignes.length === 0) throw new ErreurStock("Ajoutez au moins un article.");
+  if (new Set(params.lignes.map((l) => l.varianteId)).size !== params.lignes.length) {
+    throw new ErreurStock("Un même article apparaît deux fois.");
+  }
+  // Tout est vérifié avant la première écriture (pas de transaction dans IndexedDB ici).
+  const aEcrire: { varianteId: string; quantite: number }[] = [];
+  for (const ligne of params.lignes) {
+    const nom = await nomVariante(ligne.varianteId);
+    const enStock = await stockVarianteDepot(ligne.varianteId, params.depotId);
+    if (params.type === "sortie") {
+      if (!(ligne.quantite > 0)) throw new ErreurStock(`${nom} : la quantité doit être supérieure à 0.`);
+      if (ligne.quantite > enStock) {
+        throw new ErreurStock(`${nom} : il n'y en a que ${formaterQuantite(enStock)} dans ce dépôt.`);
+      }
+      aEcrire.push({ varianteId: ligne.varianteId, quantite: ligne.quantite });
+    } else {
+      if (!(ligne.quantite >= 0)) throw new ErreurStock(`${nom} : la quantité comptée ne peut pas être négative.`);
+      const ecart = arrondiQuantite(ligne.quantite - enStock);
+      if (ecart !== 0) aEcrire.push({ varianteId: ligne.varianteId, quantite: ecart });
+    }
+  }
+  if (aEcrire.length === 0) throw new ErreurStock("Aucun écart : les quantités comptées sont égales au stock.");
+  for (const e of aEcrire) {
+    await appliquerMouvement({
+      varianteId: e.varianteId,
+      depotId: params.depotId,
+      type: params.type,
+      quantite: e.quantite,
+      motif,
+      utilisateurId: params.utilisateurId ?? null,
+    });
+  }
+  return aEcrire.length;
 }
 
 export type TypeMouvement = "entree" | "sortie" | "ajustement";
@@ -240,6 +293,8 @@ export async function creerEntreeProduction(params: ParametresEntreeProduction):
 export const REFERENCE_ENTREE_OUVERTURE = "stock.EntreeOuverture";
 export const REFERENCE_ENTREE_FABRICATION = "stock.EntreeFabrication";
 export const REFERENCE_ENTREE_DON = "stock.EntreeDon";
+/** Sortie d'un ingrédient consommé par une fabrication avec recette. */
+export const REFERENCE_CONSOMMATION_FABRICATION = "stock.ConsommationFabrication";
 
 export interface LigneEntreeStock {
   varianteId: string;
@@ -255,6 +310,8 @@ export interface ParametresEntreeStock {
   lignes: LigneEntreeStock[];
   motif?: string;
   utilisateurId?: string | null;
+  /** Don : fournisseur qui a offert la marchandise (gardé dans reference_id du mouvement). */
+  fournisseurId?: string | null;
 }
 
 function verifierLignesEntree(lignes: LigneEntreeStock[]): void {
@@ -265,51 +322,114 @@ function verifierLignesEntree(lignes: LigneEntreeStock[]): void {
   if (lignes.some((l) => !(l.quantite > 0))) throw new ErreurStock("Chaque quantité doit être supérieure à 0.");
 }
 
-/** Fabrication de plusieurs articles d'un coup, tout ou rien. */
+/** Arrondi au centième, comme les quantités du serveur (DecimalField à 2 décimales). */
+function arrondiQuantite(quantite: number): number {
+  return Math.round(quantite * 100) / 100;
+}
+
+function formaterQuantite(quantite: number): string {
+  return String(arrondiQuantite(quantite)).replace(".", ",");
+}
+
+/**
+ * Fabrication de plusieurs articles d'un coup, tout ou rien. Un article avec
+ * recette : ses ingrédients sortent du stock du dépôt (refusé s'il en manque)
+ * et son coût est celui de la recette, le coût saisi est ignoré. Sans recette :
+ * coût saisi, aucun ingrédient ne bouge.
+ */
 export async function entreeFabrication(params: ParametresEntreeStock): Promise<number> {
   verifierLignesEntree(params.lignes);
   if (!(await fabricationPropreActivePourDepot(params.depotId))) {
     throw new ErreurStock(MESSAGE_ENTREE_RESERVEE_FABRICATION);
   }
-  const aEcrire: { entree: ParametresEntreeProduction; calcul: Awaited<ReturnType<typeof calculerEntreeProduction>> }[] = [];
+  const recettes = new Map<string, Recette | null>();
+  for (const ligne of params.lignes) recettes.set(ligne.varianteId, await obtenirRecette(ligne.varianteId));
+  const besoins = new Map<string, number>();
   for (const ligne of params.lignes) {
-    if (!(Number(ligne.prixAchat) >= 0)) {
+    const recette = recettes.get(ligne.varianteId);
+    if (!recette) continue;
+    for (const [ingredientId, quantite] of besoinsRecette(recette, ligne.quantite)) {
+      besoins.set(ingredientId, (besoins.get(ingredientId) ?? 0) + arrondiQuantite(quantite));
+    }
+  }
+  for (const [ingredientId, besoin] of besoins) {
+    const enStock = await stockVarianteDepot(ingredientId, params.depotId);
+    if (enStock < arrondiQuantite(besoin)) {
+      throw new ErreurStock(
+        `${await nomVariante(ingredientId)} : il manque ${formaterQuantite(besoin - enStock)} dans ce dépôt (il faut ${formaterQuantite(besoin)}, il y a ${formaterQuantite(enStock)}).`,
+      );
+    }
+  }
+
+  const aEcrire: {
+    entree: ParametresEntreeProduction;
+    calcul: Awaited<ReturnType<typeof calculerEntreeProduction>>;
+    recette: Recette | null;
+  }[] = [];
+  for (const ligne of params.lignes) {
+    const recette = recettes.get(ligne.varianteId) ?? null;
+    const prixAchat = recette ? coutUnitaireRecette(recette) : Number(ligne.prixAchat);
+    if (!(prixAchat >= 0)) {
       throw new ErreurStock(`${await nomVariante(ligne.varianteId)} : indiquez le coût de fabrication.`);
     }
     const entree: ParametresEntreeProduction = {
       varianteId: ligne.varianteId,
       depotId: params.depotId,
       quantite: ligne.quantite,
-      prixAchat: Number(ligne.prixAchat),
+      prixAchat,
       prixVente: ligne.prixVente,
       motif: params.motif?.trim() || "Fabrication",
       utilisateurId: params.utilisateurId ?? null,
     };
-    aEcrire.push({ entree, calcul: await calculerEntreeProduction(entree) });
+    aEcrire.push({ entree, calcul: await calculerEntreeProduction(entree), recette });
   }
-  for (const { entree, calcul } of aEcrire) await ecrireEntreeProduction(entree, calcul);
+  for (const { entree, calcul, recette } of aEcrire) {
+    if (recette) {
+      const motifIngredient = `Fabrication de ${formaterQuantite(entree.quantite)} × ${await nomVariante(entree.varianteId)}`;
+      for (const [ingredientId, quantite] of besoinsRecette(recette, entree.quantite)) {
+        if (arrondiQuantite(quantite) <= 0) continue;
+        await appliquerMouvement({
+          varianteId: ingredientId,
+          depotId: params.depotId,
+          type: "sortie",
+          quantite: arrondiQuantite(quantite),
+          motif: motifIngredient,
+          utilisateurId: params.utilisateurId ?? null,
+          referenceType: REFERENCE_CONSOMMATION_FABRICATION,
+        });
+      }
+    }
+    await ecrireEntreeProduction(entree, calcul);
+  }
   return params.lignes.length;
 }
 
-/** Vrai si l'article n'a encore jamais bougé (aucun mouvement) : stock d'ouverture permis. */
-export async function varianteSansMouvement(varianteId: string): Promise<boolean> {
+/**
+ * Vrai si l'article n'a encore jamais bougé (aucun mouvement) — dans ce dépôt
+ * si `depotId` est donné, sinon nulle part : stock d'ouverture permis.
+ */
+export async function varianteSansMouvement(varianteId: string, depotId?: string): Promise<boolean> {
   const db = await ouvrirBaseDeDonnees();
   const mouvements = await db.getAllFromIndex(
     "mouvements_stock",
     "variante_depot",
-    IDBKeyRange.bound([varianteId, ""], [varianteId, "￿"]),
+    depotId ? IDBKeyRange.only([varianteId, depotId]) : IDBKeyRange.bound([varianteId, ""], [varianteId, "￿"]),
   );
   return !mouvements.some((m) => !m.supprime);
 }
 
 /**
- * Articles actifs qui n'ont encore jamais eu de mouvement de stock (créés sans
- * stock initial) : la liste à compléter du « Stock d'ouverture ».
+ * Articles actifs qui n'ont encore jamais eu de mouvement de stock — dans ce
+ * dépôt si `depotId` est donné (liste à compléter du « Stock d'ouverture » :
+ * un article déjà ouvert dans un dépôt reste proposé pour les autres), sinon
+ * nulle part (articles créés sans stock initial).
  */
-export async function articlesSansStock(boutiqueId: string): Promise<VarianteSansStock[]> {
+export async function articlesSansStock(boutiqueId: string, depotId?: string): Promise<VarianteSansStock[]> {
   const db = await ouvrirBaseDeDonnees();
   const avecMouvement = new Set(
-    (await db.getAll("mouvements_stock")).filter((m) => !m.supprime).map((m) => m.variante_id),
+    (await db.getAll("mouvements_stock"))
+      .filter((m) => !m.supprime && (!depotId || m.depot_id === depotId))
+      .map((m) => m.variante_id),
   );
   const produits = (await db.getAllFromIndex("produits", "boutique_id", boutiqueId)).filter(
     (p) => !p.supprime && p.actif,
@@ -346,31 +466,43 @@ export interface VarianteSansStock {
 
 /**
  * Stock d'ouverture : la marchandise déjà en boutique au démarrage avec
- * l'application. Réservé aux articles qui n'ont encore jamais bougé, pour ne
- * pas servir de raccourci aux Achats. Le coût saisi devient le prix d'achat.
+ * l'application. Une fois par dépôt : réservé aux articles qui n'ont encore
+ * jamais bougé dans ce dépôt, pour ne pas servir de raccourci aux Achats. Le
+ * coût saisi devient le prix d'achat, ou se moyenne (CUMP) avec le stock déjà
+ * ouvert dans les autres dépôts.
  */
 export async function entreeStockOuverture(params: ParametresEntreeStock): Promise<number> {
   verifierLignesEntree(params.lignes);
+  const prixAchatFinal = new Map<string, number>();
   for (const ligne of params.lignes) {
     const nom = await nomVariante(ligne.varianteId);
-    if (!(await varianteSansMouvement(ligne.varianteId))) {
+    if (!(await varianteSansMouvement(ligne.varianteId, params.depotId))) {
       throw new ErreurStock(
-        `${nom} a déjà eu des mouvements de stock : le stock d'ouverture est réservé aux articles neufs. Passez par un achat rapide.`,
+        `${nom} a déjà eu des mouvements de stock dans ce dépôt : le stock d'ouverture n'y est plus possible. Passez par un achat rapide.`,
       );
     }
     const variante = await obtenirLigne("variantes", ligne.varianteId);
     if (!variante) throw new ErreurStock("Produit introuvable.");
-    const prixAchat = Number(ligne.prixAchat);
-    if (!(prixAchat >= 0)) throw new ErreurStock(`${nom} : indiquez le coût d'achat.`);
+    const prixSaisi = Number(ligne.prixAchat);
+    if (!(prixSaisi >= 0)) throw new ErreurStock(`${nom} : indiquez le coût d'achat.`);
+    // Déjà du stock dans un autre dépôt : le coût se moyenne avec lui (CUMP).
+    const stockAilleurs = await stockTotalVariante(ligne.varianteId);
+    const prixAchat =
+      stockAilleurs > 0
+        ? Math.round(
+            (stockAilleurs * Number(variante.prix_achat) + ligne.quantite * prixSaisi) / (stockAilleurs + ligne.quantite),
+          )
+        : prixSaisi;
     if ((ligne.prixVente ?? variante.prix_vente) < prixAchat) {
       throw new ErreurStock(`${nom} : le prix de vente ne peut pas être inférieur au prix d'achat.`);
     }
+    prixAchatFinal.set(ligne.varianteId, prixAchat);
   }
   for (const ligne of params.lignes) {
     const variante = (await obtenirLigne("variantes", ligne.varianteId))!;
     await ecrireLigne("variantes", {
       ...variante,
-      prix_achat: Number(ligne.prixAchat),
+      prix_achat: prixAchatFinal.get(ligne.varianteId)!,
       prix_vente: ligne.prixVente ?? variante.prix_vente,
       date_modification: maintenant(),
       synchronise: 0,
@@ -398,30 +530,32 @@ export async function entreeDon(params: ParametresEntreeStock): Promise<number> 
   for (const ligne of params.lignes) {
     const variante = await obtenirLigne("variantes", ligne.varianteId);
     if (!variante) throw new ErreurStock("Produit introuvable.");
-    if (variante.prix_achat <= 0 && !(Number(ligne.prixAchat) > 0)) {
-      throw new ErreurStock(
-        `${await nomVariante(ligne.varianteId)} n'a pas encore de prix d'achat : indiquez sa valeur estimée.`,
-      );
-    }
   }
   for (const ligne of params.lignes) {
     const variante = (await obtenirLigne("variantes", ligne.varianteId))!;
-    if (variante.prix_achat <= 0) {
+    let motif = params.motif?.trim() || "Don reçu";
+    // Reçu gratuitement : entre à 0, le coût moyen baisse (le cadeau profite au bénéfice).
+    const stockActuel = Math.max(0, await stockTotalVariante(ligne.varianteId));
+    const ancienPrixAchat = Number(variante.prix_achat);
+    const nouveauPrixAchat = Math.round((stockActuel * ancienPrixAchat) / (stockActuel + ligne.quantite));
+    if (nouveauPrixAchat !== ancienPrixAchat) {
       await ecrireLigne("variantes", {
         ...variante,
-        prix_achat: Number(ligne.prixAchat),
+        prix_achat: nouveauPrixAchat,
         date_modification: maintenant(),
         synchronise: 0,
       });
+      motif += ` (Coût : ${ancienPrixAchat} → ${nouveauPrixAchat} FCFA [CUMP])`;
     }
     await appliquerMouvement({
       varianteId: ligne.varianteId,
       depotId: params.depotId,
       type: "entree",
       quantite: ligne.quantite,
-      motif: params.motif?.trim() || "Don reçu",
+      motif,
       utilisateurId: params.utilisateurId ?? null,
       referenceType: REFERENCE_ENTREE_DON,
+      referenceId: params.fournisseurId || null,
     });
   }
   return params.lignes.length;
@@ -551,6 +685,8 @@ export async function depotsSupprimesAvecStock(boutiqueId: string): Promise<Depo
 
 export interface LigneStock {
   id: string;
+  /** Unité de l'article (ex. « carton »). */
+  unite?: string | null;
   varianteId: string;
   produitId: string;
   produitNom: string;
@@ -620,6 +756,7 @@ export async function listerStock(boutiqueId: string, depotId?: string, terme = 
           produitId: produit.id,
           produitNom: produit.nom,
           reference: variante.reference,
+          unite: await nomUniteProduit(produit.id),
           depotId: depot.id,
           depotNom: depot.nom,
           quantite: stock.quantite,
@@ -656,17 +793,39 @@ export interface MouvementResume {
   utilisateurId: string | null;
   /** Document à l'origine du mouvement (ex. « ventes.Vente ») ; vide pour une saisie manuelle. */
   referenceType: string;
+  /** Identifiant de ce document (vente, réception, perte, inventaire…). */
+  referenceId?: string | null;
+  /** Réception ou retour fournisseur : la commande d'achat, pour l'ouvrir. */
+  commandeId?: string | null;
+  /** Unité de l'article (abréviation, ex. « kg »). */
+  unite?: string;
+  /** Coût moyen actuel de l'article, pour estimer la valeur des mouvements. */
+  prixAchat?: number;
 }
 
-export async function listerMouvements(boutiqueId: string, depotId?: string, limite = 100): Promise<MouvementResume[]> {
+/**
+ * Mouvements de la boutique, les plus récents d'abord. `limite` null = tous ;
+ * `depuis` / `jusqua` (ISO, fin exclue) bornent la période — la modale
+ * Mouvements charge ainsi toute la période choisie, sans plafond.
+ */
+export async function listerMouvements(
+  boutiqueId: string,
+  depotId?: string,
+  limite: number | null = 100,
+  depuis?: string | null,
+  jusqua?: string | null,
+): Promise<MouvementResume[]> {
   const db = await ouvrirBaseDeDonnees();
   const depots = (await db.getAllFromIndex("depots", "boutique_id", boutiqueId)).filter((d) => !d.supprime);
   const depotsParId = new Map(depots.map((d) => [d.id, d]));
+  const unites = new Map((await db.getAllFromIndex("unites", "boutique_id", boutiqueId)).map((u) => [u.id, u.abreviation]));
 
   const tousMouvements = await db.getAll("mouvements_stock");
   const resultat: MouvementResume[] = [];
   for (const m of tousMouvements) {
     if (m.supprime) continue;
+    if (depuis && m.date_creation < depuis) continue;
+    if (jusqua && m.date_creation >= jusqua) continue;
     const depot = depotsParId.get(m.depot_id);
     if (!depot) continue;
     if (depotId && depot.id !== depotId) continue;
@@ -674,6 +833,13 @@ export async function listerMouvements(boutiqueId: string, depotId?: string, lim
     if (!variante) continue;
     const produit = await db.get("produits", variante.produit_id);
     if (!produit) continue;
+    const referenceType = m.reference_type ?? "";
+    let commandeId: string | null = null;
+    if (m.reference_id && referenceType.startsWith("achats.Reception")) {
+      commandeId = (await db.get("receptions", m.reference_id))?.commande_id ?? null;
+    } else if (m.reference_id && referenceType === "achats.RetourFournisseur") {
+      commandeId = (await db.get("retours_fournisseur", m.reference_id))?.commande_id ?? null;
+    }
     resultat.push({
       id: m.id,
       produitNom: produit.nom,
@@ -684,11 +850,15 @@ export async function listerMouvements(boutiqueId: string, depotId?: string, lim
       motif: m.motif,
       dateCreation: m.date_creation,
       utilisateurId: m.utilisateur_id ?? null,
-      referenceType: m.reference_type ?? "",
+      referenceType,
+      referenceId: m.reference_id ?? null,
+      commandeId,
+      unite: (produit.unite_id && unites.get(produit.unite_id)) || "",
+      prixAchat: variante.prix_achat,
     });
   }
   resultat.sort((a, b) => (a.dateCreation < b.dateCreation ? 1 : -1));
-  return resultat.slice(0, limite);
+  return limite === null ? resultat : resultat.slice(0, limite);
 }
 
 // Historique produit (toutes variantes, tous dépôts) — port de
@@ -731,6 +901,43 @@ export interface ParametresTransfert {
   depotDestinationId: string;
   quantite: number;
   utilisateurId: string | null;
+}
+
+export interface ParametresTransfertsGroupe {
+  depotSourceId: string;
+  depotDestinationId: string;
+  utilisateurId: string | null;
+  lignes: { varianteId: string; quantite: number }[];
+}
+
+/** Formulaire « Nouveau transfert » : plusieurs articles d'un coup, tout ou rien (tout vérifié avant d'écrire). */
+export async function creerTransfertsGroupe(params: ParametresTransfertsGroupe): Promise<number> {
+  if (params.lignes.length === 0) throw new ErreurStock("Ajoutez au moins un article.");
+  if (new Set(params.lignes.map((l) => l.varianteId)).size !== params.lignes.length) {
+    throw new ErreurStock("Un même article apparaît deux fois.");
+  }
+  if (params.depotSourceId === params.depotDestinationId) {
+    throw new ErreurStock("Le dépôt source et destination doivent être différents.");
+  }
+  for (const ligne of params.lignes) {
+    if (!(ligne.quantite > 0)) throw new ErreurStock(`${await nomVariante(ligne.varianteId)} : la quantité doit être supérieure à 0.`);
+    const enStock = await stockVarianteDepot(ligne.varianteId, params.depotSourceId);
+    if (ligne.quantite > enStock) {
+      throw new ErreurStock(
+        `${await nomVariante(ligne.varianteId)} : il n'y en a que ${formaterQuantite(enStock)} dans le dépôt de départ.`,
+      );
+    }
+  }
+  for (const ligne of params.lignes) {
+    await transfererStock({
+      varianteId: ligne.varianteId,
+      depotSourceId: params.depotSourceId,
+      depotDestinationId: params.depotDestinationId,
+      quantite: ligne.quantite,
+      utilisateurId: params.utilisateurId,
+    });
+  }
+  return params.lignes.length;
 }
 
 export async function transfererStock(params: ParametresTransfert): Promise<string> {
@@ -791,9 +998,23 @@ export interface TransfertResume {
   dateCreation: string;
   /** Qui a fait l'opération (voir hooks/useNomsUtilisateurs.ts). */
   utilisateurId: string | null;
+  /** Unité de l'article (ex. « carton »). */
+  unite?: string;
+  /** Coût moyen actuel de l'article, pour estimer la valeur déplacée. */
+  prixAchat?: number;
+  varianteId?: string;
 }
 
-export async function listerTransferts(boutiqueId: string, limite = 100): Promise<TransfertResume[]> {
+/**
+ * Transferts de la boutique, les plus récents d'abord. `limite` null = tous ;
+ * `depuis` / `jusqua` (ISO, fin exclue) bornent la période.
+ */
+export async function listerTransferts(
+  boutiqueId: string,
+  limite: number | null = 100,
+  depuis?: string | null,
+  jusqua?: string | null,
+): Promise<TransfertResume[]> {
   const db = await ouvrirBaseDeDonnees();
   const depots = (await db.getAllFromIndex("depots", "boutique_id", boutiqueId)).filter((d) => !d.supprime);
   const depotsParId = new Map(depots.map((d) => [d.id, d]));
@@ -802,6 +1023,8 @@ export async function listerTransferts(boutiqueId: string, limite = 100): Promis
   const resultat: TransfertResume[] = [];
   for (const t of tousTransferts) {
     if (t.supprime) continue;
+    if (depuis && t.date_creation < depuis) continue;
+    if (jusqua && t.date_creation >= jusqua) continue;
     // Scope par boutique via le dépôt source, comme "ds.boutique_id = ?" côté Electron.
     const depotSource = depotsParId.get(t.depot_source_id);
     if (!depotSource) continue;
@@ -819,10 +1042,13 @@ export async function listerTransferts(boutiqueId: string, limite = 100): Promis
       quantite: t.quantite,
       dateCreation: t.date_creation,
       utilisateurId: t.utilisateur_id ?? null,
+      varianteId: variante.id,
+      prixAchat: variante.prix_achat,
+      unite: await nomUniteProduit(produit.id),
     });
   }
   resultat.sort((a, b) => (a.dateCreation < b.dateCreation ? 1 : -1));
-  return resultat.slice(0, limite);
+  return limite === null ? resultat : resultat.slice(0, limite);
 }
 
 // --- Inventaire (miroir de demarrer_inventaire / valider_inventaire) ---
@@ -872,6 +1098,37 @@ export interface ParametresPerte {
  * AVANT d'écrire quoi que ce soit (IndexedDB n'a pas de transaction commune
  * ici) : une perte refusée ne laisse aucune trace.
  */
+export interface ParametresPertesGroupe {
+  depotId: string;
+  utilisateurId: string | null;
+  /** Chaque ligne a son motif (ex. 3 yaourts périmés + 1 carton abîmé dans la même déclaration). */
+  lignes: { varianteId: string; quantite: number; motif: MotifPerte; detail?: string }[];
+}
+
+/** Formulaire « Déclarer une perte » : plusieurs articles d'un coup, tout ou rien (tout vérifié avant d'écrire). */
+export async function declarerPertesGroupe(params: ParametresPertesGroupe): Promise<number> {
+  if (params.lignes.length === 0) throw new ErreurStock("Ajoutez au moins un article.");
+  if (new Set(params.lignes.map((l) => l.varianteId)).size !== params.lignes.length) {
+    throw new ErreurStock("Un même article apparaît deux fois.");
+  }
+  for (const ligne of params.lignes) {
+    const nom = await nomVariante(ligne.varianteId);
+    if (!(ligne.quantite > 0)) throw new ErreurStock(`${nom} : la quantité doit être supérieure à 0.`);
+    const enStock = await stockVarianteDepot(ligne.varianteId, params.depotId);
+    if (ligne.quantite > enStock) {
+      throw new ErreurStock(`${nom} : il n'y en a que ${formaterQuantite(enStock)} dans ce dépôt.`);
+    }
+    if (!(ligne.motif in LIBELLES_MOTIF_PERTE)) throw new ErreurStock(`${nom} : motif de perte inconnu.`);
+    if (ligne.motif === "autre" && !(ligne.detail ?? "").trim()) {
+      throw new ErreurStock(`${nom} : précisez la raison de la perte (motif « Autre »).`);
+    }
+  }
+  for (const ligne of params.lignes) {
+    await declarerPerte({ ...ligne, depotId: params.depotId, utilisateurId: params.utilisateurId });
+  }
+  return params.lignes.length;
+}
+
 export async function declarerPerte(params: ParametresPerte): Promise<string> {
   const { varianteId, depotId, quantite, motif, utilisateurId } = params;
   const detail = (params.detail ?? "").trim();
@@ -973,6 +1230,9 @@ export interface PerteResume {
   utilisateurId: string | null;
   /** Perte annulée (saisie par erreur) : visible mais hors des totaux. */
   annulee: boolean;
+  /** Unité de l'article (ex. « carton »). */
+  unite?: string;
+  varianteId?: string;
 }
 
 /** Pertes de la boutique, les plus récentes d'abord ; debut/fin (ISO) optionnels. */
@@ -999,6 +1259,8 @@ export async function listerPertes(boutiqueId: string, debut?: string, fin?: str
         valeur: p.valeur,
         utilisateurId: p.utilisateur_id ?? null,
         annulee: !!p.annulee,
+        varianteId: p.variante_id,
+        unite: variante ? await nomUniteProduit(variante.produit_id) : "",
       });
     }
   }

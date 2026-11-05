@@ -5,6 +5,7 @@ import { sauvegarder } from "../db/index";
 import {
   assemblerReleveClient,
   assemblerReleveFournisseur,
+  type DonBrut,
   type CommandeBrute,
   type CreditBrut,
   type MouvementBrut,
@@ -507,5 +508,13 @@ export function releveCompletFournisseur(fournisseurId: string): OperationTiers[
      FROM mouvements_compte_fournisseur WHERE fournisseur_id = ? AND supprime = 0`,
     [fournisseurId],
   );
-  return assemblerReleveFournisseur(commandes, receptions, retours, paiementsDette, mouvements);
+  const dons = tousLesResultats<DonBrut>(
+    `SELECT m.id, p.nom as produitNom, m.quantite, COALESCE(m.motif, '') as motif, m.date_creation as dateCreation
+     FROM mouvements_stock m
+     JOIN variantes v ON v.id = m.variante_id
+     JOIN produits p ON p.id = v.produit_id
+     WHERE m.reference_type = 'stock.EntreeDon' AND m.reference_id = ? AND m.supprime = 0`,
+    [fournisseurId],
+  );
+  return assemblerReleveFournisseur(commandes, receptions, retours, paiementsDette, mouvements, dons);
 }

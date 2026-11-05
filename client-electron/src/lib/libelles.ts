@@ -221,6 +221,8 @@ export function origineMouvement(referenceType: string): OrigineMouvement {
   if (referenceType.startsWith("stock.Inventaire")) return "inventaire";
   if (referenceType.startsWith("stock.EntreeOuverture")) return "ouverture";
   if (referenceType.startsWith("stock.EntreeFabrication")) return "fabrication";
+  // Ingrédients sortis par une fabrication avec recette.
+  if (referenceType.startsWith("stock.ConsommationFabrication")) return "fabrication";
   if (referenceType.startsWith("stock.EntreeDon")) return "don";
   return "manuel";
 }

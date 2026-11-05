@@ -29,6 +29,7 @@ import { formaterMontant, normaliserTelephone, telephoneValide } from "../lib/fo
 import { MODES_REGLEMENT, libelleModeReglement, libelleStatutVente } from "../lib/libelles";
 import { DetailVente } from "./Ventes";
 import { ModaleCommandesClients } from "./CommandesClients";
+import { tuileFiltre } from "../lib/tuileFiltre";
 
 function libelleStatutCredit(statut: StatutCredit): string {
   return statut === "solde" ? "Soldé" : "En cours";
@@ -907,7 +908,7 @@ function FormulaireClientsGroupe({
       <div className="modale-entete entete-fixe">
         <h3>Nouveau client</h3>
         <div className="actions-formulaire">
-          <button type="submit" disabled={enCours}>
+          <button className="bouton-enregistrer" type="submit" disabled={enCours || lignes.length === 0}>
             {enCours ? "Enregistrement…" : `Enregistrer la liste (${lignes.length})`}
           </button>
           <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
@@ -1030,7 +1031,8 @@ function OngletClients({ session }: { session: Session }) {
     }
   }
 
-  const [filtre, setFiltre] = useState<"tous" | "credit" | "inactifs">("tous");
+  const [filtre, setFiltre] = useState<"tous" | "credit" | "recents" | "inactifs">("tous");
+  const basculerFiltre = (valeur: typeof filtre) => setFiltre(filtre === valeur ? "tous" : valeur);
   const [tri, setTri] = useState<{ colonne: "nom" | "total" | "dernier" | "solde"; sens: 1 | -1 }>({ colonne: "nom", sens: 1 });
   const somme = (valeurs: number[]) => valeurs.reduce((t, v) => t + v, 0);
   /** Jours depuis le dernier achat (null = jamais acheté). */
@@ -1040,8 +1042,14 @@ function OngletClients({ session }: { session: Session }) {
     const j = joursDepuis(c.dernierAchat);
     return j === null || j > 60;
   };
+  const recent = (c: ClientDetailResume) => {
+    const j = joursDepuis(c.dernierAchat);
+    return j !== null && j <= 30;
+  };
   const clientsVisibles = clientsListe.filter(
-    (c) => filtre === "tous" || (filtre === "credit" ? c.soldeCredit > 0 : inactif(c)),
+    (c) =>
+      filtre === "tous" ||
+      (filtre === "credit" ? c.soldeCredit > 0 : filtre === "recents" ? recent(c) : inactif(c)),
   ).sort((a, b) => {
     if (tri.colonne === "total") return (a.totalAchats - b.totalAchats) * tri.sens;
     if (tri.colonne === "solde") return (a.soldeCredit - b.soldeCredit) * tri.sens;
@@ -1049,10 +1057,7 @@ function OngletClients({ session }: { session: Session }) {
     return a.nom.localeCompare(b.nom, "fr") * tri.sens;
   });
   const avecCredit = clientsListe.filter((c) => c.soldeCredit > 0);
-  const actifs30 = clientsListe.filter((c) => {
-    const j = joursDepuis(c.dernierAchat);
-    return j !== null && j <= 30;
-  }).length;
+  const actifs30 = clientsListe.filter(recent).length;
   const meilleur = [...clientsListe].sort((a, b) => b.totalAchats - a.totalAchats)[0];
   function trierPar(colonne: "nom" | "total" | "dernier" | "solde") {
     setTri((t) => ({ colonne, sens: t.colonne === colonne ? (-t.sens as 1 | -1) : colonne === "nom" ? 1 : -1 }));
@@ -1115,17 +1120,19 @@ function OngletClients({ session }: { session: Session }) {
         />
       )}
       <div className="tuiles-fiche">
-        <div className="tuile-fiche">
+        <div {...tuileFiltre(filtre === "tous", () => setFiltre("tous"))}>
           <span className="sous-info">👥 Clients</span>
           <strong>{clientsListe.length}</strong>
         </div>
-        <div className={`tuile-fiche${avecCredit.length > 0 ? " tuile-fiche--alerte" : ""}`}>
+        <div
+          {...tuileFiltre(filtre === "credit", () => basculerFiltre("credit"), avecCredit.length > 0 ? "tuile-fiche--alerte" : "")}
+        >
           <span className="sous-info">💳 Doivent de l'argent</span>
           <strong className="nowrap">
             {avecCredit.length} · {formaterMontant(somme(avecCredit.map((c) => c.soldeCredit)))} {devise}
           </strong>
         </div>
-        <div className="tuile-fiche">
+        <div {...tuileFiltre(filtre === "recents", () => basculerFiltre("recents"))}>
           <span className="sous-info">🛒 Venus ces 30 jours</span>
           <strong>{actifs30}</strong>
         </div>
@@ -1141,6 +1148,7 @@ function OngletClients({ session }: { session: Session }) {
         <select value={filtre} onChange={(e) => setFiltre(e.target.value as typeof filtre)}>
           <option value="tous">Tous les clients</option>
           <option value="credit">Avec crédit en cours</option>
+          <option value="recents">Venus ces 30 jours</option>
           <option value="inactifs">Inactifs (plus de 60 jours)</option>
         </select>
         <span className="actions-ligne">
@@ -1287,6 +1295,8 @@ function OngletCredits({
   const [typeClient, setTypeClient] = useState<"reguliers" | "occasionnels">("reguliers");
   const [clientNom, setClientNom] = useState("");
   const [recherche, setRecherche] = useState("");
+  // Carte « En retard » : seulement les crédits en cours dont une échéance est dépassée.
+  const [retardSeulement, setRetardSeulement] = useState(false);
   const [credits, setCredits] = useState<CreditResume[]>([]);
   const [regleMois, setRegleMois] = useState(0);
   const [creditSelectionneId, setCreditSelectionneId] = useState<string | null>(null);
@@ -1317,6 +1327,7 @@ function OngletCredits({
     .filter(
       (c) =>
         (!statut || c.statut === statut) &&
+        (!retardSeulement || (c.statut === "en_cours" && !!c.prochaineEcheance?.enRetard)) &&
         (!clientNom || c.clientNom === clientNom) &&
         (!cle || (c.venteNumero ?? "").toLowerCase().includes(cle)),
     )
@@ -1422,11 +1433,16 @@ function OngletCredits({
             {formaterMontant(somme(enCours.map((c) => c.solde)))} {devise}
           </strong>
         </div>
-        <div className="tuile-fiche">
+        <div
+          {...tuileFiltre(statut === "en_cours" && !retardSeulement, () => {
+            setRetardSeulement(false);
+            setStatut(statut === "en_cours" && !retardSeulement ? "" : "en_cours");
+          })}
+        >
           <span className="sous-info">📄 Crédits en cours</span>
           <strong>{enCours.length}</strong>
         </div>
-        <div className={`tuile-fiche${enRetard > 0 ? " tuile-fiche--alerte" : ""}`}>
+        <div {...tuileFiltre(retardSeulement, () => setRetardSeulement(!retardSeulement), enRetard > 0 ? "tuile-fiche--alerte" : "")}>
           <span className="sous-info">🔴 En retard</span>
           <strong>{enRetard}</strong>
         </div>

@@ -381,6 +381,53 @@ def supprimer_boutique_definitivement(boutique):
     boutique.delete()
 
 
+# Ce qui reste en ligne pour une boutique en mode 100 % local
+# (docs/plan_reseau_local.md, §5) : la boutique elle-même (abonnement), ses
+# comptes et rôles (hors registre de synchro), ses réglages.
+CONSERVEES_EN_MODE_LOCAL = {"comptes.Boutique", "configuration.Parametre"}
+
+
+def supprimer_donnees_en_ligne(boutique):
+    """
+    Supprime du serveur les données de la boutique (ventes, achats, stock,
+    clients, fournisseurs, trésorerie, comptabilité, messages… et le journal de
+    synchronisation, qui en garde une copie) — pour tenir la promesse du mode
+    « 100 % local » quand une boutique y passe après avoir déjà synchronisé.
+    Garde la boutique, son abonnement, ses comptes et ses réglages. Les postes
+    de la boutique, eux, gardent tout.
+
+    Refusé tant que la synchronisation est activée (synchro_autorisee) : les
+    postes renverraient leurs prochaines modifications. Même ordre imposé par
+    les FK PROTECT que supprimer_boutique_definitivement.
+    Renvoie le nombre d'enregistrements supprimés par type.
+    """
+    if boutique.synchro_autorisee:
+        raise ValueError(
+            "Désactivez d'abord la synchronisation de cette boutique (mode 100 % local) avant de supprimer ses données en ligne."
+        )
+    from synchronisation import registre
+
+    compteurs = {}
+
+    def supprimer(label, filtre):
+        nombre = apps.get_model(label).objects.filter(**filtre).delete()[0]
+        compteurs[label] = compteurs.get(label, 0) + nombre
+
+    with transaction.atomic():
+        supprimer("ventes.Vente", {"boutique": boutique})
+        supprimer("achats.CommandeAchat", {"boutique": boutique})
+        supprimer("comptabilite.EcritureComptable", {"boutique": boutique})
+        supprimer("stock.PerteStock", {"depot__boutique": boutique})
+        supprimer("stock.Detaillage", {"depot__boutique": boutique})
+        supprimer("stock.Destockage", {"variante__produit__boutique": boutique})
+        # Le reste du registre, enfants avant parents.
+        for entree in reversed(registre.REGISTRE):
+            if entree.table not in CONSERVEES_EN_MODE_LOCAL:
+                supprimer(entree.table, {entree.chemin_boutique: boutique})
+        supprimer("synchronisation.JournalSync", {"boutique": boutique})
+    return compteurs
+
+
 def attribuer_code_vendeur(utilisateur):
     """Donne au compte son code vendeur s'il n'en a pas encore (voir comptes/codes_vendeur.py)."""
     if utilisateur.code_vendeur or not utilisateur.boutique_id:
@@ -510,3 +557,12 @@ def grille_tarifs():
                 "remise": remise,
             })
     return tarifs
+
+
+def accepter_demandes_reseau(boutique, par=None):
+    """Réseau activé (admin Django ou Espace Admin) : les demandes en attente sont marquées acceptées."""
+    from .models import DemandeReseau
+
+    boutique.demandes_reseau.filter(statut=DemandeReseau.Statut.EN_ATTENTE).update(
+        statut=DemandeReseau.Statut.ACCEPTEE, traitee_par=par, date_traitement=timezone.now()
+    )

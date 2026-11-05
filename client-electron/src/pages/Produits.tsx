@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { creerArticleDeDetail } from "../components/VenteAuDetail";
 import { PanneauVenteAuDetail } from "../components/VenteAuDetail";
 import type { CSSProperties } from "react";
@@ -20,12 +20,14 @@ import type {
 } from "../api/client";
 import ChampMontant from "../components/ChampMontant";
 import ModaleConfirmation from "../components/ModaleConfirmation";
+import ModaleRecette from "../components/ModaleRecette";
 import { formaterMontant } from "../lib/formatage";
 import { useDevise } from "../contexts/DeviseContext";
 import BoutonsExport from "../components/BoutonsExport";
 import type { ColonneExport } from "../api/client";
 import { libelleStatutVente } from "../lib/libelles";
 import { useFabricationPropre } from "../hooks/useFabricationPropre";
+import { tuileFiltre } from "../lib/tuileFiltre";
 
 // --- Onglet Produits : liste, formulaire de création, fiche détail ---
 
@@ -490,6 +492,7 @@ function DetailProduit({
   const [ventesHistorique, setVentesHistorique] = useState<LigneVenteHistorique[]>([]);
   const [pageDetail, setPageDetail] = useState<"details" | "mouvements" | "ventes" | "detail">("details");
   const [modifierInfos, setModifierInfos] = useState(false);
+  const [recetteVariante, setRecetteVariante] = useState<{ id: string; nom: string; prixVente: number } | null>(null);
 
   async function rafraichir() {
     const p = await api.produits.obtenir(produitId);
@@ -773,6 +776,21 @@ function DetailProduit({
                                     + Ajouter du stock
                                   </button>
                                 )}
+                                {fabricationPropre && (
+                                  <button
+                                    type="button"
+                                    title="Ingrédients pour fabriquer cet article (sortis du stock à la fabrication)"
+                                    onClick={() =>
+                                      setRecetteVariante({
+                                        id: v.id,
+                                        nom: `${produit.nom}${v.reference ? ` (${v.reference})` : ""}`,
+                                        prixVente: v.prixVente,
+                                      })
+                                    }
+                                  >
+                                    🧪 Recette
+                                  </button>
+                                )}
                               </span>
                             </td>
                           )}
@@ -940,6 +958,16 @@ function DetailProduit({
         </div>
         </div>
       </div>
+      {recetteVariante && (
+        <ModaleRecette
+          boutiqueId={session.boutiqueId}
+          varianteId={recetteVariante.id}
+          nomArticle={recetteVariante.nom}
+          prixVente={recetteVariante.prixVente}
+          onFermer={() => setRecetteVariante(null)}
+          onEnregistree={rafraichir}
+        />
+      )}
     </div>
   );
 }
@@ -960,7 +988,21 @@ interface LigneProduitGroupe {
   detail: { quantite: number; uniteId: string; uniteNom: string; nom: string; prixVente: number } | null;
 }
 
-function FormulaireProduitsGroupe({
+/** Nom d'article comparable : sans accents, sans majuscules, espaces réduits (même règle que le service). */
+function cleNomArticle(nom: string): string {
+  return nom
+    .trim()
+    .toLocaleLowerCase("fr")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+/** Valeur du filtre « Dépôt » : articles jamais mis en stock dans aucun dépôt. */
+const AUCUN_DEPOT = "__aucun__";
+
+// Exporté aussi pour « + Créer un article » du stock d'ouverture (EntreeStock.tsx).
+export function FormulaireProduitsGroupe({
   session,
   onAnnuler,
   onCree,
@@ -975,6 +1017,12 @@ function FormulaireProduitsGroupe({
   const [unites, setUnites] = useState<UniteResume[]>([]);
   const [depots, setDepots] = useState<DepotResume[]>([]);
   const [depotId, setDepotId] = useState("");
+  const [fenetreDepot, setFenetreDepot] = useState(false);
+  const [fenetreEnCours, setFenetreEnCours] = useState(false);
+  // Noms des articles déjà enregistrés, pour refuser un doublon dès « + Ajouter à la liste ».
+  const [nomsExistants, setNomsExistants] = useState<string[]>([]);
+  const [depotFenetre, setDepotFenetre] = useState("");
+  const [erreurDepot, setErreurDepot] = useState<string | null>(null);
 
   const [nom, setNom] = useState("");
   const [categorieId, setCategorieId] = useState("");
@@ -990,8 +1038,23 @@ function FormulaireProduitsGroupe({
   const [detailNom, setDetailNom] = useState("");
   const [detailNomModifie, setDetailNomModifie] = useState(false);
   const [detailPrix, setDetailPrix] = useState("0");
+  // Prix au détail proposé (prix du gros ÷ nombre d'unités) tant qu'il n'a pas été saisi à la main.
+  const [detailPrixModifie, setDetailPrixModifie] = useState(false);
+  useEffect(() => {
+    if (detailPrixModifie) return;
+    const quantite = Number(detailQuantite);
+    setDetailPrix(quantite > 1 && Number(prixVente) > 0 ? String(Math.ceil(Number(prixVente) / quantite)) : "0");
+  }, [detailQuantite, prixVente, detailPrixModifie]);
   const uniteDetailNom = unites.find((u) => u.id === detailUniteId)?.nom ?? "";
   const nomDetailPropose = nom.trim() ? `${nom.trim()} — ${uniteDetailNom ? uniteDetailNom.toLowerCase() : "détail"}` : "";
+  const nomGros = unites.find((u) => u.id === uniteId)?.nom.toLowerCase() || "article";
+  const nomUniteDetail = uniteDetailNom.toLowerCase() || "unités";
+  const nomUniteDetailSingulier = uniteDetailNom.toLowerCase() || "unité";
+  // Arrondi comme le prix d'achat de l'article de détail créé (creerArticleDetail).
+  const coutUniteDetail = Number(detailQuantite) > 1 ? Math.round((Number(prixAchat) || 0) / Number(detailQuantite)) : 0;
+  const margeUniteDetail = (Number(detailPrix) || 0) - coutUniteDetail;
+  const totalAuDetail = (Number(detailQuantite) || 0) * (Number(detailPrix) || 0);
+  const ecartDetailGros = totalAuDetail - (Number(prixVente) || 0);
   const [fenetreDetail, setFenetreDetail] = useState(false);
   const [erreurDetail, setErreurDetail] = useState<string | null>(null);
 
@@ -1022,10 +1085,13 @@ function FormulaireProduitsGroupe({
     0,
   );
   const quantiteInitialeTotale = lignes.reduce((t, l) => t + (Number(l.quantiteInitiale) || 0), 0);
+  // Une quantité initiale (en saisie ou dans la liste) attend un dépôt : le bandeau passe à l'orange.
+  const quantiteSansDepot = !depotId && ((Number(quantiteInitiale) || 0) > 0 || quantiteInitialeTotale > 0);
 
   useEffect(() => {
     api.categories.lister(session.boutiqueId).then(setCategories);
     api.unites.lister(session.boutiqueId).then(setUnites);
+    api.produits.lister(session.boutiqueId).then((p) => setNomsExistants(p.map((x) => x.nom)));
     api.depots.lister(session.boutiqueId).then(setDepots);
     api.produits.prochaineReference(session.boutiqueId).then((ref) => {
       const n = Number(ref.replace(/^REF-/, ""));
@@ -1038,34 +1104,45 @@ function FormulaireProduitsGroupe({
     return `REF-${String(prochaineRefBase + index).padStart(6, "0")}`;
   }
 
-  function ajouterProduit() {
-    if (!nom.trim()) return;
-    setLignes((actuel) => [
-      ...actuel,
-      {
-        id: crypto.randomUUID(),
-        nom: nom.trim(),
-        categorieId,
-        categorieNom: categories.find((c) => c.id === categorieId)?.nom ?? "",
-        uniteId,
-        uniteNom: unites.find((u) => u.id === uniteId)?.nom ?? "",
-        codeBarres,
-        prixAchat,
-        prixVente,
-        seuilAlerte,
-        quantiteInitiale,
-        detail:
-          avecDetail && Number(detailQuantite) > 1
-            ? {
-                quantite: Number(detailQuantite),
-                uniteId: detailUniteId,
-                uniteNom: uniteDetailNom,
-                nom: (detailNom || nomDetailPropose).trim(),
-                prixVente: Number(detailPrix) || 0,
-              }
-            : null,
-      },
-    ]);
+  function ajouterProduit(): LigneProduitGroupe | null {
+    if (!nom.trim()) return null;
+    const cle = cleNomArticle(nom);
+    const nomPris = [...nomsExistants, ...lignes.map((l) => l.nom)].find((n) => cleNomArticle(n) === cle);
+    if (nomPris) {
+      setErreur(`Un article nommé « ${nomPris} » existe déjà${nomsExistants.includes(nomPris) ? "" : " dans la liste"}.`);
+      return null;
+    }
+    const code = codeBarres.trim();
+    const codePris = code ? lignes.find((l) => l.codeBarres.trim() === code) : undefined;
+    if (codePris) {
+      setErreur(`Le code-barres ${code} est déjà utilisé par « ${codePris.nom} » dans la liste.`);
+      return null;
+    }
+    setErreur(null);
+    const ligne: LigneProduitGroupe = {
+      id: crypto.randomUUID(),
+      nom: nom.trim(),
+      categorieId,
+      categorieNom: categories.find((c) => c.id === categorieId)?.nom ?? "",
+      uniteId,
+      uniteNom: unites.find((u) => u.id === uniteId)?.nom ?? "",
+      codeBarres,
+      prixAchat,
+      prixVente,
+      seuilAlerte,
+      quantiteInitiale,
+      detail:
+        avecDetail && Number(detailQuantite) > 1
+          ? {
+              quantite: Number(detailQuantite),
+              uniteId: detailUniteId,
+              uniteNom: uniteDetailNom,
+              nom: (detailNom || nomDetailPropose).trim(),
+              prixVente: Number(detailPrix) || 0,
+            }
+          : null,
+    };
+    setLignes((actuel) => [...actuel, ligne]);
     setNom("");
     setCategorieId("");
     setUniteId("");
@@ -1080,6 +1157,8 @@ function FormulaireProduitsGroupe({
     setDetailNom("");
     setDetailNomModifie(false);
     setDetailPrix("0");
+    setDetailPrixModifie(false);
+    return ligne;
   }
 
   function surEntree(evenement: React.KeyboardEvent) {
@@ -1096,13 +1175,49 @@ function FormulaireProduitsGroupe({
   async function soumettre(evenement: React.FormEvent) {
     evenement.preventDefault();
     setErreur(null);
-    if (lignes.length === 0) {
+    // Article rempli mais pas encore dans la liste : on demande avant de l'oublier.
+    if (nom.trim()) {
+      setFenetreEnCours(true);
+      return;
+    }
+    await verifierEtEnregistrer(lignes);
+  }
+
+  async function choisirArticleEnCours(ajouter: boolean) {
+    setFenetreEnCours(false);
+    const ligne = ajouter ? ajouterProduit() : null;
+    await verifierEtEnregistrer(ligne ? [...lignes, ligne] : lignes);
+  }
+
+  async function verifierEtEnregistrer(liste: LigneProduitGroupe[]) {
+    if (liste.length === 0) {
       setErreur("Ajoutez au moins un article à la liste.");
       return;
     }
+    if (!depotId && liste.some((l) => (Number(l.quantiteInitiale) || 0) > 0)) {
+      setDepotFenetre(depots[0]?.id ?? "");
+      setErreurDepot(null);
+      setFenetreDepot(true);
+      return;
+    }
+    await enregistrer(depotId, liste);
+  }
+
+  function validerDepot() {
+    if (!depotFenetre) {
+      setErreurDepot("Choisissez un dépôt.");
+      return;
+    }
+    setDepotId(depotFenetre);
+    setFenetreDepot(false);
+    enregistrer(depotFenetre, lignes);
+  }
+
+  async function enregistrer(depot: string, liste: LigneProduitGroupe[]) {
+    setErreur(null);
     setEnCours(true);
     try {
-      for (const ligne of lignes) {
+      for (const ligne of liste) {
         const resultat = await api.produits.creer({
           boutiqueId: session.boutiqueId,
           nom: ligne.nom,
@@ -1117,6 +1232,8 @@ function FormulaireProduitsGroupe({
           setErreur(`"${ligne.nom}" : ${resultat.message}`);
           return;
         }
+        // Créé : retiré de la liste, pour ne pas le recréer si la suite échoue et qu'on réessaie.
+        setLignes((actuel) => actuel.filter((l) => l.id !== ligne.id));
         if (ligne.detail) {
           try {
             await creerArticleDeDetail({
@@ -1132,10 +1249,10 @@ function FormulaireProduitsGroupe({
           }
         }
         const quantiteNombre = Number(ligne.quantiteInitiale) || 0;
-        if (depotId && quantiteNombre > 0) {
+        if (depot && quantiteNombre > 0) {
           const resultatStock = await api.mouvements.creer({
             varianteId: resultat.resultat.varianteId,
-            depotId,
+            depotId: depot,
             type: "entree",
             quantite: quantiteNombre,
             motif: "Stock initial",
@@ -1158,7 +1275,7 @@ function FormulaireProduitsGroupe({
       <div className="modale-entete entete-fixe">
         <h3>Nouvel article</h3>
         <div className="actions-formulaire">
-          <button type="submit" disabled={enCours}>
+          <button className="bouton-enregistrer" type="submit" disabled={enCours || (lignes.length === 0 && !nom.trim())}>
             {enCours ? "Enregistrement…" : `Enregistrer la liste (${lignes.length})`}
           </button>
           <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
@@ -1170,26 +1287,6 @@ function FormulaireProduitsGroupe({
 
       <div className="colonnes-produits-groupe">
         <div className="colonne-ajout-produit">
-          {!depotId ? (
-            <label className="champ-depot-groupe">
-              Dépôt (pour le stock initial, optionnel)
-              <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
-                <option value=""></option>
-                {depots.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.nom}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <p className="note-aide">
-              Dépôt (stock initial) : <strong>{depots.find((d) => d.id === depotId)?.nom}</strong>{" "}
-              <button type="button" className="lien" onClick={() => setDepotId("")}>
-                changer
-              </button>
-            </p>
-          )}
 
           <div className="grille-champs ajout-produit-groupe">
             <label>
@@ -1264,20 +1361,6 @@ function FormulaireProduitsGroupe({
                 onKeyDown={surEntree}
               />
             </label>
-            <label>
-              Qté initiale
-              <input
-                type="number"
-                min={0}
-                step="any"
-                value={quantiteInitiale}
-                onChange={(e) => setQuantiteInitiale(e.target.value)}
-                onKeyDown={surEntree}
-              />
-            </label>
-            <button type="button" className="bouton-ajouter-produit-groupe" onClick={ajouterProduit}>
-              + Ajouter à la liste
-            </button>
             <button
               type="button"
               className={`bouton-detail-groupe${avecDetail ? " actif" : ""}`}
@@ -1305,46 +1388,114 @@ function FormulaireProduitsGroupe({
                 >
                   <h3>✂️ Vente au détail{nom.trim() ? ` — ${nom.trim()}` : ""}</h3>
                   <p className="note-aide">
-                    Pour un carton que l'on ouvre, un sac vendu au kilo… L'article de détail est créé et relié en même temps.
+                    Vous ouvrez le {nomGros} pour vendre ce qu'il contient à l'unité (paquet, bouteille, kilo…). L'article au détail
+                    est créé et relié automatiquement : le stock passe de l'un à l'autre quand vous déballez.
                   </p>
-                  <div className="champs-detail-groupe">
-                    <label>
-                      1 {unites.find((u) => u.id === uniteId)?.nom.toLowerCase() || "article"} contient
-                      <input
-                        type="number"
-                        min={2}
-                        step={1}
-                        placeholder="ex. 24"
-                        value={detailQuantite}
-                        onChange={(e) => setDetailQuantite(e.target.value)}
-                        autoFocus
-                      />
-                    </label>
-                    <label>
-                      Unité du détail
-                      <select value={detailUniteId} onChange={(e) => setDetailUniteId(e.target.value)}>
-                        <option value="">(aucune)</option>
-                        {unites.map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.nom}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Nom de l'article au détail
-                      <input
-                        value={detailNom || nomDetailPropose}
-                        onChange={(e) => {
-                          setDetailNom(e.target.value);
-                          setDetailNomModifie(true);
-                        }}
-                      />
-                    </label>
-                    <label>
-                      Prix de vente au détail
-                      <ChampMontant value={detailPrix} disabled={!peutModifierPrix} onChange={setDetailPrix} />
-                    </label>
+
+                  <div className="section-detail-groupe">
+                    <div className="titre-section-detail">1. Que contient 1 {nomGros} ?</div>
+                    <div className="champs-detail-groupe">
+                      <label>
+                        Nombre d'unités dans 1 {nomGros}
+                        <input
+                          type="number"
+                          min={2}
+                          step={1}
+                          placeholder="ex. 24"
+                          value={detailQuantite}
+                          onChange={(e) => setDetailQuantite(e.target.value)}
+                          autoFocus
+                        />
+                      </label>
+                      <label>
+                        Unité vendue au détail
+                        <select value={detailUniteId} onChange={(e) => setDetailUniteId(e.target.value)}>
+                          <option value="">(aucune)</option>
+                          {unites.map((u) => (
+                            <option key={u.id} value={u.id}>
+                              {u.nom}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <div className="phrase-detail-groupe">
+                      1 {nomGros} = <strong>{Number(detailQuantite) > 1 ? detailQuantite : "…"}</strong> {nomUniteDetail}
+                    </div>
+                  </div>
+
+                  <div className="section-detail-groupe">
+                    <div className="titre-section-detail">2. L'article vendu au détail</div>
+                    <div className="champs-detail-groupe">
+                      <label>
+                        Nom affiché en caisse
+                        <input
+                          value={detailNom || nomDetailPropose}
+                          onChange={(e) => {
+                            setDetailNom(e.target.value);
+                            setDetailNomModifie(true);
+                          }}
+                        />
+                      </label>
+                      <label>
+                        <span className="nowrap">
+                          Prix de vente d'1 {nomUniteDetailSingulier}
+                          {!detailPrixModifie && Number(detailPrix) > 0 && <span className="sous-info"> · proposé</span>}
+                        </span>
+                        <ChampMontant
+                          value={detailPrix}
+                          disabled={!peutModifierPrix}
+                          onChange={(v) => {
+                            setDetailPrix(v);
+                            setDetailPrixModifie(true);
+                          }}
+                        />
+                      </label>
+                    </div>
+                    {!detailPrixModifie && Number(detailPrix) > 0 && (
+                      <p className="note-aide">
+                        Proposé : prix du {nomGros} ({formaterMontant(Number(prixVente) || 0)}) ÷ {detailQuantite}, arrondi au-dessus.
+                        Vous pouvez le changer.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="section-detail-groupe calcul-detail-groupe">
+                    <div className="titre-section-detail">3. Ce que ça donne</div>
+                    {Number(detailQuantite) > 1 ? (
+                      <dl className="lignes-calcul-detail">
+                        <dt>Coût d'1 {nomUniteDetailSingulier}</dt>
+                        <dd>
+                          {Number(prixAchat) > 0
+                            ? `${formaterMontant(coutUniteDetail)} (achat ${formaterMontant(Number(prixAchat))} ÷ ${detailQuantite})`
+                            : "— (prix d'achat non saisi)"}
+                        </dd>
+                        <dt>Marge sur 1 {nomUniteDetailSingulier}</dt>
+                        <dd className={Number(prixAchat) > 0 && margeUniteDetail < 0 ? "texte-erreur" : undefined}>
+                          {Number(prixAchat) > 0 && Number(detailPrix) > 0 ? formaterMontant(margeUniteDetail) : "—"}
+                        </dd>
+                        <dt>1 {nomGros} vendu au détail</dt>
+                        <dd>
+                          {Number(detailPrix) > 0 ? (
+                            <>
+                              {detailQuantite} × {formaterMontant(Number(detailPrix))} = <strong>{formaterMontant(totalAuDetail)}</strong>
+                              {Number(prixVente) > 0 && (
+                                <span className={ecartDetailGros < 0 ? "texte-erreur" : "texte-succes-detail"}>
+                                  {" "}
+                                  {ecartDetailGros === 0
+                                    ? `(autant que le ${nomGros} entier)`
+                                    : `(${ecartDetailGros > 0 ? "+" : "−"}${formaterMontant(Math.abs(ecartDetailGros))} par rapport au ${nomGros} vendu ${formaterMontant(Number(prixVente))})`}
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </dd>
+                      </dl>
+                    ) : (
+                      <p className="note-aide">Indiquez le nombre d'unités pour voir le coût, la marge et le total au détail.</p>
+                    )}
                   </div>
                   {erreurDetail && <div className="message-erreur">{erreurDetail}</div>}
                   <div className="actions-formulaire">
@@ -1370,6 +1521,35 @@ function FormulaireProduitsGroupe({
                 </div>
               </div>
             )}
+            <label>
+              Qté initiale
+              <input
+                type="number"
+                min={0}
+                step="any"
+                value={quantiteInitiale}
+                onChange={(e) => setQuantiteInitiale(e.target.value)}
+                onKeyDown={surEntree}
+              />
+            </label>
+            {/* Dépôt du stock initial : bordure bleue, orange si une quantité attend un dépôt. */}
+            <label
+              className={`champ-depot-initial${quantiteSansDepot ? " champ-depot-initial--alerte" : ""}`}
+              title={quantiteSansDepot ? "Une quantité initiale est saisie : choisissez le dépôt où la mettre." : undefined}
+            >
+              {quantiteSansDepot ? "⚠️ Dépôt (stock initial)" : "🏬 Dépôt (stock initial)"}
+              <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
+                <option value="">Aucun</option>
+                {depots.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.nom}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="button" className="bouton-ajouter-produit-groupe" onClick={ajouterProduit}>
+              + Ajouter à la liste
+            </button>
           </div>
         </div>
 
@@ -1399,8 +1579,8 @@ function FormulaireProduitsGroupe({
                     <td className="col-designation-groupe">
                       {l.nom}
                       {l.detail && (
-                        <span className="sous-info ligne-detail-groupe">
-                          ↳ 1 = {l.detail.quantite} {l.detail.uniteNom.toLowerCase() || "unité(s)"} · {l.detail.nom} ·{" "}
+                        <span className="pastille-detail" title={`Article au détail créé avec : ${l.detail.nom}`}>
+                          ✂️ Détail : 1 = {l.detail.quantite} {l.detail.uniteNom.toLowerCase() || "unité(s)"} ·{" "}
                           {formaterMontant(l.detail.prixVente)}
                         </span>
                       )}
@@ -1455,6 +1635,69 @@ function FormulaireProduitsGroupe({
           )}
         </div>
       </div>
+      {fenetreEnCours && (
+        <div className="fond-modale" onClick={() => setFenetreEnCours(false)}>
+          <div className="modale-confirmation" onClick={(e) => e.stopPropagation()}>
+            <h3>Article pas encore dans la liste</h3>
+            <p>
+              « <strong>{nom.trim()}</strong> » est en cours de saisie mais n'a pas été ajouté à la liste. L'ajouter avant
+              d'enregistrer ?
+            </p>
+            <div className="actions-formulaire">
+              <button type="button" className="lien" onClick={() => setFenetreEnCours(false)}>
+                Annuler
+              </button>
+              {lignes.length > 0 && (
+                <button type="button" className="lien" onClick={() => choisirArticleEnCours(false)}>
+                  Enregistrer sans lui
+                </button>
+              )}
+              <button type="button" className="bouton-valider" onClick={() => choisirArticleEnCours(true)} autoFocus>
+                Ajouter et enregistrer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {fenetreDepot && (
+        <div className="fond-modale" onClick={() => setFenetreDepot(false)}>
+          <div
+            className="modale-confirmation"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                validerDepot();
+              }
+            }}
+          >
+            <h3>Dépôt du stock initial</h3>
+            <p className="note-aide">
+              Des articles de la liste ont une quantité initiale. Choisissez le dépôt où les mettre en stock.
+            </p>
+            <label>
+              Dépôt
+              <select value={depotFenetre} onChange={(e) => setDepotFenetre(e.target.value)} autoFocus>
+                <option value=""></option>
+                {depots.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.nom}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {erreurDepot && <div className="message-erreur">{erreurDepot}</div>}
+            <div className="actions-formulaire">
+              <button type="button" className="lien" onClick={() => setFenetreDepot(false)}>
+                Annuler
+              </button>
+              <button type="button" className="bouton-valider" onClick={validerDepot}>
+                Enregistrer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </form>
   );
 }
@@ -1521,6 +1764,12 @@ function OngletProduits({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terme]);
 
+  // Filtre « Dépôt » de la liste.
+  const [depotsListe, setDepotsListe] = useState<DepotResume[]>([]);
+  useEffect(() => {
+    api.depots.lister(session.boutiqueId).then(setDepotsListe);
+  }, [session.boutiqueId]);
+
   function basculerTri(colonne: ColonneTriProduit) {
     setTri((actuel) =>
       actuel.colonne === colonne
@@ -1532,22 +1781,31 @@ function OngletProduits({ session }: { session: Session }) {
   const devise = useDevise();
   const [categorieFiltre, setCategorieFiltre] = useState("");
   const [statutFiltre, setStatutFiltre] = useState<"tous" | "actifs" | "inactifs">("tous");
+  // "" = tous les dépôts, AUCUN_DEPOT = jamais mis en stock, sinon l'id du dépôt.
+  const [depotFiltre, setDepotFiltre] = useState("");
+  const depotChoisi = depotFiltre && depotFiltre !== AUCUN_DEPOT ? depotFiltre : null;
+  const nomDepotChoisi = depotChoisi ? (depotsListe.find((d) => d.id === depotChoisi)?.nom ?? "") : "";
+  /** Quantité et valeur affichées : celles du dépôt choisi, sinon tous dépôts confondus. */
+  const quantite = (p: ProduitResume) => (depotChoisi ? (p.stocksParDepot[depotChoisi]?.quantite ?? 0) : p.quantiteStock);
+  const valeur = (p: ProduitResume) => (depotChoisi ? (p.stocksParDepot[depotChoisi]?.valeur ?? 0) : p.valeurStock);
   const nomsCategories = [...new Set(produits.map((p) => p.categorieNom ?? "").filter(Boolean))].sort((a, b) =>
     a.localeCompare(b, "fr"),
   );
   const produitsVisibles = produits.filter(
     (p) =>
       (!categorieFiltre || (p.categorieNom ?? "") === categorieFiltre) &&
-      (statutFiltre === "tous" || (statutFiltre === "actifs") === !!p.actif),
+      (statutFiltre === "tous" || (statutFiltre === "actifs") === !!p.actif) &&
+      (!depotFiltre ||
+        (depotFiltre === AUCUN_DEPOT
+          ? Object.keys(p.stocksParDepot).length === 0
+          : p.stocksParDepot[depotFiltre] !== undefined)),
   );
   const marge = (p: ProduitResume) => (p.prixVente ?? 0) - (p.prixAchat ?? 0);
   /** Marge en % du prix de vente (taux de marque). */
   const tauxMarge = (p: ProduitResume) => ((p.prixVente ?? 0) > 0 ? Math.round((marge(p) / (p.prixVente ?? 1)) * 100) : 0);
-  const stockBas = (p: ProduitResume) => p.quantiteStock <= p.seuilAlerte;
   const avecPrix = produitsVisibles.filter((p) => (p.prixVente ?? 0) > 0);
   const margeMoyenne = avecPrix.length > 0 ? Math.round(avecPrix.reduce((t, p) => t + tauxMarge(p), 0) / avecPrix.length) : 0;
-  const valeurStock = produitsVisibles.reduce((t, p) => t + p.valeurStock, 0);
-  const nombreStockBas = produitsVisibles.filter(stockBas).length;
+  const valeurStock = produitsVisibles.reduce((t, p) => t + valeur(p), 0);
   const colonnesExport: ColonneExport[] = [
     { cle: "reference", libelle: "Référence" },
     { cle: "designation", libelle: "Désignation" },
@@ -1555,7 +1813,7 @@ function OngletProduits({ session }: { session: Session }) {
     ...(peutVoirCout ? [{ cle: "prixAchat", libelle: `Prix d'achat (${devise})` }] : []),
     { cle: "prixVente", libelle: `Prix de vente (${devise})` },
     ...(peutVoirCout ? [{ cle: "marge", libelle: `Marge (${devise})` }, { cle: "taux", libelle: "Marge (%)" }] : []),
-    { cle: "stock", libelle: "Stock" },
+    { cle: "stock", libelle: nomDepotChoisi ? `Quantité (${nomDepotChoisi})` : "Quantité" },
     { cle: "statut", libelle: "Statut" },
   ];
   const lignesExport = produitsVisibles.map((p) => ({
@@ -1566,7 +1824,7 @@ function OngletProduits({ session }: { session: Session }) {
     prixVente: p.prixVente ?? 0,
     marge: marge(p),
     taux: tauxMarge(p),
-    stock: p.quantiteStock,
+    stock: quantite(p),
     statut: p.actif ? "Actif" : "Inactif",
   }));
 
@@ -1576,11 +1834,12 @@ function OngletProduits({ session }: { session: Session }) {
       let comparaison = 0;
       if (tri.colonne === "nom") comparaison = a.nom.localeCompare(b.nom);
       else if (tri.colonne === "prixVente") comparaison = (a.prixVente ?? 0) - (b.prixVente ?? 0);
-      else if (tri.colonne === "enStock") comparaison = a.quantiteStock - b.quantiteStock;
+      else if (tri.colonne === "enStock") comparaison = quantite(a) - quantite(b);
       return tri.direction === "asc" ? comparaison : -comparaison;
     });
     return copie;
-  }, [produitsVisibles, tri]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [produitsVisibles, tri, depotChoisi]);
 
   function icone(colonne: ColonneTriProduit) {
     if (tri.colonne !== colonne) return null;
@@ -1637,29 +1896,42 @@ function OngletProduits({ session }: { session: Session }) {
       />
     )}
     <div className="liste-dettes-credits">
-      <div className="tuiles-fiche">
-        <div className="tuile-fiche">
-          <span className="sous-info">🏷️ Articles</span>
-          <strong>{produitsVisibles.length}</strong>
+      <div className="ligne-tuiles-actions">
+        <div className="tuiles-fiche">
+          <div
+            {...tuileFiltre(!terme && !categorieFiltre && statutFiltre === "tous" && !depotFiltre, () => {
+              setTerme("");
+              setCategorieFiltre("");
+              setStatutFiltre("tous");
+              setDepotFiltre("");
+            })}
+          >
+            <span className="sous-info">🏷️ Articles</span>
+            <strong>{produitsVisibles.length}</strong>
+          </div>
+          {peutVoirCout && (
+            <>
+              <div className="tuile-fiche">
+                <span className="sous-info">💰 Valeur du stock (prix d'achat)</span>
+                <strong className="nowrap">
+                  {formaterMontant(valeurStock)} {devise}
+                </strong>
+              </div>
+              <div className="tuile-fiche">
+                <span className="sous-info">📈 Marge moyenne</span>
+                <strong>{margeMoyenne} %</strong>
+              </div>
+            </>
+          )}
         </div>
-        <div className={`tuile-fiche${nombreStockBas > 0 ? " tuile-fiche--alerte" : ""}`}>
-          <span className="sous-info">⚠️ En rupture ou stock bas</span>
-          <strong>{nombreStockBas}</strong>
-        </div>
-        {peutVoirCout && (
-          <>
-            <div className="tuile-fiche">
-              <span className="sous-info">💰 Valeur du stock (prix d'achat)</span>
-              <strong className="nowrap">
-                {formaterMontant(valeurStock)} {devise}
-              </strong>
-            </div>
-            <div className="tuile-fiche">
-              <span className="sous-info">📈 Marge moyenne</span>
-              <strong>{margeMoyenne} %</strong>
-            </div>
-          </>
-        )}
+        <span className="actions-ligne">
+          <BoutonsExport titre="Catalogue des articles" colonnes={colonnesExport} lignes={lignesExport} compact />
+          {peutGerer && (
+            <button type="button" className="bouton-ajouter-variante" onClick={() => setVue("groupe")}>
+              + Nouvel article
+            </button>
+          )}
+        </span>
       </div>
       <div className="barre-actions barre-actions-avec-onglets barre-filtres-historique">
         <input className="champ-recherche" placeholder="Rechercher un article…" value={terme} onChange={(e) => setTerme(e.target.value)} />
@@ -1676,14 +1948,17 @@ function OngletProduits({ session }: { session: Session }) {
           <option value="actifs">Actifs</option>
           <option value="inactifs">Inactifs</option>
         </select>
-        <span className="actions-ligne">
-          <BoutonsExport titre="Catalogue des articles" colonnes={colonnesExport} lignes={lignesExport} compact />
-          {peutGerer && (
-            <button type="button" className="bouton-ajouter-variante" onClick={() => setVue("groupe")}>
-              + Nouvel article
-            </button>
-          )}
-        </span>
+        {depotsListe.length > 0 && (
+          <select value={depotFiltre} onChange={(e) => setDepotFiltre(e.target.value)} title="Articles présents dans ce dépôt">
+            <option value="">Tous les dépôts</option>
+            {depotsListe.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.nom}
+              </option>
+            ))}
+            <option value={AUCUN_DEPOT}>Dans aucun dépôt</option>
+          </select>
+        )}
       </div>
       <div className="zone-tableau-scroll">
         <table className="tableau-catalogue">
@@ -1701,7 +1976,8 @@ function OngletProduits({ session }: { session: Session }) {
               </th>
               {peutVoirCout && <th>Marge</th>}
               <th className="th-triable" onClick={() => basculerTri("enStock")}>
-                Stock{icone("enStock")}
+                {nomDepotChoisi ? `Quantité (${nomDepotChoisi})` : "Quantité"}
+                {icone("enStock")}
               </th>
               {peutGerer && <th>Actions</th>}
             </tr>
@@ -1711,7 +1987,21 @@ function OngletProduits({ session }: { session: Session }) {
               <tr key={p.id} onClick={() => setProduitSelectionneId(p.id)}>
                 <td>{index + 1}</td>
                 <td>{p.reference || ""}</td>
-                <td>{p.nom}</td>
+                <td>
+                  {p.nom}
+                  {p.venteDetail && (
+                    <span
+                      className="pastille-detail"
+                      title={
+                        p.venteDetail.role === "gros"
+                          ? `Se vend aussi au détail : 1 = ${p.venteDetail.quantite} « ${p.venteDetail.autreNom} »`
+                          : `Article vendu à l'unité : détail de « ${p.venteDetail.autreNom} »`
+                      }
+                    >
+                      {p.venteDetail.role === "gros" ? "✂️ au détail" : `↳ détail de « ${p.venteDetail.autreNom} »`}
+                    </span>
+                  )}
+                </td>
                 <td>{p.categorieNom ?? ""}</td>
                 {peutVoirCout && (
                   <td className="nowrap">
@@ -1733,16 +2023,8 @@ function OngletProduits({ session }: { session: Session }) {
                   </td>
                 )}
                 <td className="nowrap">
-                  {p.quantiteStock <= 0 ? (
-                    <span className="badge-rupture">Rupture</span>
-                  ) : (
-                    <strong
-                      className={stockBas(p) ? "texte-erreur" : undefined}
-                      title={stockBas(p) ? `Sous le seuil d'alerte (${p.seuilAlerte})` : undefined}
-                    >
-                      {formaterMontant(p.quantiteStock)}
-                    </strong>
-                  )}
+                  {/* Chiffre neutre : les ruptures et seuils se suivent dans la page Stock. */}
+                  {formaterMontant(quantite(p))}
                 </td>
                 {peutGerer && (
                   <td onClick={(e) => e.stopPropagation()}>
@@ -1797,7 +2079,6 @@ function OngletProduits({ session }: { session: Session }) {
         <div className="totaux">
           <div>
             {produitsTries.length} article{produitsTries.length > 1 ? "s" : ""}
-            {nombreStockBas > 0 && ` · ${nombreStockBas} en rupture ou stock bas`}
           </div>
           {peutVoirCout && (
             <div className="total-net">
@@ -1832,7 +2113,6 @@ function OngletCategories({ session }: { session: Session }) {
   const [categories, setCategories] = useState<CategorieDetail[]>([]);
   const [recherche, setRecherche] = useState("");
   const [ajoutOuvert, setAjoutOuvert] = useState(false);
-  const [nom, setNom] = useState("");
   const [erreur, setErreur] = useState<string | null>(null);
   const [enEditionId, setEnEditionId] = useState<string | null>(null);
   const [nomEdition, setNomEdition] = useState("");
@@ -1849,18 +2129,12 @@ function OngletCategories({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function ajouter(evenement: React.FormEvent) {
-    evenement.preventDefault();
-    if (!nom.trim()) return;
-    const resultat = await api.categories.creer(session.boutiqueId, nom.trim());
-    if (resultat.succes) {
-      setNom("");
-      setAjoutOuvert(false);
-      setErreur(null);
-      rafraichir();
-    } else {
-      setErreur(resultat.message);
-    }
+  // Renvoie le message d'erreur, ou null si la catégorie a été créée.
+  async function creerNouvelleCategorie(nom: string): Promise<string | null> {
+    const resultat = await api.categories.creer(session.boutiqueId, nom);
+    if (!resultat.succes) return resultat.message;
+    await rafraichir();
+    return null;
   }
 
   function commencerEdition(c: CategorieDetail) {
@@ -1949,7 +2223,13 @@ function OngletCategories({ session }: { session: Session }) {
           <span className="sous-info">🏷️ Articles rangés</span>
           <strong>{somme(categories.map((c) => c.nombreArticles))}</strong>
         </div>
-        <div className={`tuile-fiche${sansCategorie.produits > 0 ? " tuile-fiche--attention" : ""}`}>
+        <div
+          {...tuileFiltre(
+            sansCategorieOuverte,
+            () => setSansCategorieOuverte(!sansCategorieOuverte),
+            sansCategorie.produits > 0 ? "tuile-fiche--attention" : "",
+          )}
+        >
           <span className="sous-info">📭 Sans catégorie</span>
           <strong>{sansCategorie.produits}</strong>
         </div>
@@ -1972,34 +2252,11 @@ function OngletCategories({ session }: { session: Session }) {
           value={recherche}
           onChange={(e) => setRecherche(e.target.value)}
         />
-        {peutGerer &&
-          (ajoutOuvert ? (
-            <form onSubmit={ajouter} className="formulaire-inline">
-              <input
-                autoFocus
-                placeholder="Nom de la catégorie"
-                value={nom}
-                onChange={(e) => setNom(e.target.value)}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setAjoutOuvert(false);
-                  setNom("");
-                  setErreur(null);
-                }}
-              >
-                Annuler
-              </button>
-              <button type="submit" className="bouton-primaire">
-                Ajouter
-              </button>
-            </form>
-          ) : (
-            <button type="button" className="bouton-ajouter-variante" onClick={() => setAjoutOuvert(true)}>
-              + Nouvelle catégorie
-            </button>
-          ))}
+        {peutGerer && (
+          <button type="button" className="bouton-ajouter-variante" onClick={() => setAjoutOuvert(true)}>
+            + Nouvelle catégorie
+          </button>
+        )}
       </div>
       {erreur && <div className="message-erreur">{erreur}</div>}
       <div className="zone-tableau-scroll">
@@ -2122,6 +2379,13 @@ function OngletCategories({ session }: { session: Session }) {
           )}
         </div>
       )}
+      {ajoutOuvert && (
+        <ModaleNouvelleCategorie
+          categories={categories}
+          onCreer={creerNouvelleCategorie}
+          onFermer={() => setAjoutOuvert(false)}
+        />
+      )}
       {aSupprimer && (
         <ModaleConfirmation
           titre={`Supprimer la catégorie « ${aSupprimer.nom} » ?`}
@@ -2178,6 +2442,120 @@ function OngletCategories({ session }: { session: Session }) {
   );
 }
 
+/** Petite modale « Nouvelle catégorie » : champ bien visible, catégories au nom
+    proche affichées pendant la saisie (évite les doublons), « Ajouter et
+    continuer » pour en créer plusieurs d'affilée. */
+function ModaleNouvelleCategorie({
+  categories,
+  onCreer,
+  onFermer,
+}: {
+  categories: CategorieDetail[];
+  onCreer: (nom: string) => Promise<string | null>;
+  onFermer: () => void;
+}) {
+  const [nom, setNom] = useState("");
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState(false);
+  const [ajoutees, setAjoutees] = useState<string[]>([]);
+  const champ = useRef<HTMLInputElement>(null);
+
+  const cle = normaliserRecherche(nom.trim());
+  const doublon = cle ? categories.find((c) => normaliserRecherche(c.nom) === cle) : undefined;
+  const proches =
+    cle.length >= 2
+      ? categories
+          .filter((c) => c !== doublon)
+          .filter((c) => {
+            const n = normaliserRecherche(c.nom);
+            return n.includes(cle) || (n.length >= 3 && cle.includes(n));
+          })
+          .slice(0, 5)
+      : [];
+  const bloque = !nom.trim() || !!doublon || enCours;
+
+  async function valider(continuer: boolean) {
+    if (bloque) return;
+    setEnCours(true);
+    const message = await onCreer(nom.trim());
+    setEnCours(false);
+    if (message) {
+      setErreur(message);
+      return;
+    }
+    if (!continuer) {
+      onFermer();
+      return;
+    }
+    setAjoutees((a) => [...a, nom.trim()]);
+    setNom("");
+    setErreur(null);
+    champ.current?.focus();
+  }
+
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <form
+        className="modale-confirmation modale-nouvelle-categorie"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.stopPropagation();
+            onFermer();
+          }
+        }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          valider(false);
+        }}
+      >
+        <h3>🗂️ Nouvelle catégorie</h3>
+        <label className="champ-formulaire">
+          Nom de la catégorie
+          <input
+            ref={champ}
+            autoFocus
+            placeholder="Ex. Boissons, Riz, Cosmétiques…"
+            value={nom}
+            onChange={(e) => {
+              setNom(e.target.value);
+              setErreur(null);
+            }}
+          />
+        </label>
+        {doublon && <div className="message-erreur">« {doublon.nom} » existe déjà.</div>}
+        {!doublon && proches.length > 0 && (
+          <div className="categories-proches">
+            <span className="sous-info">Déjà existantes, au nom proche :</span>
+            <ul>
+              {proches.map((c) => (
+                <li key={c.id}>
+                  {c.nom} <span className="sous-info">({c.nombreArticles} article{c.nombreArticles > 1 ? "s" : ""})</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {erreur && <div className="message-erreur">{erreur}</div>}
+        {ajoutees.length > 0 && (
+          <p className="note-aide categories-ajoutees">✓ Ajoutée{ajoutees.length > 1 ? "s" : ""} : {ajoutees.join(", ")}</p>
+        )}
+        <div className="actions-formulaire">
+          <button type="button" onClick={onFermer} disabled={enCours}>
+            {ajoutees.length > 0 ? "Fermer" : "Annuler"}
+          </button>
+          <button type="button" onClick={() => valider(true)} disabled={bloque}>
+            Ajouter et continuer
+          </button>
+          <button type="submit" disabled={bloque}>
+            {enCours ? "…" : "Ajouter"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 /** Articles rangés dans une catégorie (prix de vente, stock tous dépôts). */
 function ModaleArticlesCategorie({
   titre,
@@ -2197,6 +2575,9 @@ function ModaleArticlesCategorie({
   const stockTotal = somme(articles.map((a) => a.quantiteStock));
   const valeur = somme(articles.map((a) => a.quantiteStock * a.prixAchat));
   const ruptures = articles.filter((a) => a.quantiteStock <= a.seuilAlerte).length;
+  // Carte « En rupture ou stock bas » : seulement ces articles dans la liste.
+  const [rupturesSeulement, setRupturesSeulement] = useState(false);
+  const articlesAffiches = rupturesSeulement ? articles.filter((a) => a.quantiteStock <= a.seuilAlerte) : articles;
   const marge = (a: ArticleCategorie) => a.prixVente - a.prixAchat;
   const taux = (a: ArticleCategorie) => (a.prixVente > 0 ? Math.round((marge(a) / a.prixVente) * 100) : 0);
   const nombreColonnes = 5 + (peutVoirCout ? 2 : 0);
@@ -2223,7 +2604,7 @@ function ModaleArticlesCategorie({
                 </strong>
               </div>
             )}
-            <div className={`tuile-fiche${ruptures > 0 ? " tuile-fiche--alerte" : ""}`}>
+            <div {...tuileFiltre(rupturesSeulement, () => setRupturesSeulement(!rupturesSeulement), ruptures > 0 ? "tuile-fiche--alerte" : "")}>
               <span className="sous-info">⚠️ En rupture ou stock bas</span>
               <strong>{ruptures}</strong>
             </div>
@@ -2242,7 +2623,7 @@ function ModaleArticlesCategorie({
                 </tr>
               </thead>
               <tbody>
-                {articles.map((a, index) => (
+                {articlesAffiches.map((a, index) => (
                   <tr key={a.varianteId} onClick={() => onOuvrirArticle(a.produitId)} title="Ouvrir la fiche de l'article">
                     <td>{index + 1}</td>
                     <td>{a.produitNom}</td>

@@ -16,6 +16,7 @@ import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant } from "../lib/formatage";
 import { libelleModePaiement, libelleStatutVente } from "../lib/libelles";
 import { bornesPeriode, dansPeriode, jourLocal, type PeriodeHistorique } from "../lib/periode";
+import { tuileFiltre } from "../lib/tuileFiltre";
 
 /**
  * Chaque section (En attente / Historique) est un bouton-carte qui ouvre sa
@@ -257,6 +258,8 @@ export function ModaleMessages({
   const [filtreDepotId, setFiltreDepotId] = useState("");
   const [filtreUtilisateurId, setFiltreUtilisateurId] = useState("");
   const [filtreType, setFiltreType] = useState<"" | MessageResume["type"]>("");
+  // Carte « Envoyés ce mois » : seulement les messages envoyés depuis le 1er du mois.
+  const [envoyesMoisSeulement, setEnvoyesMoisSeulement] = useState(false);
   const [periode, setPeriode] = useState<PeriodeHistorique>("tout");
   const [debutPerso, setDebutPerso] = useState(jourLocal(new Date()));
   const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
@@ -337,12 +340,14 @@ export function ModaleMessages({
   const messagesAffiches = duStatut.filter(
     (m) =>
       (!filtreType || m.type === filtreType) &&
+      (!envoyesMoisSeulement || envoyeCeMois(m)) &&
       dansPeriode(m.dateCreation, bornesPeriode(periode, debutPerso, finPerso)) &&
       (!cle || m.message.toLowerCase().includes(cle) || (m.clientNom ?? "").toLowerCase().includes(cle)),
   );
   const messageSelectionne = messagesListe.find((m) => m.id === messageSelectionneId);
   const debutMois = jourLocal(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
-  const envoyesCeMois = messagesListe.filter((m) => m.statut === "envoyee" && (m.dateEnvoi ?? m.dateCreation).slice(0, 10) >= debutMois).length;
+  const envoyeCeMois = (m: MessageResume) => m.statut === "envoyee" && (m.dateEnvoi ?? m.dateCreation).slice(0, 10) >= debutMois;
+  const envoyesCeMois = messagesListe.filter(envoyeCeMois).length;
 
   return (
     <div className="fond-modale" onClick={onFermer}>
@@ -354,15 +359,23 @@ export function ModaleMessages({
               <span className="sous-info">⏳ En attente</span>
               <strong>{messagesListe.filter((m) => m.statut === "en_attente").length}</strong>
             </div>
-            <div className="tuile-fiche">
+            <div {...tuileFiltre(filtreType === "rappel_credit", () => setFiltreType(filtreType === "rappel_credit" ? "" : "rappel_credit"))}>
               <span className="sous-info">💳 Rappels de crédit</span>
               <strong>{duStatut.filter((m) => m.type === "rappel_credit").length}</strong>
             </div>
-            <div className="tuile-fiche">
+            <div
+              {...tuileFiltre(filtreType === "ticket_whatsapp", () =>
+                setFiltreType(filtreType === "ticket_whatsapp" ? "" : "ticket_whatsapp"),
+              )}
+            >
               <span className="sous-info">🧾 Tickets WhatsApp</span>
               <strong>{duStatut.filter((m) => m.type === "ticket_whatsapp").length}</strong>
             </div>
-            <div className="tuile-fiche">
+            <div
+              {...(statut === "enAttente"
+                ? { className: "tuile-fiche" }
+                : tuileFiltre(envoyesMoisSeulement, () => setEnvoyesMoisSeulement(!envoyesMoisSeulement)))}
+            >
               <span className="sous-info">📤 Envoyés ce mois</span>
               <strong>{envoyesCeMois}</strong>
             </div>

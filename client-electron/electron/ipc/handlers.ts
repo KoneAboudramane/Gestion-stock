@@ -1,10 +1,11 @@
-import { app, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 
 import * as abonnement from "../services/abonnement";
 import * as abonnementAdmin from "../services/abonnementAdmin";
 import * as achats from "../services/achats";
 import * as alertesSysteme from "../services/alertesSysteme";
 import * as auth from "../services/auth";
+import { unResultat } from "../db/helpers";
 import * as clients from "../services/clients";
 import * as comptabilite from "../services/comptabilite";
 import * as comptes from "../services/comptes";
@@ -16,6 +17,10 @@ import * as messages from "../services/messages";
 import * as notifications from "../services/notifications";
 import * as paiements from "../services/paiements";
 import * as rapports from "../services/rapports";
+import * as recettes from "../services/recettes";
+import * as reseauCaisse from "../services/reseauCaisse";
+import * as reseauPrincipal from "../services/reseauPrincipal";
+import * as sauvegarde from "../services/sauvegarde";
 import * as reglages from "../services/reglages";
 import * as catalogue from "../services/catalogue";
 import * as produits from "../services/produits";
@@ -72,6 +77,40 @@ async function tenterSynchroApresConnexion(session: auth.Session): Promise<void>
   }
 }
 
+/**
+ * Mémorise dans le cache local un compte que le patron vient de créer ou de
+ * modifier (réseau de la boutique : le poste principal le transmet aux caisses).
+ * Jamais bloquant : l'opération en ligne a déjà réussi.
+ */
+async function memoriserCompteDepuisServeur(
+  session: auth.Session,
+  utilisateur: comptes.UtilisateurResume,
+  motDePasse: string | null,
+): Promise<void> {
+  try {
+    const role = utilisateur.role
+      ? (await comptes.listerRoles(session).catch(() => [])).find((r) => String(r.id) === String(utilisateur.role))
+      : undefined;
+    const depot = utilisateur.depot
+      ? unResultat<{ nom: string }>("SELECT nom FROM depots WHERE id = ?", [utilisateur.depot])
+      : undefined;
+    auth.memoriserCompteVendeur(utilisateur.username, motDePasse, {
+      utilisateurId: String(utilisateur.id),
+      username: utilisateur.username,
+      boutiqueId: session.boutiqueId,
+      boutiqueNom: session.boutiqueNom,
+      role: role?.nom ?? "",
+      permissions: role?.permissions ?? {},
+      depotId: utilisateur.depot,
+      depotNom: depot?.nom ?? null,
+      synchroAutorisee: session.synchroAutorisee,
+      codeVendeur: utilisateur.code_vendeur || undefined,
+    });
+  } catch {
+    // cache illisible ou base pas prête : le vendeur se connectera une fois en ligne
+  }
+}
+
 export function enregistrerLesHandlers(): void {
   ipcMain.handle("auth:connexion", async (_evt, username: string, password: string) => {
     try {
@@ -102,6 +141,11 @@ export function enregistrerLesHandlers(): void {
       return { succes: false as const, message: messageErreur(erreur) };
     }
   });
+  ipcMain.handle("auth:etatConnexionAdmin", () => auth.etatConnexionAdmin());
+  ipcMain.handle("auth:etatPosteConnexion", () => auth.etatPosteConnexion());
+  ipcMain.handle("auth:connexionAdmin", (_evt, username: string, password: string) =>
+    executerEnSecuriteAsync(() => auth.connexionAdmin(username, password)),
+  );
   ipcMain.handle("auth:verifierRevocationAdmin", async () => {
     try {
       await auth.verifierRevocationAdmin();
@@ -112,10 +156,19 @@ export function enregistrerLesHandlers(): void {
 
   ipcMain.handle(
     "auth:reinitialiserMotDePasseAdmin",
-    async (_evt, usernameAdmin: string, passwordAdmin: string, usernameCible: string, nouveauMotDePasse: string) => {
+    async (
+      _evt,
+      usernameAdmin: string,
+      passwordAdmin: string,
+      usernameCible: string,
+      nouveauMotDePasse: string,
+      doitChanger?: boolean,
+    ) => {
       try {
-        await auth.reinitialiserMotDePasseAdmin(usernameAdmin, passwordAdmin, usernameCible, nouveauMotDePasse);
-        return { succes: true as const, resultat: undefined };
+        return {
+          succes: true as const,
+          resultat: await auth.reinitialiserMotDePasseAdmin(usernameAdmin, passwordAdmin, usernameCible, nouveauMotDePasse, doitChanger),
+        };
       } catch (erreur) {
         return { succes: false as const, message: messageErreur(erreur) };
       }
@@ -125,10 +178,37 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("auth:listerPatrons", async (_evt, usernameAdmin: string, passwordAdmin: string) =>
     auth.listerPatrons(usernameAdmin, passwordAdmin),
   );
+  ipcMain.handle("auth:listerComptesAdmin", (_evt, usernameAdmin: string, passwordAdmin: string) =>
+    executerEnSecuriteAsync(() => auth.listerComptesAdmin(usernameAdmin, passwordAdmin)),
+  );
+  ipcMain.handle("auth:reinitialisationsARefaire", () => auth.lireReinitialisationsARefaire());
+  ipcMain.handle("auth:changerMotDePasse", (_evt, session: auth.Session, nouveau: string, ancien?: string) =>
+    executerEnSecuriteAsync(() => auth.changerMotDePasse(session, nouveau, ancien)),
+  );
 
   ipcMain.handle("abonnement:etat", (_evt, boutiqueId: string) => abonnement.obtenirEtatAbonnement(boutiqueId));
+  // Code d'activation (docs/plan_reseau_local.md, lot 6) : vérifié sans internet.
+  ipcMain.handle("abonnement:activerParCode", (_evt, boutiqueId: string, code: string) =>
+    executerEnSecurite(() => abonnement.activerParCode(boutiqueId, code)),
+  );
   ipcMain.handle("admin:boutiqueLocale", () => abonnementAdmin.obtenirBoutiqueLocale());
   ipcMain.handle("admin:abonnementEnAttente", () => abonnementAdmin.lireAbonnementEnAttente());
+  ipcMain.handle(
+    "admin:detailAbonnement",
+    (
+      _evt,
+      username: string,
+      password: string,
+      boutiqueId: string,
+      action?: "valider" | "rejeter" | "code",
+      params?: { demandeId?: string; motif?: string },
+    ) => executerEnSecuriteAsync(() => abonnementAdmin.detailAbonnementAdmin(username, password, boutiqueId, action, params)),
+  );
+  ipcMain.handle(
+    "admin:etatReseau",
+    (_evt, username: string, password: string, boutiqueId: string, action?: "refuser") =>
+      executerEnSecuriteAsync(() => abonnementAdmin.etatReseauAdmin(username, password, boutiqueId, action)),
+  );
   ipcMain.handle(
     "admin:soumettreAbonnement",
     async (
@@ -152,7 +232,7 @@ export function enregistrerLesHandlers(): void {
 
   ipcMain.handle(
     "admin:creerBoutiqueLocale",
-    (_evt, params: { boutiqueNom: string; username: string; password: string; email: string }) =>
+    (_evt, params: inscriptionLocale.ParametresCreationBoutique) =>
       executerEnSecurite(() => inscriptionLocale.creerBoutiqueLocale(params)),
   );
   ipcMain.handle(
@@ -161,7 +241,7 @@ export function enregistrerLesHandlers(): void {
       _evt,
       usernameAdmin: string,
       passwordAdmin: string,
-      params: { boutiqueNom: string; username: string; password: string; email: string },
+      params: inscriptionLocale.ParametresCreationBoutique,
     ) => {
       try {
         return {
@@ -174,6 +254,9 @@ export function enregistrerLesHandlers(): void {
     },
   );
   ipcMain.handle("admin:boutiqueLocaleEnAttente", () => inscriptionLocale.lireBoutiqueLocaleEnAttente());
+  ipcMain.handle("admin:identifiantDisponible", (_evt, usernameAdmin: string, passwordAdmin: string, identifiant: string) =>
+    inscriptionLocale.identifiantDisponible(usernameAdmin, passwordAdmin, identifiant),
+  );
   ipcMain.handle(
     "admin:activerEnLigne",
     async (_evt, usernameAdmin: string, passwordAdmin: string, patronPassword: string, session: auth.Session) => {
@@ -215,6 +298,9 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("catalogue:rechercherVariantes", (_evt, boutiqueId: string, terme: string) =>
     catalogue.rechercherVariantes(boutiqueId, terme),
   );
+  ipcMain.handle("catalogue:listerVariantesActives", (_evt, boutiqueId: string) =>
+    catalogue.listerVariantesActives(boutiqueId),
+  );
   ipcMain.handle("catalogue:listerVariantesCatalogue", (_evt, boutiqueId: string, depotId?: string) =>
     catalogue.listerVariantesCatalogue(boutiqueId, depotId),
   );
@@ -228,10 +314,14 @@ export function enregistrerLesHandlers(): void {
     catalogue.obtenirStock(varianteId, depotId),
   );
 
-  ipcMain.handle("ventes:creer", (_evt, params: ventes.ParametresVente) => {
+  ipcMain.handle("ventes:creer", async (_evt, params: ventes.ParametresVente) => {
     try {
+      // Caisse reliée : article presque en rupture → on demande d'abord au poste principal.
+      await reseauCaisse.verifierStockAvantVente(params);
       const vente = ventes.creerVente(params);
       signalerRuptureEnSecurite(params.depotId);
+      // La vente part tout de suite au poste principal (sans attendre le tour suivant).
+      void reseauCaisse.synchroniserAvecPrincipal();
       return { succes: true as const, vente };
     } catch (erreur) {
       return {
@@ -260,6 +350,9 @@ export function enregistrerLesHandlers(): void {
     ventes.listerVentesParProduit(produitId, limite),
   );
 
+  ipcMain.handle("produits:attribuerReferencesManquantes", (_evt, boutiqueId: string) =>
+    executerEnSecurite(() => produits.attribuerReferencesManquantes(boutiqueId)),
+  );
   ipcMain.handle("produits:lister", (_evt, boutiqueId: string, terme?: string) =>
     produits.listerProduits(boutiqueId, terme),
   );
@@ -347,12 +440,19 @@ export function enregistrerLesHandlers(): void {
   );
   ipcMain.handle("stock:obtenirLigne", (_evt, id: string) => stock.obtenirLigneStock(id));
 
-  ipcMain.handle("mouvements:lister", (_evt, boutiqueId: string, depotId?: string, limite?: number) =>
-    stock.listerMouvements(boutiqueId, depotId, limite),
+  ipcMain.handle(
+    "mouvements:lister",
+    (_evt, boutiqueId: string, depotId?: string, limite?: number | null, depuis?: string | null, jusqua?: string | null) =>
+      stock.listerMouvements(boutiqueId, depotId, limite, depuis, jusqua),
   );
   ipcMain.handle("mouvements:listerParProduit", (_evt, produitId: string, limite?: number) =>
     stock.listerMouvementsParProduit(produitId, limite),
   );
+  ipcMain.handle("mouvements:creerGroupe", (_evt, params: stock.ParametresMouvementsGroupe) => {
+    const resultat = executerEnSecurite(() => stock.creerMouvementsGroupe(params));
+    if (resultat.succes) signalerRuptureEnSecurite(params.depotId);
+    return resultat;
+  });
   ipcMain.handle("mouvements:creer", (_evt, params: stock.ParametresMouvement) => {
     const resultat = executerEnSecurite(() => stock.creerMouvementManuel(params));
     if (resultat.succes) signalerRuptureEnSecurite(params.depotId);
@@ -376,8 +476,125 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("entreesStock:don", (_evt, params: stock.ParametresEntreeStock) =>
     executerEnSecurite(() => stock.entreeDon(params)),
   );
-  ipcMain.handle("entreesStock:articlesSansStock", (_evt, boutiqueId: string) =>
-    stock.articlesSansStock(boutiqueId),
+  // Sauvegarde chiffrée de la boutique (docs/plan_reseau_local.md, lot 7).
+  ipcMain.handle("sauvegarde:etat", () => sauvegarde.etatSauvegarde());
+  ipcMain.handle("sauvegarde:lister", (_evt, dossier?: string | null) => sauvegarde.listerSauvegardes(dossier));
+  ipcMain.handle("sauvegarde:ouvrirDossier", async (_evt, dossier: string) => {
+    await shell.openPath(dossier);
+  });
+  ipcMain.handle(
+    "sauvegarde:configurer",
+    (
+      _evt,
+      params: {
+        boutiqueId: string;
+        boutiqueNom: string;
+        dossier: string;
+        heure: string;
+        conservation: sauvegarde.Conservation;
+        motDePasse: string;
+        secours?: boolean;
+      },
+    ) => executerEnSecurite(() => sauvegarde.configurerSauvegarde(params)),
+  );
+  ipcMain.handle(
+    "sauvegarde:modifierReglages",
+    (_evt, params: { dossier: string; heure: string; conservation: sauvegarde.Conservation; secours?: boolean }) =>
+    executerEnSecurite(() => sauvegarde.modifierReglagesSauvegarde(params)),
+  );
+  ipcMain.handle("sauvegarde:changerMotDePasse", (_evt, motDePasse: string) =>
+    executerEnSecurite(() => sauvegarde.changerMotDePasseSauvegarde(motDePasse)),
+  );
+  ipcMain.handle("sauvegarde:desactiver", () => sauvegarde.desactiverSauvegarde());
+  ipcMain.handle("sauvegarde:maintenant", () => executerEnSecurite(() => sauvegarde.sauvegarderMaintenant()));
+  ipcMain.handle("sauvegarde:choisirDossier", async () => {
+    const fenetre = BrowserWindow.getFocusedWindow();
+    const options: Electron.OpenDialogOptions = {
+      title: "Dossier de sauvegarde (ex. le dossier Google Drive de la boutique)",
+      properties: ["openDirectory", "createDirectory"],
+    };
+    const resultat = fenetre ? await dialog.showOpenDialog(fenetre, options) : await dialog.showOpenDialog(options);
+    return resultat.canceled ? null : resultat.filePaths[0];
+  });
+  ipcMain.handle("sauvegarde:choisirFichier", async () => {
+    const fenetre = BrowserWindow.getFocusedWindow();
+    const options: Electron.OpenDialogOptions = {
+      title: "Sauvegarde à restaurer",
+      properties: ["openFile"],
+      filters: [{ name: "Sauvegarde Gestion Stock", extensions: ["gsbak"] }],
+    };
+    const resultat = fenetre ? await dialog.showOpenDialog(fenetre, options) : await dialog.showOpenDialog(options);
+    return resultat.canceled ? null : resultat.filePaths[0];
+  });
+  ipcMain.handle("sauvegarde:restaurer", (_evt, fichier: string, motDePasse: string) => {
+    const resultat = executerEnSecurite(() => {
+      // Plus aucune écriture de la base en mémoire par-dessus le fichier restauré.
+      reseauCaisse.arreterBoucleCaisse();
+      sauvegarde.restaurerSauvegarde(fichier, motDePasse);
+    });
+    // Redémarrage pour rouvrir la base restaurée (app.exit : pas de sauvegarde de fermeture).
+    if (resultat.succes) {
+      setTimeout(() => {
+        app.relaunch();
+        app.exit(0);
+      }, 1500);
+    }
+    return resultat;
+  });
+  ipcMain.handle("sauvegarde:aUneCleSecours", (_evt, fichier: string) => sauvegarde.aUneCleSecours(fichier));
+  ipcMain.handle("sauvegarde:restaurerAvecSecours", async (_evt, fichier: string, username: string, password: string) => {
+    const resultat = await executerEnSecuriteAsync(async () => {
+      reseauCaisse.arreterBoucleCaisse();
+      return sauvegarde.restaurerAvecSecours(fichier, username, password);
+    });
+    if (resultat.succes) {
+      setTimeout(() => {
+        app.relaunch();
+        app.exit(0);
+      }, 1500);
+    }
+    return resultat;
+  });
+
+  // Réseau de la boutique (docs/plan_reseau_local.md) — poste principal.
+  ipcMain.handle("reseau:etat", () => reseauCaisse.etatReseauComplet());
+  ipcMain.handle(
+    "reseau:devenirPrincipal",
+    (_evt, params: { boutiqueId: string; boutiqueNom: string; nomPoste?: string }) =>
+      executerEnSecuriteAsync(() => reseauPrincipal.devenirPostePrincipal(params)),
+  );
+  ipcMain.handle("reseau:quitterPrincipal", () => executerEnSecuriteAsync(() => reseauPrincipal.quitterPostePrincipal()));
+  ipcMain.handle("reseau:nouveauCode", () => reseauPrincipal.nouveauCodeAppairage());
+  ipcMain.handle("reseau:annulerCode", () => reseauPrincipal.annulerCodeAppairage());
+  ipcMain.handle("reseau:mettreEnPause", () => executerEnSecuriteAsync(() => reseauPrincipal.mettreEnPausePostePrincipal()));
+  ipcMain.handle("reseau:reprendre", () => executerEnSecuriteAsync(() => reseauPrincipal.reprendrePostePrincipal()));
+  ipcMain.handle("reseau:redemarrer", () => executerEnSecuriteAsync(() => reseauPrincipal.redemarrerPostePrincipal()));
+  ipcMain.handle("reseau:debrancher", (_evt, appareilId: string) => reseauPrincipal.debrancherAppareil(appareilId));
+  // Réseau de la boutique — côté caisse.
+  ipcMain.handle("reseau:rechercher", () => reseauCaisse.rechercherPostesPrincipaux());
+  ipcMain.handle(
+    "reseau:seBrancher",
+    (_evt, params: { adresse: string; code: string; boutiqueId: string; nomAppareil?: string }) =>
+      executerEnSecuriteAsync(() => reseauCaisse.seBrancher(params)),
+  );
+  ipcMain.handle("reseau:rejoindreAvantConnexion", (_evt, params: { adresse: string; code: string; nomAppareil?: string }) =>
+    executerEnSecuriteAsync(() => reseauCaisse.rejoindreAvantConnexion(params)),
+  );
+  ipcMain.handle("reseau:seDebrancher", () => reseauCaisse.seDebrancher());
+  ipcMain.handle("reseau:synchroniser", async () => {
+    await reseauCaisse.synchroniserAvecPrincipal();
+    return reseauCaisse.etatReseauComplet();
+  });
+  ipcMain.handle("recettes:obtenir", (_evt, varianteId: string) => recettes.obtenirRecette(varianteId));
+  ipcMain.handle("recettes:lister", (_evt, boutiqueId: string) => recettes.listerRecettes(boutiqueId));
+  ipcMain.handle("recettes:enregistrer", (_evt, params: recettes.ParametresRecette) =>
+    executerEnSecurite(() => recettes.enregistrerRecette(params)),
+  );
+  ipcMain.handle("recettes:supprimer", (_evt, varianteId: string) =>
+    executerEnSecurite(() => recettes.supprimerRecette(varianteId)),
+  );
+  ipcMain.handle("entreesStock:articlesSansStock", (_evt, boutiqueId: string, depotId?: string) =>
+    stock.articlesSansStock(boutiqueId, depotId),
   );
 
   ipcMain.handle("commandesClient:lister", (_evt, boutiqueId: string) => commandesClient.listerCommandesClient(boutiqueId));
@@ -415,13 +632,25 @@ export function enregistrerLesHandlers(): void {
     if (resultat.succes) signalerRuptureEnSecurite(params.depotSourceId);
     return resultat;
   });
-  ipcMain.handle("transferts:lister", (_evt, boutiqueId: string, limite?: number) =>
-    stock.listerTransferts(boutiqueId, limite),
+  ipcMain.handle(
+    "transferts:lister",
+    (_evt, boutiqueId: string, limite?: number | null, depuis?: string | null, jusqua?: string | null) =>
+      stock.listerTransferts(boutiqueId, limite, depuis, jusqua),
   );
+  ipcMain.handle("transferts:creerGroupe", (_evt, params: stock.ParametresTransfertsGroupe) => {
+    const resultat = executerEnSecurite(() => stock.creerTransfertsGroupe(params));
+    if (resultat.succes) signalerRuptureEnSecurite(params.depotSourceId);
+    return resultat;
+  });
 
   ipcMain.handle("tresorerie:journee", (_evt, boutiqueId: string, depotId: string | null, debut: string, fin: string) =>
     tresorerie.journeeCaisse(boutiqueId, depotId, debut, fin),
   );
+  ipcMain.handle("pertes:declarerGroupe", (_evt, params: stock.ParametresPertesGroupe) => {
+    const resultat = executerEnSecurite(() => stock.declarerPertesGroupe(params));
+    if (resultat.succes) signalerRuptureEnSecurite(params.depotId);
+    return resultat;
+  });
   ipcMain.handle("pertes:declarer", (_evt, params: stock.ParametresPerte) => {
     const resultat = executerEnSecurite(() => stock.declarerPerte(params));
     if (resultat.succes) signalerRuptureEnSecurite(params.depotId);
@@ -802,6 +1031,12 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("comptes:supprimerRole", (_evt, session: auth.Session, id: string) =>
     executerEnSecuriteAsync(() => comptes.supprimerRole(session, id)),
   );
+  ipcMain.handle("comptes:etatDemandeReseau", (_evt, session: auth.Session) =>
+    executerEnSecuriteAsync(() => comptes.etatDemandeReseau(session)),
+  );
+  ipcMain.handle("comptes:demanderActivationReseau", (_evt, session: auth.Session, note: string) =>
+    executerEnSecuriteAsync(() => comptes.demanderActivationReseau(session, note)),
+  );
   ipcMain.handle("comptes:abonnementBoutique", (_evt, session: auth.Session) =>
     executerEnSecuriteAsync(() => comptes.abonnementBoutique(session)),
   );
@@ -819,15 +1054,28 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle(
     "comptes:creerUtilisateur",
     (_evt, session: auth.Session, params: comptes.ParametresCreationUtilisateur) =>
-      executerEnSecuriteAsync(() => comptes.creerUtilisateur(session, params)),
+      executerEnSecuriteAsync(async () => {
+        const utilisateur = await comptes.creerUtilisateur(session, params);
+        await memoriserCompteDepuisServeur(session, utilisateur, params.password);
+        return utilisateur;
+      }),
   );
   ipcMain.handle(
     "comptes:modifierUtilisateur",
     (_evt, session: auth.Session, id: number, champs: comptes.ChampsUtilisateur) =>
-      executerEnSecuriteAsync(() => comptes.modifierUtilisateur(session, id, champs)),
+      executerEnSecuriteAsync(async () => {
+        const utilisateur = await comptes.modifierUtilisateur(session, id, champs);
+        if (utilisateur && utilisateur.is_active === false) auth.desactiverCompteLocal(utilisateur.username);
+        else if (utilisateur) await memoriserCompteDepuisServeur(session, utilisateur, champs.password ?? null);
+        return utilisateur;
+      }),
   );
   ipcMain.handle("comptes:supprimerUtilisateur", (_evt, session: auth.Session, id: number) =>
-    executerEnSecuriteAsync(() => comptes.supprimerUtilisateur(session, id)),
+    executerEnSecuriteAsync(async () => {
+      const username = (await comptes.listerUtilisateurs(session).catch(() => [])).find((u) => u.id === id)?.username;
+      await comptes.supprimerUtilisateur(session, id);
+      if (username) auth.desactiverCompteLocal(username);
+    }),
   );
 
   ipcMain.handle("paiements:initier", (_evt, params: paiements.ParametresInitiationMobileMoney) =>
@@ -845,6 +1093,9 @@ export function enregistrerLesHandlers(): void {
   );
   ipcMain.handle("notifications:genererAlertesAbonnement", (_evt, boutiqueId: string) =>
     executerEnSecurite(() => notifications.genererAlertesAbonnement(boutiqueId)),
+  );
+  ipcMain.handle("notifications:genererAlertesDoublons", (_evt, boutiqueId: string) =>
+    executerEnSecurite(() => notifications.genererAlertesDoublons(boutiqueId)),
   );
   ipcMain.handle("notifications:genererAlertesRupture", (_evt, boutiqueId: string) =>
     executerEnSecurite(() => notifications.genererAlertesRupture(boutiqueId)),
@@ -926,6 +1177,12 @@ export function enregistrerLesHandlers(): void {
 
   ipcMain.handle("sync:executer", async (_evt, session: auth.Session) => {
     try {
+      // Une caisse branchée ne parle pas au serveur en ligne : c'est le poste
+      // principal qui relaie tout (un seul chemin, pas de doublons).
+      if (reseauPrincipal.lireConfigReseau().role === "caisse") {
+        await reseauCaisse.synchroniserAvecPrincipal();
+        throw new Error("Cette caisse est branchée au poste principal : c'est lui qui synchronise en ligne.");
+      }
       const resume = await sync.synchroniser(session);
       return { succes: true as const, ...resume };
     } catch (erreur) {

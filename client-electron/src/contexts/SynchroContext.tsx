@@ -12,6 +12,14 @@ import type { EtatSynchro, Session } from "../api/client";
  */
 
 const INTERVALLE_SYNCHRO_AUTO_MS = 5 * 60 * 1000;
+/** Poste principal du réseau de la boutique : il relaie les ventes des caisses, il synchronise plus souvent. */
+const INTERVALLE_SYNCHRO_POSTE_PRINCIPAL_MS = 60 * 1000;
+/**
+ * Boutique en 100 % local (synchro non autorisée) : rien n'est envoyé, mais
+ * l'abonnement (et une éventuelle réactivation de la synchro) se rafraîchit
+ * quand même en ligne par /auth/moi/ — au démarrage puis toutes les 30 minutes.
+ */
+const INTERVALLE_LICENCE_100_POURCENT_LOCAL_MS = 30 * 60 * 1000;
 
 interface ContexteSynchro {
   etat: EtatSynchro | null;
@@ -71,10 +79,34 @@ export function SynchroProvider({
   useEffect(() => {
     rafraichirEtat();
     const intervalleEtat = setInterval(rafraichirEtat, 20000);
-    const intervalleSynchro = setInterval(() => synchroniser(true), INTERVALLE_SYNCHRO_AUTO_MS);
+    // Toutes les minutes sur le poste principal, toutes les 5 minutes sur un poste seul ;
+    // jamais sur une caisse branchée (c'est le poste principal qui envoie tout en ligne).
+    let minutes = 0;
+    const intervalleSynchro = setInterval(async () => {
+      minutes++;
+      const role = (await api.reseau.etat().catch(() => null))?.role ?? "seul";
+      if (role === "caisse") return;
+      if (role === "principal" || minutes % (INTERVALLE_SYNCHRO_AUTO_MS / INTERVALLE_SYNCHRO_POSTE_PRINCIPAL_MS) === 0) {
+        synchroniser(true);
+      }
+    }, INTERVALLE_SYNCHRO_POSTE_PRINCIPAL_MS);
     const surReconnexion = () => synchroniser(true);
     window.addEventListener("online", surReconnexion);
+    // Jeton vide : session ouverte sans internet (cache local) — rien à rafraîchir en ligne.
+    const rafraichirLicence = () => {
+      if (sessionRef.current.synchroAutorisee || !sessionRef.current.accessToken) return;
+      api.auth
+        .rafraichirPermissions(sessionRef.current)
+        .then((s) => {
+          sessionRef.current = s;
+          onSessionMiseAJour(s);
+        })
+        .catch(() => {});
+    };
+    rafraichirLicence();
+    const intervalleLicence = setInterval(rafraichirLicence, INTERVALLE_LICENCE_100_POURCENT_LOCAL_MS);
     return () => {
+      clearInterval(intervalleLicence);
       clearInterval(intervalleEtat);
       clearInterval(intervalleSynchro);
       window.removeEventListener("online", surReconnexion);

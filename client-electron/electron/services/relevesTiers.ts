@@ -201,12 +201,22 @@ export interface PaiementDetteBrut {
   dateAnnulation: string | null;
 }
 
+/** Article reçu en don de ce fournisseur (Entrée de stock → Don / échantillon reçu). */
+export interface DonBrut {
+  id: string;
+  produitNom: string;
+  quantite: number;
+  motif: string;
+  dateCreation: string;
+}
+
 export function assemblerReleveFournisseur(
   commandes: CommandeBrute[],
   receptions: ReceptionBrute[],
   retours: RetourBrut[],
   paiementsDette: PaiementDetteBrut[],
   mouvementsCompte: MouvementBrut[],
+  dons: DonBrut[] = [],
 ): OperationTiers[] {
   const operations: OperationTiers[] = [];
   for (const c of commandes) {
@@ -297,6 +307,18 @@ export function assemblerReleveFournisseur(
       montant: Number(m.montant),
       mode: libelleModeReleve(m.mode, m.operateur),
       effet: m.type === "avance" ? Number(m.montant) : -Number(m.montant),
+    });
+  }
+  for (const d of dons) {
+    // Marchandise offerte : aucun effet sur ce qu'on lui doit.
+    operations.push({
+      id: `don-${d.id}`,
+      date: d.dateCreation,
+      operation: "🎁 Don reçu",
+      detail: [`${formater(d.quantite)} × ${d.produitNom}`, d.motif].filter(Boolean).join(" · "),
+      montant: 0,
+      mode: "Gratuit",
+      effet: 0,
     });
   }
   return trier(operations);

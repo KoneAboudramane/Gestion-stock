@@ -10,6 +10,7 @@ import { SynchroProvider } from "./contexts/SynchroContext";
 import { useDelaiVerrouillage, VerrouillageProvider } from "./contexts/VerrouillageContext";
 import { useInactivite } from "./hooks/useInactivite";
 import AccesCreationBoutique from "./pages/AccesCreationBoutique";
+import ChoisirMotDePasse from "./pages/ChoisirMotDePasse";
 import Connexion from "./pages/Connexion";
 import Shell from "./pages/Shell";
 
@@ -26,6 +27,8 @@ export default function App() {
   const { session, definirSession } = useSession();
   const [ecran, setEcran] = useState<Ecran>("chargement");
   const [verrouille, setVerrouille] = useState(false);
+  /** Mot de passe provisoire : « Plus tard » (sans internet) laisse entrer jusqu'à la prochaine connexion. */
+  const [changementReporte, setChangementReporte] = useState(false);
 
   useEffect(() => {
     if (!session) {
@@ -68,6 +71,7 @@ export default function App() {
   function surDeconnexion() {
     definirSession(null);
     setVerrouille(false);
+    setChangementReporte(false);
     setEcran("connexion");
   }
 
@@ -83,6 +87,15 @@ export default function App() {
     contenu = <Connexion onConnecte={surConnecte} allerAccesCreation={() => setEcran("accesCreation")} />;
   } else if (ecran === "accesCreation") {
     contenu = <AccesCreationBoutique allerConnexion={() => setEcran("connexion")} />;
+  } else if (session?.doitChangerMotDePasse && !changementReporte) {
+    contenu = (
+      <ChoisirMotDePasse
+        session={session}
+        onTermine={definirSession}
+        onPlusTard={() => setChangementReporte(true)}
+        onDeconnexion={surDeconnexion}
+      />
+    );
   } else {
     contenu = (
       <DeviseProvider boutiqueId={session!.boutiqueId}>

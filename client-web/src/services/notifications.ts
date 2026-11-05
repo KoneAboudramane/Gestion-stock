@@ -25,7 +25,8 @@ export type TypeNotification =
   | "commande_proche"
   | "commande_retard"
   | "abonnement_proche"
-  | "abonnement_expire";
+  | "abonnement_expire"
+  | "doublon_article";
 
 const FENETRE_ANTI_DOUBLON_HEURES = 24;
 
@@ -327,6 +328,124 @@ export function genererAlertesAbonnement(boutiqueId: string): Promise<string[]> 
     alertesAbonnementEnCours = null;
   });
   return alertesAbonnementEnCours;
+}
+
+// --- Articles en double (nom ou code-barres) ---
+
+const PREFIXE_DOUBLON_NOM = "Article en double";
+const PREFIXE_DOUBLON_CODE = "Code-barres en double";
+
+/** Nom d'article comparable : sans accents, sans majuscules, espaces réduits (même règle que services/produits.ts). */
+function cleNomArticle(nom: string): string {
+  return nom
+    .trim()
+    .toLocaleLowerCase("fr")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+interface ArticlePourDoublons {
+  id: string;
+  nom: string;
+  reference: string;
+  codeBarres: string;
+}
+
+/** Groupes d'au moins 2 articles partageant un nom, puis un code-barres (produitId -> libellé, ordre de création). */
+function groupesEnDouble(articles: ArticlePourDoublons[]): { prefixe: string; cle: string; articles: Map<string, ArticlePourDoublons> }[] {
+  const parNom = new Map<string, Map<string, ArticlePourDoublons>>();
+  const parCode = new Map<string, Map<string, ArticlePourDoublons>>();
+  for (const a of articles) {
+    const cle = cleNomArticle(a.nom);
+    if (!parNom.has(cle)) parNom.set(cle, new Map());
+    if (!parNom.get(cle)!.has(a.id)) parNom.get(cle)!.set(a.id, a);
+    const code = a.codeBarres.trim();
+    if (!code) continue;
+    if (!parCode.has(code)) parCode.set(code, new Map());
+    if (!parCode.get(code)!.has(a.id)) parCode.get(code)!.set(a.id, a);
+  }
+  return [
+    ...[...parNom].map(([cle, g]) => ({ prefixe: PREFIXE_DOUBLON_NOM, cle, articles: g })),
+    ...[...parCode].map(([cle, g]) => ({ prefixe: PREFIXE_DOUBLON_CODE, cle, articles: g })),
+  ].filter((g) => g.articles.size >= 2);
+}
+
+function messageDoublon(groupe: { prefixe: string; cle: string; articles: Map<string, ArticlePourDoublons> }): string {
+  const liste = [...groupe.articles.values()];
+  if (groupe.prefixe === PREFIXE_DOUBLON_NOM) {
+    const references = liste.map((a) => a.reference).filter(Boolean).join(", ");
+    return (
+      `${PREFIXE_DOUBLON_NOM} : ${liste.length} articles s'appellent « ${liste[0].nom} »` +
+      (references ? ` (${references})` : "") +
+      ". Renommez-les pour ne pas les confondre en caisse."
+    );
+  }
+  return (
+    `${PREFIXE_DOUBLON_CODE} : ${groupe.cle} est porté par ${liste.map((a) => `« ${a.nom} »`).join(", ")}.` +
+    " Changez-le pour que le scan trouve le bon article."
+  );
+}
+
+/**
+ * Appelé à l'ouverture de l'appli (Shell.tsx) : signale les articles déjà en
+ * double — créés avant le contrôle, venus d'un autre poste hors ligne, ou
+ * retrouvés après une réinstallation. Rien n'est fusionné ni renommé : le
+ * commerçant décide. Une alerte par groupe et par 24 h au plus (y compris
+ * celle créée par le serveur à la synchro).
+ */
+async function genererAlertesDoublonsImpl(boutiqueId: string): Promise<string[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const produits = (await db.getAllFromIndex("produits", "boutique_id", boutiqueId))
+    .filter((p) => !p.supprime)
+    .sort((a, b) => a.date_creation.localeCompare(b.date_creation));
+  const articles: ArticlePourDoublons[] = [];
+  for (const p of produits) {
+    const variantes = (await db.getAllFromIndex("variantes", "produit_id", p.id))
+      .filter((v) => !v.supprime)
+      .sort((a, b) => a.date_creation.localeCompare(b.date_creation));
+    if (variantes.length === 0) articles.push({ id: p.id, nom: p.nom, reference: "", codeBarres: "" });
+    for (const v of variantes) {
+      articles.push({ id: p.id, nom: p.nom, reference: v.reference ?? "", codeBarres: v.code_barres ?? "" });
+    }
+  }
+  const seuil = new Date(Date.now() - FENETRE_ANTI_DOUBLON_HEURES * 3600 * 1000).toISOString();
+  const notifications = (await db.getAllFromIndex("notifications", "boutique_id", boutiqueId)).filter(
+    (n) => !n.supprime && n.type === "doublon_article" && n.date_creation >= seuil,
+  );
+  const idsCrees: string[] = [];
+  for (const groupe of groupesEnDouble(articles)) {
+    const produitIds = [...groupe.articles.keys()];
+    const dejaSignale = notifications.some(
+      (n) => n.message.startsWith(groupe.prefixe) && n.reference_id !== null && produitIds.includes(n.reference_id),
+    );
+    if (dejaSignale) continue;
+    const notification: NotificationLocale = {
+      id: crypto.randomUUID(),
+      boutique_id: boutiqueId,
+      depot_id: null,
+      type: "doublon_article",
+      message: messageDoublon(groupe),
+      reference_type: "catalogue.Produit",
+      reference_id: produitIds[0],
+      lu: 0,
+      ...suiviSyncNeuf(),
+    };
+    await db.put("notifications", notification);
+    idsCrees.push(notification.id);
+  }
+  return idsCrees;
+}
+
+let alertesDoublonsEnCours: Promise<string[]> | null = null;
+
+/** Verrou : StrictMode double-invoque les effets. */
+export function genererAlertesDoublons(boutiqueId: string): Promise<string[]> {
+  if (alertesDoublonsEnCours) return alertesDoublonsEnCours;
+  alertesDoublonsEnCours = genererAlertesDoublonsImpl(boutiqueId).finally(() => {
+    alertesDoublonsEnCours = null;
+  });
+  return alertesDoublonsEnCours;
 }
 
 // --- Lecture ---

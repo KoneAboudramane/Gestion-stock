@@ -28,6 +28,22 @@ export function rechercherVariantes(boutiqueId: string, terme: string): Variante
   );
 }
 
+/** Tous les articles actifs, sans limite (bouton « ☰ Tous les articles » des entrées de stock). */
+export function listerVariantesActives(boutiqueId: string): (VarianteRecherchee & { categorieNom: string | null })[] {
+  return tousLesResultats<VarianteRecherchee & { categorieNom: string | null }>(
+    `SELECT v.id as id, v.produit_id as produitId, p.nom as produitNom, v.reference as reference,
+            v.code_barres as codeBarres, v.prix_vente as prixVente, v.prix_achat as prixAchat,
+            v.seuil_alerte as seuilAlerte, c.nom as categorieNom
+     FROM variantes v
+     JOIN produits p ON p.id = v.produit_id
+     LEFT JOIN categories c ON c.id = p.categorie_id AND c.supprime = 0
+     WHERE p.boutique_id = ? AND p.actif = 1 AND v.actif = 1
+       AND p.supprime = 0 AND v.supprime = 0
+     ORDER BY p.nom`,
+    [boutiqueId],
+  );
+}
+
 export interface VarianteCatalogue extends VarianteRecherchee {
   categorieNom: string | null;
   quantiteDisponible: number;

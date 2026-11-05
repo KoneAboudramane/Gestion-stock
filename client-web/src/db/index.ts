@@ -242,6 +242,13 @@ export function ouvrirBaseDeDonnees(): Promise<IDBPDatabase<GestionStockDB>> {
           lignes.createIndex("commande_id", "commande_id");
           lignes.createIndex("synchronise", "synchronise");
         }
+
+        // v15 : recettes des articles fabriqués.
+        if (oldVersion < 15) {
+          const recettes = db.createObjectStore("lignes_recette", { keyPath: "id" });
+          recettes.createIndex("variante_id", "variante_id");
+          recettes.createIndex("synchronise", "synchronise");
+        }
       },
     });
   }

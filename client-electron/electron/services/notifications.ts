@@ -25,7 +25,8 @@ export type TypeNotification =
   | "commande_proche"
   | "commande_retard"
   | "abonnement_proche"
-  | "abonnement_expire";
+  | "abonnement_expire"
+  | "doublon_article";
 
 const FENETRE_ANTI_DOUBLON_HEURES = 24;
 
@@ -402,4 +403,93 @@ export function genererAlertesAbonnement(boutiqueId: string): string[] {
   const id = insererAlerte(boutiqueId, type, message, "comptes.Boutique", boutiqueId);
   sauvegarder();
   return [id];
+}
+
+// --- Articles en double (nom ou code-barres) ---
+
+const PREFIXE_DOUBLON_NOM = "Article en double";
+const PREFIXE_DOUBLON_CODE = "Code-barres en double";
+
+/** Nom d'article comparable : sans accents, sans majuscules, espaces réduits (même règle que services/produits.ts). */
+function cleNomArticle(nom: string): string {
+  return nom
+    .trim()
+    .toLocaleLowerCase("fr")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+interface ArticlePourDoublons {
+  id: string;
+  nom: string;
+  reference: string;
+  codeBarres: string;
+}
+
+/** Groupes d'au moins 2 articles partageant un nom, puis un code-barres (produitId -> libellé, ordre de création). */
+function groupesEnDouble(articles: ArticlePourDoublons[]): { prefixe: string; cle: string; articles: Map<string, ArticlePourDoublons> }[] {
+  const parNom = new Map<string, Map<string, ArticlePourDoublons>>();
+  const parCode = new Map<string, Map<string, ArticlePourDoublons>>();
+  for (const a of articles) {
+    const cle = cleNomArticle(a.nom);
+    if (!parNom.has(cle)) parNom.set(cle, new Map());
+    if (!parNom.get(cle)!.has(a.id)) parNom.get(cle)!.set(a.id, a);
+    const code = a.codeBarres.trim();
+    if (!code) continue;
+    if (!parCode.has(code)) parCode.set(code, new Map());
+    if (!parCode.get(code)!.has(a.id)) parCode.get(code)!.set(a.id, a);
+  }
+  return [
+    ...[...parNom].map(([cle, g]) => ({ prefixe: PREFIXE_DOUBLON_NOM, cle, articles: g })),
+    ...[...parCode].map(([cle, g]) => ({ prefixe: PREFIXE_DOUBLON_CODE, cle, articles: g })),
+  ].filter((g) => g.articles.size >= 2);
+}
+
+function messageDoublon(groupe: { prefixe: string; cle: string; articles: Map<string, ArticlePourDoublons> }): string {
+  const liste = [...groupe.articles.values()];
+  if (groupe.prefixe === PREFIXE_DOUBLON_NOM) {
+    const references = liste.map((a) => a.reference).filter(Boolean).join(", ");
+    return (
+      `${PREFIXE_DOUBLON_NOM} : ${liste.length} articles s'appellent « ${liste[0].nom} »` +
+      (references ? ` (${references})` : "") +
+      ". Renommez-les pour ne pas les confondre en caisse."
+    );
+  }
+  return (
+    `${PREFIXE_DOUBLON_CODE} : ${groupe.cle} est porté par ${liste.map((a) => `« ${a.nom} »`).join(", ")}.` +
+    " Changez-le pour que le scan trouve le bon article."
+  );
+}
+
+/**
+ * Appelé à l'ouverture de l'appli (Shell.tsx) : signale les articles déjà en
+ * double — créés avant le contrôle, venus d'un autre poste hors ligne, ou
+ * retrouvés après une réinstallation. Rien n'est fusionné ni renommé : le
+ * commerçant décide. Une alerte par groupe et par 24 h au plus (y compris
+ * celle créée par le serveur à la synchro).
+ */
+export function genererAlertesDoublons(boutiqueId: string): string[] {
+  const articles = tousLesResultats<ArticlePourDoublons>(
+    `SELECT p.id as id, p.nom as nom, COALESCE(v.reference, '') as reference, COALESCE(v.code_barres, '') as codeBarres
+     FROM produits p LEFT JOIN variantes v ON v.produit_id = p.id AND v.supprime = 0
+     WHERE p.boutique_id = ? AND p.supprime = 0
+     ORDER BY p.date_creation, v.date_creation`,
+    [boutiqueId],
+  );
+  const seuil = new Date(Date.now() - FENETRE_ANTI_DOUBLON_HEURES * 3600 * 1000).toISOString();
+  const idsCrees: string[] = [];
+  for (const groupe of groupesEnDouble(articles)) {
+    const produitIds = [...groupe.articles.keys()];
+    const dejaSignale = unResultat<{ n: number }>(
+      `SELECT COUNT(*) as n FROM notifications
+       WHERE boutique_id = ? AND type = 'doublon_article' AND supprime = 0 AND date_creation >= ?
+         AND message LIKE ? AND reference_id IN (${produitIds.map(() => "?").join(", ")})`,
+      [boutiqueId, seuil, `${groupe.prefixe}%`, ...produitIds],
+    );
+    if (Number(dejaSignale?.n ?? 0) > 0) continue;
+    idsCrees.push(insererAlerte(boutiqueId, "doublon_article", messageDoublon(groupe), "catalogue.Produit", produitIds[0]));
+  }
+  if (idsCrees.length > 0) sauvegarder();
+  return idsCrees;
 }

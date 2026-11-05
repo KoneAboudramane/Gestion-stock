@@ -55,6 +55,7 @@ import { useDevise } from "../contexts/DeviseContext";
 import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
 import { formaterMontant } from "../lib/formatage";
 import { bornesPeriode, dansPeriode, jourLocal, type PeriodeHistorique } from "../lib/periode";
+import { tuileFiltre } from "../lib/tuileFiltre";
 
 export type { GrosDisponible };
 
@@ -427,6 +428,8 @@ export function HistoriqueDetaillages({
   const [terme, setTerme] = useState("");
   const [depotId, setDepotId] = useState("");
   const [avecAnnulees, setAvecAnnulees] = useState(false);
+  // Carte « Annulées » : seulement les opérations annulées.
+  const [annuleesSeulement, setAnnuleesSeulement] = useState(false);
   const [aAnnuler, setAAnnuler] = useState<DetaillageResume | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
 
@@ -449,7 +452,7 @@ export function HistoriqueDetaillages({
       (!depotId || o.depotId === depotId) &&
       (!cle || o.sourceNom.toLowerCase().includes(cle) || o.cibleNom.toLowerCase().includes(cle)),
   );
-  const filtrees = dansLesFiltres.filter((o) => avecAnnulees || !o.annulee);
+  const filtrees = dansLesFiltres.filter((o) => (annuleesSeulement ? o.annulee : avecAnnulees || !o.annulee));
   const valides = dansLesFiltres.filter((o) => !o.annulee);
   const deballages = valides.filter((o) => o.type === "detailler");
   const remballages = valides.filter((o) => o.type === "regrouper");
@@ -498,11 +501,11 @@ export function HistoriqueDetaillages({
   return (
     <>
       <div className="tuiles-fiche">
-        <div className="tuile-fiche">
+        <div {...tuileFiltre(type === "detailler", () => setType(type === "detailler" ? "" : "detailler"))}>
           <span className="sous-info">📦 Déballages</span>
           <strong>{deballages.length}</strong>
         </div>
-        <div className="tuile-fiche">
+        <div {...tuileFiltre(type === "regrouper", () => setType(type === "regrouper" ? "" : "regrouper"))}>
           <span className="sous-info">🔁 Remballages</span>
           <strong>{remballages.length}</strong>
         </div>
@@ -518,7 +521,13 @@ export function HistoriqueDetaillages({
             </strong>
           </div>
         ) : (
-          <div className={`tuile-fiche${annulees > 0 ? " tuile-fiche--attention" : ""}`}>
+          <div
+            {...tuileFiltre(
+              annuleesSeulement,
+              () => setAnnuleesSeulement(!annuleesSeulement),
+              annulees > 0 ? "tuile-fiche--attention" : "",
+            )}
+          >
             <span className="sous-info">↩️ Annulées</span>
             <strong>{annulees}</strong>
           </div>
@@ -546,7 +555,13 @@ export function HistoriqueDetaillages({
           </button>
         </div>
         {!varianteId && (
-          <input type="search" placeholder="Article…" value={terme} onChange={(e) => setTerme(e.target.value)} />
+          <input
+            type="search"
+            className="champ-recherche-deballages"
+            placeholder="🔍 Rechercher un article…"
+            value={terme}
+            onChange={(e) => setTerme(e.target.value)}
+          />
         )}
         {depots.length > 1 && (
           <select value={depotId} onChange={(e) => setDepotId(e.target.value)}>
@@ -566,15 +581,15 @@ export function HistoriqueDetaillages({
       </div>
       {erreur && <div className="message-erreur">{erreur}</div>}
 
-      <div className="zone-tableau-scroll zone-commandes-fiche">
-        <table className="tableau-catalogue carte-mobile">
+      <div className="zone-tableau-scroll zone-commandes-fiche zone-historique-deballages">
+        <table className="tableau-catalogue carte-mobile tableau-historique-deballages">
           <thead>
             <tr>
-              <th>N°</th>
+              <th className="colonne-numero-groupe">N°</th>
               <th>Date</th>
               <th>Opération</th>
-              <th>Article</th>
-              <th>Quantités</th>
+              <th>De (sorti)</th>
+              <th>Vers (obtenu)</th>
               <th>Dépôt</th>
               <th>Fait par</th>
               {peutGerer && <th />}
@@ -585,12 +600,16 @@ export function HistoriqueDetaillages({
               const date = new Date(o.dateCreation);
               return (
                 <tr key={o.id} className={o.annulee ? "ligne-annulee" : undefined}>
-                  <td data-label="N°">{index + 1}</td>
-                  <td data-label="Date" className="nowrap" title={date.toLocaleString("fr-FR")}>
-                    {date.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} ·{" "}
-                    {date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                  <td data-label="N°" className="colonne-numero-groupe">
+                    {index + 1}
                   </td>
-                  <td data-label="Opération">
+                  <td data-label="Date" className="nowrap">
+                    {date.toLocaleDateString("fr-FR")}{" "}
+                    <span className="sous-info">
+                      {date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  </td>
+                  <td data-label="Opération" className="nowrap">
                     <span className={o.type === "detailler" ? "badge-deballe" : "badge-remballe"}>
                       {o.type === "detailler" ? "📦 Déballé" : "🔁 Remballé"}
                     </span>
@@ -600,11 +619,13 @@ export function HistoriqueDetaillages({
                       </span>
                     )}
                   </td>
-                  <td data-label="Article">{o.type === "detailler" ? o.sourceNom : o.cibleNom}</td>
-                  <td data-label="Quantités" className="nowrap">
-                    <strong>
-                      {quantiteUnite(o.quantiteSource, o.uniteSource)} → {quantiteUnite(o.quantiteCible, o.uniteCible)}
-                    </strong>
+                  <td data-label="De (sorti)">
+                    <strong className="quantite-sortie nowrap">−{quantiteUnite(o.quantiteSource, o.uniteSource)}</strong>
+                    <span className="ligne-detail-article">{o.sourceNom}</span>
+                  </td>
+                  <td data-label="Vers (obtenu)">
+                    <strong className="quantite-entree nowrap">+{quantiteUnite(o.quantiteCible, o.uniteCible)}</strong>
+                    <span className="ligne-detail-article">{o.cibleNom}</span>
                   </td>
                   <td data-label="Dépôt">{o.depotNom}</td>
                   <td data-label="Fait par">{nomUtilisateur(o.utilisateurId)}</td>
@@ -627,9 +648,31 @@ export function HistoriqueDetaillages({
                 </td>
               </tr>
             )}
+            {/* Lignes vides : la grille reste visible jusqu'en bas, même avec peu d'opérations. */}
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, filtrees.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                {Array.from({ length: colonnes }).map((__, j) => (
+                  <td key={j}>&nbsp;</td>
+                ))}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
+      {filtrees.length > 0 && (
+        <div className="totaux">
+          <div>
+            {filtrees.length} opération{filtrees.length > 1 ? "s" : ""} · {deballages.length} déballage
+            {deballages.length > 1 ? "s" : ""} · {remballages.length} remballage{remballages.length > 1 ? "s" : ""}
+            {annulees > 0 && ` · ${annulees} annulée${annulees > 1 ? "s" : ""}`}
+          </div>
+          {peutVoirCout && (
+            <div className="total-net">
+              Valeur déballée : {formaterMontant(Math.round(valeurDeballee))} {devise}
+            </div>
+          )}
+        </div>
+      )}
 
       {aAnnuler && (
         <div className="fond-modale" onClick={() => setAAnnuler(null)}>
@@ -676,6 +719,8 @@ function ArticlesADetailler({ session }: { session: Session }) {
   const [variantes, setVariantes] = useState<{ id: string; nom: string }[]>([]);
   const [terme, setTerme] = useState("");
   const [seulementADeballer, setSeulementADeballer] = useState(false);
+  // Carte « En stock (gros) » : seulement les articles dont il reste du gros.
+  const [seulementEnStock, setSeulementEnStock] = useState(false);
   const [choixLien, setChoixLien] = useState(false);
   const [rechercheLien, setRechercheLien] = useState("");
   const [enEdition, setEnEdition] = useState<{ id: string; nom: string } | null>(null);
@@ -701,7 +746,8 @@ function ArticlesADetailler({ session }: { session: Session }) {
   const affiches = articles.filter(
     (a) =>
       (!cle || a.grosNom.toLowerCase().includes(cle) || a.detailNom.toLowerCase().includes(cle)) &&
-      (!seulementADeballer || aDeballer(a)),
+      (!seulementADeballer || aDeballer(a)) &&
+      (!seulementEnStock || a.stockGros > 0),
   );
   const nombreADeballer = articles.filter(aDeballer).length;
   const stockGrosTotal = articles.reduce((t, a) => t + a.stockGros, 0);
@@ -728,15 +774,26 @@ function ArticlesADetailler({ session }: { session: Session }) {
   return (
     <>
       <div className="tuiles-fiche">
-        <div className="tuile-fiche">
+        <div
+          {...tuileFiltre(!seulementADeballer && !seulementEnStock, () => {
+            setSeulementADeballer(false);
+            setSeulementEnStock(false);
+          })}
+        >
           <span className="sous-info">🔗 Articles reliés</span>
           <strong>{articles.length}</strong>
         </div>
-        <div className="tuile-fiche">
+        <div {...tuileFiltre(seulementEnStock, () => setSeulementEnStock(!seulementEnStock))}>
           <span className="sous-info">📦 En stock (gros)</span>
           <strong>{nombre(stockGrosTotal)}</strong>
         </div>
-        <div className={`tuile-fiche${nombreADeballer > 0 ? " tuile-fiche--attention" : ""}`}>
+        <div
+          {...tuileFiltre(
+            seulementADeballer,
+            () => setSeulementADeballer(!seulementADeballer),
+            nombreADeballer > 0 ? "tuile-fiche--attention" : "",
+          )}
+        >
           <span className="sous-info">⚠️ À déballer</span>
           <strong>{nombreADeballer}</strong>
         </div>

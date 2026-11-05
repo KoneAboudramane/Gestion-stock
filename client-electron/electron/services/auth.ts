@@ -5,7 +5,11 @@ import { app } from "electron";
 
 import { URL_BASE_API } from "../config";
 import { ErreurAccesBloque, fetchAvecRepliNavigateur } from "./httpClient";
-import { memoriserAbonnementBoutique } from "./abonnement";
+import { memoriserAbonnementBoutique, obtenirEtatAbonnement } from "./abonnement";
+// Imports circulaires (abonnementAdmin et reseauCaisse importent auth) : sans risque,
+// ces fonctions ne sont appelées qu'à l'exécution, jamais au chargement du module.
+import { obtenirBoutiqueLocale } from "./abonnementAdmin";
+import { etatReseauComplet } from "./reseauCaisse";
 import { appelerAvecDelai } from "./sync";
 
 /**
@@ -42,12 +46,16 @@ export interface Session {
   // (VTE-20261002-AKO-0001, voir numerotation.ts). Absente des sessions
   // enregistrées avant son introduction.
   codeVendeur?: string;
+  /** Mot de passe provisoire (Espace Admin) : l'utilisateur doit choisir le sien avant d'entrer. */
+  doitChangerMotDePasse?: boolean;
 }
 
 interface IdentifiantLocal {
   sel: string;
   hash: string;
   session: Session;
+  /** Compte supprimé par le patron : refusé ici, et retiré des caisses du réseau de la boutique. */
+  desactive?: boolean;
 }
 
 function cheminSession(): string {
@@ -83,13 +91,101 @@ function enregistrerIdentifiantLocal(username: string, motDePasse: string, sessi
   fs.writeFileSync(cheminIdentifiantsLocaux(), JSON.stringify(identifiants, null, 2));
 }
 
+/** Compte transmis du poste principal aux caisses (réseau de la boutique) : jamais de jeton de session. */
+export interface CompteDiffuse {
+  username: string;
+  sel: string;
+  hash: string;
+  session: Session;
+  desactive?: boolean;
+}
+
+/** Comptes de cette boutique connus de ce poste, sans jetons, pour les caisses branchées. */
+export function exporterComptesLocaux(boutiqueId: string): CompteDiffuse[] {
+  return Object.entries(chargerIdentifiantsLocaux())
+    .filter(([, entree]) => entree.session?.boutiqueId === boutiqueId)
+    .map(([username, entree]) => ({
+      username,
+      sel: entree.sel,
+      hash: entree.hash,
+      session: { ...entree.session, accessToken: "", refreshToken: "" },
+      desactive: entree.desactive,
+    }));
+}
+
+/**
+ * Compte créé ou modifié par le patron depuis l'appli : mémorisé tout de suite
+ * dans le cache de ce poste (mot de passe protégé), pour que le vendeur puisse
+ * se connecter sans internet — et, sur le poste principal, sur toutes les
+ * caisses branchées — sans avoir à se connecter une première fois en ligne.
+ * Sans mot de passe (modification du rôle, du dépôt…), on ne met à jour que
+ * les droits d'un compte déjà connu.
+ */
+export function memoriserCompteVendeur(
+  username: string,
+  motDePasse: string | null,
+  session: Omit<Session, "accessToken" | "refreshToken">,
+): void {
+  const identifiants = chargerIdentifiantsLocaux();
+  const actuel = identifiants[username];
+  const complete: Session = {
+    ...session,
+    accessToken: actuel?.session.accessToken ?? "",
+    refreshToken: actuel?.session.refreshToken ?? "",
+  };
+  if (motDePasse) {
+    const sel = crypto.randomBytes(16).toString("hex");
+    identifiants[username] = { sel, hash: hacherMotDePasse(motDePasse, sel), session: complete };
+  } else if (actuel) {
+    identifiants[username] = { ...actuel, session: complete, desactive: false };
+  } else {
+    return;
+  }
+  fs.writeFileSync(cheminIdentifiantsLocaux(), JSON.stringify(identifiants, null, 2));
+}
+
+/** Compte supprimé ou désactivé : refusé sur ce poste, et retiré des caisses à leur prochain échange. */
+export function desactiverCompteLocal(username: string): void {
+  const identifiants = chargerIdentifiantsLocaux();
+  if (!identifiants[username]) return;
+  identifiants[username] = { ...identifiants[username], desactive: true };
+  fs.writeFileSync(cheminIdentifiantsLocaux(), JSON.stringify(identifiants, null, 2));
+}
+
+/**
+ * Caisse : ajoute ou met à jour les comptes reçus du poste principal, pour
+ * qu'un vendeur puisse se connecter ici sans internet. Un compte déjà connu
+ * avec un jeton de session (connexion en ligne sur cette caisse) garde son jeton.
+ */
+export function importerComptesDiffuses(comptes: CompteDiffuse[]): void {
+  if (comptes.length === 0) return;
+  const identifiants = chargerIdentifiantsLocaux();
+  for (const compte of comptes) {
+    if (compte.desactive) {
+      delete identifiants[compte.username];
+      continue;
+    }
+    const actuel = identifiants[compte.username];
+    identifiants[compte.username] = {
+      sel: compte.sel,
+      hash: compte.hash,
+      session: {
+        ...compte.session,
+        accessToken: actuel?.session.accessToken ?? "",
+        refreshToken: actuel?.session.refreshToken ?? "",
+      },
+    };
+  }
+  fs.writeFileSync(cheminIdentifiantsLocaux(), JSON.stringify(identifiants, null, 2));
+}
+
 /** Vérifie les identifiants saisis contre le cache local (utilisé quand le serveur est injoignable). */
 function verifierIdentifiantLocal(
   username: string,
   motDePasse: string,
 ): { statut: "ok"; session: Session } | { statut: "absent" } | { statut: "motDePasseInvalide" } {
   const entree = chargerIdentifiantsLocaux()[username];
-  if (!entree) return { statut: "absent" };
+  if (!entree || entree.desactive) return { statut: "absent" };
   const hashAttendu = Buffer.from(entree.hash, "hex");
   const hashObtenu = Buffer.from(hacherMotDePasse(motDePasse, entree.sel), "hex");
   const correspond = hashAttendu.length === hashObtenu.length && crypto.timingSafeEqual(hashAttendu, hashObtenu);
@@ -236,7 +332,35 @@ function connexionLocale(username: string, password: string): Session {
   );
 }
 
+/** Mauvais identifiants (serveur ou cache du poste) — pas une coupure d'internet. */
+function estErreurIdentifiants(erreur: unknown): boolean {
+  const message = erreur instanceof Error ? erreur.message : String(erreur);
+  return /incorrect|no active account|aucun compte actif|identifiants fournis/i.test(message);
+}
+
+/**
+ * Connexion d'un compte de la boutique, avec protection anti-essais (5 échecs,
+ * puis attente qui double) et messages clairs. Une coupure d'internet ne compte
+ * pas comme un échec.
+ */
 export async function connexion(username: string, password: string): Promise<Session> {
+  const attente = attenteRestante("connexion");
+  if (attente > 0) throw new Error(`Trop d'essais : réessayez dans ${attente} s.`);
+  try {
+    const session = await connexionSansProtection(username, password);
+    ecrireEssais("connexion", { echecs: 0, bloqueJusqua: 0 });
+    return session;
+  } catch (erreur) {
+    if (!estErreurIdentifiants(erreur)) throw erreur;
+    const horsLigne = erreur instanceof Error && /^Mot de passe incorrect\.$/.test(erreur.message);
+    throw new Error(
+      `${horsLigne ? "Mot de passe incorrect (vérifié sans internet)." : "Identifiant ou mot de passe incorrect."}` +
+        suiteEchec("connexion", noterEchec("connexion")),
+    );
+  }
+}
+
+async function connexionSansProtection(username: string, password: string): Promise<Session> {
   // Boutique créée hors-ligne et pas encore "activée en ligne" : le serveur ne
   // connaît pas encore ce compte, inutile (et trompeur) d'essayer en ligne.
   if (boutiqueLocaleEnAttenteConcerne(username)) return connexionLocale(username, password);
@@ -264,6 +388,7 @@ export async function connexion(username: string, password: string): Promise<Ses
     depotNom: payload.depot_nom ?? null,
     synchroAutorisee: payload.synchro_autorisee ?? false,
     codeVendeur: payload.code_vendeur || undefined,
+    doitChangerMotDePasse: payload.doit_changer_mot_de_passe || undefined,
   };
   ouvrirSessionLocale(username, password, session);
   return session;
@@ -321,6 +446,128 @@ export async function verifierAccesAdmin(username: string, password: string): Pr
   }
 }
 
+// --- Connexion à l'Espace Admin : état, anti-essais, messages clairs ---
+
+/** Au-delà de 5 échecs : attente de 30 s, puis doublée à chaque nouvel échec (15 min au plus). */
+export const ECHECS_ADMIN_AVANT_ATTENTE = 5;
+const ATTENTE_ADMIN_MIN_S = 30;
+const ATTENTE_ADMIN_MAX_S = 15 * 60;
+
+interface EssaisConnexion {
+  echecs: number;
+  /** Date (ms) avant laquelle aucun essai n'est accepté. */
+  bloqueJusqua: number;
+}
+
+/** Échecs de connexion notés sur ce poste : « espace-admin » ou « connexion » (comptes de la boutique). */
+type CompteurEssais = "espace-admin" | "connexion";
+
+function cheminEssais(compteur: CompteurEssais): string {
+  return path.join(app.getPath("userData"), `essais-${compteur}.json`);
+}
+
+function lireEssais(compteur: CompteurEssais): EssaisConnexion {
+  try {
+    return { echecs: 0, bloqueJusqua: 0, ...JSON.parse(fs.readFileSync(cheminEssais(compteur), "utf-8")) };
+  } catch {
+    return { echecs: 0, bloqueJusqua: 0 };
+  }
+}
+
+function ecrireEssais(compteur: CompteurEssais, essais: EssaisConnexion): void {
+  fs.writeFileSync(cheminEssais(compteur), JSON.stringify(essais));
+}
+
+function attenteRestante(compteur: CompteurEssais, maintenant = Date.now()): number {
+  return Math.max(0, Math.ceil((lireEssais(compteur).bloqueJusqua - maintenant) / 1000));
+}
+
+function noterEchec(compteur: CompteurEssais, maintenant = Date.now()): number {
+  const echecs = lireEssais(compteur).echecs + 1;
+  const attente =
+    echecs >= ECHECS_ADMIN_AVANT_ATTENTE
+      ? Math.min(ATTENTE_ADMIN_MAX_S, ATTENTE_ADMIN_MIN_S * 2 ** (echecs - ECHECS_ADMIN_AVANT_ATTENTE))
+      : 0;
+  ecrireEssais(compteur, { echecs, bloqueJusqua: attente ? maintenant + attente * 1000 : 0 });
+  return attente;
+}
+
+/** Fin de message après un échec : attente imposée, ou essais restants avant elle. */
+function suiteEchec(compteur: CompteurEssais, attente: number): string {
+  if (attente) return ` Trop d'essais : réessayez dans ${attente} s.`;
+  const restants = ECHECS_ADMIN_AVANT_ATTENTE - lireEssais(compteur).echecs;
+  return restants <= 2 ? ` Encore ${restants} essai${restants > 1 ? "s" : ""} avant une attente.` : "";
+}
+
+export interface EtatConnexionAdmin {
+  serveurJoint: boolean;
+  /** Admins déjà vérifiés en ligne sur ce poste (seuls admis sans internet). */
+  adminsDuPoste: string[];
+  echecs: number;
+  attenteSecondes: number;
+}
+
+/** Écran de connexion de l'Espace Admin : serveur joignable ? qui peut entrer sans internet ? attente en cours ? */
+export async function etatConnexionAdmin(): Promise<EtatConnexionAdmin> {
+  let serveurJoint = false;
+  try {
+    // N'importe quelle réponse HTTP (même 405) prouve que le serveur répond.
+    await appelerAvecDelai(`${URL_BASE_API}/auth/verifier-acces-admin/`, { method: "GET" });
+    serveurJoint = true;
+  } catch {
+    serveurJoint = false;
+  }
+  return {
+    serveurJoint,
+    adminsDuPoste: Object.keys(chargerIdentifiantsAdmin()),
+    echecs: lireEssais("espace-admin").echecs,
+    attenteSecondes: attenteRestante("espace-admin"),
+  };
+}
+
+/**
+ * Connexion à l'Espace Admin avec protection anti-essais (appliquée ici, pas
+ * seulement à l'écran) et messages clairs — sans jamais dire si c'est le mot
+ * de passe ou le compte qui ne va pas (le serveur ne le dit pas non plus).
+ */
+export async function connexionAdmin(username: string, password: string): Promise<{ source: "serveur" | "poste" }> {
+  const attente = attenteRestante("espace-admin");
+  if (attente > 0) throw new Error(`Trop d'essais : réessayez dans ${attente} s.`);
+  let source: "serveur" | "poste" = "serveur";
+  let autorise: boolean;
+  try {
+    const donnees = await appelerApi("/auth/verifier-acces-admin/", { username, password });
+    autorise = Boolean(donnees?.autorise);
+  } catch (erreur) {
+    if (!estErreurReseau(erreur)) throw erreur;
+    source = "poste";
+    if (!chargerIdentifiantsAdmin()[username]) {
+      throw new Error(
+        "Pas d'internet, et ce compte n'a jamais été vérifié en ligne sur cet ordinateur : connectez-vous une première fois avec internet.",
+      );
+    }
+    autorise = verifierIdentifiantAdminLocal(username, password);
+  }
+  if (!autorise) {
+    const nouvelleAttente = noterEchec("espace-admin");
+    throw new Error(
+      `Accès refusé : identifiant ou mot de passe incorrect, ou compte non administrateur${source === "poste" ? " (vérifié sans internet)" : ""}.` +
+        suiteEchec("espace-admin", nouvelleAttente),
+    );
+  }
+  ecrireEssais("espace-admin", { echecs: 0, bloqueJusqua: 0 });
+  if (source === "serveur") {
+    enregistrerIdentifiantAdminLocal(username, password);
+    try {
+      const jetons = await appelerApi("/auth/connexion/", { username, password });
+      enregistrerJetonsAdmin(username, { accessToken: jetons.access, refreshToken: jetons.refresh });
+    } catch {
+      // Ignoré : ne sert qu'à détecter une révocation plus tard.
+    }
+  }
+  return { source };
+}
+
 /**
  * Détecte une révocation d'accès admin (compte désactivé/retiré du staff)
  * pendant que ce poste était hors-ligne : dès qu'il y a une connexion (voir
@@ -363,18 +610,149 @@ export async function verifierRevocationAdmin(): Promise<void> {
  * pas répliqué en local, voir CLAUDE.md — AUTH_USER_MODEL en AutoField, pas
  * de UUID) : pas de repli hors-ligne possible ici.
  */
+// --- Espace Admin → Réinitialiser mot de passe ---
+
+function cheminReinitialisationsARefaire(): string {
+  return path.join(app.getPath("userData"), "reinitialisations-a-refaire.json");
+}
+
+/** Comptes réinitialisés sur ce poste sans internet : à refaire en ligne (jamais le mot de passe gardé en clair). */
+export function lireReinitialisationsARefaire(): string[] {
+  try {
+    return JSON.parse(fs.readFileSync(cheminReinitialisationsARefaire(), "utf-8"));
+  } catch {
+    return [];
+  }
+}
+
+function ecrireReinitialisationsARefaire(liste: string[]): void {
+  if (liste.length === 0) fs.rmSync(cheminReinitialisationsARefaire(), { force: true });
+  else fs.writeFileSync(cheminReinitialisationsARefaire(), JSON.stringify(liste, null, 2));
+}
+
+/** Nouveau mot de passe dans le cache de ce poste (connexion sans internet), si le compte y est connu. */
+function reinitialiserCompteLocal(username: string, motDePasse: string, doitChanger: boolean): boolean {
+  const identifiants = chargerIdentifiantsLocaux();
+  const actuel = identifiants[username];
+  if (!actuel) return false;
+  const sel = crypto.randomBytes(16).toString("hex");
+  identifiants[username] = {
+    ...actuel,
+    sel,
+    hash: hacherMotDePasse(motDePasse, sel),
+    session: { ...actuel.session, doitChangerMotDePasse: doitChanger || undefined },
+  };
+  fs.writeFileSync(cheminIdentifiantsLocaux(), JSON.stringify(identifiants, null, 2));
+  return true;
+}
+
+/**
+ * Réinitialise le mot de passe d'un compte de boutique : sur le serveur (identifiants
+ * admin revérifiés), et dans le cache de ce poste s'il y est connu. Sans internet :
+ * sur ce poste seulement (le serveur garde l'ancien) — le compte est noté « à refaire
+ * en ligne ».
+ */
 export async function reinitialiserMotDePasseAdmin(
   usernameAdmin: string,
   passwordAdmin: string,
   usernameCible: string,
   nouveauMotDePasse: string,
-): Promise<void> {
-  await appelerApi("/auth/reinitialiser-mot-de-passe-admin/", {
-    username: usernameAdmin,
-    password: passwordAdmin,
-    username_cible: usernameCible,
-    nouveau_mot_de_passe: nouveauMotDePasse,
-  });
+  doitChanger = false,
+): Promise<{ statut: "enLigne" | "local" }> {
+  try {
+    await appelerApi("/auth/reinitialiser-mot-de-passe-admin/", {
+      username: usernameAdmin,
+      password: passwordAdmin,
+      username_cible: usernameCible,
+      nouveau_mot_de_passe: nouveauMotDePasse,
+      doit_changer: doitChanger,
+    });
+  } catch (erreur) {
+    if (!estErreurReseau(erreur)) throw erreur;
+    // L'accès admin a déjà été vérifié (en ligne, ou par le cache admin de ce poste).
+    if (!verifierIdentifiantAdminLocal(usernameAdmin, passwordAdmin)) throw new Error("Accès refusé.");
+    if (!reinitialiserCompteLocal(usernameCible, nouveauMotDePasse, doitChanger)) {
+      throw new Error("Sans internet, seuls les comptes déjà connus de cet ordinateur peuvent être réinitialisés.");
+    }
+    ecrireReinitialisationsARefaire([...new Set([...lireReinitialisationsARefaire(), usernameCible])]);
+    return { statut: "local" };
+  }
+  reinitialiserCompteLocal(usernameCible, nouveauMotDePasse, doitChanger);
+  ecrireReinitialisationsARefaire(lireReinitialisationsARefaire().filter((u) => u !== usernameCible));
+  return { statut: "enLigne" };
+}
+
+export interface CompteAdmin {
+  username: string;
+  nom: string;
+  boutiqueNom: string;
+  role: string;
+  telephone: string;
+  actif: boolean;
+  derniereConnexion: string | null;
+  doitChangerMotDePasse: boolean;
+}
+
+/** Tous les comptes de toutes les boutiques (serveur) ; sans internet, ceux connus de ce poste. */
+export async function listerComptesAdmin(
+  usernameAdmin: string,
+  passwordAdmin: string,
+): Promise<{ source: "serveur" | "poste"; comptes: CompteAdmin[] }> {
+  try {
+    const donnees = await appelerApi("/auth/lister-comptes/", { username: usernameAdmin, password: passwordAdmin });
+    return {
+      source: "serveur",
+      comptes: (Array.isArray(donnees) ? donnees : []).map((c: any) => ({
+        username: String(c.username),
+        nom: String(c.nom ?? ""),
+        boutiqueNom: String(c.boutique_nom ?? ""),
+        role: String(c.role ?? ""),
+        telephone: String(c.telephone ?? ""),
+        actif: Boolean(c.actif),
+        derniereConnexion: c.derniere_connexion ?? null,
+        doitChangerMotDePasse: Boolean(c.doit_changer_mot_de_passe),
+      })),
+    };
+  } catch (erreur) {
+    if (!estErreurReseau(erreur)) throw erreur;
+    return {
+      source: "poste",
+      comptes: Object.entries(chargerIdentifiantsLocaux()).map(([username, entree]) => ({
+        username,
+        nom: "",
+        boutiqueNom: entree.session?.boutiqueNom ?? "",
+        role: entree.session?.role ?? "",
+        telephone: "",
+        actif: !entree.desactive,
+        derniereConnexion: null,
+        doitChangerMotDePasse: Boolean(entree.session?.doitChangerMotDePasse),
+      })),
+    };
+  }
+}
+
+/**
+ * L'utilisateur choisit son mot de passe (obligatoire après un mot de passe
+ * provisoire : l'ancien n'est alors pas redemandé). Internet nécessaire ; le
+ * cache de ce poste et la session sont mis à jour.
+ */
+export async function changerMotDePasse(session: Session, nouveauMotDePasse: string, ancienMotDePasse = ""): Promise<Session> {
+  let reponse: Response;
+  try {
+    reponse = await appelerAvecDelai(`${URL_BASE_API}/auth/changer-mot-de-passe/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.accessToken}` },
+      body: JSON.stringify({ nouveau_mot_de_passe: nouveauMotDePasse, ancien_mot_de_passe: ancienMotDePasse }),
+    });
+  } catch {
+    throw new Error("Connexion au serveur nécessaire pour choisir votre mot de passe.");
+  }
+  const donnees = await reponse.json().catch(() => ({}));
+  if (!reponse.ok) throw new Error(String(donnees?.detail ?? "Mot de passe refusé."));
+  const sessionMiseAJour: Session = { ...session, doitChangerMotDePasse: undefined };
+  ouvrirSessionLocale(session.username, nouveauMotDePasse, sessionMiseAJour);
+  ecrireReinitialisationsARefaire(lireReinitialisationsARefaire().filter((u) => u !== session.username));
+  return sessionMiseAJour;
 }
 
 export interface PatronResume {
@@ -479,4 +857,53 @@ export async function rafraichirPermissions(session: Session): Promise<Session> 
 export function deconnexion(): void {
   const chemin = cheminSession();
   if (fs.existsSync(chemin)) fs.unlinkSync(chemin);
+}
+
+// --- Page de connexion : ce que sait ce poste avant toute connexion ---
+
+export interface EtatPosteConnexion {
+  serveurJoint: boolean;
+  boutique: { nom: string; synchroAutorisee: boolean } | null;
+  abonnement: { niveau: "ok" | "bientot" | "grace" | "bloque"; joursRestants: number | null; finGrace: string | null } | null;
+  /** Rôle dans le réseau de la boutique (caisse : nom du poste principal et liaison). */
+  reseau: { role: "seul" | "principal" | "caisse"; nomPostePrincipal: string | null; relie: boolean } | null;
+  /** Comptes utilisables ici sans internet. */
+  comptesDuPoste: number;
+  echecs: number;
+  attenteSecondes: number;
+}
+
+export async function etatPosteConnexion(): Promise<EtatPosteConnexion> {
+  let serveurJoint = false;
+  try {
+    await appelerAvecDelai(`${URL_BASE_API}/auth/verifier-acces-admin/`, { method: "GET" });
+    serveurJoint = true;
+  } catch {
+    serveurJoint = false;
+  }
+  let boutique: EtatPosteConnexion["boutique"] = null;
+  let abonnement: EtatPosteConnexion["abonnement"] = null;
+  let reseau: EtatPosteConnexion["reseau"] = null;
+  try {
+    const b = obtenirBoutiqueLocale();
+    if (b) {
+      boutique = { nom: b.boutiqueNom, synchroAutorisee: b.synchroAutorisee };
+      const e = obtenirEtatAbonnement(b.boutiqueId);
+      abonnement = { niveau: e.niveau, joursRestants: e.joursRestants, finGrace: e.finGrace };
+    }
+    const r = etatReseauComplet();
+    reseau = { role: r.role, nomPostePrincipal: r.caisse?.nomPostePrincipal ?? null, relie: !!r.caisse?.relie };
+  } catch {
+    // base pas encore ouverte : rien à montrer
+  }
+  const identifiants = chargerIdentifiantsLocaux();
+  return {
+    serveurJoint,
+    boutique,
+    abonnement,
+    reseau,
+    comptesDuPoste: Object.values(identifiants).filter((i) => !i.desactive).length,
+    echecs: lireEssais("connexion").echecs,
+    attenteSecondes: attenteRestante("connexion"),
+  };
 }

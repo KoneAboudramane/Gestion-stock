@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld("api", {
       passwordAdmin: string,
       usernameCible: string,
       nouveauMotDePasse: string,
+      doitChanger?: boolean,
     ) =>
       ipcRenderer.invoke(
         "auth:reinitialiserMotDePasseAdmin",
@@ -30,16 +31,30 @@ contextBridge.exposeInMainWorld("api", {
         passwordAdmin,
         usernameCible,
         nouveauMotDePasse,
+        doitChanger,
       ),
     listerPatrons: (usernameAdmin: string, passwordAdmin: string) =>
       ipcRenderer.invoke("auth:listerPatrons", usernameAdmin, passwordAdmin),
+    etatConnexionAdmin: () => ipcRenderer.invoke("auth:etatConnexionAdmin"),
+    etatPosteConnexion: () => ipcRenderer.invoke("auth:etatPosteConnexion"),
+    connexionAdmin: (username: string, password: string) => ipcRenderer.invoke("auth:connexionAdmin", username, password),
+    listerComptesAdmin: (usernameAdmin: string, passwordAdmin: string) =>
+      ipcRenderer.invoke("auth:listerComptesAdmin", usernameAdmin, passwordAdmin),
+    reinitialisationsARefaire: () => ipcRenderer.invoke("auth:reinitialisationsARefaire"),
+    changerMotDePasse: (session: unknown, nouveau: string, ancien?: string) =>
+      ipcRenderer.invoke("auth:changerMotDePasse", session, nouveau, ancien),
   },
   abonnement: {
     etat: (boutiqueId: string) => ipcRenderer.invoke("abonnement:etat", boutiqueId),
+    activerParCode: (boutiqueId: string, code: string) => ipcRenderer.invoke("abonnement:activerParCode", boutiqueId, code),
   },
   admin: {
     boutiqueLocale: () => ipcRenderer.invoke("admin:boutiqueLocale"),
     abonnementEnAttente: () => ipcRenderer.invoke("admin:abonnementEnAttente"),
+    detailAbonnement: (username: string, password: string, boutiqueId: string, action?: string, params?: unknown) =>
+      ipcRenderer.invoke("admin:detailAbonnement", username, password, boutiqueId, action, params),
+    etatReseau: (username: string, password: string, boutiqueId: string, action?: string) =>
+      ipcRenderer.invoke("admin:etatReseau", username, password, boutiqueId, action),
     soumettreAbonnement: (
       username: string,
       password: string,
@@ -47,13 +62,11 @@ contextBridge.exposeInMainWorld("api", {
       boutiqueNom: string,
       champs: { formule?: string; dateExpirationAbonnement?: string | null; synchroAutorisee?: boolean },
     ) => ipcRenderer.invoke("admin:soumettreAbonnement", username, password, boutiqueId, boutiqueNom, champs),
-    creerBoutiqueLocale: (params: { boutiqueNom: string; username: string; password: string; email: string }) =>
-      ipcRenderer.invoke("admin:creerBoutiqueLocale", params),
-    creerBoutiqueEnLigne: (
-      usernameAdmin: string,
-      passwordAdmin: string,
-      params: { boutiqueNom: string; username: string; password: string; email: string },
-    ) => ipcRenderer.invoke("admin:creerBoutiqueEnLigne", usernameAdmin, passwordAdmin, params),
+    creerBoutiqueLocale: (params: unknown) => ipcRenderer.invoke("admin:creerBoutiqueLocale", params),
+    creerBoutiqueEnLigne: (usernameAdmin: string, passwordAdmin: string, params: unknown) =>
+      ipcRenderer.invoke("admin:creerBoutiqueEnLigne", usernameAdmin, passwordAdmin, params),
+    identifiantDisponible: (usernameAdmin: string, passwordAdmin: string, identifiant: string) =>
+      ipcRenderer.invoke("admin:identifiantDisponible", usernameAdmin, passwordAdmin, identifiant),
     boutiqueLocaleEnAttente: () => ipcRenderer.invoke("admin:boutiqueLocaleEnAttente"),
     activerEnLigne: (usernameAdmin: string, passwordAdmin: string, patronPassword: string, session: unknown) =>
       ipcRenderer.invoke("admin:activerEnLigne", usernameAdmin, passwordAdmin, patronPassword, session),
@@ -61,6 +74,7 @@ contextBridge.exposeInMainWorld("api", {
   catalogue: {
     rechercherVariantes: (boutiqueId: string, terme: string) =>
       ipcRenderer.invoke("catalogue:rechercherVariantes", boutiqueId, terme),
+    listerVariantesActives: (boutiqueId: string) => ipcRenderer.invoke("catalogue:listerVariantesActives", boutiqueId),
     listerVariantesCatalogue: (boutiqueId: string, depotId?: string) =>
       ipcRenderer.invoke("catalogue:listerVariantesCatalogue", boutiqueId, depotId),
     listerDepots: (boutiqueId: string) => ipcRenderer.invoke("catalogue:listerDepots", boutiqueId),
@@ -91,6 +105,8 @@ contextBridge.exposeInMainWorld("api", {
     modifier: (id: string, champs: unknown) => ipcRenderer.invoke("produits:modifier", id, champs),
     supprimer: (id: string) => ipcRenderer.invoke("produits:supprimer", id),
     usagesCatalogue: (boutiqueId: string) => ipcRenderer.invoke("produits:usagesCatalogue", boutiqueId),
+    attribuerReferencesManquantes: (boutiqueId: string) =>
+      ipcRenderer.invoke("produits:attribuerReferencesManquantes", boutiqueId),
     prochaineReference: (boutiqueId: string) => ipcRenderer.invoke("produits:prochaineReference", boutiqueId),
   },
   variantes: {
@@ -141,19 +157,60 @@ contextBridge.exposeInMainWorld("api", {
     obtenirLigne: (id: string) => ipcRenderer.invoke("stock:obtenirLigne", id),
   },
   mouvements: {
-    lister: (boutiqueId: string, depotId?: string, limite?: number) =>
-      ipcRenderer.invoke("mouvements:lister", boutiqueId, depotId, limite),
+    lister: (boutiqueId: string, depotId?: string, limite?: number | null, depuis?: string | null, jusqua?: string | null) =>
+      ipcRenderer.invoke("mouvements:lister", boutiqueId, depotId, limite, depuis, jusqua),
+    creerGroupe: (params: unknown) => ipcRenderer.invoke("mouvements:creerGroupe", params),
     listerParProduit: (produitId: string, limite?: number) =>
       ipcRenderer.invoke("mouvements:listerParProduit", produitId, limite),
     creer: (params: unknown) => ipcRenderer.invoke("mouvements:creer", params),
     creerEntreeProduction: (params: unknown) => ipcRenderer.invoke("mouvements:creerEntreeProduction", params),
+  },
+  sauvegarde: {
+    etat: () => ipcRenderer.invoke("sauvegarde:etat"),
+    lister: (dossier?: string | null) => ipcRenderer.invoke("sauvegarde:lister", dossier),
+    ouvrirDossier: (dossier: string) => ipcRenderer.invoke("sauvegarde:ouvrirDossier", dossier),
+    configurer: (params: unknown) => ipcRenderer.invoke("sauvegarde:configurer", params),
+    modifierReglages: (params: unknown) => ipcRenderer.invoke("sauvegarde:modifierReglages", params),
+    changerMotDePasse: (motDePasse: string) => ipcRenderer.invoke("sauvegarde:changerMotDePasse", motDePasse),
+    desactiver: () => ipcRenderer.invoke("sauvegarde:desactiver"),
+    maintenant: () => ipcRenderer.invoke("sauvegarde:maintenant"),
+    choisirDossier: () => ipcRenderer.invoke("sauvegarde:choisirDossier"),
+    choisirFichier: () => ipcRenderer.invoke("sauvegarde:choisirFichier"),
+    restaurer: (fichier: string, motDePasse: string) => ipcRenderer.invoke("sauvegarde:restaurer", fichier, motDePasse),
+    aUneCleSecours: (fichier: string) => ipcRenderer.invoke("sauvegarde:aUneCleSecours", fichier),
+    restaurerAvecSecours: (fichier: string, username: string, password: string) =>
+      ipcRenderer.invoke("sauvegarde:restaurerAvecSecours", fichier, username, password),
+  },
+  reseau: {
+    etat: () => ipcRenderer.invoke("reseau:etat"),
+    devenirPrincipal: (params: unknown) => ipcRenderer.invoke("reseau:devenirPrincipal", params),
+    quitterPrincipal: () => ipcRenderer.invoke("reseau:quitterPrincipal"),
+    nouveauCode: () => ipcRenderer.invoke("reseau:nouveauCode"),
+    annulerCode: () => ipcRenderer.invoke("reseau:annulerCode"),
+    mettreEnPause: () => ipcRenderer.invoke("reseau:mettreEnPause"),
+    reprendre: () => ipcRenderer.invoke("reseau:reprendre"),
+    redemarrer: () => ipcRenderer.invoke("reseau:redemarrer"),
+    debrancher: (appareilId: string) => ipcRenderer.invoke("reseau:debrancher", appareilId),
+    rechercher: () => ipcRenderer.invoke("reseau:rechercher"),
+    seBrancher: (params: unknown) => ipcRenderer.invoke("reseau:seBrancher", params),
+    seDebrancher: () => ipcRenderer.invoke("reseau:seDebrancher"),
+    rejoindreAvantConnexion: (params: { adresse: string; code: string; nomAppareil?: string }) =>
+      ipcRenderer.invoke("reseau:rejoindreAvantConnexion", params),
+    synchroniser: () => ipcRenderer.invoke("reseau:synchroniser"),
+  },
+  recettes: {
+    obtenir: (varianteId: string) => ipcRenderer.invoke("recettes:obtenir", varianteId),
+    lister: (boutiqueId: string) => ipcRenderer.invoke("recettes:lister", boutiqueId),
+    enregistrer: (params: unknown) => ipcRenderer.invoke("recettes:enregistrer", params),
+    supprimer: (varianteId: string) => ipcRenderer.invoke("recettes:supprimer", varianteId),
   },
   entreesStock: {
     achatRapide: (params: unknown) => ipcRenderer.invoke("entreesStock:achatRapide", params),
     ouverture: (params: unknown) => ipcRenderer.invoke("entreesStock:ouverture", params),
     fabrication: (params: unknown) => ipcRenderer.invoke("entreesStock:fabrication", params),
     don: (params: unknown) => ipcRenderer.invoke("entreesStock:don", params),
-    articlesSansStock: (boutiqueId: string) => ipcRenderer.invoke("entreesStock:articlesSansStock", boutiqueId),
+    articlesSansStock: (boutiqueId: string, depotId?: string) =>
+      ipcRenderer.invoke("entreesStock:articlesSansStock", boutiqueId, depotId),
   },
   destockages: {
     lister: (boutiqueId: string) => ipcRenderer.invoke("destockages:lister", boutiqueId),
@@ -178,13 +235,16 @@ contextBridge.exposeInMainWorld("api", {
   },
   pertes: {
     declarer: (params: unknown) => ipcRenderer.invoke("pertes:declarer", params),
+    declarerGroupe: (params: unknown) => ipcRenderer.invoke("pertes:declarerGroupe", params),
     annuler: (id: string, utilisateurId: string | null) => ipcRenderer.invoke("pertes:annuler", id, utilisateurId),
     lister: (boutiqueId: string, debut?: string, fin?: string) =>
       ipcRenderer.invoke("pertes:lister", boutiqueId, debut, fin),
   },
   transferts: {
     creer: (params: unknown) => ipcRenderer.invoke("transferts:creer", params),
-    lister: (boutiqueId: string, limite?: number) => ipcRenderer.invoke("transferts:lister", boutiqueId, limite),
+    lister: (boutiqueId: string, limite?: number | null, depuis?: string | null, jusqua?: string | null) =>
+      ipcRenderer.invoke("transferts:lister", boutiqueId, limite, depuis, jusqua),
+    creerGroupe: (params: unknown) => ipcRenderer.invoke("transferts:creerGroupe", params),
   },
   inventaires: {
     lister: (boutiqueId: string) => ipcRenderer.invoke("inventaires:lister", boutiqueId),
@@ -359,6 +419,9 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("comptes:renommerRole", session, id, nom),
     supprimerRole: (session: unknown, id: string) => ipcRenderer.invoke("comptes:supprimerRole", session, id),
     abonnementBoutique: (session: unknown) => ipcRenderer.invoke("comptes:abonnementBoutique", session),
+    etatDemandeReseau: (session: unknown) => ipcRenderer.invoke("comptes:etatDemandeReseau", session),
+    demanderActivationReseau: (session: unknown, note: string) =>
+      ipcRenderer.invoke("comptes:demanderActivationReseau", session, note),
     declarerPaiementAbonnement: (session: unknown, declaration: unknown) =>
       ipcRenderer.invoke("comptes:declarerPaiementAbonnement", session, declaration),
     listerUtilisateurs: (session: unknown) => ipcRenderer.invoke("comptes:listerUtilisateurs", session),
@@ -379,6 +442,8 @@ contextBridge.exposeInMainWorld("api", {
     genererAlertesDestockage: (boutiqueId: string) => ipcRenderer.invoke("notifications:genererAlertesDestockage", boutiqueId),
     genererAlertesAbonnement: (boutiqueId: string) =>
       ipcRenderer.invoke("notifications:genererAlertesAbonnement", boutiqueId),
+    genererAlertesDoublons: (boutiqueId: string) =>
+      ipcRenderer.invoke("notifications:genererAlertesDoublons", boutiqueId),
     genererAlertesRupture: (boutiqueId: string) =>
       ipcRenderer.invoke("notifications:genererAlertesRupture", boutiqueId),
     compterNonLues: (boutiqueId: string, depotId?: string) =>

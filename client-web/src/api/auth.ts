@@ -4,6 +4,8 @@ import {
   enregistrerIdentifiantLocal,
   enregistrerJetonsAdmin,
   estErreurReseau,
+  listerIdentifiantsLocaux,
+  reinitialiserIdentifiantLocal,
   supprimerIdentifiantAdminLocal,
   verifierIdentifiantAdminLocal,
   verifierIdentifiantLocal,
@@ -36,6 +38,8 @@ export interface Session {
   synchroAutorisee: boolean;
   /** Abréviation dans les numéros de ses documents (VTE-20261002-AKO-0001, voir services/numerotation.ts). */
   codeVendeur?: string;
+  /** Mot de passe provisoire (Espace Admin) : l'utilisateur doit choisir le sien avant d'entrer. */
+  doitChangerMotDePasse?: boolean;
 }
 
 function decoderPayloadJWT(token: string): Record<string, any> {
@@ -108,6 +112,7 @@ async function connexionBrute(username: string, password: string): Promise<Sessi
     depotNom: payload.depot_nom ?? null,
     synchroAutorisee: payload.synchro_autorisee ?? false,
     codeVendeur: payload.code_vendeur || undefined,
+    doitChangerMotDePasse: payload.doit_changer_mot_de_passe || undefined,
   };
   definirJetons({ accessToken: session.accessToken, refreshToken: session.refreshToken });
   await enregistrerIdentifiantLocal(username, password, session);
@@ -129,8 +134,91 @@ async function connexionHorsLigne(username: string, password: string): Promise<S
   );
 }
 
+const CLE_ESSAIS_CONNEXION = "gestion-stock:essais-connexion";
+
+function lireEssaisConnexion(): { echecs: number; bloqueJusqua: number } {
+  try {
+    return { echecs: 0, bloqueJusqua: 0, ...JSON.parse(localStorage.getItem(CLE_ESSAIS_CONNEXION) ?? "{}") };
+  } catch {
+    return { echecs: 0, bloqueJusqua: 0 };
+  }
+}
+
+function ecrireEssaisConnexion(essais: { echecs: number; bloqueJusqua: number }): void {
+  try {
+    localStorage.setItem(CLE_ESSAIS_CONNEXION, JSON.stringify(essais));
+  } catch {
+    // stockage indisponible
+  }
+}
+
+function attenteConnexion(): number {
+  return Math.max(0, Math.ceil((lireEssaisConnexion().bloqueJusqua - Date.now()) / 1000));
+}
+
+/**
+ * Connexion d'un compte de la boutique, avec protection anti-essais (port du
+ * bureau : 5 échecs, puis attente qui double) et messages clairs. Une coupure
+ * d'internet ne compte pas comme un échec.
+ */
 export function connexion(username: string, password: string): Promise<ResultatEcriture<Session>> {
-  return executerEnSecurite(() => connexionBrute(username, password));
+  return executerEnSecurite(async () => {
+    const attente = attenteConnexion();
+    if (attente > 0) throw new ErreurApi(`Trop d'essais : réessayez dans ${attente} s.`);
+    try {
+      const session = await connexionBrute(username, password);
+      ecrireEssaisConnexion({ echecs: 0, bloqueJusqua: 0 });
+      return session;
+    } catch (erreur) {
+      const message = erreur instanceof Error ? erreur.message : String(erreur);
+      if (!/incorrect|no active account|aucun compte actif|identifiants fournis/i.test(message)) throw erreur;
+      const echecs = lireEssaisConnexion().echecs + 1;
+      const nouvelle =
+        echecs >= ECHECS_ADMIN_AVANT_ATTENTE ? Math.min(15 * 60, 30 * 2 ** (echecs - ECHECS_ADMIN_AVANT_ATTENTE)) : 0;
+      ecrireEssaisConnexion({ echecs, bloqueJusqua: nouvelle ? Date.now() + nouvelle * 1000 : 0 });
+      const restants = ECHECS_ADMIN_AVANT_ATTENTE - echecs;
+      throw new ErreurApi(
+        (/^Mot de passe incorrect\.?$/.test(message) ? "Mot de passe incorrect (vérifié sans internet)." : "Identifiant ou mot de passe incorrect.") +
+          (nouvelle
+            ? ` Trop d'essais : réessayez dans ${nouvelle} s.`
+            : restants <= 2
+              ? ` Encore ${restants} essai${restants > 1 ? "s" : ""} avant une attente.`
+              : ""),
+      );
+    }
+  });
+}
+
+/** Page de connexion : ce que sait cet appareil avant toute connexion. */
+export async function etatPosteConnexion(): Promise<{
+  serveurJoint: boolean;
+  boutique: { nom: string; synchroAutorisee: boolean } | null;
+  abonnement: { niveau: "ok" | "bientot" | "grace" | "bloque"; joursRestants: number | null; finGrace: string | null } | null;
+  reseau: null;
+  comptesDuPoste: number;
+  echecs: number;
+  attenteSecondes: number;
+}> {
+  const { obtenirBoutiqueInstallee } = await import("../services/abonnementAdmin");
+  const { obtenirEtatAbonnement } = await import("../services/abonnement");
+  let serveurJoint = false;
+  try {
+    await fetch(`${BASE_URL}/auth/verifier-acces-admin/`, { method: "GET", signal: AbortSignal.timeout(5000) });
+    serveurJoint = true;
+  } catch {
+    serveurJoint = false;
+  }
+  const b = await obtenirBoutiqueInstallee().catch(() => null);
+  const e = b ? await obtenirEtatAbonnement(b.boutiqueId).catch(() => null) : null;
+  return {
+    serveurJoint,
+    boutique: b ? { nom: b.boutiqueNom, synchroAutorisee: b.synchroAutorisee } : null,
+    abonnement: e ? { niveau: e.niveau, joursRestants: e.joursRestants, finGrace: e.finGrace } : null,
+    reseau: null,
+    comptesDuPoste: listerIdentifiantsLocaux().length,
+    echecs: lireEssaisConnexion().echecs,
+    attenteSecondes: attenteConnexion(),
+  };
 }
 
 /**
@@ -178,6 +266,114 @@ export function inscription(donnees: {
       }),
     });
     if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
+  });
+}
+
+// --- Connexion à l'Espace Admin : état, anti-essais, messages clairs (port du bureau) ---
+
+export const ECHECS_ADMIN_AVANT_ATTENTE = 5;
+const ATTENTE_ADMIN_MIN_S = 30;
+const ATTENTE_ADMIN_MAX_S = 15 * 60;
+const CLE_ESSAIS_ADMIN = "gestion-stock:essais-espace-admin";
+
+function lireEssaisAdmin(): { echecs: number; bloqueJusqua: number } {
+  try {
+    return { echecs: 0, bloqueJusqua: 0, ...JSON.parse(localStorage.getItem(CLE_ESSAIS_ADMIN) ?? "{}") };
+  } catch {
+    return { echecs: 0, bloqueJusqua: 0 };
+  }
+}
+
+function ecrireEssaisAdmin(essais: { echecs: number; bloqueJusqua: number }): void {
+  try {
+    localStorage.setItem(CLE_ESSAIS_ADMIN, JSON.stringify(essais));
+  } catch {
+    // stockage indisponible
+  }
+}
+
+function attenteRestanteAdmin(): number {
+  return Math.max(0, Math.ceil((lireEssaisAdmin().bloqueJusqua - Date.now()) / 1000));
+}
+
+function noterEchecAdmin(): number {
+  const echecs = lireEssaisAdmin().echecs + 1;
+  const attente =
+    echecs >= ECHECS_ADMIN_AVANT_ATTENTE
+      ? Math.min(ATTENTE_ADMIN_MAX_S, ATTENTE_ADMIN_MIN_S * 2 ** (echecs - ECHECS_ADMIN_AVANT_ATTENTE))
+      : 0;
+  ecrireEssaisAdmin({ echecs, bloqueJusqua: attente ? Date.now() + attente * 1000 : 0 });
+  return attente;
+}
+
+/** Écran de connexion de l'Espace Admin : serveur joignable ? qui peut entrer sans internet ? attente en cours ? */
+export async function etatConnexionAdmin(): Promise<{ serveurJoint: boolean; adminsDuPoste: string[]; echecs: number; attenteSecondes: number }> {
+  let serveurJoint = false;
+  try {
+    await fetch(`${BASE_URL}/auth/verifier-acces-admin/`, { method: "GET", signal: AbortSignal.timeout(5000) });
+    serveurJoint = true;
+  } catch {
+    serveurJoint = false;
+  }
+  return {
+    serveurJoint,
+    adminsDuPoste: Object.keys(chargerIdentifiantsAdmin()),
+    echecs: lireEssaisAdmin().echecs,
+    attenteSecondes: attenteRestanteAdmin(),
+  };
+}
+
+/** Connexion à l'Espace Admin avec protection anti-essais et messages clairs. */
+export function connexionAdmin(username: string, password: string): Promise<ResultatEcriture<{ source: "serveur" | "poste" }>> {
+  return executerEnSecurite(async () => {
+    const attente = attenteRestanteAdmin();
+    if (attente > 0) throw new ErreurApi(`Trop d'essais : réessayez dans ${attente} s.`);
+    let source: "serveur" | "poste" = "serveur";
+    let autorise: boolean;
+    try {
+      const reponse = await apiFetch("/auth/verifier-acces-admin/", { method: "POST", body: JSON.stringify({ username, password }) });
+      if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
+      autorise = Boolean((await reponse.json())?.autorise);
+    } catch (erreur) {
+      if (!estErreurReseau(erreur)) throw erreur;
+      source = "poste";
+      if (!chargerIdentifiantsAdmin()[username]) {
+        throw new ErreurApi(
+          "Pas d'internet, et ce compte n'a jamais été vérifié en ligne sur cet appareil : connectez-vous une première fois avec internet.",
+        );
+      }
+      autorise = await verifierIdentifiantAdminLocal(username, password);
+    }
+    if (!autorise) {
+      const nouvelleAttente = noterEchecAdmin();
+      const restants = ECHECS_ADMIN_AVANT_ATTENTE - lireEssaisAdmin().echecs;
+      throw new ErreurApi(
+        `Accès refusé : identifiant ou mot de passe incorrect, ou compte non administrateur${source === "poste" ? " (vérifié sans internet)" : ""}.` +
+          (nouvelleAttente
+            ? ` Trop d'essais : réessayez dans ${nouvelleAttente} s.`
+            : restants <= 2
+              ? ` Encore ${restants} essai${restants > 1 ? "s" : ""} avant une attente.`
+              : ""),
+      );
+    }
+    ecrireEssaisAdmin({ echecs: 0, bloqueJusqua: 0 });
+    if (source === "serveur") {
+      await enregistrerIdentifiantAdminLocal(username, password);
+      try {
+        const jetonsReponse = await fetch(`${BASE_URL}/auth/connexion/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        });
+        if (jetonsReponse.ok) {
+          const jetons = await jetonsReponse.json();
+          enregistrerJetonsAdmin(username, { accessToken: jetons.access, refreshToken: jetons.refresh });
+        }
+      } catch {
+        // Ignoré : ne sert qu'à détecter une révocation plus tard.
+      }
+    }
+    return { source };
   });
 }
 
@@ -301,31 +497,139 @@ export function reinitialiserMotDePasse(
   });
 }
 
+const CLE_A_REFAIRE = "gestion-stock:reinitialisations-a-refaire";
+
+/** Comptes réinitialisés sur cet appareil sans internet : à refaire en ligne (jamais le mot de passe gardé). */
+export function lireReinitialisationsARefaire(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(CLE_A_REFAIRE) ?? "[]");
+  } catch {
+    return [];
+  }
+}
+
+function ecrireReinitialisationsARefaire(liste: string[]): void {
+  try {
+    if (liste.length === 0) localStorage.removeItem(CLE_A_REFAIRE);
+    else localStorage.setItem(CLE_A_REFAIRE, JSON.stringify(liste));
+  } catch {
+    // stockage indisponible : la liste est seulement un rappel
+  }
+}
+
 /**
- * Carte "Réinitialiser mot de passe" de l'Espace Admin : réinitialise
- * directement le mot de passe d'un Patron, sans code ni email — l'identité de
- * l'exploitant est déjà prouvée par le verrou admin (identifiants réutilisés,
- * jamais redemandés). Action serveur uniquement (le compte Utilisateur n'est
- * pas répliqué en local, voir CLAUDE.md — AUTH_USER_MODEL en AutoField, pas
- * de UUID) : pas de repli hors-ligne possible ici.
+ * Port de client-electron/electron/services/auth.ts::reinitialiserMotDePasseAdmin :
+ * tout compte de boutique (jamais un administrateur), sur le serveur et dans le
+ * cache de cet appareil ; sans internet, sur cet appareil seulement (« à refaire en ligne »).
  */
 export function reinitialiserMotDePasseAdmin(
   usernameAdmin: string,
   passwordAdmin: string,
   usernameCible: string,
   nouveauMotDePasse: string,
-): Promise<ResultatEcriture<void>> {
+  doitChanger = false,
+): Promise<ResultatEcriture<{ statut: "enLigne" | "local" }>> {
   return executerEnSecurite(async () => {
-    const reponse = await apiFetch("/auth/reinitialiser-mot-de-passe-admin/", {
-      method: "POST",
-      body: JSON.stringify({
-        username: usernameAdmin,
-        password: passwordAdmin,
-        username_cible: usernameCible,
-        nouveau_mot_de_passe: nouveauMotDePasse,
-      }),
-    });
+    try {
+      const reponse = await apiFetch("/auth/reinitialiser-mot-de-passe-admin/", {
+        method: "POST",
+        body: JSON.stringify({
+          username: usernameAdmin,
+          password: passwordAdmin,
+          username_cible: usernameCible,
+          nouveau_mot_de_passe: nouveauMotDePasse,
+          doit_changer: doitChanger,
+        }),
+      });
+      if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
+    } catch (erreur) {
+      if (!estErreurReseau(erreur)) throw erreur;
+      if (!(await verifierIdentifiantAdminLocal(usernameAdmin, passwordAdmin))) throw new ErreurApi("Accès refusé.");
+      if (!(await reinitialiserIdentifiantLocal(usernameCible, nouveauMotDePasse, doitChanger))) {
+        throw new ErreurApi("Sans internet, seuls les comptes déjà connus de cet appareil peuvent être réinitialisés.");
+      }
+      ecrireReinitialisationsARefaire([...new Set([...lireReinitialisationsARefaire(), usernameCible])]);
+      return { statut: "local" as const };
+    }
+    await reinitialiserIdentifiantLocal(usernameCible, nouveauMotDePasse, doitChanger);
+    ecrireReinitialisationsARefaire(lireReinitialisationsARefaire().filter((u) => u !== usernameCible));
+    return { statut: "enLigne" as const };
+  });
+}
+
+export interface CompteAdmin {
+  username: string;
+  nom: string;
+  boutiqueNom: string;
+  role: string;
+  telephone: string;
+  actif: boolean;
+  derniereConnexion: string | null;
+  doitChangerMotDePasse: boolean;
+}
+
+/** Tous les comptes de toutes les boutiques (serveur) ; sans internet, ceux connus de cet appareil. */
+export function listerComptesAdmin(
+  usernameAdmin: string,
+  passwordAdmin: string,
+): Promise<ResultatEcriture<{ source: "serveur" | "poste"; comptes: CompteAdmin[] }>> {
+  return executerEnSecurite(async () => {
+    try {
+      const reponse = await apiFetch("/auth/lister-comptes/", {
+        method: "POST",
+        body: JSON.stringify({ username: usernameAdmin, password: passwordAdmin }),
+      });
+      if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
+      const donnees = await reponse.json();
+      return {
+        source: "serveur" as const,
+        comptes: (Array.isArray(donnees) ? donnees : []).map((c: any) => ({
+          username: String(c.username),
+          nom: String(c.nom ?? ""),
+          boutiqueNom: String(c.boutique_nom ?? ""),
+          role: String(c.role ?? ""),
+          telephone: String(c.telephone ?? ""),
+          actif: Boolean(c.actif),
+          derniereConnexion: c.derniere_connexion ?? null,
+          doitChangerMotDePasse: Boolean(c.doit_changer_mot_de_passe),
+        })),
+      };
+    } catch (erreur) {
+      if (!estErreurReseau(erreur)) throw erreur;
+      return {
+        source: "poste" as const,
+        comptes: listerIdentifiantsLocaux().map(({ username, session }) => ({
+          username,
+          nom: "",
+          boutiqueNom: session?.boutiqueNom ?? "",
+          role: session?.role ?? "",
+          telephone: "",
+          actif: true,
+          derniereConnexion: null,
+          doitChangerMotDePasse: Boolean(session?.doitChangerMotDePasse),
+        })),
+      };
+    }
+  });
+}
+
+/** L'utilisateur choisit son mot de passe (obligatoire après un provisoire). Internet nécessaire. */
+export function changerMotDePasse(session: Session, nouveau: string, ancien = ""): Promise<ResultatEcriture<Session>> {
+  return executerEnSecurite(async () => {
+    let reponse: Response;
+    try {
+      reponse = await apiFetch("/auth/changer-mot-de-passe/", {
+        method: "POST",
+        body: JSON.stringify({ nouveau_mot_de_passe: nouveau, ancien_mot_de_passe: ancien }),
+      });
+    } catch {
+      throw new ErreurApi("Connexion au serveur nécessaire pour choisir votre mot de passe.");
+    }
     if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
+    const sessionMiseAJour: Session = { ...session, doitChangerMotDePasse: undefined };
+    await enregistrerIdentifiantLocal(session.username, nouveau, sessionMiseAJour);
+    ecrireReinitialisationsARefaire(lireReinitialisationsARefaire().filter((u) => u !== session.username));
+    return sessionMiseAJour;
   });
 }
 

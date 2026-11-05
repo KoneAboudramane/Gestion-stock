@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Gestion Stock</string>
+    <string name="title_activity_main">Gestion Stock</string>
+    <string name="package_name">com.gestionstock.commercant</string>
+    <string name="custom_url_scheme">com.gestionstock.commercant</string>
+</resources>

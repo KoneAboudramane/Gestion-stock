@@ -3,6 +3,7 @@ import path from "node:path";
 import { app } from "electron";
 import initSqlJs, { type Database } from "sql.js";
 
+import { installerSuiviReseau } from "./reseau";
 import { SCHEMA_SQL } from "./schema";
 
 let db: Database | null = null;
@@ -26,6 +27,7 @@ export async function ouvrirBaseDeDonnees(): Promise<Database> {
 
   db.run(SCHEMA_SQL);
   migrerColonnesManquantes(db);
+  installerSuiviReseau(db);
 
   return db;
 }
@@ -43,6 +45,7 @@ function migrerColonnesManquantes(base: Database): void {
     { table: "boutiques", colonne: "date_expiration_abonnement", definition: "TEXT" },
     { table: "boutiques", colonne: "formule", definition: "TEXT DEFAULT 'essentiel'" },
     { table: "boutiques", colonne: "synchro_autorisee", definition: "INTEGER DEFAULT 0" },
+    { table: "boutiques", colonne: "reseau_autorise", definition: "INTEGER DEFAULT 0" },
     { table: "notifications", colonne: "depot_id", definition: "TEXT" },
     { table: "notifications", colonne: "utilisateur_id", definition: "TEXT" },
     { table: "paiements", colonne: "operateur", definition: "TEXT DEFAULT ''" },
@@ -57,6 +60,8 @@ function migrerColonnesManquantes(base: Database): void {
     { table: "pertes_stock", colonne: "annulee", definition: "INTEGER DEFAULT 0" },
     { table: "variantes", colonne: "variante_detail_id", definition: "TEXT" },
     { table: "variantes", colonne: "quantite_detail", definition: "REAL" },
+    { table: "variantes", colonne: "recette_quantite", definition: "REAL DEFAULT 1" },
+    { table: "variantes", colonne: "recette_frais", definition: "REAL DEFAULT 0" },
     { table: "pertes_stock", colonne: "date_annulation", definition: "TEXT" },
     { table: "receptions", colonne: "annulee", definition: "INTEGER DEFAULT 0" },
     { table: "receptions", colonne: "mode_paiement", definition: "TEXT DEFAULT ''" },
@@ -85,6 +90,11 @@ export function sauvegarder(): void {
   if (!db || !cheminFichier) return;
   const donnees = db.export();
   fs.writeFileSync(cheminFichier, Buffer.from(donnees));
+}
+
+/** Fichier .sqlite de ce poste (restauration d'une sauvegarde, voir services/sauvegarde.ts). */
+export function cheminBaseDeDonnees(): string {
+  return cheminFichier;
 }
 
 export function obtenirBaseDeDonnees(): Database {

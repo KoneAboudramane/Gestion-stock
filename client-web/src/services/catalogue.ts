@@ -84,3 +84,40 @@ export async function listerClients(boutiqueId: string): Promise<ClientBoutique[
     .filter((c) => !c.supprime && c.est_permanent)
     .map((c) => ({ id: c.id, nom: c.nom, telephone: c.telephone, adresse: c.adresse }));
 }
+
+export interface VarianteActive {
+  id: string;
+  produitId: string;
+  produitNom: string;
+  reference: string;
+  codeBarres: string;
+  prixAchat: number;
+  prixVente: number;
+  categorieNom: string | null;
+}
+
+/** Tous les articles actifs, sans limite (bouton « ☰ Tous les articles » des entrées de stock). */
+export async function listerVariantesActives(boutiqueId: string): Promise<VarianteActive[]> {
+  const db = await ouvrirBaseDeDonnees();
+  const categories = new Map(
+    (await db.getAllFromIndex("categories", "boutique_id", boutiqueId)).filter((c) => !c.supprime).map((c) => [c.id, c.nom]),
+  );
+  const produits = (await db.getAllFromIndex("produits", "boutique_id", boutiqueId)).filter((p) => !p.supprime && p.actif);
+  const resultat: VarianteActive[] = [];
+  for (const p of produits) {
+    for (const v of await db.getAllFromIndex("variantes", "produit_id", p.id)) {
+      if (v.supprime || !v.actif) continue;
+      resultat.push({
+        id: v.id,
+        produitId: p.id,
+        produitNom: p.nom,
+        reference: v.reference,
+        codeBarres: v.code_barres ?? "",
+        prixAchat: v.prix_achat,
+        prixVente: v.prix_vente,
+        categorieNom: (p.categorie_id && categories.get(p.categorie_id)) || null,
+      });
+    }
+  }
+  return resultat.sort((a, b) => a.produitNom.localeCompare(b.produitNom, "fr"));
+}

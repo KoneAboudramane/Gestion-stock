@@ -59,6 +59,13 @@ export const REGISTRE_CLIENT: EntreeRegistreClient[] = [
     clauseBoutique:
       "variante_id IN (SELECT id FROM variantes WHERE produit_id IN (SELECT id FROM produits WHERE boutique_id = ?))",
   },
+  {
+    table: "catalogue.LigneRecette",
+    tableLocale: "lignes_recette",
+    champsFK: ["variante", "ingredient"],
+    clauseBoutique:
+      "variante_id IN (SELECT id FROM variantes WHERE produit_id IN (SELECT id FROM produits WHERE boutique_id = ?))",
+  },
   { table: "stock.Depot", tableLocale: "depots", champsFK: ["boutique"], clauseBoutique: "boutique_id = ?" },
   { table: "clients.Client", tableLocale: "clients", champsFK: ["boutique"], clauseBoutique: "boutique_id = ?" },
   {

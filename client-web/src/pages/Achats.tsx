@@ -4,6 +4,8 @@ import type { CSSProperties } from "react";
 
 import type { Session } from "../api";
 import ChampMontant from "../components/ChampMontant";
+import ModaleTousLesArticles from "../components/ModaleTousLesArticles";
+import { listerVariantesActives, type VarianteActive } from "../services/catalogue";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant } from "../lib/formatage";
@@ -63,6 +65,7 @@ import type { ColonneExport } from "../lib/export";
 import ModaleEcheancier from "../components/ModaleEcheancier";
 import FiltrePeriodeHistorique from "../components/FiltrePeriodeHistorique";
 import { bornesPeriode, dansPeriode, jourLocal, type PeriodeHistorique } from "../lib/periode";
+import { tuileFiltre } from "../lib/tuileFiltre";
 
 /**
  * Port de client-electron/src/pages/Achats.tsx, local d'abord (IndexedDB, voir
@@ -136,6 +139,12 @@ function FormulaireCommande({
     return () => clearTimeout(identifiant);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terme]);
+
+  // « ☰ Voir tout » : liste complète des articles, à cocher.
+  const [tousLesArticles, setTousLesArticles] = useState<VarianteActive[] | null>(null);
+  async function ouvrirTousLesArticles() {
+    setTousLesArticles(await listerVariantesActives(session.boutiqueId));
+  }
 
   function ajouterLigne(variante: VarianteAchat) {
     setLignes((actuel) => {
@@ -214,7 +223,7 @@ function FormulaireCommande({
           <button type="button" onClick={() => soumettre("brouillon")} disabled={enCours}>
             {enCours ? "Enregistrement…" : "Enregistrer en brouillon"}
           </button>
-          <button type="button" className="bouton-primaire" onClick={() => soumettre("commandee")} disabled={enCours}>
+          <button type="button" className="bouton-primaire bouton-enregistrer" onClick={() => soumettre("commandee")} disabled={enCours}>
             {enCours ? "Enregistrement…" : commandeAModifier ? "Enregistrer et commander" : "Créer et commander"}
           </button>
           <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
@@ -238,14 +247,23 @@ function FormulaireCommande({
               </select>
             </label>
 
-            <div className="recherche-commande-combobox">
+            <div className="recherche-commande-combobox recherche-mouvement-groupe">
               <input
-                placeholder="Rechercher un article à commander…"
+                placeholder="🔍 Rechercher un article à commander…"
                 value={terme}
                 onChange={(e) => setTerme(e.target.value)}
                 onFocus={() => setDropdownOuvert(true)}
                 onBlur={() => setDropdownOuvert(false)}
               />
+              <button
+                type="button"
+                className="bouton-tous-articles-entree"
+                title="Voir tous les articles et en cocher plusieurs"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={ouvrirTousLesArticles}
+              >
+                ☰ Voir tout
+              </button>
               {terme.trim() && dropdownOuvert && (
                 <ul className="resultats-recherche">
                   {resultats
@@ -339,6 +357,18 @@ function FormulaireCommande({
           </div>
         </div>
       </div>
+      {tousLesArticles && (
+        <ModaleTousLesArticles
+          articles={tousLesArticles}
+          dejaAjoutes={new Set(lignes.map((l) => l.varianteId))}
+          avecRecette={null}
+          onAjouter={(choisis) => {
+            choisis.forEach(ajouterLigne);
+            setTousLesArticles(null);
+          }}
+          onFermer={() => setTousLesArticles(null)}
+        />
+      )}
     </div>
   );
 }
@@ -585,7 +615,8 @@ const LIBELLES_ETAPE: Record<string, string> = {
   annulee: "❌ Commande annulée",
 };
 
-function DetailCommande({
+// Exporté aussi pour ouvrir une réception depuis Stock → Mouvements.
+export function DetailCommande({
   commandeId,
   session,
   fournisseurs,
@@ -1391,6 +1422,8 @@ function OngletCommandes({
   const [fournisseurs, setFournisseurs] = useState<FournisseurResume[]>([]);
   const [fournisseurNom, setFournisseurNom] = useState("");
   const [statut, setStatut] = useState<"a_traiter" | StatutCommande | "">("a_traiter");
+  // Carte « Reçu ce mois » : commandes dont une réception (non annulée) date de ce mois.
+  const [recuMoisSeulement, setRecuMoisSeulement] = useState(false);
   const [terme, setTerme] = useState("");
   const [commandes, setCommandes] = useState<CommandeResume[]>([]);
   const [receptions, setReceptions] = useState<ReceptionHistorique[]>([]);
@@ -1460,13 +1493,21 @@ function OngletCommandes({
   const recuMois = somme(
     receptions.filter((r) => !r.annulee && r.dateCreation >= debutMois.toISOString()).map((r) => r.valeurRecue),
   );
+  const idsRecusMois = new Set(
+    receptions.filter((r) => !r.annulee && r.dateCreation >= debutMois.toISOString()).map((r) => r.commandeId),
+  );
   const nomsFournisseurs = [...new Set(commandes.map((c) => c.fournisseurNom))].sort((a, b) => a.localeCompare(b, "fr"));
   const cle = terme.trim().toLowerCase();
   const rang = (c: CommandeResume) => (c.statut === "commandee" ? 0 : c.statut === "brouillon" ? 1 : 2);
+  const basculerStatut = (valeur: StatutCommande) => {
+    setRecuMoisSeulement(false);
+    setStatut(statut === valeur && !recuMoisSeulement ? "a_traiter" : valeur);
+  };
   const commandesFiltrees = commandes
     .filter(
       (c) =>
         (statut === "a_traiter" ? c.statut === "brouillon" || c.statut === "commandee" : !statut || c.statut === statut) &&
+        (!recuMoisSeulement || idsRecusMois.has(c.id)) &&
         (!fournisseurNom || c.fournisseurNom === fournisseurNom) &&
         (!cle || c.numero.toLowerCase().includes(cle)),
     )
@@ -1490,17 +1531,22 @@ function OngletCommandes({
         </div>
       )}
       <div className="tuiles-fiche">
-        <div className="tuile-fiche">
+        <div {...tuileFiltre(statut === "brouillon" && !recuMoisSeulement, () => basculerStatut("brouillon"))}>
           <span className="sous-info">📝 Brouillons</span>
           <strong>{brouillons.length}</strong>
         </div>
-        <div className="tuile-fiche">
+        <div {...tuileFiltre(statut === "commandee" && !recuMoisSeulement, () => basculerStatut("commandee"))}>
           <span className="sous-info">📨 À recevoir</span>
           <strong>
             {aRecevoir.length} · {somme(aRecevoir.map((c) => c.quantiteCommandee - c.quantiteRecue))} article(s)
           </strong>
         </div>
-        <div className="tuile-fiche">
+        <div
+          {...tuileFiltre(recuMoisSeulement, () => {
+            setStatut(recuMoisSeulement ? "a_traiter" : "");
+            setRecuMoisSeulement(!recuMoisSeulement);
+          })}
+        >
           <span className="sous-info">📥 Reçu ce mois</span>
           <strong>
             {formaterMontant(recuMois)} {devise}
@@ -1953,7 +1999,7 @@ function FormulaireFournisseursGroupe({
           <button type="button" onClick={onAnnuler}>
             Annuler
           </button>
-          <button type="submit" disabled={enCours}>
+          <button className="bouton-enregistrer" type="submit" disabled={enCours || lignes.length === 0}>
             {enCours ? "Enregistrement…" : `Enregistrer la liste (${lignes.length})`}
           </button>
           <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
@@ -2126,6 +2172,10 @@ function OngletFournisseurs({ session }: { session: Session }) {
     window.open(`https://wa.me/${numero}?text=${encodeURIComponent(texte)}`, "_blank", "noopener");
   }
 
+  // Cartes du haut : fournisseurs à qui on doit, avec un retard, ou chez qui on a reçu ce mois.
+  const [filtreCarte, setFiltreCarte] = useState<"du" | "retard" | "mois" | null>(null);
+  const basculerCarte = (valeur: "du" | "retard" | "mois") => setFiltreCarte(filtreCarte === valeur ? null : valeur);
+
   // Chiffres par fournisseur (commandes non annulées, dettes en cours).
   const stats = new Map<string, StatsFournisseur>();
   const statsDe = (nom: string) => {
@@ -2154,7 +2204,14 @@ function OngletFournisseurs({ session }: { session: Session }) {
   const somme = (valeurs: number[]) => valeurs.reduce((t, v) => t + v, 0);
 
   const cle = recherche.trim().toLowerCase();
+  const nomsAchatMois = new Set(
+    receptions.filter((r) => !r.annulee && r.dateCreation >= debutMois.toISOString()).map((r) => r.fournisseurNom),
+  );
+  const gardeCarte = (f: FournisseurResume) =>
+    !filtreCarte ||
+    (filtreCarte === "du" ? statsDe(f.nom).du > 0 : filtreCarte === "retard" ? statsDe(f.nom).retard : nomsAchatMois.has(f.nom));
   const fournisseursFiltres = fournisseurs
+    .filter(gardeCarte)
     .filter(
       (f) =>
         !cle ||
@@ -2174,21 +2231,21 @@ function OngletFournisseurs({ session }: { session: Session }) {
   return (
     <div className="liste-dettes-credits">
       <div className="tuiles-fiche">
-        <div className="tuile-fiche">
+        <div {...tuileFiltre(filtreCarte === null, () => setFiltreCarte(null))}>
           <span className="sous-info">🚚 Fournisseurs</span>
           <strong>{fournisseurs.length}</strong>
         </div>
-        <div className="tuile-fiche">
+        <div {...tuileFiltre(filtreCarte === "du", () => basculerCarte("du"))}>
           <span className="sous-info">💰 Total dû</span>
           <strong>
             {formaterMontant(somme(fournisseurs.map((f) => statsDe(f.nom).du)))} {devise}
           </strong>
         </div>
-        <div className={`tuile-fiche${avecRetard > 0 ? " tuile-fiche--alerte" : ""}`}>
+        <div {...tuileFiltre(filtreCarte === "retard", () => basculerCarte("retard"), avecRetard > 0 ? "tuile-fiche--alerte" : "")}>
           <span className="sous-info">🔴 Avec un retard</span>
           <strong>{avecRetard}</strong>
         </div>
-        <div className="tuile-fiche">
+        <div {...tuileFiltre(filtreCarte === "mois", () => basculerCarte("mois"))}>
           <span className="sous-info">📦 Acheté ce mois</span>
           <strong>
             {formaterMontant(acheteMois)} {devise}
@@ -3108,6 +3165,8 @@ function OngletDettes({ session }: { session: Session }) {
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
   const devise = useDevise();
   const [statut, setStatut] = useState<StatutDette | "">("en_cours");
+  // Carte « En retard » : seulement les dettes en cours dont une échéance est dépassée.
+  const [retardSeulement, setRetardSeulement] = useState(false);
   const [fournisseur, setFournisseur] = useState("");
   const [recherche, setRecherche] = useState("");
   const [dettes, setDettes] = useState<DetteResume[]>([]);
@@ -3137,6 +3196,7 @@ function OngletDettes({ session }: { session: Session }) {
     .filter(
       (d) =>
         (!statut || d.statut === statut) &&
+        (!retardSeulement || (d.statut === "en_cours" && !!d.prochaineEcheance?.enRetard)) &&
         (!fournisseur || d.fournisseurNom === fournisseur) &&
         (!cle || (d.commandeNumero ?? "").toLowerCase().includes(cle)),
     )
@@ -3167,11 +3227,16 @@ function OngletDettes({ session }: { session: Session }) {
             {formaterMontant(somme(enCours.map((d) => d.solde)))} {devise}
           </strong>
         </div>
-        <div className="tuile-fiche">
+        <div
+          {...tuileFiltre(statut === "en_cours" && !retardSeulement, () => {
+            setRetardSeulement(false);
+            setStatut(statut === "en_cours" && !retardSeulement ? "" : "en_cours");
+          })}
+        >
           <span className="sous-info">📄 Dettes en cours</span>
           <strong>{enCours.length}</strong>
         </div>
-        <div className={`tuile-fiche${enRetard > 0 ? " tuile-fiche--alerte" : ""}`}>
+        <div {...tuileFiltre(retardSeulement, () => setRetardSeulement(!retardSeulement), enRetard > 0 ? "tuile-fiche--alerte" : "")}>
           <span className="sous-info">🔴 En retard</span>
           <strong>{enRetard}</strong>
         </div>
@@ -3430,7 +3495,7 @@ function ModaleRetourFournisseur({
           <div className="modale-entete entete-fixe">
             <h3>Retour fournisseur</h3>
             <div className="actions-formulaire">
-              <button type="submit" className="bouton-primaire" disabled={enCours || aRetourner.length === 0 || invalide}>
+              <button type="submit" className="bouton-primaire bouton-enregistrer" disabled={enCours || aRetourner.length === 0 || invalide}>
                 {enCours ? "Enregistrement…" : "Valider le retour"}
               </button>
               <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
@@ -3937,6 +4002,8 @@ export function ModaleHistoriqueAchats({
   const [fournisseur, setFournisseur] = useState("");
   const [recherche, setRecherche] = useState("");
   const [statut, setStatut] = useState<StatutCommande | "">("");
+  // Carte « Annulées » de la section Réceptions.
+  const [receptionsAnnulees, setReceptionsAnnulees] = useState(false);
   const [commandeOuverteId, setCommandeOuverteId] = useState<string | null>(null);
   const [receptionOuverte, setReceptionOuverte] = useState<ReceptionHistorique | null>(null);
   const [fournisseurPaiements, setFournisseurPaiements] = useState<string | null>(null);
@@ -3962,7 +4029,7 @@ export function ModaleHistoriqueAchats({
   const commandesFiltrees = historique.commandes.filter(
     (c) => (c.statut === "recue" || c.statut === "annulee") && garder(c) && (!statut || c.statut === statut),
   );
-  const receptionsFiltrees = historique.receptions.filter(garder);
+  const receptionsFiltrees = historique.receptions.filter((r) => garder(r) && (!receptionsAnnulees || r.annulee));
   const paiementsFiltres = historique.paiements.filter(garder);
   const retoursFiltres = historique.retours.filter(garder);
 
@@ -4027,6 +4094,17 @@ export function ModaleHistoriqueAchats({
   const montant = (v: number) => `${formaterMontant(v)} ${devise}`;
   const receptionsValides = receptionsFiltrees.filter((r) => !r.annulee);
   const paiementsValides = paiementsFiltres.filter((x) => !x.annulee);
+  // Cartes qui filtrent : « Commandes » / « Réceptions » (tout) et « Annulées » ; les autres restent informatives.
+  function proprietesTuileHistorique(libelle: string) {
+    if (section === "commandes" && libelle === "🧾 Commandes") return tuileFiltre(!statut, () => setStatut(""));
+    if (section === "commandes" && libelle === "❌ Annulées")
+      return tuileFiltre(statut === "annulee", () => setStatut(statut === "annulee" ? "" : "annulee"));
+    if (section === "receptions" && libelle === "📥 Réceptions")
+      return tuileFiltre(!receptionsAnnulees, () => setReceptionsAnnulees(false));
+    if (section === "receptions" && libelle === "❌ Annulées")
+      return tuileFiltre(receptionsAnnulees, () => setReceptionsAnnulees(!receptionsAnnulees));
+    return { className: "tuile-fiche" };
+  }
   const tuilesSection: [string, string][] =
     section === "commandes"
       ? [
@@ -4284,7 +4362,7 @@ export function ModaleHistoriqueAchats({
             </div>
             <div className="tuiles-fiche">
               {tuilesSection.map(([libelle, valeur]) => (
-                <div key={libelle} className="tuile-fiche">
+                <div key={libelle} {...proprietesTuileHistorique(libelle)}>
                   <span className="sous-info">{libelle}</span>
                   <strong>{valeur}</strong>
                 </div>

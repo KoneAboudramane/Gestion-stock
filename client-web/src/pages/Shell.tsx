@@ -3,7 +3,13 @@ import { useEffect, useState } from "react";
 import type { Session } from "../api";
 import { listerFournisseurs } from "../services/achats";
 import { enregistrerReleveDormants, type Periode } from "../services/rapports";
-import { compterNotificationsNonLues, genererAlertesAbonnement, genererAlertesDestockage } from "../services/notifications";
+import {
+  compterNotificationsNonLues,
+  genererAlertesAbonnement,
+  genererAlertesDestockage,
+  genererAlertesDoublons,
+} from "../services/notifications";
+import { attribuerReferencesManquantes } from "../services/produits";
 import type { LigneAchatInitiale } from "../services/stock";
 import Accueil from "./Accueil";
 import Achats from "./Achats";
@@ -24,6 +30,7 @@ import Ventes from "./Ventes";
 import { fabricationPropreActive } from "../services/stock";
 import { zoneAccessible } from "../lib/acces";
 import BandeauAbonnement from "../components/BandeauAbonnement";
+import IndicateurSynchro from "../components/IndicateurSynchro";
 import ModaleAbonnement from "../components/ModaleAbonnement";
 
 const ZONES = [
@@ -46,6 +53,18 @@ const ZONES = [
 
 export type Zone = (typeof ZONES)[number]["cle"] | "accueil";
 
+const ZONES_CONNUES = new Set<string>(["accueil", ...ZONES.map((z) => z.cle)]);
+
+/**
+ * La page affichée est inscrite dans l'adresse (« #/stock ») : actualiser la page
+ * (F5) recharge la même page au lieu de revenir à l'Accueil, et les boutons
+ * Précédent / Suivant du navigateur passent d'une page à l'autre.
+ */
+function zoneDepuisAdresse(): Zone {
+  const cle = decodeURIComponent(window.location.hash.replace(/^#\/?/, ""));
+  return ZONES_CONNUES.has(cle) ? (cle as Zone) : "accueil";
+}
+
 export default function Shell({
   session,
   onDeconnexion,
@@ -55,7 +74,23 @@ export default function Shell({
   onDeconnexion: () => void;
   onVerrouiller: () => void;
 }) {
-  const [zone, setZone] = useState<Zone>("accueil");
+  const [zone, setZone] = useState<Zone>(zoneDepuisAdresse);
+  // Page changée → nouvelle entrée d'historique (seulement si l'adresse diffère déjà).
+  useEffect(() => {
+    if (zoneDepuisAdresse() === zone) return;
+    const { pathname, search } = window.location;
+    window.history.pushState(null, "", zone === "accueil" ? `${pathname}${search}` : `${pathname}${search}#/${zone}`);
+  }, [zone]);
+  // Précédent / Suivant du navigateur, ou adresse modifiée à la main.
+  useEffect(() => {
+    const surNavigation = () => setZone(zoneDepuisAdresse());
+    window.addEventListener("popstate", surNavigation);
+    window.addEventListener("hashchange", surNavigation);
+    return () => {
+      window.removeEventListener("popstate", surNavigation);
+      window.removeEventListener("hashchange", surNavigation);
+    };
+  }, []);
   const [abonnementOuvert, setAbonnementOuvert] = useState(false);
   const [barreReduite, setBarreReduite] = useState(() => localStorage.getItem("gs_barre_laterale_reduite") === "1");
   const zonesAccessibles = ZONES.filter((z) => zoneAccessible(z.cle, session.permissions));
@@ -122,6 +157,10 @@ export default function Shell({
   // Après chaque rafraîchissement de la session : l'échéance vient peut-être d'arriver du serveur.
   useEffect(() => {
     genererAlertesAbonnement(session.boutiqueId).catch(() => {});
+    // Articles en double déjà présents (anciens, venus d'un autre poste, réinstallation).
+    genererAlertesDoublons(session.boutiqueId).catch(() => {});
+    // Anciens articles créés avant la référence automatique.
+    attribuerReferencesManquantes(session.boutiqueId).catch(() => {});
   }, [session]);
 
   function naviguer(cible: string) {
@@ -237,6 +276,7 @@ export default function Shell({
             <span className="sous-info"> · {session.username} ({session.role})</span>
           </div>
           <div className="entete-droite">
+            <IndicateurSynchro session={session} />
             <button
               type="button"
               className="lien-deconnexion lien-deconnexion-entete bouton-verrouiller-entete"

@@ -98,7 +98,7 @@ function formaterDateSynchro(iso: string | null): string {
 }
 
 /** Noms lisibles des types de données synchronisés. */
-const LIBELLES_TABLES_SYNCHRO: Record<string, string> = {
+export const LIBELLES_TABLES_SYNCHRO: Record<string, string> = {
   "comptes.Boutique": "Boutique",
   "catalogue.Categorie": "Catégories",
   "catalogue.Unite": "Unités",
@@ -1302,7 +1302,7 @@ function OngletUtilisateursRoles({ session }: { session: Session }) {
                 </span>
               </div>
               <div className="zone-tableau-scroll zone-commandes-fiche">
-                <table className="tableau-catalogue">
+                <table className="tableau-catalogue carte-mobile">
                   <thead>
                     <tr>
                       <th>N°</th>
@@ -1329,15 +1329,15 @@ function OngletUtilisateursRoles({ session }: { session: Session }) {
                     )}
                     {Array.from({ length: Math.max(0, 10 - Math.max(1, utilisateurs.length)) }).map((_, i) => (
                       <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
-                        <td>&nbsp;</td>
+                        <td data-label="N°">&nbsp;</td>
+                        <td data-label="Utilisateur">&nbsp;</td>
+                        <td data-label="Code">&nbsp;</td>
+                        <td data-label="Nom">&nbsp;</td>
+                        <td data-label="Téléphone">&nbsp;</td>
+                        <td data-label="Rôle">&nbsp;</td>
+                        <td data-label="Dépôt">&nbsp;</td>
+                        <td data-label="Statut">&nbsp;</td>
+                        <td data-label="Actions">&nbsp;</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1586,7 +1586,7 @@ function OngletUnites({ session }: { session: Session }) {
       )}
       {erreur && <div className="message-erreur">{erreur}</div>}
       <div className="zone-tableau-scroll zone-commandes-fiche">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>Unité</th>
@@ -1599,14 +1599,14 @@ function OngletUnites({ session }: { session: Session }) {
             {unites.map((u) =>
               enEditionId === u.id ? (
                 <tr key={u.id}>
-                  <td>
+                  <td data-label="Unité">
                     <input value={nomEdition} onChange={(e) => setNomEdition(e.target.value)} autoFocus />
                   </td>
-                  <td>
+                  <td data-label="Abréviation">
                     <input value={abreviationEdition} onChange={(e) => setAbreviationEdition(e.target.value)} style={{ width: "100px" }} />
                   </td>
-                  <td>{usages?.unites[u.id] ?? 0}</td>
-                  <td>
+                  <td data-label="Articles qui l'utilisent">{usages?.unites[u.id] ?? 0}</td>
+                  <td data-label="Actions">
                     <span className="actions-ligne">
                       <button type="button" onClick={() => setEnEditionId(null)}>
                         Annuler
@@ -1619,11 +1619,11 @@ function OngletUnites({ session }: { session: Session }) {
                 </tr>
               ) : (
                 <tr key={u.id}>
-                  <td>{u.nom}</td>
-                  <td>{u.abreviation || "—"}</td>
-                  <td>{usages ? (usages.unites[u.id] ?? 0) : "…"}</td>
+                  <td data-label="Unité">{u.nom}</td>
+                  <td data-label="Abréviation">{u.abreviation || "—"}</td>
+                  <td data-label="Articles qui l'utilisent">{usages ? (usages.unites[u.id] ?? 0) : "…"}</td>
                   {peutGerer && (
-                    <td>
+                    <td data-label="Actions">
                       <span className="actions-ligne">
                         <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(u)}>
                           ✎
@@ -1821,7 +1821,7 @@ function OngletAttributs({ session }: { session: Session }) {
         pour en ajouter, un clic sur une valeur pour la renommer, × pour la retirer.
       </p>
       <div className="zone-tableau-scroll zone-commandes-fiche">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>Attribut</th>
@@ -1834,12 +1834,12 @@ function OngletAttributs({ session }: { session: Session }) {
             {attributs.map((a) =>
               enEditionId === a.id ? (
                 <tr key={a.id}>
-                  <td>
+                  <td data-label="Attribut">
                     <input value={nomEdition} onChange={(e) => setNomEdition(e.target.value)} autoFocus />
                   </td>
-                  <td>{(valeurs[a.id] ?? []).map((v) => v.valeur).join(", ") || "—"}</td>
-                  <td>{usages?.attributs[a.id] ?? 0}</td>
-                  <td>
+                  <td data-label="Valeurs">{(valeurs[a.id] ?? []).map((v) => v.valeur).join(", ") || "—"}</td>
+                  <td data-label="Articles qui l'utilisent">{usages?.attributs[a.id] ?? 0}</td>
+                  <td data-label="Actions">
                     <span className="actions-ligne">
                       <button type="button" onClick={() => setEnEditionId(null)}>
                         Annuler
@@ -1852,8 +1852,8 @@ function OngletAttributs({ session }: { session: Session }) {
                 </tr>
               ) : (
                 <tr key={a.id}>
-                  <td>{a.nom}</td>
-                  <td>
+                  <td data-label="Attribut">{a.nom}</td>
+                  <td data-label="Valeurs">
                     <span className="pastilles-valeurs">
                       {(valeurs[a.id] ?? []).map((v) =>
                         valeurEdition?.id === v.id ? (
@@ -1898,9 +1898,9 @@ function OngletAttributs({ session }: { session: Session }) {
                       )}
                     </span>
                   </td>
-                  <td>{usages ? (usages.attributs[a.id] ?? 0) : "…"}</td>
+                  <td data-label="Articles qui l'utilisent">{usages ? (usages.attributs[a.id] ?? 0) : "…"}</td>
                   {peutGerer && (
-                    <td>
+                    <td data-label="Actions">
                       <span className="actions-ligne">
                         <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(a)}>
                           ✎
@@ -2096,7 +2096,7 @@ function OngletDepots({ session }: { session: Session }) {
         </div>
       )}
       <div className="zone-tableau-scroll zone-commandes-fiche">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>Dépôt</th>
@@ -2111,16 +2111,16 @@ function OngletDepots({ session }: { session: Session }) {
             {depots.map((d) =>
               enEditionId === d.id ? (
                 <tr key={d.id}>
-                  <td>
+                  <td data-label="Dépôt">
                     <input value={nomEdition} onChange={(e) => setNomEdition(e.target.value)} autoFocus />
                   </td>
-                  <td>
+                  <td data-label="Adresse">
                     <input value={adresseEdition} onChange={(e) => setAdresseEdition(e.target.value)} />
                   </td>
-                  <td>{statsDepots[d.id]?.articles ?? 0}</td>
-                  <td className="nowrap">{formaterMontant(statsDepots[d.id]?.valeur ?? 0)} {devise}</td>
-                  <td>{utilisateursParDepot === null ? "—" : (utilisateursParDepot[d.id] ?? 0)}</td>
-                  <td>
+                  <td data-label="Articles en stock">{statsDepots[d.id]?.articles ?? 0}</td>
+                  <td data-label="Valeur du stock" className="nowrap">{formaterMontant(statsDepots[d.id]?.valeur ?? 0)} {devise}</td>
+                  <td data-label="Utilisateurs">{utilisateursParDepot === null ? "—" : (utilisateursParDepot[d.id] ?? 0)}</td>
+                  <td data-label="Actions">
                     <span className="actions-ligne">
                       <button type="button" onClick={() => setEnEditionId(null)}>
                         Annuler
@@ -2133,15 +2133,15 @@ function OngletDepots({ session }: { session: Session }) {
                 </tr>
               ) : (
                 <tr key={d.id}>
-                  <td>{d.nom}</td>
-                  <td>{d.adresse || "—"}</td>
-                  <td>{statsDepots[d.id] ? statsDepots[d.id].articles : "…"}</td>
-                  <td className="nowrap">{statsDepots[d.id] ? `${formaterMontant(statsDepots[d.id].valeur)} ${devise}` : "…"}</td>
-                  <td title={utilisateursParDepot === null ? "Connexion internet nécessaire" : undefined}>
+                  <td data-label="Dépôt">{d.nom}</td>
+                  <td data-label="Adresse">{d.adresse || "—"}</td>
+                  <td data-label="Articles en stock">{statsDepots[d.id] ? statsDepots[d.id].articles : "…"}</td>
+                  <td data-label="Valeur du stock" className="nowrap">{statsDepots[d.id] ? `${formaterMontant(statsDepots[d.id].valeur)} ${devise}` : "…"}</td>
+                  <td data-label="Utilisateurs" title={utilisateursParDepot === null ? "Connexion internet nécessaire" : undefined}>
                     {utilisateursParDepot === null ? "—" : (utilisateursParDepot[d.id] ?? 0)}
                   </td>
                   {peutGerer && (
-                    <td>
+                    <td data-label="Actions">
                       <span className="actions-ligne">
                         <button type="button" className="lien-icone" title="Modifier" onClick={() => commencerEdition(d)}>
                           ✎
@@ -2480,7 +2480,7 @@ function OngletSynchronisation({ session }: { session: Session }) {
         </span>
       </div>
       <div className="zone-tableau-scroll zone-commandes-fiche">
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>Type de données</th>
@@ -2490,8 +2490,8 @@ function OngletSynchronisation({ session }: { session: Session }) {
           <tbody>
             {(enAttente ?? []).map((l) => (
               <tr key={l.table}>
-                <td>{LIBELLES_TABLES_SYNCHRO[l.table] ?? l.table}</td>
-                <td>{l.nombre}</td>
+                <td data-label="Type de données">{LIBELLES_TABLES_SYNCHRO[l.table] ?? l.table}</td>
+                <td data-label="Changements en attente">{l.nombre}</td>
               </tr>
             ))}
             {enAttente !== null && enAttente.length === 0 && (

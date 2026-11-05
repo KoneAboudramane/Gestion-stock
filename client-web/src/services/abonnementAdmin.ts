@@ -1,3 +1,4 @@
+import type { AbonnementDetail } from "../api/comptes";
 import { estErreurReseau } from "../api/authHorsLigne";
 import { ErreurApi, apiFetch, extraireMessageErreur } from "../api/transport";
 import { ouvrirBaseDeDonnees } from "../db";
@@ -18,6 +19,7 @@ export interface AbonnementBoutique {
   formule: string;
   dateExpirationAbonnement: string | null;
   synchroAutorisee: boolean;
+  reseauAutorise: boolean;
 }
 
 export async function obtenirBoutiqueInstallee(): Promise<AbonnementBoutique | null> {
@@ -30,6 +32,7 @@ export async function obtenirBoutiqueInstallee(): Promise<AbonnementBoutique | n
     formule: boutique.formule,
     dateExpirationAbonnement: boutique.date_expiration_abonnement,
     synchroAutorisee: Boolean(boutique.synchro_autorisee),
+    reseauAutorise: Boolean(boutique.reseau_autorise),
   };
 }
 
@@ -37,6 +40,8 @@ export interface ChampsAbonnement {
   formule?: string;
   dateExpirationAbonnement?: string | null;
   synchroAutorisee?: boolean;
+  /** Réseau de la boutique (ordinateurs reliés sans internet, application de bureau). */
+  reseauAutorise?: boolean;
   /** Inscrits au registre des abonnements avec la nouvelle période (voir comptes/views.py::AppliquerAbonnementView). */
   nature?: "paiement" | "offert" | "ajustement";
   montant?: number;
@@ -63,6 +68,8 @@ async function appliquerLocalement(boutiqueId: string, champs: ChampsAbonnement)
       champs.dateExpirationAbonnement !== undefined ? champs.dateExpirationAbonnement : boutique.date_expiration_abonnement,
     synchro_autorisee:
       champs.synchroAutorisee !== undefined ? (champs.synchroAutorisee ? 1 : 0) : boutique.synchro_autorisee,
+    reseau_autorise:
+      champs.reseauAutorise !== undefined ? (champs.reseauAutorise ? 1 : 0) : boutique.reseau_autorise,
   });
 }
 
@@ -95,6 +102,76 @@ function effacerEnAttente(): void {
 
 export type ResultatAbonnement = { statut: "synchronise" } | { statut: "horsLigne" };
 
+/** Espace Admin → Gérer abonnement (comptes/views.py::AdminAbonnementBoutiqueView). */
+export type AbonnementDetailAdmin = Omit<AbonnementDetail, "demandes"> & {
+  demandes: (AbonnementDetail["demandes"][number] & { id?: string })[];
+  boutique: {
+    id: string;
+    nom: string;
+    formule: string;
+    date_expiration_abonnement: string | null;
+    synchro_autorisee: boolean;
+    reseau_autorise: boolean;
+    actif: boolean;
+  };
+  paiements_en_attente: number;
+  code: string | null;
+};
+
+/** Détail lu sur le serveur ; valider / rejeter un paiement déclaré ; code d'activation (internet nécessaire). */
+export async function detailAbonnementAdmin(
+  username: string,
+  password: string,
+  boutiqueId: string,
+  action?: "valider" | "rejeter" | "code",
+  params: { demandeId?: string; motif?: string } = {},
+): Promise<{ succes: true; resultat: AbonnementDetailAdmin } | { succes: false; message: string }> {
+  try {
+    const reponse = await apiFetch("/auth/abonnement-boutique/", {
+      method: "POST",
+      body: JSON.stringify({
+        username,
+        password,
+        boutique_id: boutiqueId,
+        ...(action ? { action } : {}),
+        ...(params.demandeId ? { demande_id: params.demandeId } : {}),
+        ...(params.motif ? { motif: params.motif } : {}),
+      }),
+    });
+    if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
+    return { succes: true, resultat: await reponse.json() };
+  } catch (e) {
+    return { succes: false, message: e instanceof Error ? e.message : "Serveur injoignable." };
+  }
+}
+
+/** Espace Admin → Réseau de la boutique (comptes/views.py::AdminReseauBoutiqueView). */
+export interface EtatReseauAdmin {
+  reseau_autorise: boolean;
+  demandes: {
+    date: string;
+    demandeur: string;
+    note: string;
+    statut: "en_attente" | "acceptee" | "refusee";
+    statut_libelle: string;
+    date_traitement: string | null;
+  }[];
+}
+
+export async function etatReseauAdmin(
+  username: string,
+  password: string,
+  boutiqueId: string,
+  action?: "refuser",
+): Promise<EtatReseauAdmin> {
+  const reponse = await apiFetch("/auth/reseau-boutique/", {
+    method: "POST",
+    body: JSON.stringify({ username, password, boutique_id: boutiqueId, ...(action ? { action } : {}) }),
+  });
+  if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
+  return reponse.json();
+}
+
 /**
  * Tente toujours le serveur d'abord (identifiants admin revérifiés là-bas,
  * voir comptes/views.py::AppliquerAbonnementView) et n'écrit "en attente"
@@ -122,6 +199,7 @@ export async function soumettreAbonnement(
           ? { date_expiration_abonnement: champs.dateExpirationAbonnement }
           : {}),
         ...(champs.synchroAutorisee !== undefined ? { synchro_autorisee: champs.synchroAutorisee } : {}),
+        ...(champs.reseauAutorise !== undefined ? { reseau_autorise: champs.reseauAutorise } : {}),
         ...(champs.nature ? { nature: champs.nature } : {}),
         ...(champs.montant ? { montant: champs.montant } : {}),
         ...(champs.mode ? { mode: champs.mode } : {}),
@@ -135,7 +213,12 @@ export async function soumettreAbonnement(
   } catch (erreur) {
     if (!estErreurReseau(erreur)) throw erreur;
     await appliquerLocalement(boutiqueId, champs);
-    enregistrerEnAttente({ boutiqueId, boutiqueNom, champs });
+    const precedente = lireAbonnementEnAttente();
+    enregistrerEnAttente({
+      boutiqueId,
+      boutiqueNom,
+      champs: precedente?.boutiqueId === boutiqueId ? { ...precedente.champs, ...champs } : champs,
+    });
     return { statut: "horsLigne" };
   }
 }

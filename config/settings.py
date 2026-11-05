@@ -16,7 +16,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 # ATTENTION : à remplacer par une vraie clé secrète en production (DJANGO_SECRET_KEY).
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-a-remplacer-en-production")
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-a-remplacer-en-production-cle-locale-uniquement")
 DEBUG = os.environ.get("DJANGO_DEBUG", "True") == "True"
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "*").split(",")
 
@@ -25,7 +25,7 @@ ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "*").split(",")
 # Vide par défaut : rien n'est autorisé tant que ce n'est pas explicitement configuré.
 CORS_ALLOWED_ORIGINS = [o for o in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",") if o]
 
-if not DEBUG and SECRET_KEY == "dev-a-remplacer-en-production":
+if not DEBUG and SECRET_KEY == "dev-a-remplacer-en-production-cle-locale-uniquement":
     raise ImproperlyConfigured(
         "DJANGO_SECRET_KEY doit être défini (variable d'environnement) dès que DJANGO_DEBUG=False."
     )
@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     "synchronisation",
     "rapports",
     "comptabilite",
+    "administration",  # site d'administration (client-admin)
 
     # Phase 2 (squelette, adaptateurs simulés)
     "paiements",
@@ -182,6 +183,10 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+    # Limites appliquées seulement aux vues qui les demandent (ScopedRateThrottle).
+    "DEFAULT_THROTTLE_RATES": {
+        "admin_connexion": "10/min",  # connexion du site d'administration
+    },
 }
 
 # Durées de vie généreuses : le client Electron fonctionne hors-ligne longtemps
@@ -190,6 +195,8 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=12),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
     "ROTATE_REFRESH_TOKENS": True,
+    # Date de dernière connexion en ligne, affichée aux administrateurs (comptes des boutiques).
+    "UPDATE_LAST_LOGIN": True,
 }
 
 # --- Durcissement production (uniquement si DEBUG=False) ---

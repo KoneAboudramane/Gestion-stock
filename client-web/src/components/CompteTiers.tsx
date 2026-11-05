@@ -386,7 +386,7 @@ export function PanneauCompte({
 
       {vueTout ? (
       <div className={`zone-tableau-scroll ${classeZone}`}>
-        <table className="tableau-catalogue tableau-grille-journee">
+        <table className="tableau-catalogue carte-mobile tableau-grille-journee">
           <thead>
             <tr>
               <th>Date</th>
@@ -401,17 +401,17 @@ export function PanneauCompte({
           <tbody>
             {lignesTout.map((o) => (
               <tr key={o.id}>
-                <td className="nowrap" title={new Date(o.date).toLocaleString("fr-FR")}>
+                <td data-label="Date" className="nowrap" title={new Date(o.date).toLocaleString("fr-FR")}>
                   {new Date(o.date).toLocaleDateString("fr-FR")}
                 </td>
-                <td className="nowrap">{o.operation}</td>
-                <td>{o.detail}</td>
-                <td>{o.mode}</td>
-                <td className="nowrap">{formaterMontant(o.montant)}</td>
-                <td className={`nowrap ${o.effet > 0 ? "montant-entree" : o.effet < 0 ? "montant-sortie" : ""}`}>
+                <td data-label="Opération" className="nowrap">{o.operation}</td>
+                <td data-label="Détail">{o.detail}</td>
+                <td data-label="Paiement">{o.mode}</td>
+                <td data-label="Montant" className="nowrap">{formaterMontant(o.montant)}</td>
+                <td data-label="Effet" className={`nowrap ${o.effet > 0 ? "montant-entree" : o.effet < 0 ? "montant-sortie" : ""}`}>
                   {o.effet > 0 ? `+${formaterMontant(o.effet)}` : o.effet < 0 ? `−${formaterMontant(-o.effet)}` : "—"}
                 </td>
-                <td className="nowrap">
+                <td data-label="Position" className="nowrap">
                   <strong className={o.positionApres < 0 ? "montant-sortie" : undefined}>
                     {Math.round(o.positionApres) === 0 ? "Soldé" : texteMontant(o.positionApres)}
                   </strong>
@@ -427,13 +427,13 @@ export function PanneauCompte({
             )}
             {Array.from({ length: Math.max(0, 10 - Math.max(1, lignesTout.length)) }).map((_, i) => (
               <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
+                <td data-label="Date">&nbsp;</td>
+                <td data-label="Opération">&nbsp;</td>
+                <td data-label="Détail">&nbsp;</td>
+                <td data-label="Paiement">&nbsp;</td>
+                <td data-label="Montant">&nbsp;</td>
+                <td data-label="Effet">&nbsp;</td>
+                <td data-label="Position">&nbsp;</td>
               </tr>
             ))}
           </tbody>
@@ -441,7 +441,7 @@ export function PanneauCompte({
       </div>
       ) : (
       <div className={`zone-tableau-scroll ${classeZone}`}>
-        <table className="tableau-catalogue tableau-grille-journee">
+        <table className="tableau-catalogue carte-mobile tableau-grille-journee">
           <thead>
             <tr>
               <th>Date</th>
@@ -456,15 +456,15 @@ export function PanneauCompte({
           <tbody>
             {lignes.map((m) => (
               <tr key={m.id} title={m.utilisateurId ? `Par ${nomUtilisateur(m.utilisateurId)}` : undefined}>
-                <td className="nowrap" title={new Date(m.dateCreation).toLocaleString("fr-FR")}>
+                <td data-label="Date" className="nowrap" title={new Date(m.dateCreation).toLocaleString("fr-FR")}>
                   {new Date(m.dateCreation).toLocaleDateString("fr-FR")}
                 </td>
-                <td className="nowrap">{LIBELLES_OPERATION[genre][m.type] ?? m.type}</td>
-                <td>{detail(m)}</td>
-                <td className="nowrap">{libelleMode(m.mode, m.operateur)}</td>
-                <td className="nowrap montant-entree">{m.montant > 0 ? `+${formaterMontant(m.montant)}` : ""}</td>
-                <td className="nowrap montant-sortie">{m.montant < 0 ? `−${formaterMontant(-m.montant)}` : ""}</td>
-                <td className="nowrap">
+                <td data-label="Opération" className="nowrap">{LIBELLES_OPERATION[genre][m.type] ?? m.type}</td>
+                <td data-label="Détail">{detail(m)}</td>
+                <td data-label="Mode" className="nowrap">{libelleMode(m.mode, m.operateur)}</td>
+                <td data-label="Entrée" className="nowrap montant-entree">{m.montant > 0 ? `+${formaterMontant(m.montant)}` : ""}</td>
+                <td data-label="Sortie" className="nowrap montant-sortie">{m.montant < 0 ? `−${formaterMontant(-m.montant)}` : ""}</td>
+                <td data-label="Solde" className="nowrap">
                   <strong>
                     {formaterMontant(m.soldeApres)} {devise}
                   </strong>
@@ -484,13 +484,13 @@ export function PanneauCompte({
             )}
             {Array.from({ length: Math.max(0, 10 - Math.max(1, lignes.length)) }).map((_, i) => (
               <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
+                <td data-label="Date">&nbsp;</td>
+                <td data-label="Opération">&nbsp;</td>
+                <td data-label="Détail">&nbsp;</td>
+                <td data-label="Mode">&nbsp;</td>
+                <td data-label="Entrée">&nbsp;</td>
+                <td data-label="Sortie">&nbsp;</td>
+                <td data-label="Solde">&nbsp;</td>
               </tr>
             ))}
           </tbody>

@@ -12,6 +12,7 @@ import { bornesPeriode, dansPeriode, jourLocal, type PeriodeHistorique } from ".
 import type { ColonneExport } from "../api/client";
 import { formaterMontant } from "../lib/formatage";
 import { CATEGORIES_DEPENSE, libelleCategorieDepense } from "../lib/libelles";
+import { tuileFiltre } from "../lib/tuileFiltre";
 
 /**
  * Dépenses de caisse (transport, réparation, achat divers...) — accessible à
@@ -101,7 +102,7 @@ function ModaleHistoriqueDepenses({
                 {formaterMontant(total)} {devise}
               </strong>
             </div>
-            <div className="tuile-fiche">
+            <div {...tuileFiltre(!type, () => setType(""))}>
               <span className="sous-info">🧾 Dépenses</span>
               <strong>{filtrees.length}</strong>
             </div>
@@ -111,7 +112,13 @@ function ModaleHistoriqueDepenses({
                 {formaterMontant(filtrees.length > 0 ? Math.round(total / filtrees.length) : 0)} {devise}
               </strong>
             </div>
-            <div className="tuile-fiche">
+            <div
+              {...(parType[0] || type
+                ? tuileFiltre(!!type && type === parType[0]?.libelle, () =>
+                    setType(type && type === parType[0]?.libelle ? "" : (parType[0]?.libelle ?? "")),
+                  )
+                : { className: "tuile-fiche" })}
+            >
               <span className="sous-info">🏷️ Type le plus coûteux</span>
               <strong>{parType[0] ? `${parType[0].libelle} (${formaterMontant(parType[0].total)})` : "—"}</strong>
             </div>

@@ -61,6 +61,26 @@ export async function enregistrerIdentifiantLocal(username: string, motDePasse: 
   localStorage.setItem(CLE_IDENTIFIANTS, JSON.stringify(identifiants));
 }
 
+/** Nouveau mot de passe dans le cache de cet appareil (connexion sans internet), si le compte y est connu. */
+export async function reinitialiserIdentifiantLocal(username: string, motDePasse: string, doitChanger: boolean): Promise<boolean> {
+  const identifiants = chargerIdentifiants();
+  const actuel = identifiants[username];
+  if (!actuel) return false;
+  const sel = genererSel();
+  identifiants[username] = {
+    sel,
+    hash: await hacherMotDePasse(motDePasse, sel),
+    session: { ...actuel.session, doitChangerMotDePasse: doitChanger || undefined },
+  };
+  localStorage.setItem(CLE_IDENTIFIANTS, JSON.stringify(identifiants));
+  return true;
+}
+
+/** Comptes connus de cet appareil (Espace Admin sans internet). */
+export function listerIdentifiantsLocaux(): { username: string; session: Session }[] {
+  return Object.entries(chargerIdentifiants()).map(([username, entree]) => ({ username, session: entree.session }));
+}
+
 export type ResultatVerificationLocale =
   | { statut: "ok"; session: Session }
   | { statut: "absent" }

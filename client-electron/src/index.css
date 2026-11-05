@@ -1458,7 +1458,10 @@ input[type="number"]::-webkit-outer-spin-button {
   align-items: center;
   border-bottom: 1px solid var(--gris-200);
   position: relative;
-  z-index: 1;
+  /* Au-dessus du contenu des pages (tableaux collants, cartes : niveau 10 max)
+     pour que le panneau « En ligne / Synchronisation » passe devant, mais sous
+     les fenêtres modales (niveau 50). */
+  z-index: 40;
 }
 
 .entete-gauche {
@@ -3571,12 +3574,20 @@ input.champ-invalide:focus {
   background: var(--succes-fonce);
 }
 
+/* Historique des ventes : recherche aussi visible que celle des autres historiques. */
 .barre-actions .champ-recherche-ventes {
   flex: 1;
-  min-width: 80px;
-  max-width: 260px;
-  font-size: 0.8rem;
-  padding: 0.4rem 0.6rem;
+  min-width: 220px;
+  max-width: none;
+  height: 38px;
+  font-size: 0.95rem;
+  padding: 0 0.8rem;
+  border: 2px solid color-mix(in srgb, var(--couleur-primaire), transparent 50%);
+  border-radius: var(--rayon-md, 8px);
+}
+
+.barre-actions .champ-recherche-ventes:focus {
+  border-color: var(--couleur-primaire);
 }
 
 .barre-actions .champ-recherche-stock {
@@ -6023,9 +6034,21 @@ button.tuile-dormance.active {
 }
 
 /* Stock → Historique → Transferts : recherche d'article dans la barre de filtres. */
+/* Historiques : la recherche prend la place libre de la barre et se voit bien. */
 .barre-filtres-historique input[type="search"] {
-  width: 180px;
-  margin-left: auto;
+  flex: 1;
+  min-width: 220px;
+  width: auto;
+  margin-left: 0;
+  height: 38px;
+  padding: 0 0.8rem;
+  font-size: 0.95rem;
+  border: 2px solid color-mix(in srgb, var(--couleur-primaire), transparent 50%);
+  border-radius: var(--rayon-md, 8px);
+}
+
+.barre-filtres-historique input[type="search"]:focus {
+  border-color: var(--couleur-primaire);
 }
 
 /* Stock → Historique (et autres modales à menu latéral) : filtres, note et totaux
@@ -6404,7 +6427,7 @@ button.tuile-dormance.active {
 }
 
 .modale-avec-menu .barre-filtres-historique input[type="search"] {
-  width: 140px;
+  min-width: 180px;
 }
 
 /* Page Stock : quantité proche du seuil, tuile « à surveiller ». */
@@ -7143,24 +7166,25 @@ tr.ligne-annulee td {
   text-overflow: ellipsis;
 }
 
-/* Bouton « Vente au détail » bien visible (même hauteur que « Ajouter à la liste »). */
+/* Bouton « Vente au détail » : sa propre couleur (violet léger) pour attirer le regard sans se
+   confondre avec « Ajouter à la liste » ; violet plein une fois la vente au détail réglée. */
 .ajout-produit-groupe .bouton-detail-groupe {
-  background: var(--couleur-primaire-clair);
-  border: 2px solid var(--couleur-primaire);
-  color: var(--couleur-primaire);
+  background: var(--violet-clair);
+  border: 1px solid var(--violet);
+  color: var(--violet);
   font-weight: 700;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: none;
   padding: 0.55rem 1rem;
 }
 
 .ajout-produit-groupe .bouton-detail-groupe:hover {
-  background: var(--couleur-primaire);
-  color: #fff;
+  border-color: var(--violet-fonce);
+  box-shadow: 0 0 0 1px var(--violet);
 }
 
 .ajout-produit-groupe .bouton-detail-groupe.actif {
-  background: var(--couleur-primaire);
-  border-color: var(--couleur-primaire);
+  background: var(--violet);
+  border-color: var(--violet);
   color: #fff;
 }
 
@@ -7777,9 +7801,27 @@ tr.ligne-total-tableau td {
   max-height: none;
 }
 
-/* Peu de lignes : le tableau s'étire jusqu'au bas de la zone (pas de bande vide). */
-.formulaire-entree-stock .lignes-groupe-scrollable > .tableau-catalogue {
-  min-height: 100%;
+/* Lignes de hauteur fixe et compacte ; ce sont les lignes vides (calculées
+   dans EntreeStock.tsx avec HAUTEUR_LIGNE_ENTREE) qui remplissent la zone —
+   ne pas étirer le tableau en hauteur, sinon chaque ligne grossit. */
+.formulaire-entree-stock .lignes-groupe-scrollable tbody tr {
+  height: 46px;
+}
+
+.formulaire-entree-stock .lignes-groupe-scrollable td {
+  padding-top: 0.3rem;
+  padding-bottom: 0.3rem;
+  vertical-align: middle;
+}
+
+.formulaire-entree-stock .lignes-groupe-scrollable td input {
+  height: 32px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.formulaire-entree-stock .col-designation-groupe {
+  line-height: 1.25;
 }
 
 /* Dépôt, Fournisseur/Motif et recherche sur une seule ligne. */
@@ -8508,4 +8550,2269 @@ tr.ligne-total-tableau td {
 
 .champ-reference-paiement {
   grid-column: span 2;
+}
+
+/* Fenêtre « Vente au détail » du Nouvel article : sections numérotées + calcul en direct */
+.section-detail-groupe {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--bordure-tableau);
+  border-radius: var(--rayon-lg);
+}
+
+.titre-section-detail {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.phrase-detail-groupe {
+  font-size: 1.05rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--rayon-lg);
+  background: var(--couleur-primaire-clair);
+  color: inherit;
+}
+
+.modale-confirmation:has(.section-detail-groupe) {
+  max-height: 92vh;
+  overflow-y: auto;
+}
+
+.calcul-detail-groupe {
+  border-style: dashed;
+}
+
+.lignes-calcul-detail {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0;
+}
+
+.lignes-calcul-detail dt {
+  font-weight: 600;
+}
+
+.lignes-calcul-detail dd {
+  margin: 0;
+}
+
+.texte-succes-detail {
+  color: var(--succes);
+  font-weight: 600;
+}
+
+/* Bouton « Plein écran / Réduire » des grandes fenêtres (components/BoutonAgrandirModales.tsx) :
+   glissé juste avant le « ← Retour » de l'en-tête, avec la même apparence ; sans « ← Retour »,
+   posé dans le coin haut-droit. Plein écran : toutes les grandes fenêtres à la taille de l'écran. */
+.bouton-agrandir-modale {
+  white-space: nowrap;
+}
+
+/* En-tête « titre … ← Retour » réparti sur la largeur : sans ça, le bouton glissé entre
+   les deux se retrouvait centré. On le pousse à droite, collé à « ← Retour ». */
+.modale-entete > .bouton-agrandir-modale {
+  margin-left: auto;
+  margin-right: 0.5rem;
+}
+
+.bouton-agrandir-modale-coin {
+  position: fixed;
+  z-index: 1000;
+}
+
+body.modales-agrandies .fond-modale:has(> .modale-selection-produits) {
+  padding: 0;
+}
+
+body.modales-agrandies .modale-selection-produits {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  height: 100vh !important;
+  max-height: 100vh !important;
+  border-radius: 0;
+}
+
+@media (max-width: 900px) {
+  .bouton-agrandir-modale {
+    display: none;
+  }
+}
+
+/* Liste des Articles : cartes (Articles, Valeur du stock, Marge) et boutons
+   CSV / Excel / PDF / + Nouvel article sur une même ligne. */
+.ligne-tuiles-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.ligne-tuiles-actions > .tuiles-fiche {
+  flex: 1;
+  min-width: 0;
+}
+
+.ligne-tuiles-actions > .actions-ligne {
+  flex-shrink: 0;
+}
+
+@media (max-width: 900px) {
+  .ligne-tuiles-actions {
+    flex-wrap: wrap;
+  }
+}
+
+/* Cartes de statistique qui filtrent le tableau (lib/tuileFiltre.ts) : même geste partout. */
+.tuile-fiche.tuile-filtre {
+  cursor: pointer;
+  user-select: none;
+  transition: border-color var(--transition), background var(--transition), box-shadow var(--transition);
+}
+
+.tuile-fiche.tuile-filtre:hover {
+  border-color: var(--couleur-primaire);
+}
+
+.tuile-fiche.tuile-filtre:focus-visible {
+  outline: 2px solid var(--couleur-primaire);
+  outline-offset: 2px;
+}
+
+.tuile-fiche.tuile-filtre--active {
+  border-color: var(--couleur-primaire);
+  box-shadow: inset 0 0 0 1px var(--couleur-primaire);
+  background: var(--couleur-primaire-clair);
+}
+
+/* Nouvel article : le dépôt du stock initial est un champ de la grille comme les autres.
+   6 colonnes : désignation … prix de vente, puis seuil, vente au détail, qté, dépôt, ajouter. */
+.ajout-produit-groupe {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+/* Sous « Prix de vente » : dernière colonne. */
+.ajout-produit-groupe .bouton-ajouter-produit-groupe {
+  grid-column: 6;
+}
+
+.champ-depot-initial select {
+  border-color: var(--couleur-primaire);
+}
+
+.champ-depot-initial--alerte {
+  color: var(--avertissement);
+  font-weight: 600;
+}
+
+.champ-depot-initial--alerte select {
+  border-color: var(--avertissement);
+  box-shadow: 0 0 0 1px var(--avertissement);
+}
+
+/* Pastille « vente au détail » (même violet que le bouton ✂️) : tableau de Nouvel article et liste des Articles. */
+.pastille-detail {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.5rem;
+  border: 1px solid var(--violet);
+  border-radius: var(--rayon-pilule);
+  background: var(--violet-clair);
+  color: var(--violet);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/* Bouton d'enregistrement final des fenêtres de saisie : vert (« c'est terminé »), pour ne pas
+   le confondre avec « + Ajouter à la liste » (bleu) ni « ✂️ Vente au détail » (violet) ; grisé s'il n'y a rien à enregistrer. */
+button.bouton-enregistrer,
+.actions-formulaire button.bouton-enregistrer,
+.formulaire-entree-stock .bouton-primaire.bouton-enregistrer {
+  background: var(--degrade-succes);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 8px 18px -8px rgba(22, 163, 74, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+button.bouton-enregistrer:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--succes-fonce), var(--succes));
+}
+
+button.bouton-enregistrer:disabled {
+  background: var(--gris-300);
+  color: var(--gris-600);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* Articles → Catégories : modale « Nouvelle catégorie » */
+.modale-nouvelle-categorie {
+  width: 440px;
+}
+
+.modale-nouvelle-categorie input {
+  font-size: 1rem;
+  padding: 0.6rem 0.75rem;
+}
+
+.categories-proches {
+  background: var(--gris-50, #f8fafc);
+  border: 1px solid var(--gris-200, #e2e8f0);
+  border-radius: var(--rayon-md, 8px);
+  padding: 0.5rem 0.75rem;
+}
+
+.categories-proches ul {
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+}
+
+.categories-ajoutees {
+  color: var(--succes, #15803d);
+  margin: 0;
+}
+
+/* Stock d'ouverture : « + Créer un article » au bout de la ligne de recherche. */
+.formulaire-entree-stock .bouton-creer-article-entree {
+  flex-shrink: 0;
+  min-height: 38px;
+  white-space: nowrap;
+}
+
+/* Entrées de stock : « ☰ Tous les articles » dans le champ de recherche, à droite. */
+.recherche-entree-stock input {
+  padding-right: 9.5rem;
+}
+
+.formulaire-entree-stock .bouton-tous-articles-entree,
+.formulaire-mouvement-groupe .bouton-tous-articles-entree,
+.modale-recette .bouton-tous-articles-entree {
+  position: absolute;
+  top: 50%;
+  right: 0.35rem;
+  transform: translateY(-50%);
+  height: calc(100% - 0.7rem);
+  padding: 0 0.7rem;
+  border: none;
+  border-radius: var(--rayon-sm);
+  background: color-mix(in srgb, var(--accent-entree, var(--couleur-primaire)), transparent 85%);
+  color: var(--accent-entree, var(--couleur-primaire));
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: none;
+}
+
+.formulaire-entree-stock .bouton-tous-articles-entree:hover,
+.formulaire-mouvement-groupe .bouton-tous-articles-entree:hover,
+.modale-recette .bouton-tous-articles-entree:hover {
+  background: var(--accent-entree, var(--couleur-primaire));
+  color: white;
+  transform: translateY(-50%);
+}
+
+/* Fabrication : coût calculé par la recette (ou saisi) + lien vers la recette. */
+.cout-recette {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.lien-recette {
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.consommation-recettes {
+  flex-shrink: 0;
+  padding: 0.45rem 0.8rem;
+  border-left: 4px solid var(--accent-entree, var(--couleur-primaire));
+  border-radius: var(--rayon-sm);
+  background: color-mix(in srgb, var(--accent-entree, var(--couleur-primaire)), transparent 92%);
+  font-size: 0.85rem;
+}
+
+.consommation-recettes.consommation-manque {
+  border-left-color: var(--danger);
+  background: var(--danger-clair);
+}
+
+/* Modale Recette */
+.regle-recette {
+  margin: 0;
+  padding: 0.5rem 0.8rem;
+  border-left: 4px solid var(--couleur-primaire);
+  border-radius: var(--rayon-sm);
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 92%);
+  font-size: 0.88rem;
+}
+
+.ligne-champs-recette {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.ligne-champs-recette label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--gris-900);
+}
+
+.ligne-champs-recette label input {
+  width: 170px;
+}
+
+.recherche-ingredient.recherche-commande-combobox {
+  flex: 1;
+  min-width: 260px;
+  max-width: none;
+}
+
+.recherche-ingredient input {
+  max-width: none;
+  padding-right: 7.5rem;
+}
+
+.recherche-ingredient .resultats-recherche li {
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.modale-recette .modale-corps {
+  overflow: hidden;
+}
+
+.zone-tableau-recette,
+.zone-tous-articles {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+
+.zone-tableau-recette .tableau-catalogue th,
+.zone-tous-articles .tableau-catalogue th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.totaux-recette .total-net .sous-info {
+  font-weight: 400;
+}
+
+/* Modale « ☰ Tous les articles » */
+.modale-tous-articles .modale-corps {
+  overflow: hidden;
+}
+
+.champ-filtre-tous-articles {
+  flex-shrink: 0;
+  max-width: 420px;
+}
+
+.colonne-case-tous-articles {
+  width: 1%;
+  text-align: center;
+}
+
+.zone-tous-articles tbody tr {
+  cursor: pointer;
+}
+
+.zone-tous-articles tr.ligne-cochee td {
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 90%);
+}
+
+.zone-tous-articles tr.ligne-deja-ajoutee {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* Double-clic sur une ligne pour l'ajouter : pas de sélection de texte parasite. */
+.zone-tous-articles tbody tr {
+  user-select: none;
+}
+
+
+/* Stock → Mouvements : la recherche d'article prend la place libre et se voit bien. */
+.barre-filtres-historique input.champ-recherche-mouvements {
+  flex: 1;
+  min-width: 260px;
+  width: auto;
+  margin-left: 0;
+  height: 38px;
+  padding: 0 0.8rem;
+  font-size: 0.95rem;
+  border: 2px solid color-mix(in srgb, var(--couleur-primaire), transparent 50%);
+  border-radius: var(--rayon-md, 8px);
+}
+
+.barre-filtres-historique input.champ-recherche-mouvements:focus {
+  border-color: var(--couleur-primaire);
+}
+
+/* Stock → Mouvements : sens de la quantité, ligne cliquable, détail d'un mouvement. */
+.quantite-entree {
+  color: var(--succes, #15803d);
+  font-weight: 700;
+}
+
+.quantite-sortie {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+tr.ligne-cliquable {
+  cursor: pointer;
+}
+
+.modale-detail-mouvement {
+  width: 460px;
+}
+
+.details-mouvement {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.45rem 1rem;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.details-mouvement dt {
+  color: var(--gris-500);
+}
+
+.details-mouvement dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Stock → Nouveau mouvement : champ de recherche plus large, « ☰ Voir tout » à l'intérieur. */
+.recherche-mouvement-groupe.recherche-commande-combobox {
+  flex: 1;
+  min-width: 280px;
+  max-width: none;
+}
+
+.recherche-mouvement-groupe input {
+  max-width: none;
+  padding-right: 7.5rem;
+}
+
+/* Stock → Nouveau mouvement : rappel de la règle selon le type (sortie / ajustement). */
+.regle-mouvement {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0.5rem 0.8rem;
+  border-left: 4px solid var(--couleur-primaire);
+  border-radius: var(--rayon-sm);
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 92%);
+  font-size: 0.88rem;
+}
+
+/* Stock → Nouveau transfert : bouton ⇄ entre les deux dépôts. */
+.bouton-inverser-depots {
+  flex-shrink: 0;
+  align-self: flex-end;
+  height: 38px;
+  padding: 0 0.7rem;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+/* Stock → Déclarer une perte : motif et précision par ligne. */
+.tableau-pertes-saisie td select {
+  width: 150px;
+}
+
+.tableau-pertes-saisie td input:not([type]) {
+  width: 100%;
+  min-width: 130px;
+}
+
+.champ-obligatoire-vide {
+  border-color: var(--danger) !important;
+}
+
+/* Stock → Inventaire : seules les lignes défilent, les totaux restent fixés sous le tableau. */
+.corps-detail-inventaire {
+  overflow: hidden;
+}
+
+.zone-tableau-scroll.zone-tableau-inventaire {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+
+.zone-tableau-inventaire .tableau-catalogue th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.tableau-inventaire .col-nombre {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.tableau-inventaire tr.ligne-inventaire-ecart td {
+  background: color-mix(in srgb, var(--avertissement-clair, #fef3c7), transparent 55%);
+}
+
+.saisie-inventaire {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.saisie-inventaire input {
+  width: 90px;
+  text-align: right;
+}
+
+.totaux-inventaire {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.6rem;
+  padding-top: 0.7rem;
+  border-top: 2px solid var(--gris-200);
+}
+
+.total-inventaire {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--rayon-md, 8px);
+  background: var(--gris-50);
+}
+
+.total-inventaire strong {
+  font-size: 1.05rem;
+  white-space: nowrap;
+}
+
+.total-inventaire.total-negatif strong {
+  color: var(--danger);
+}
+
+.total-inventaire.total-positif strong {
+  color: var(--succes, #15803d);
+}
+
+@media (max-width: 700px) {
+  .totaux-inventaire {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Historique des déballages / remballages : en-tête figé, colonnes De / Vers lisibles. */
+.zone-historique-deballages .tableau-catalogue th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.tableau-historique-deballages td .ligne-detail-article {
+  display: block;
+  font-size: 0.8rem;
+}
+
+.barre-filtres-historique input.champ-recherche-deballages {
+  flex: 1;
+  min-width: 220px;
+  width: auto;
+  margin-left: 0;
+  height: 38px;
+  padding: 0 0.8rem;
+  font-size: 0.95rem;
+  border: 2px solid color-mix(in srgb, var(--couleur-primaire), transparent 50%);
+  border-radius: var(--rayon-md, 8px);
+}
+
+.barre-filtres-historique input.champ-recherche-deballages:focus {
+  border-color: var(--couleur-primaire);
+}
+
+/* Historiques : loupe au début des champs de recherche (ceux qui n'ont pas déjà « 🔍 » dans leur texte d'aide). */
+.barre-filtres-historique input[type="search"]:not(.champ-recherche-mouvements):not(.champ-recherche-deballages),
+.barre-actions .champ-recherche-ventes {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 0.7rem center;
+  padding-left: 2.2rem;
+}
+
+/* Barre du haut : indicateur « par où passe la synchronisation » (docs/plan_reseau_local.md §4.9). */
+.indicateur-synchro-zone {
+  position: relative;
+}
+
+.indicateur-synchro {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--gris-200);
+  background: var(--gris-50);
+  text-align: left;
+  line-height: 1.15;
+  box-shadow: none;
+}
+
+.indicateur-synchro:hover:not(:disabled) {
+  transform: none;
+  border-color: var(--couleur-primaire);
+}
+
+.indicateur-synchro-icone {
+  font-size: 1.05rem;
+}
+
+.indicateur-synchro-textes {
+  display: flex;
+  flex-direction: column;
+}
+
+.indicateur-synchro-textes strong {
+  font-size: 0.82rem;
+}
+
+.indicateur-synchro-textes .sous-info {
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.indicateur-synchro--ok {
+  border-color: color-mix(in srgb, var(--succes, #15803d), transparent 60%);
+}
+
+.indicateur-synchro--alerte {
+  border-color: color-mix(in srgb, var(--avertissement, #d97706), transparent 40%);
+  background: var(--avertissement-clair, #fef3c7);
+}
+
+.indicateur-synchro--encours .indicateur-synchro-icone {
+  display: inline-block;
+  animation: rotation-synchro 1s linear infinite;
+}
+
+@keyframes rotation-synchro {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.panneau-synchro {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 50;
+  width: 340px;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--gris-200);
+  border-radius: var(--rayon-lg);
+  box-shadow: var(--ombre-lg);
+}
+
+.panneau-synchro h4 {
+  margin: 0;
+}
+
+.chemin-synchro {
+  margin: 0;
+  padding: 0.45rem 0.7rem;
+  border-radius: var(--rayon-sm);
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 92%);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.bloc-poste-seul {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--rayon-sm);
+  background: var(--gris-50);
+  border: 1px solid var(--gris-200);
+  font-size: 0.85rem;
+}
+
+.bloc-poste-seul p {
+  margin: 0;
+}
+
+.liste-en-attente-synchro {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+}
+
+@media (max-width: 700px) {
+  .indicateur-synchro-textes {
+    display: none;
+  }
+}
+
+/* Réglages → Réseau de la boutique (docs/plan_reseau_local.md, lot 2). */
+.modale-reseau-boutique .modale-corps {
+  gap: 0.8rem;
+}
+
+/* Barre latérale (même style que Paramètres) + contenu de la rubrique. */
+.barre-laterale-reseau {
+  width: 230px;
+  gap: 0.3rem;
+}
+
+.role-reseau {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin-bottom: 0.6rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 8px;
+  border-left: 4px solid var(--gris-300);
+  background: var(--surface);
+}
+
+.role-reseau--ok {
+  border-left-color: var(--succes);
+}
+
+.role-reseau--alerte {
+  border-left-color: var(--avertissement);
+}
+
+.barre-laterale-reseau .item-nav-parametres {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.autorisations-reseau {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-bottom: 0.6rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.autorisations-reseau--panneau {
+  margin-bottom: 0;
+  border: 1px solid var(--gris-200);
+}
+
+.autorisation-oui {
+  color: var(--succes);
+}
+
+.autorisation-non {
+  color: var(--gris-600);
+}
+
+.bloc-activation-reseau {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid color-mix(in srgb, var(--avertissement), transparent 50%);
+  border-radius: var(--rayon-md, 8px);
+  background: color-mix(in srgb, var(--avertissement), transparent 92%);
+}
+
+.bloc-activation-reseau p {
+  margin: 0.25rem 0 0;
+}
+
+.actions-activation-reseau {
+  justify-content: flex-start;
+}
+
+.compteur-nav-reseau {
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--gris-200);
+  color: var(--gris-700);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.contenu-reseau {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding-right: 0.3rem;
+}
+
+.contenu-reseau > p {
+  margin: 0;
+}
+
+.titre-rubrique-reseau {
+  margin: 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--gris-200);
+  font-size: 1.05rem;
+}
+
+.carte-etat-serveur {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 1rem 1.2rem;
+  border: 1px solid var(--gris-200);
+  border-left: 5px solid var(--gris-300);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--surface);
+}
+
+.carte-etat-serveur--marche {
+  border-left-color: var(--succes);
+}
+
+.carte-etat-serveur--arrete {
+  border-left-color: var(--avertissement);
+}
+
+.carte-etat-serveur--panne {
+  border-left-color: var(--danger);
+}
+
+.etat-serveur-titre {
+  font-size: 1.25rem;
+}
+
+.carte-etat-serveur--neutre {
+  border-left-color: var(--gris-400, #9ca3af);
+}
+
+.entete-vue-ensemble {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.icone-vue-ensemble {
+  font-size: 2rem;
+}
+
+.prochaine-etape {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.8rem 1rem;
+  padding: 0.8rem 1rem;
+  border-radius: var(--rayon-md, 8px);
+  border: 1px solid var(--gris-200);
+  background: var(--gris-50);
+}
+
+.prochaine-etape p {
+  margin: 0.15rem 0 0;
+}
+
+.libelle-prochaine-etape {
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--gris-500);
+}
+
+.prochaine-etape--ok {
+  border-color: color-mix(in srgb, var(--succes), transparent 60%);
+  background: color-mix(in srgb, var(--succes), transparent 93%);
+}
+
+.prochaine-etape--attention {
+  border-color: color-mix(in srgb, var(--avertissement), transparent 55%);
+  background: color-mix(in srgb, var(--avertissement), transparent 92%);
+}
+
+.prochaine-etape--alerte {
+  border-color: color-mix(in srgb, var(--danger), transparent 60%);
+  background: color-mix(in srgb, var(--danger), transparent 94%);
+}
+
+/* Carte d'état et chemin des données sur la même ligne (passent l'un sous l'autre si la place manque). */
+.ligne-etat-reseau {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+}
+
+.ligne-etat-reseau > .carte-etat-serveur {
+  flex: 1 1 280px;
+}
+
+.ligne-etat-reseau > .chemin-reseau {
+  flex: 0 1 auto;
+  align-items: center;
+  padding: 0.7rem 0.9rem;
+}
+
+.chemin-reseau {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.9rem;
+  border: 1px dashed var(--gris-300);
+  border-radius: var(--rayon-md, 8px);
+}
+
+.maillon-chemin-reseau {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.noeud-chemin-reseau {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 130px;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--gris-200);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--surface);
+  text-align: center;
+}
+
+.noeud-chemin-reseau.ici {
+  border: 2px solid var(--couleur-primaire);
+}
+
+.icone-noeud-reseau {
+  font-size: 1.4rem;
+}
+
+.badge-ici-reseau {
+  position: absolute;
+  top: -0.6rem;
+  right: 0.5rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--couleur-primaire);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.fleche-chemin-reseau {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: var(--succes);
+}
+
+.fleche-chemin-reseau.coupee {
+  color: var(--danger);
+}
+
+.grille-cartes-reseau {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.7rem;
+}
+
+.carte-info-reseau {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  padding: 0.75rem 0.9rem;
+  text-align: left;
+  border: 1px solid var(--gris-200);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--surface);
+  font-size: 0.85rem;
+}
+
+.carte-info-reseau.cliquable {
+  cursor: pointer;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.carte-info-reseau.cliquable:hover {
+  border-color: var(--couleur-accent);
+  box-shadow: var(--ombre-lg);
+}
+
+.titre-carte-reseau {
+  margin-bottom: 0.2rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--gris-500);
+}
+
+.ligne-appareil-carte {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grille-infos-serveur {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.8rem;
+}
+
+.infos-serveur {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.35rem 0.8rem;
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.infos-serveur dt {
+  color: var(--gris-500);
+}
+
+.infos-serveur dd {
+  margin: 0;
+  font-weight: 600;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.zone-pause-reseau {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: auto;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--gris-200);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--gris-50);
+}
+
+.zone-pause-reseau p {
+  margin: 0.2rem 0 0;
+}
+
+.zone-pause-reseau + .zone-danger-reseau {
+  margin-top: 0;
+}
+
+.bandeau-pause-reseau {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--avertissement), transparent 50%);
+  border-radius: var(--rayon-md, 8px);
+  background: color-mix(in srgb, var(--avertissement), transparent 90%);
+}
+
+.zone-danger-reseau {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: auto;
+  padding: 0.8rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--danger), transparent 65%);
+  border-radius: var(--rayon-md, 8px);
+  background: color-mix(in srgb, var(--danger), transparent 95%);
+}
+
+.zone-danger-reseau p {
+  margin: 0.2rem 0 0;
+}
+
+.carte-code-reseau {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 1.2rem;
+  border: 1px solid var(--gris-200);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--surface);
+}
+
+.carte-code-reseau .code-appairage {
+  min-width: 280px;
+  padding: 1rem 1.6rem;
+}
+
+.carte-code-reseau .code-appairage-chiffres {
+  font-size: 2.6rem;
+}
+
+.actions-code-reseau {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.code-appairage-vide {
+  padding: 0.6rem 0;
+  font-weight: 700;
+  color: var(--gris-500);
+}
+
+.carte-code-reseau .adresses-poste-principal {
+  justify-content: center;
+}
+
+.etapes-reseau {
+  margin: 0;
+  padding-left: 1.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.formulaire-reseau {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  max-width: 560px;
+}
+
+.etape-reseau {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+}
+
+.numero-etape-reseau {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 85%);
+  color: var(--couleur-primaire);
+  font-weight: 800;
+}
+
+.champ-etape-reseau {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.recherche-reseau-en-cours {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.8rem 1rem;
+  border: 1px dashed var(--gris-300);
+  border-radius: var(--rayon-md, 8px);
+  color: var(--gris-600);
+}
+
+.sablier-reseau {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid var(--gris-300);
+  border-top-color: var(--couleur-primaire);
+  border-radius: 50%;
+  animation: rotation-reseau 0.8s linear infinite;
+}
+
+@keyframes rotation-reseau {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.liste-postes-trouves {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.carte-poste-trouve {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.7rem 0.9rem;
+  text-align: left;
+  border: 2px solid var(--gris-200);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.carte-poste-trouve:hover {
+  border-color: color-mix(in srgb, var(--couleur-primaire), transparent 50%);
+}
+
+.carte-poste-trouve.choisi {
+  border-color: var(--couleur-primaire);
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 93%);
+}
+
+.carte-poste-trouve .ligne-detail-article {
+  display: block;
+}
+
+.coche-poste-trouve {
+  margin-left: auto;
+  color: var(--couleur-primaire);
+  font-size: 1.2rem;
+  font-weight: 800;
+}
+
+.aucun-poste-trouve {
+  flex-wrap: wrap;
+}
+
+.verifications-reseau {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.verifications-reseau li {
+  position: relative;
+  padding-left: 1.6rem;
+}
+
+.verifications-reseau li::before {
+  position: absolute;
+  left: 0;
+  font-weight: 800;
+}
+
+.verifications-reseau .verif-ok::before {
+  content: "✓";
+  color: var(--succes);
+}
+
+.verifications-reseau .verif-ko {
+  color: var(--danger);
+}
+
+.verifications-reseau .verif-ko::before {
+  content: "✕";
+}
+
+.verifications-reseau .verif-info::before {
+  content: "•";
+  color: var(--gris-500);
+}
+
+.suggestions-nom-poste {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.puce-nom-poste {
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--gris-300);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.puce-nom-poste.choisi {
+  border-color: var(--couleur-primaire);
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 90%);
+  color: var(--couleur-primaire);
+  font-weight: 700;
+}
+
+.champ-code-reseau {
+  max-width: 200px;
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  font-variant-numeric: tabular-nums;
+}
+
+.grille-choix-reseau,
+.grille-moyens-reseau {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.8rem;
+}
+
+.carte-choix-reseau {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: 1rem 1.1rem;
+  text-align: left;
+  border: 1px solid var(--gris-200);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.carte-choix-reseau:hover {
+  border-color: var(--couleur-accent);
+  box-shadow: var(--ombre-lg);
+}
+
+.icone-choix-reseau {
+  font-size: 1.6rem;
+}
+
+@media (max-width: 700px) {
+  .modale-reseau-boutique .disposition-parametres {
+    flex-direction: column;
+    gap: 0.8rem;
+  }
+
+  .barre-laterale-reseau {
+    width: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .barre-laterale-reseau .role-reseau {
+    width: 100%;
+  }
+
+  .zone-danger-reseau {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+.bloc-reseau {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--gris-200);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--surface);
+}
+
+.bloc-reseau h4 {
+  margin: 0;
+}
+
+
+.adresses-poste-principal {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.adresse-reseau {
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--rayon-sm);
+  background: var(--gris-50);
+  border: 1px solid var(--gris-200);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.code-appairage {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.7rem 1.1rem;
+  border-radius: var(--rayon-md, 8px);
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 90%);
+}
+
+.code-appairage-chiffres {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  font-variant-numeric: tabular-nums;
+}
+
+.zone-tableau-scroll.zone-appareils-reseau {
+  flex: 1;
+  min-height: 120px;
+  max-height: none;
+}
+
+/* Appareils branchés : grille complète (colonnes et lignes visibles), en-tête figé. */
+.zone-appareils-reseau {
+  border: 1px solid var(--gris-300);
+  border-radius: var(--rayon-md, 8px);
+}
+
+.tableau-appareils-reseau {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+}
+
+.tableau-appareils-reseau th,
+.tableau-appareils-reseau td {
+  padding: 0.55rem 0.8rem;
+  border-right: 1px solid var(--gris-200);
+  border-bottom: 1px solid var(--gris-200);
+  vertical-align: middle;
+}
+
+.tableau-appareils-reseau th:last-child,
+.tableau-appareils-reseau td:last-child {
+  border-right: none;
+}
+
+.tableau-appareils-reseau thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--gris-100);
+  border-bottom: 2px solid var(--gris-300);
+  text-align: left;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.tableau-appareils-reseau tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--gris-500), transparent 96%);
+}
+
+.tableau-appareils-reseau tbody tr:not(.ligne-groupe-vide):hover td {
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 93%);
+}
+
+.tableau-appareils-reseau .colonne-numero-groupe {
+  width: 3rem;
+  text-align: center;
+  color: var(--gris-500);
+}
+
+.tableau-appareils-reseau .colonne-action-reseau {
+  width: 1%;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.pastille-etat-reseau {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: var(--gris-100);
+  color: var(--gris-600);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.pastille-etat-reseau--relie {
+  background: color-mix(in srgb, var(--succes), transparent 88%);
+  color: var(--succes);
+}
+
+
+/* Abonnement : saisie du code d'activation (docs/plan_reseau_local.md, lot 6). */
+.champ-code-activation {
+  width: 100%;
+  font-family: monospace;
+  font-size: 0.9rem;
+  resize: vertical;
+}
+
+/* Sauvegarde chiffrée (docs/plan_reseau_local.md, lot 7). */
+.champs-sauvegarde {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.champs-sauvegarde label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.ligne-dossier-sauvegarde {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.ligne-dossier-sauvegarde input {
+  flex: 1;
+}
+
+.bandeau-sauvegarde {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.8rem;
+  padding: 0.6rem 1rem;
+  border-radius: var(--rayon-md, 8px);
+  border: 1px solid color-mix(in srgb, var(--avertissement, #d97706), transparent 40%);
+  background: var(--avertissement-clair, #fef3c7);
+  font-size: 0.88rem;
+}
+
+.fiche-recuperation {
+  padding: 1rem 1.2rem;
+  border: 2px dashed var(--gris-300);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--surface);
+}
+
+.fiche-recuperation h3 {
+  margin-top: 0;
+}
+
+.fiche-recuperation-mot-de-passe {
+  font-size: 1.15rem;
+  padding: 0.5rem 0.8rem;
+  border-radius: var(--rayon-sm);
+  background: var(--gris-50);
+}
+
+/* Impression de la fiche seule (voir imprimerFiche). */
+@media print {
+  body.impression-fiche * {
+    visibility: hidden;
+  }
+
+  body.impression-fiche .fiches-recuperation,
+  body.impression-fiche .fiches-recuperation * {
+    visibility: visible;
+  }
+
+  body.impression-fiche .fiches-recuperation {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+  }
+
+  body.impression-fiche .fiche-recuperation {
+    break-inside: avoid;
+    border: 2px dashed #999;
+    margin-bottom: 1.5cm;
+  }
+}
+
+
+/* Sauvegarde : liste des copies (même grille que les appareils du réseau). */
+.tableau-appareils-reseau tbody tr.ligne-copie-choisie td {
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 88%);
+}
+
+.badge-derniere-copie {
+  margin-left: 0.5rem;
+  font-size: 0.72rem;
+}
+
+.pastille-categorie-copie {
+  display: inline-block;
+  padding: 0.12rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.pastille-categorie-copie--jour {
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 88%);
+  color: var(--couleur-primaire);
+}
+
+.pastille-categorie-copie--semaine {
+  background: color-mix(in srgb, var(--avertissement), transparent 86%);
+  color: var(--avertissement);
+}
+
+.pastille-categorie-copie--mois {
+  background: color-mix(in srgb, var(--succes), transparent 86%);
+  color: var(--succes);
+}
+
+.note-barre-sauvegarde {
+  margin: auto 0 0;
+  padding-top: 0.8rem;
+  font-size: 0.75rem;
+}
+
+/* Fiche de récupération en deux exemplaires ; clé de secours ; méthode de restauration. */
+.fiches-recuperation {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.exemplaire-fiche {
+  margin: 0 0 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--gris-500);
+}
+
+.case-secours-sauvegarde {
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--gris-200);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--gris-50);
+  font-weight: 600;
+}
+
+.choix-methode-restauration {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.2rem;
+}
+
+.choix-methode-restauration label {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+}
+
+/* Espace Admin → Réseau de la boutique. */
+.modale-reseau-admin .modale-corps {
+  overflow-y: auto;
+}
+
+/* Espace Admin → Gérer abonnement. */
+.choix-formule-abonnement {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.choix-formule-abonnement .puce-nom-poste {
+  padding: 0.4rem 1.1rem;
+  font-size: 0.92rem;
+}
+
+.grille-durees-abonnement {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.6rem;
+}
+
+.carte-duree-abonnement {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  padding: 0.7rem 0.85rem;
+  text-align: left;
+  border: 2px solid var(--gris-200);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.carte-duree-abonnement:hover {
+  border-color: color-mix(in srgb, var(--couleur-primaire), transparent 50%);
+}
+
+.carte-duree-abonnement.choisi {
+  border-color: var(--couleur-primaire);
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 93%);
+}
+
+.prix-duree-abonnement {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--couleur-primaire);
+}
+
+.grille-paiement-abonnement {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.6rem;
+}
+
+.carte-formule-actuelle {
+  border: 2px solid var(--couleur-primaire);
+}
+
+.code-activation-genere {
+  max-width: 100%;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--rayon-sm);
+  background: var(--gris-50);
+  font-size: 0.95rem;
+  font-weight: 700;
+  word-break: break-all;
+  user-select: all;
+}
+
+.details-abonnement {
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--gris-200);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--gris-50);
+  font-size: 0.88rem;
+}
+
+.details-abonnement summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.details-abonnement[open] summary {
+  margin-bottom: 0.5rem;
+}
+
+/* Mots de passe : nouveau mot de passe, solidité, liste des comptes (Espace Admin). */
+.champ-nouveau-mot-de-passe {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.solidite-mot-de-passe {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.barre-solidite {
+  flex: 1;
+  max-width: 220px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--gris-200);
+  overflow: hidden;
+}
+
+.barre-solidite span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--danger);
+  transition: width var(--transition);
+}
+
+.barre-solidite--2 span {
+  background: var(--avertissement);
+}
+
+.barre-solidite--3 span,
+.barre-solidite--4 span {
+  background: var(--succes);
+}
+
+.regles-mot-de-passe {
+  font-size: 0.82rem;
+}
+
+.barre-filtres-comptes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.champ-recherche-comptes {
+  flex: 1;
+  min-width: 240px;
+  height: 38px;
+  padding: 0 0.8rem;
+  border: 2px solid color-mix(in srgb, var(--couleur-primaire), transparent 50%);
+  border-radius: var(--rayon-md, 8px);
+  font-size: 0.95rem;
+}
+
+.zone-tableau-scroll.zone-comptes-admin {
+  max-height: 300px;
+  border: 1px solid var(--gris-300);
+  border-radius: var(--rayon-md, 8px);
+}
+
+.tableau-appareils-reseau tbody tr.ligne-cliquable {
+  cursor: pointer;
+}
+
+.modale-mot-de-passe-admin .modale-corps {
+  overflow-y: auto;
+}
+
+/* Espace Admin → Créer une boutique : assistant en étapes. */
+.modale-creation-boutique .modale-corps {
+  overflow-y: auto;
+}
+
+.progression-assistant {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.progression-assistant li {
+  flex: 1;
+}
+
+.progression-assistant button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: none;
+  border-bottom: 3px solid var(--gris-200);
+  border-radius: 0;
+  background: none;
+  color: var(--gris-500);
+  font-weight: 700;
+  text-align: left;
+}
+
+.progression-assistant li.actif button {
+  border-bottom-color: var(--couleur-primaire);
+  color: var(--couleur-primaire);
+}
+
+.progression-assistant li.fait button {
+  border-bottom-color: var(--succes);
+  color: var(--gris-700);
+}
+
+.progression-assistant li.fait .numero-etape-reseau {
+  background: color-mix(in srgb, var(--succes), transparent 82%);
+  color: var(--succes);
+}
+
+.formulaire-assistant {
+  max-width: 760px;
+}
+
+.carte-choix-reseau.choisi {
+  border: 2px solid var(--couleur-primaire);
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 94%);
+}
+
+.actions-assistant {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: auto;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--gris-200);
+}
+
+@media (max-width: 700px) {
+  .progression-assistant button {
+    flex-direction: column;
+    font-size: 0.75rem;
+  }
+}
+
+/* Espace Admin : accueil en tableau de bord plein écran. */
+.accueil-admin {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 100vh;
+  padding: 1.5rem 2rem;
+  background: var(--gris-100);
+}
+
+.entete-accueil-admin {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.entete-accueil-admin h1 {
+  margin: 0;
+  font-family: var(--police-affichage);
+  font-size: 1.7rem;
+}
+
+.bandeau-etat-admin {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.8rem 1rem;
+  border-radius: var(--rayon-md, 8px);
+  background: var(--surface);
+  box-shadow: var(--ombre-sm, 0 1px 3px rgba(0, 0, 0, 0.06));
+}
+
+.nom-boutique-admin {
+  margin-right: 0.5rem;
+  font-size: 1.05rem;
+}
+
+.pastille-admin {
+  padding: 0.3rem 0.75rem;
+  border: 1px solid var(--gris-200);
+  border-radius: 999px;
+  background: var(--gris-50);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+button.pastille-admin {
+  cursor: pointer;
+}
+
+button.pastille-admin:hover {
+  border-color: var(--couleur-accent);
+}
+
+.pastille-admin--ok {
+  border-color: color-mix(in srgb, var(--succes), transparent 60%);
+  background: color-mix(in srgb, var(--succes), transparent 92%);
+}
+
+.pastille-admin--attention {
+  border-color: color-mix(in srgb, var(--avertissement), transparent 55%);
+  background: color-mix(in srgb, var(--avertissement), transparent 90%);
+}
+
+.pastille-admin--alerte {
+  border-color: color-mix(in srgb, var(--danger), transparent 55%);
+  background: color-mix(in srgb, var(--danger), transparent 92%);
+}
+
+.corps-accueil-admin {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+.colonne-a-faire,
+.groupes-accueil-admin > section {
+  padding: 1rem 1.1rem;
+  border-radius: var(--rayon-md, 8px);
+  background: var(--surface);
+  box-shadow: var(--ombre-sm, 0 1px 3px rgba(0, 0, 0, 0.06));
+}
+
+.colonne-a-faire h2,
+.groupes-accueil-admin h2 {
+  margin: 0 0 0.7rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--gris-500);
+}
+
+.colonne-a-faire ul {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.a-faire {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  padding: 0.6rem 0.75rem;
+  border-left: 4px solid var(--gris-300);
+  border-radius: 6px;
+  background: var(--gris-50);
+  font-size: 0.88rem;
+}
+
+.a-faire--attention {
+  border-left-color: var(--avertissement);
+}
+
+.a-faire--alerte {
+  border-left-color: var(--danger);
+}
+
+.a-faire-vide {
+  margin: 0;
+  color: var(--succes);
+  font-weight: 700;
+}
+
+.groupes-accueil-admin {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.grille-cartes-accueil {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.8rem;
+}
+
+.carte-accueil-admin {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+  padding: 1rem;
+  text-align: left;
+  border: 1px solid var(--gris-200);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color var(--transition), box-shadow var(--transition), transform var(--transition);
+}
+
+.carte-accueil-admin:hover:not(:disabled) {
+  border-color: var(--couleur-accent);
+  box-shadow: var(--ombre-lg);
+  transform: translateY(-1px);
+}
+
+.carte-accueil-admin:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.icone-carte-accueil {
+  font-size: 1.9rem;
+  line-height: 1;
+}
+
+.textes-carte-accueil {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.etat-carte-accueil {
+  align-self: flex-start;
+  margin-top: 0.2rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: var(--gris-100);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+@media (max-width: 800px) {
+  .accueil-admin {
+    padding: 1rem;
+  }
+
+  .corps-accueil-admin {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Espace Admin : écran de connexion. */
+.carte-auth-admin {
+  max-width: 520px;
+  gap: 0.9rem;
+}
+
+.entete-auth-admin {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.entete-auth-admin h1 {
+  margin: 0;
+}
+
+.entete-auth-admin .sous-titre {
+  margin: 0.2rem 0 0;
+}
+
+.icone-auth-admin {
+  display: grid;
+  place-items: center;
+  width: 3.2rem;
+  height: 3.2rem;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 88%);
+  font-size: 1.7rem;
+}
+
+.etat-connexion-admin {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--rayon-md, 8px);
+  font-size: 0.86rem;
+}
+
+.etat-connexion-admin--ok {
+  border: 1px solid color-mix(in srgb, var(--succes), transparent 60%);
+  background: color-mix(in srgb, var(--succes), transparent 92%);
+}
+
+.etat-connexion-admin--horsligne {
+  border: 1px solid color-mix(in srgb, var(--avertissement), transparent 55%);
+  background: color-mix(in srgb, var(--avertissement), transparent 90%);
+}
+
+.admins-du-poste {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.alerte-majuscules {
+  color: var(--avertissement);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+/* Informations boutique : carte d'une option pas encore activée par l'administrateur. */
+.carte-document-comptable.carte-document-desactivee {
+  opacity: 0.6;
+  cursor: not-allowed;
+  filter: grayscale(0.6);
+}
+
+.carte-document-comptable.carte-document-desactivee:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.carte-document-desactivee .lien {
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.mention-carte-desactivee {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--gris-600);
+}
+
+/* Écran de connexion : ordinateur neuf qui rejoint le réseau de la boutique. */
+.lien-rejoindre-reseau {
+  margin-top: 0.3rem;
+  font-weight: 700;
+}
+
+.note-poste-relie {
+  margin: 0.2rem 0 0;
+  text-align: center;
+}
+
+.modale-rejoindre-reseau .modale-corps {
+  overflow-y: auto;
+}
+
+/* Écran de connexion : fenêtres en étapes (Rejoindre le réseau, Mot de passe oublié). */
+.modale-auth-assistant {
+  max-width: 760px;
+}
+
+.modale-auth-assistant .modale-corps {
+  overflow-y: auto;
+}
+
+.modale-auth-assistant .progression-assistant button:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.champ-code-grand {
+  max-width: 240px;
+  font-size: 1.8rem;
+  text-align: center;
+}
+
+.reception-reseau {
+  padding: 1.4rem;
+}
+
+/* Page de connexion : bienvenue à la boutique, état, confort de saisie. */
+.entete-auth-boutique {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.entete-auth-boutique h1 {
+  margin: 0;
+}
+
+.entete-auth-boutique .sous-titre {
+  margin: 0.2rem 0 0;
+}
+
+.initiale-boutique {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 3.2rem;
+  height: 3.2rem;
+  border-radius: 14px;
+  background: var(--degrade-primaire, var(--couleur-primaire));
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 800;
+}
+
+.message-avertissement-auth {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--avertissement), transparent 55%);
+  border-radius: var(--rayon-md, 8px);
+  background: color-mix(in srgb, var(--avertissement), transparent 90%);
+  font-size: 0.88rem;
+}
+
+.case-retenir-identifiant {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 500;
 }

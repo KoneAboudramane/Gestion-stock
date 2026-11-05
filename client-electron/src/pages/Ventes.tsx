@@ -45,6 +45,7 @@ import {
   type PeriodeHistorique,
 } from "../lib/periode";
 import { zoneAccessible } from "../lib/acces";
+import { tuileFiltre } from "../lib/tuileFiltre";
 
 const STATUTS: { valeur: StatutVenteHistorique | ""; label: string }[] = [
   { valeur: "", label: "Tous les statuts" },
@@ -821,7 +822,7 @@ export default function Ventes({ session }: { session: Session }) {
                 </div>
                 <div className="modale-corps">
                   <div className="tuiles-fiche">
-                    <div className="tuile-fiche">
+                    <div {...tuileFiltre(!statut, () => setStatut(""))}>
                       <span className="sous-info">🧾 Ventes</span>
                       <strong>{valides.length}</strong>
                     </div>
@@ -832,7 +833,11 @@ export default function Ventes({ session }: { session: Session }) {
                       </strong>
                     </div>
                     <div
-                      className={`tuile-fiche${venduACredit > 0 ? " tuile-fiche--attention" : ""}`}
+                      {...tuileFiltre(
+                        statut === "credit",
+                        () => setStatut(statut === "credit" ? "" : "credit"),
+                        venduACredit > 0 ? "tuile-fiche--attention" : "",
+                      )}
                     >
                       <span className="sous-info">💳 Vendu à crédit</span>
                       <strong className="nowrap">

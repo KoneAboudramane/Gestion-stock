@@ -27,6 +27,7 @@ import {
   libelleOperateurMobileMoney,
   libelleTypeMouvementCaisse,
 } from "../lib/libelles";
+import { tuileFiltre } from "../lib/tuileFiltre";
 
 /**
  * Suivi de trésorerie (solde de caisse, séparé de l'écran de vente "Caisse").
@@ -367,13 +368,13 @@ function ModaleHistoriqueSolde({
         </div>
         <div className="modale-corps">
           <div className="tuiles-fiche">
-            <div className="tuile-fiche">
+            <div {...tuileFiltre(sens === "entree", () => setSens(sens === "entree" ? "" : "entree"))}>
               <span className="sous-info">📥 Entrées</span>
               <strong className="nowrap montant-entree">
                 +{formaterMontant(entrees)} {devise}
               </strong>
             </div>
-            <div className="tuile-fiche">
+            <div {...tuileFiltre(sens === "sortie", () => setSens(sens === "sortie" ? "" : "sortie"))}>
               <span className="sous-info">📤 Sorties</span>
               <strong className="nowrap texte-erreur">
                 −{formaterMontant(sorties)} {devise}
@@ -386,7 +387,7 @@ function ModaleHistoriqueSolde({
                 {formaterMontant(net)} {devise}
               </strong>
             </div>
-            <div className="tuile-fiche">
+            <div {...tuileFiltre(!sens, () => setSens(""))}>
               <span className="sous-info">🧾 Opérations</span>
               <strong>{filtres.length}</strong>
             </div>
@@ -1075,11 +1076,14 @@ function ModaleClotureCaisse({
   onValider: (soldeCompte: number) => Promise<string | void>;
 }) {
   const [soldeCompte, setSoldeCompte] = useState("");
+  // Carte « Écart cumulé » : seulement les clôtures avec un écart.
+  const [avecEcartSeulement, setAvecEcartSeulement] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
   // Écart en direct : positif = excédent, négatif = manque.
   const ecartSaisi = soldeCompte !== "" && soldeActuel !== null ? (Number(soldeCompte) || 0) - soldeActuel : null;
   const ecartCumule = clotures.reduce((t, c) => t + c.ecart, 0);
+  const cloturesAffichees = avecEcartSeulement ? clotures.filter((c) => c.ecart !== 0) : clotures;
 
   async function valider(evenement: React.FormEvent) {
     evenement.preventDefault();
@@ -1136,11 +1140,17 @@ function ModaleClotureCaisse({
 
             <h4>Historique des clôtures</h4>
             <div className="tuiles-fiche">
-              <div className="tuile-fiche">
+              <div {...tuileFiltre(!avecEcartSeulement, () => setAvecEcartSeulement(false))}>
                 <span className="sous-info">🔒 Clôtures</span>
                 <strong>{clotures.length}</strong>
               </div>
-              <div className={`tuile-fiche${ecartCumule < 0 ? " tuile-fiche--alerte" : ""}`}>
+              <div
+                {...tuileFiltre(
+                  avecEcartSeulement,
+                  () => setAvecEcartSeulement(!avecEcartSeulement),
+                  ecartCumule < 0 ? "tuile-fiche--alerte" : "",
+                )}
+              >
                 <span className="sous-info">⚖️ Écart cumulé</span>
                 <strong className="nowrap">
                   {ecartCumule > 0 ? "+" : ""}
@@ -1164,7 +1174,7 @@ function ModaleClotureCaisse({
                   </tr>
                 </thead>
                 <tbody>
-                  {clotures.map((c) => (
+                  {cloturesAffichees.map((c) => (
                     <tr key={c.id}>
                       <td title={new Date(c.dateCreation).toLocaleString("fr-FR")}>{dateCourte(c.dateCreation)}</td>
                       <td className="nowrap">
@@ -1188,7 +1198,7 @@ function ModaleClotureCaisse({
                       </td>
                     </tr>
                   )}
-                  {Array.from({ length: Math.max(0, 10 - Math.max(1, clotures.length)) }).map((_, i) => (
+                  {Array.from({ length: Math.max(0, 10 - Math.max(1, cloturesAffichees.length)) }).map((_, i) => (
                     <tr key={`vide-${i}`} className="ligne-groupe-vide">
                       <td>&nbsp;</td>
                       <td>&nbsp;</td>

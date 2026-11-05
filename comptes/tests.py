@@ -676,3 +676,464 @@ class MotDePasseOublieTests(APITestCase):
             format="json",
         )
         self.assertEqual(reponse.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class SuppressionDonneesEnLigneTests(APITestCase):
+    """Mode 100 % local (docs/plan_reseau_local.md, §5) : supprimer du serveur les
+    données d'une boutique en gardant la boutique, son abonnement, ses comptes et ses réglages."""
+
+    def setUp(self):
+        from catalogue.models import Produit, Variante
+        from clients.models import Client
+        from configuration.models import Parametre
+        from stock.models import Depot, MouvementStock, PerteStock
+        from stock.services import appliquer_mouvement, declarer_perte, demarrer_destockage
+        from synchronisation.models import JournalSync
+
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique L"}, {"username": "patronL", "password": "UnMotDePasseSolide123"}
+        )
+        depot = Depot.objects.create(boutique=self.boutique, nom="Magasin")
+        variante = Variante.objects.create(
+            produit=Produit.objects.create(boutique=self.boutique, nom="Sac"), prix_achat=100, prix_vente=200
+        )
+        appliquer_mouvement(variante, depot, MouvementStock.Type.ENTREE, 10)
+        declarer_perte(variante, depot, 1, PerteStock.Motif.ABIME)
+        demarrer_destockage(variante, 150)
+        Client.objects.create(boutique=self.boutique, nom="Awa")
+        Parametre.objects.create(boutique=self.boutique, cle="format_ticket", valeur="a4")
+        JournalSync.objects.create(
+            boutique=self.boutique, appareil="poste", table="clients.Client",
+            enregistrement_id=variante.id, action="cree", statut="synchronise", donnees={"nom": "Awa"},
+        )
+        self.client.force_authenticate(user=self.patron)
+        reponse = self.client.post(
+            reverse("vente-list"),
+            {
+                "depot": str(depot.id),
+                "statut": "payee",
+                "lignes_saisie": [{"variante": str(variante.id), "quantite": "2"}],
+                "paiements_saisie": [{"mode": "especes", "montant": "300"}],
+            },
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, 201, reponse.data)
+
+    def test_refuse_tant_que_la_synchronisation_est_activee(self):
+        from .services import supprimer_donnees_en_ligne
+
+        self.boutique.synchro_autorisee = True
+        self.boutique.save()
+        with self.assertRaises(ValueError):
+            supprimer_donnees_en_ligne(self.boutique)
+
+    def test_supprime_les_donnees_et_garde_boutique_comptes_reglages(self):
+        from catalogue.models import Produit, Variante
+        from clients.models import Client
+        from comptabilite.models import EcritureComptable
+        from configuration.models import Parametre
+        from stock.models import Depot, MouvementStock, Stock
+        from synchronisation.models import JournalSync
+        from ventes.models import Vente
+        from .models import Boutique, Utilisateur
+        from .services import supprimer_donnees_en_ligne
+
+        self.boutique.synchro_autorisee = False
+        self.boutique.save()
+        compteurs = supprimer_donnees_en_ligne(self.boutique)
+
+        self.assertGreater(sum(compteurs.values()), 0)
+        for modele in (Vente, Client, Depot, Produit):
+            self.assertFalse(modele.objects.filter(boutique=self.boutique).exists(), modele.__name__)
+        self.assertFalse(Variante.objects.filter(produit__boutique=self.boutique).exists())
+        self.assertFalse(MouvementStock.objects.filter(depot__boutique=self.boutique).exists())
+        self.assertFalse(Stock.objects.filter(depot__boutique=self.boutique).exists())
+        self.assertFalse(EcritureComptable.objects.filter(boutique=self.boutique).exists())
+        self.assertFalse(JournalSync.objects.filter(boutique=self.boutique).exists())
+        # Conservés.
+        self.assertTrue(Boutique.objects.filter(id=self.boutique.id).exists())
+        self.assertTrue(Utilisateur.objects.filter(id=self.patron.id).exists())
+        self.assertTrue(Parametre.objects.filter(boutique=self.boutique, cle="format_ticket").exists())
+
+
+class CodeActivationTests(APITestCase):
+    """Codes d'activation signés (docs/plan_reseau_local.md, lot 6)."""
+
+    SECRET = bytes.fromhex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
+
+    def test_ed25519_conforme_au_vecteur_officiel_rfc8032(self):
+        from .activation import cle_publique, signer, verifier
+
+        publique = cle_publique(self.SECRET)
+        self.assertEqual(publique.hex(), "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
+        signature = signer(self.SECRET, b"")
+        self.assertEqual(
+            signature.hex(),
+            "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b",
+        )
+        self.assertTrue(verifier(publique, b"", signature))
+        self.assertFalse(verifier(publique, b"autre", signature))
+
+    def test_code_lisible_et_infalsifiable(self):
+        import uuid
+        from datetime import date
+
+        from .activation import ErreurActivation, cle_publique, generer_code, lire_code
+
+        boutique_id = uuid.uuid4()
+        code = generer_code(boutique_id, date(2027, 3, 31), "pro", secret=self.SECRET)
+        self.assertTrue(code.startswith("GS-"))
+        self.assertEqual(lire_code(code, cle_publique(self.SECRET)), (boutique_id, date(2027, 3, 31), "pro"))
+        # Deux codes pour la même période ne sont jamais identiques (numéro aléatoire).
+        self.assertNotEqual(code, generer_code(boutique_id, date(2027, 3, 31), "pro", secret=self.SECRET))
+        # Un caractère changé (au milieu : le dernier caractère base32 porte des bits de remplissage) : refusé.
+        milieu = len(code) // 2 if code[len(code) // 2] != "-" else len(code) // 2 + 1
+        modifie = code[:milieu] + ("A" if code[milieu] != "A" else "B") + code[milieu + 1 :]
+        with self.assertRaises(Exception):
+            lire_code(modifie, cle_publique(self.SECRET))
+        # Sans clé configurée : message clair.
+        with self.settings(), self.assertRaises(ErreurActivation):
+            import os
+            ancienne = os.environ.pop("ACTIVATION_CLE_PRIVEE", None)
+            try:
+                generer_code(boutique_id, date(2027, 3, 31), "pro")
+            finally:
+                if ancienne is not None:
+                    os.environ["ACTIVATION_CLE_PRIVEE"] = ancienne
+
+    @override_settings(STORAGES={"default": {"BACKEND": "django.core.files.storage.FileSystemStorage"}, "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+    def test_page_admin_affiche_le_code_de_la_periode_actuelle(self):
+        import base64
+        import os
+        from datetime import timedelta
+
+        from .activation import cle_publique, lire_code
+
+        boutique, _ = inscrire_boutique(
+            {"nom": "Boutique Code"}, {"username": "patronCode", "password": "UnMotDePasseSolide123"}
+        )
+        boutique.date_expiration_abonnement = timezone.now() + timedelta(days=30)
+        boutique.formule = "pro"
+        boutique.save()
+        admin = Utilisateur.objects.create_superuser("admincode", "admin@exemple.com", "UnMotDePasseSolide123")
+        self.client.force_login(admin)
+
+        ancienne = os.environ.get("ACTIVATION_CLE_PRIVEE")
+        os.environ["ACTIVATION_CLE_PRIVEE"] = base64.b64encode(self.SECRET).decode()
+        try:
+            reponse = self.client.get(reverse("admin:comptes_boutique_code_activation", args=[boutique.pk]))
+        finally:
+            if ancienne is None:
+                os.environ.pop("ACTIVATION_CLE_PRIVEE", None)
+            else:
+                os.environ["ACTIVATION_CLE_PRIVEE"] = ancienne
+        self.assertEqual(reponse.status_code, 200)
+        code = reponse.context["code"]
+        boutique_id, date_fin, formule = lire_code(code, cle_publique(self.SECRET))
+        self.assertEqual((boutique_id, formule), (boutique.id, "pro"))
+        self.assertEqual(date_fin, timezone.localdate(boutique.date_expiration_abonnement))
+
+
+class DateDerniereSauvegardeTests(APITestCase):
+    """Date de la dernière sauvegarde (docs/plan_reseau_local.md, lot 7) : la date seulement."""
+
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique Sauvegarde"}, {"username": "patronSauvegarde", "password": "UnMotDePasseSolide123"}
+        )
+        self.client.force_authenticate(user=self.patron)
+
+    def test_enregistree_ne_recule_jamais_et_pas_dans_le_futur(self):
+        from datetime import timedelta
+
+        url = reverse("boutique-sauvegarde")
+        hier = timezone.now() - timedelta(days=1)
+        self.assertEqual(self.client.post(url, {"date_derniere_sauvegarde": hier.isoformat()}, format="json").status_code, 200)
+        self.boutique.refresh_from_db()
+        self.assertEqual(self.boutique.date_derniere_sauvegarde, hier)
+
+        # Plus ancienne : ignorée.
+        self.client.post(url, {"date_derniere_sauvegarde": (hier - timedelta(days=5)).isoformat()}, format="json")
+        self.boutique.refresh_from_db()
+        self.assertEqual(self.boutique.date_derniere_sauvegarde, hier)
+
+        # Dans le futur (horloge en avance) : ramenée à maintenant.
+        self.client.post(url, {"date_derniere_sauvegarde": (timezone.now() + timedelta(days=30)).isoformat()}, format="json")
+        self.boutique.refresh_from_db()
+        self.assertLessEqual(self.boutique.date_derniere_sauvegarde, timezone.now())
+
+    def test_la_synchronisation_ne_peut_pas_l_ecraser(self):
+        from synchronisation.registre import resoudre
+
+        self.assertIn("date_derniere_sauvegarde", resoudre("comptes.Boutique").champs_proteges)
+
+
+class ReseauBoutiqueTests(APITestCase):
+    """Réseau de la boutique : désactivé par défaut, activé par l'administrateur à la demande."""
+
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique Réseau"}, {"username": "patronReseau", "password": "UnMotDePasseSolide123"}
+        )
+        self.client.force_authenticate(user=self.patron)
+
+    def test_desactive_par_defaut_demande_unique_puis_acceptee_par_l_admin(self):
+        from .models import DemandeReseau
+
+        url = reverse("boutique-reseau")
+        etat = self.client.get(url).json()
+        self.assertFalse(etat["reseau_autorise"])
+        self.assertIsNone(etat["demande_en_attente"])
+
+        self.assertEqual(self.client.post(url, {"note": "2 caisses"}, format="json").status_code, 201)
+        self.client.post(url, {}, format="json")  # une seule demande en attente à la fois
+        self.assertEqual(self.boutique.demandes_reseau.count(), 1)
+        self.assertIsNotNone(self.client.get(url).json()["demande_en_attente"])
+
+        Utilisateur.objects.create_user(username="adminReseau", password="AdminSolide123", is_staff=True)
+        reponse = self.client.post(
+            reverse("appliquer-abonnement"),
+            {"username": "adminReseau", "password": "AdminSolide123", "boutique_id": str(self.boutique.id), "reseau_autorise": True},
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, 200, reponse.content)
+        self.assertTrue(reponse.json()["reseau_autorise"])
+        self.boutique.refresh_from_db()
+        self.assertTrue(self.boutique.reseau_autorise)
+        self.assertEqual(self.boutique.demandes_reseau.get().statut, DemandeReseau.Statut.ACCEPTEE)
+        self.assertTrue(self.client.get(reverse("moi")).json()["boutique"]["reseau_autorise"])
+
+    def test_la_synchronisation_ne_peut_pas_l_activer(self):
+        from synchronisation.registre import resoudre
+
+        self.assertIn("reseau_autorise", resoudre("comptes.Boutique").champs_proteges)
+
+
+
+class CleSecoursSauvegardeTests(APITestCase):
+    """Clé de secours : RSA-OAEP en Python pur, croisé avec un chiffré produit par Node (appli)."""
+
+    ENV_TEST = "eyJuIjogImRlMDM2OTg3Yzk5ZDE2NDVlMGE0OGUyNzk2NzQ1ZGE1YzhiNGQ3ZWFiMzgyYjU3N2EzYWM5NTM5ZjM0OTQwYjI1ODhhOTg3NDNhOTI2MWJhOGU2MzJkMWJiODYwMDcwMzRkNzY5NGViNGY5YzIxZDZjNjE1M2QyMDgzMTA2NDQyY2NkZjg2N2YyZDZhZmM5ZDI2N2FmZWE2YjZmMGFkM2IzYmFjMTk3NWZlMzQ4ODRlOWFlNWMzNTQ3ZWM5MzFlYmFkNDUyZThlNTZkZDliMzdkMWYzZDRmYWFlYjZiYjE0MzI3YmZlMTgyMTAyZjhmODE0ZjAxMjBkNmYyYTFlNDciLCAiZCI6ICIzOWUzMjllMGZkZjBiNzllMDBiNGU3NWJlYjFlZWM0YzBkYzkxOTgzNThjYWZjMDVmNWU3NGEwMTkyMmRjNzcwYjkyNTZhMWFlNDJhYzZkMDlkY2ZiZTMzM2MxZmNkYjQ0ZWJlNWM5NWZlNmJmNzY2YzhiZjQwZjBmOTNiOGNlODYxYTg1ZmQ0YTk5OTQ2ZTAxZmNjMjAyYjAzNGNiMTBkMzU2OWM3M2I2MGVmYTc4MDkzZmUyZDhkZDA1NTRiZTMxMjc3Y2NkYjBkOTQ0ZGZmZmMwNjcyMGQ4MjI3OGZiYWUzOGQ2NzY2YmIzNTM2MDM5NDRjZDdmYmY2MDQ5NDEifQ=="
+    EXEMPLE_NODE = "v1T/Evuk/Z1N8Drspbi5nRrl7cZkLLlLqyb68kVN883eExwe5TOI3bdrteW9ukMafdVftuCIONwwyE24j4vT0fjt4LiUkOvysXTpYa4bk0QWO7fF0RVR3W9eluBi3cduHqt+gK0m8rEvEh0NG6JZuf1kfkO1iW9rpqxZ9/Pnqqw="
+
+    def test_ouvre_un_chiffre_produit_par_l_appli(self):
+        from .secours import ouvrir_cle_secours
+
+        boutique_id, cle = ouvrir_cle_secours(self.EXEMPLE_NODE, self.ENV_TEST)
+        self.assertEqual(boutique_id, "3f2504e04f8941d30a0c0305e82c3301")
+        self.assertEqual(cle, bytes([7]) * 32)
+
+    def test_refuse_une_autre_cle_ou_un_chiffre_abime(self):
+        from .secours import ErreurSecours, generer_paire, ouvrir_cle_secours, valeur_variable_environnement
+
+        autre = valeur_variable_environnement(generer_paire(1024))
+        with self.assertRaises(ErreurSecours):
+            ouvrir_cle_secours(self.EXEMPLE_NODE, autre)
+        with self.assertRaises(ErreurSecours):
+            ouvrir_cle_secours("pas-du-base64", self.ENV_TEST)
+
+    def test_vue_reservee_aux_administrateurs(self):
+        from unittest import mock
+
+        url = reverse("secours-sauvegarde")
+        Utilisateur.objects.create_user(username="simpleSecours", password="UnMotDePasseSolide123")
+        Utilisateur.objects.create_user(username="adminSecours", password="UnMotDePasseSolide123", is_staff=True)
+        with mock.patch.dict("os.environ", {"SECOURS_CLE_PRIVEE": self.ENV_TEST}):
+            refuse = self.client.post(
+                url, {"username": "simpleSecours", "password": "UnMotDePasseSolide123", "cle_chiffree": self.EXEMPLE_NODE}, format="json"
+            )
+            self.assertEqual(refuse.status_code, 403)
+            reponse = self.client.post(
+                url, {"username": "adminSecours", "password": "UnMotDePasseSolide123", "cle_chiffree": self.EXEMPLE_NODE}, format="json"
+            )
+        self.assertEqual(reponse.status_code, 200, reponse.content)
+        import base64
+
+        self.assertEqual(base64.b64decode(reponse.json()["cle"]), bytes([7]) * 32)
+
+
+class AdminReseauBoutiqueTests(APITestCase):
+    """Espace Admin → Réseau de la boutique : état, demandes, refus (identifiants admin)."""
+
+    def test_etat_et_refus_reserves_aux_administrateurs(self):
+        boutique, patron = inscrire_boutique(
+            {"nom": "Boutique Réseau Admin"}, {"username": "patronReseauAdmin", "password": "UnMotDePasseSolide123"}
+        )
+        self.client.force_authenticate(user=patron)
+        self.client.post(reverse("boutique-reseau"), {"note": "3 caisses"}, format="json")
+        self.client.force_authenticate(user=None)
+        Utilisateur.objects.create_user(username="adminReseauAdmin", password="AdminSolide123", is_staff=True)
+        url = reverse("admin-reseau-boutique")
+        corps = {"username": "adminReseauAdmin", "password": "AdminSolide123", "boutique_id": str(boutique.id)}
+
+        self.assertEqual(self.client.post(url, {**corps, "password": "faux"}, format="json").status_code, 403)
+        etat = self.client.post(url, corps, format="json").json()
+        self.assertFalse(etat["reseau_autorise"])
+        self.assertEqual([(d["note"], d["statut"]) for d in etat["demandes"]], [("3 caisses", "en_attente")])
+
+        refuse = self.client.post(url, {**corps, "action": "refuser"}, format="json").json()
+        self.assertEqual(refuse["demandes"][0]["statut"], "refusee")
+
+
+class AdminAbonnementBoutiqueTests(APITestCase):
+    """Espace Admin → Gérer abonnement : détail, paiements déclarés validés / rejetés, code d'activation."""
+
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique Abonnement Admin"}, {"username": "patronAboAdmin", "password": "UnMotDePasseSolide123"}
+        )
+        Utilisateur.objects.create_user(username="adminAbo", password="AdminSolide123", is_staff=True)
+        self.corps = {"username": "adminAbo", "password": "AdminSolide123", "boutique_id": str(self.boutique.id)}
+        self.url = reverse("admin-abonnement-boutique")
+
+    def _declarer(self, reference):
+        self.client.force_authenticate(user=self.patron)
+        reponse = self.client.post(
+            reverse("boutique-abonnement-demandes"),
+            {"formule": "essentiel", "duree_mois": 3, "montant": 15000, "mode": "wave", "reference": reference},
+            format="json",
+        )
+        self.client.force_authenticate(user=None)
+        self.assertEqual(reponse.status_code, 201, reponse.content)
+        return reponse.json()["id"]
+
+    def test_detail_reserve_aux_administrateurs(self):
+        self.assertEqual(self.client.post(self.url, {**self.corps, "password": "faux"}, format="json").status_code, 403)
+        detail = self.client.post(self.url, self.corps, format="json").json()
+        self.assertEqual(detail["boutique"]["nom"], "Boutique Abonnement Admin")
+        self.assertIn("historique", detail)
+        self.assertIn("tarifs", detail)
+
+    def test_valider_prolonge_et_rejeter_demande_un_motif(self):
+        fin_avant = self.boutique.date_expiration_abonnement
+        demande = self._declarer("WAVE-1")
+        detail = self.client.post(self.url, self.corps, format="json").json()
+        self.assertEqual(detail["paiements_en_attente"], 1)
+        self.assertEqual(detail["demandes"][0]["id"], demande)
+
+        valide = self.client.post(self.url, {**self.corps, "action": "valider", "demande_id": demande}, format="json").json()
+        self.assertEqual(valide["paiements_en_attente"], 0)
+        self.boutique.refresh_from_db()
+        self.assertIsNotNone(self.boutique.date_expiration_abonnement)
+        if fin_avant:
+            self.assertGreater(self.boutique.date_expiration_abonnement, fin_avant)
+
+        autre = self._declarer("WAVE-2")
+        sans_motif = self.client.post(self.url, {**self.corps, "action": "rejeter", "demande_id": autre}, format="json")
+        self.assertEqual(sans_motif.status_code, 400)
+        rejete = self.client.post(
+            self.url, {**self.corps, "action": "rejeter", "demande_id": autre, "motif": "Référence introuvable"}, format="json"
+        ).json()
+        self.assertEqual(rejete["demandes"][0]["statut"], "rejetee")
+
+
+class ReinitialisationEspaceAdminTests(APITestCase):
+    """Espace Admin → Réinitialiser mot de passe : tous les comptes, mot de passe provisoire, changement obligatoire."""
+
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique Mots de passe"}, {"username": "patronMdp", "password": "UnMotDePasseSolide123"}
+        )
+        self.vendeur = Utilisateur.objects.create_user(
+            username="vendeurMdp", password="AncienSolide123", boutique=self.boutique
+        )
+        Utilisateur.objects.create_user(username="adminMdp", password="AdminSolide123", is_staff=True)
+        self.admin = {"username": "adminMdp", "password": "AdminSolide123"}
+
+    def test_liste_tous_les_comptes_sauf_administrateurs(self):
+        comptes = self.client.post(reverse("lister-comptes"), self.admin, format="json").json()
+        noms = [c["username"] for c in comptes]
+        self.assertIn("patronMdp", noms)
+        self.assertIn("vendeurMdp", noms)
+        self.assertNotIn("adminMdp", noms)
+        self.assertEqual(self.client.post(reverse("lister-comptes"), {**self.admin, "password": "x"}, format="json").status_code, 403)
+
+    def test_provisoire_puis_changement_obligatoire_sans_l_ancien(self):
+        reponse = self.client.post(
+            reverse("reinitialiser-mot-de-passe-admin"),
+            {**self.admin, "username_cible": "vendeurMdp", "nouveau_mot_de_passe": "Provisoire-4827", "doit_changer": True},
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, 200, reponse.content)
+        connexion = self.client.post(reverse("connexion"), {"username": "vendeurMdp", "password": "Provisoire-4827"}, format="json")
+        self.assertTrue(AccessToken(connexion.json()["access"])["doit_changer_mot_de_passe"])
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {connexion.json()['access']}")
+        self.assertEqual(
+            self.client.post(reverse("changer-mot-de-passe"), {"nouveau_mot_de_passe": "123"}, format="json").status_code, 400
+        )
+        self.assertEqual(
+            self.client.post(reverse("changer-mot-de-passe"), {"nouveau_mot_de_passe": "MonPropreSecret-2026"}, format="json").status_code,
+            200,
+        )
+        self.vendeur.refresh_from_db()
+        self.assertFalse(self.vendeur.doit_changer_mot_de_passe)
+        self.assertTrue(self.vendeur.check_password("MonPropreSecret-2026"))
+        # Ensuite, l'ancien est redemandé.
+        self.assertEqual(
+            self.client.post(reverse("changer-mot-de-passe"), {"nouveau_mot_de_passe": "EncoreUnAutre-2027"}, format="json").status_code,
+            400,
+        )
+
+    def test_jamais_un_compte_administrateur(self):
+        reponse = self.client.post(
+            reverse("reinitialiser-mot-de-passe-admin"),
+            {**self.admin, "username_cible": "adminMdp", "nouveau_mot_de_passe": "Provisoire-4827"},
+            format="json",
+        )
+        self.assertEqual(reponse.status_code, 404)
+
+
+class CreationBoutiqueAssistantTests(APITestCase):
+    """Espace Admin → Créer une boutique : options dès la création, identifiant disponible."""
+
+    def setUp(self):
+        Utilisateur.objects.create_user(username="adminCreation", password="AdminSolide123", is_staff=True)
+        self.admin = {"username": "adminCreation", "password": "AdminSolide123"}
+
+    def _creer(self, **options):
+        import uuid
+
+        corps = {
+            **self.admin,
+            "boutique_id": str(uuid.uuid4()),
+            "boutique_nom": "Boutique Assistant",
+            "boutique_telephone": "0700000000",
+            "patron_username": options.pop("patron_username", "patronAssistant"),
+            "patron_password": "Kalumo-Bitesa-4827",
+            "patron_email": "patron@example.com",
+            "patron_first_name": "Awa",
+            **options,
+        }
+        return self.client.post(reverse("enregistrer-boutique-locale"), corps, format="json")
+
+    def test_options_choisies_appliquees(self):
+        from datetime import timedelta
+
+        fin = timezone.now() + timedelta(days=90)
+        reponse = self._creer(
+            formule="pro", date_fin=fin.isoformat(), nature="paiement", montant=15000, mode="wave", reference="W-1",
+            synchro_autorisee=True, reseau_autorise=True, patron_doit_changer=True,
+        )
+        self.assertEqual(reponse.status_code, 200, reponse.content)
+        boutique = Boutique.objects.get(id=reponse.json()["boutique_id"])
+        self.assertEqual(boutique.formule, "pro")
+        self.assertTrue(boutique.synchro_autorisee and boutique.reseau_autorise)
+        self.assertEqual(boutique.date_expiration_abonnement, fin)
+        self.assertEqual(boutique.paiements_abonnement.get().montant, 15000)
+        patron = Utilisateur.objects.get(username="patronAssistant")
+        self.assertTrue(patron.doit_changer_mot_de_passe)
+        self.assertEqual(patron.first_name, "Awa")
+
+    def test_par_defaut_essai_gratuit_100_pourcent_local(self):
+        reponse = self._creer(patron_username="patronEssai")
+        boutique = Boutique.objects.get(id=reponse.json()["boutique_id"])
+        self.assertFalse(boutique.synchro_autorisee or boutique.reseau_autorise)
+        self.assertEqual(boutique.paiements_abonnement.get().nature, "essai")
+
+    def test_identifiant_disponible(self):
+        self._creer(patron_username="pris")
+        url = reverse("identifiant-disponible")
+        self.assertFalse(self.client.post(url, {**self.admin, "identifiant": "PRIS"}, format="json").json()["disponible"])
+        self.assertTrue(self.client.post(url, {**self.admin, "identifiant": "libre"}, format="json").json()["disponible"])
+        self.assertEqual(self.client.post(url, {**self.admin, "password": "x", "identifiant": "libre"}, format="json").status_code, 403)

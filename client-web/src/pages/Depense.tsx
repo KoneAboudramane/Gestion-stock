@@ -20,6 +20,7 @@ import {
   type CategorieDepense,
   type DepenseResume,
 } from "../services/tresorerie";
+import { tuileFiltre } from "../lib/tuileFiltre";
 
 /**
  * Port de client-electron/src/pages/Depense.tsx : dépenses de caisse
@@ -129,7 +130,7 @@ function ModaleHistoriqueDepenses({
                 {formaterMontant(total)} {devise}
               </strong>
             </div>
-            <div className="tuile-fiche">
+            <div {...tuileFiltre(!type, () => setType(""))}>
               <span className="sous-info">🧾 Dépenses</span>
               <strong>{filtrees.length}</strong>
             </div>
@@ -139,7 +140,13 @@ function ModaleHistoriqueDepenses({
                 {formaterMontant(filtrees.length > 0 ? Math.round(total / filtrees.length) : 0)} {devise}
               </strong>
             </div>
-            <div className="tuile-fiche">
+            <div
+              {...(parType[0] || type
+                ? tuileFiltre(!!type && type === parType[0]?.libelle, () =>
+                    setType(type && type === parType[0]?.libelle ? "" : (parType[0]?.libelle ?? "")),
+                  )
+                : { className: "tuile-fiche" })}
+            >
               <span className="sous-info">🏷️ Type le plus coûteux</span>
               <strong>{parType[0] ? `${parType[0].libelle} (${formaterMontant(parType[0].total)})` : "—"}</strong>
             </div>

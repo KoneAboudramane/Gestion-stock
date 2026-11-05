@@ -4,6 +4,7 @@ import type { MouvementCompteClientLocal, MouvementCompteFournisseurLocal } from
 import {
   assemblerReleveClient,
   assemblerReleveFournisseur,
+  type DonBrut,
   type MouvementBrut,
   type OperationTiers,
   type PaiementCreditBrut,
@@ -578,11 +579,25 @@ export async function releveCompletFournisseur(fournisseurId: string): Promise<O
     motif: m.motif ?? "",
     dateCreation: m.date_creation,
   }));
+  const dons: DonBrut[] = [];
+  for (const m of await db.getAll("mouvements_stock")) {
+    if (m.supprime || m.reference_type !== "stock.EntreeDon" || m.reference_id !== fournisseurId) continue;
+    const variante = await db.get("variantes", m.variante_id);
+    const produit = variante ? await db.get("produits", variante.produit_id) : undefined;
+    dons.push({
+      id: m.id,
+      produitNom: produit?.nom ?? "Article",
+      quantite: m.quantite,
+      motif: m.motif ?? "",
+      dateCreation: m.date_creation,
+    });
+  }
   return assemblerReleveFournisseur(
     commandes.map((c) => ({ id: c.id, numero: c.numero, statut: c.statut, total: c.total, dateCreation: c.date_creation })),
     receptions,
     retours,
     paiementsDette,
     mouvements,
+    dons,
   );
 }

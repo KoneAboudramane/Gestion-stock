@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import ModaleReseauBoutique from "../components/ModaleReseauBoutique";
+import { ModaleEtatSauvegarde } from "../components/EtatSauvegarde";
 import { ModaleAttributsCourants, ModaleUnitesCourantes } from "../components/CatalogueCourant";
 import type { CSSProperties } from "react";
 
@@ -53,7 +55,7 @@ function formaterDateSynchro(iso: string | null): string {
 }
 
 /** Noms lisibles des types de données synchronisés. */
-const LIBELLES_TABLES_SYNCHRO: Record<string, string> = {
+export const LIBELLES_TABLES_SYNCHRO: Record<string, string> = {
   "comptes.Boutique": "Boutique",
   "catalogue.Categorie": "Catégories",
   "catalogue.Unite": "Unités",
@@ -110,6 +112,8 @@ const SECTIONS = [
   { cle: "utilisateurs", label: "Utilisateurs & rôles", icone: "👥" },
   { cle: "parametres", label: "Paramètres", icone: "⚙️" },
   { cle: "synchronisation", label: "Synchronisation", icone: "🔄" },
+  { cle: "reseau", label: "Réseau de la boutique", icone: "📶" },
+  { cle: "sauvegarde", label: "Sauvegarde", icone: "💾" },
 ] as const;
 
 type Section = (typeof SECTIONS)[number]["cle"];
@@ -2595,6 +2599,37 @@ export default function Reglages({
   onSessionMiseAJour: (session: Session) => void;
 }) {
   const [sectionOuverte, setSectionOuverte] = useState<Section | null>(null);
+  // Réseau de la boutique et sauvegarde : options activées par l'administrateur ;
+  // tant qu'elles ne le sont pas, leur carte est grisée (non cliquable).
+  const [reseauAutorise, setReseauAutorise] = useState<boolean | null>(null);
+  const [sauvegardeConfiguree, setSauvegardeConfiguree] = useState<boolean | null>(null);
+  const [demandeReseau, setDemandeReseau] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (sectionOuverte) return;
+    api.reseau.etat().then((r) => setReseauAutorise(r.reseauAutorise)).catch(() => setReseauAutorise(false));
+    api.sauvegarde.etat().then((e) => setSauvegardeConfiguree(e.configuree)).catch(() => setSauvegardeConfiguree(false));
+  }, [sectionOuverte]);
+
+  async function demanderActivationReseau() {
+    setDemandeReseau("Envoi…");
+    const r = await api.comptes.demanderActivationReseau(session, "");
+    setDemandeReseau(
+      r.succes
+        ? r.resultat.demande_en_attente
+          ? "📨 Demande envoyée : en attente de votre administrateur."
+          : "✅ Activé."
+        : "Pas d'internet : prévenez votre administrateur.",
+    );
+    if (r.succes && r.resultat.reseau_autorise) setReseauAutorise(true);
+  }
+
+  /** null : carte normale ; sinon la raison pour laquelle elle est grisée. */
+  function raisonDesactivee(cle: Section): string | null {
+    if (cle === "reseau" && reseauAutorise === false) return "Non activé par votre administrateur";
+    if (cle === "sauvegarde" && sauvegardeConfiguree === false) return "Non paramétrée par votre administrateur";
+    return null;
+  }
 
   return (
     <div className="page-produits page-accueil">
@@ -2619,17 +2654,33 @@ export default function Reglages({
         />
       ))}
       <div className="grille-documents-comptables">
-        {SECTIONS.map((s) => (
-          <button
-            key={s.cle}
-            type="button"
-            className="carte-document-comptable"
-            onClick={() => setSectionOuverte(s.cle)}
-          >
-            <span className="icone-document-comptable">{s.icone}</span>
-            {s.label}
-          </button>
-        ))}
+        {SECTIONS.map((s) => {
+          const raison = raisonDesactivee(s.cle);
+          if (raison) {
+            return (
+              <div key={s.cle} className="carte-document-comptable carte-document-desactivee" title={raison} aria-disabled="true">
+                <span className="icone-document-comptable">{s.icone}</span>
+                {s.label}
+                <span className="mention-carte-desactivee">🔒 {raison}</span>
+                {s.cle === "reseau" &&
+                  session.permissions.gerer_utilisateurs_reglages &&
+                  (demandeReseau ? (
+                    <span className="mention-carte-desactivee">{demandeReseau}</span>
+                  ) : (
+                    <button type="button" className="lien" onClick={demanderActivationReseau}>
+                      📨 Demander l'activation
+                    </button>
+                  ))}
+              </div>
+            );
+          }
+          return (
+            <button key={s.cle} type="button" className="carte-document-comptable" onClick={() => setSectionOuverte(s.cle)}>
+              <span className="icone-document-comptable">{s.icone}</span>
+              {s.label}
+            </button>
+          );
+        })}
       </div>
       {sectionOuverte === "profil" && (
         <ModaleProfilBoutique
@@ -2644,6 +2695,8 @@ export default function Reglages({
       {sectionOuverte === "parametres" && (
         <ModaleParametres session={session} onFermer={() => setSectionOuverte(null)} />
       )}
+      {sectionOuverte === "reseau" && <ModaleReseauBoutique session={session} onFermer={() => setSectionOuverte(null)} />}
+      {sectionOuverte === "sauvegarde" && <ModaleEtatSauvegarde onFermer={() => setSectionOuverte(null)} />}
       {sectionOuverte === "synchronisation" && (
         <ModaleSynchronisation
           session={session}

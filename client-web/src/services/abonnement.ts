@@ -120,6 +120,7 @@ export interface BoutiqueServeur {
   formule: string;
   date_expiration_abonnement: string | null;
   synchro_autorisee: boolean;
+  reseau_autorise?: boolean;
 }
 
 /**
@@ -147,5 +148,6 @@ export async function memoriserAbonnementBoutique(boutique: BoutiqueServeur): Pr
     formule: boutique.formule,
     date_expiration_abonnement: boutique.date_expiration_abonnement,
     synchro_autorisee: boutique.synchro_autorisee ? 1 : 0,
+    ...(boutique.reseau_autorise !== undefined ? { reseau_autorise: boutique.reseau_autorise ? (1 as const) : (0 as const) } : {}),
   });
 }

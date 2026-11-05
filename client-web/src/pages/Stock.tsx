@@ -7,9 +7,16 @@ import ChampMontant from "../components/ChampMontant";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant } from "../lib/formatage";
-import { rechercherVariantesAchat, type VarianteAchat } from "../services/achats";
+import { listerFournisseurs, rechercherVariantesAchat, type FournisseurResume, type VarianteAchat } from "../services/achats";
+import { DetailCommande } from "./Achats";
+import { DetailVente } from "./Ventes";
+import ModaleTousLesArticles from "../components/ModaleTousLesArticles";
+import { listerVariantesActives, type VarianteActive } from "../services/catalogue";
 import {
   creerMouvementManuel,
+  creerMouvementsGroupe,
+  creerTransfertsGroupe,
+  declarerPertesGroupe,
   ajouterLigneInventaire,
   annulerPerte,
   arreterDestockage,
@@ -72,6 +79,7 @@ import FiltrePeriodeHistorique from "../components/FiltrePeriodeHistorique";
 import BoutonsExport from "../components/BoutonsExport";
 import type { ColonneExport } from "../lib/export";
 import { bornesPeriode, dansPeriode, jourLocal, type PeriodeHistorique } from "../lib/periode";
+import { tuileFiltre } from "../lib/tuileFiltre";
 
 /**
  * Port de client-electron/src/pages/Stock.tsx : 4 sections (Stock/Mouvements/
@@ -274,7 +282,7 @@ function OngletStockNiveau({
   return (
     <div className="liste-dettes-credits">
       <div className="tuiles-fiche">
-        <div className="tuile-fiche">
+        <div {...tuileFiltre(!seulementRuptures, () => setSeulementRuptures(false))}>
           <span className="sous-info">📦 Articles</span>
           <strong>{lignesAffichees.length}</strong>
         </div>
@@ -288,7 +296,13 @@ function OngletStockNiveau({
             {formaterMontant(valeurTotale)} {devise}
           </strong>
         </div>
-        <div className={`tuile-fiche${rupturesAffichees.length > 0 ? " tuile-fiche--alerte" : ""}`}>
+        <div
+          {...tuileFiltre(
+            seulementRuptures,
+            () => setSeulementRuptures(!seulementRuptures),
+            rupturesAffichees.length > 0 ? "tuile-fiche--alerte" : "",
+          )}
+        >
           <span className="sous-info">⚠️ En rupture</span>
           <strong>{rupturesAffichees.length}</strong>
         </div>
@@ -491,6 +505,12 @@ interface LigneMouvementGroupe {
   quantite: number;
 }
 
+/** Motifs proposés pendant la saisie (le motif reste libre et obligatoire). */
+const MOTIFS_RAPIDES: Record<"sortie" | "ajustement", string[]> = {
+  sortie: ["Erreur de saisie", "Consommation interne", "Article retiré de la vente"],
+  ajustement: ["Recomptage", "Erreur de saisie", "Correction après inventaire"],
+};
+
 function FormulaireMouvementGroupe({
   session,
   depots,
@@ -503,14 +523,9 @@ function FormulaireMouvementGroupe({
   onCree: () => void;
 }) {
   const [depotId, setDepotId] = useState(depots[0]?.id ?? "");
-  const [type, setType] = useState<TypeMouvement>("entree");
-  // "Entrée" réservée aux boutiques qui fabriquent (hooks/useFabricationPropre.ts) :
-  // les autres réapprovisionnent par les Achats, et gardent Sortie/Ajustement
-  // pour corriger (casse, erreur de saisie…).
-  const fabricationPropre = useFabricationPropre(session.boutiqueId);
-  useEffect(() => {
-    if (fabricationPropre === false && type === "entree") setType("ajustement");
-  }, [fabricationPropre, type]);
+  // Sortie (corriger) ou Ajustement (quantité comptée). Les entrées passent par la
+  // carte Entrée de stock (coût, recettes), les pertes par la carte Pertes (chiffrées).
+  const [type, setType] = useState<"sortie" | "ajustement">("sortie");
   const [motif, setMotif] = useState("");
   const [terme, setTerme] = useState("");
   const [resultats, setResultats] = useState<VarianteAchat[]>([]);
@@ -518,6 +533,8 @@ function FormulaireMouvementGroupe({
   const [lignes, setLignes] = useState<LigneMouvementGroupe[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  /** Stock de chaque article dans le dépôt choisi, avec son unité. */
+  const [stockDepot, setStockDepot] = useState<Map<string, { quantite: number; unite: string }>>(new Map());
 
   useEffect(() => {
     if (!terme.trim()) {
@@ -529,21 +546,58 @@ function FormulaireMouvementGroupe({
     }, 200);
     return () => clearTimeout(identifiant);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terme]);
+  }, [terme, session.boutiqueId]);
+
+  useEffect(() => {
+    if (!depotId) return;
+    listerStock(session.boutiqueId, depotId).then((liste) => {
+      const stocks = new Map(liste.map((s) => [s.varianteId, { quantite: Number(s.quantite), unite: s.unite ?? "" }]));
+      setStockDepot(stocks);
+      // Ajustement : la quantité comptée part du stock du dépôt choisi.
+      if (type === "ajustement") {
+        setLignes((actuel) => actuel.map((l) => ({ ...l, quantite: stocks.get(l.varianteId)?.quantite ?? 0 })));
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId, depotId]);
+
+  const enStock = (varianteId: string) => stockDepot.get(varianteId)?.quantite ?? 0;
+  const uniteDe = (varianteId: string) => stockDepot.get(varianteId)?.unite ?? "";
+  const arrondi = (n: number) => Math.round(n * 100) / 100;
+
+  // « ☰ Voir tout » : liste complète des articles, à cocher.
+  const [tousLesArticles, setTousLesArticles] = useState<VarianteActive[] | null>(null);
+  async function ouvrirTousLesArticles() {
+    setTousLesArticles(await listerVariantesActives(session.boutiqueId));
+  }
 
   function ajouterLigne(variante: VarianteAchat) {
     setLignes((actuel) => {
       if (actuel.some((l) => l.varianteId === variante.id)) return actuel;
       return [
         ...actuel,
-        { varianteId: variante.id, produitNom: variante.produitNom, reference: variante.reference, quantite: 1 },
+        {
+          varianteId: variante.id,
+          produitNom: variante.produitNom,
+          reference: variante.reference,
+          quantite: type === "ajustement" ? enStock(variante.id) : 1,
+        },
       ];
     });
     setTerme("");
     setResultats([]);
   }
 
+  function changerType(nouveau: "sortie" | "ajustement") {
+    setType(nouveau);
+    // Ajustement : on part du stock actuel, il ne reste qu'à corriger ; Sortie : 1.
+    setLignes((actuel) =>
+      actuel.map((l) => ({ ...l, quantite: nouveau === "ajustement" ? enStock(l.varianteId) : 1 })),
+    );
+  }
+
   function modifierQuantite(varianteId: string, quantite: number) {
+    setErreur(null);
     setLignes((actuel) => actuel.map((l) => (l.varianteId === varianteId ? { ...l, quantite } : l)));
   }
 
@@ -551,33 +605,30 @@ function FormulaireMouvementGroupe({
     setLignes((actuel) => actuel.filter((l) => l.varianteId !== varianteId));
   }
 
+  const apres = (l: LigneMouvementGroupe) => (type === "sortie" ? enStock(l.varianteId) - l.quantite : l.quantite);
+  const ecart = (l: LigneMouvementGroupe) => arrondi(l.quantite - enStock(l.varianteId));
+  const sortiesImpossibles = type === "sortie" ? lignes.filter((l) => l.quantite > enStock(l.varianteId)) : [];
+  const nombreAEnregistrer = type === "ajustement" ? lignes.filter((l) => ecart(l) !== 0).length : lignes.length;
+  const signe = (n: number) => (n > 0 ? "+" : n < 0 ? "−" : "");
+
   async function soumettre(evenement: React.FormEvent) {
     evenement.preventDefault();
     setErreur(null);
-    if (!depotId) {
-      setErreur("Choisissez un dépôt.");
-      return;
-    }
-    if (lignes.length === 0) {
-      setErreur("Ajoutez au moins un article.");
-      return;
-    }
+    if (!depotId) return setErreur("Choisissez un dépôt.");
+    if (lignes.length === 0) return setErreur("Ajoutez au moins un article.");
+    if (!motif.trim()) return setErreur("Indiquez le motif (ex. Erreur de saisie, Recomptage).");
     setEnCours(true);
     try {
-      for (const ligne of lignes) {
-        try {
-          await creerMouvementManuel({
-            varianteId: ligne.varianteId,
-            depotId,
-            type,
-            quantite: type === "ajustement" ? ligne.quantite : Math.abs(ligne.quantite),
-            motif,
-            utilisateurId: session.utilisateurId,
-          });
-        } catch (e) {
-          setErreur(`${ligne.produitNom} : ${e instanceof ErreurStock ? e.message : "Erreur inattendue."}`);
-          return;
-        }
+      try {
+        await creerMouvementsGroupe({
+          depotId,
+          type,
+          motif,
+          utilisateurId: session.utilisateurId,
+          lignes: lignes.map((l) => ({ varianteId: l.varianteId, quantite: l.quantite })),
+        });
+      } catch (e) {
+        return setErreur(e instanceof ErreurStock ? e.message : "Erreur inattendue.");
       }
       onCree();
     } finally {
@@ -590,15 +641,29 @@ function FormulaireMouvementGroupe({
       <div className="modale-entete entete-fixe">
         <h3>Nouveau mouvement</h3>
         <div className="actions-formulaire">
-          <button type="submit" disabled={enCours}>
-            {enCours ? "Enregistrement…" : `Enregistrer (${lignes.length})`}
+          <button className="bouton-enregistrer" type="submit" disabled={enCours || sortiesImpossibles.length > 0}>
+            {enCours ? "Enregistrement…" : `Enregistrer (${nombreAEnregistrer})`}
           </button>
           <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
             ← Retour
           </button>
         </div>
       </div>
+      <p className="regle-mouvement">
+        {type === "sortie"
+          ? "Sortie pour corriger le stock (erreur de saisie, consommation interne…). Une perte (périmé, abîmé, volé) se déclare plutôt dans la carte Pertes : elle y est chiffrée pour les rapports."
+          : "Saisissez la quantité réellement comptée : l'appli calcule l'écart avec le stock du dépôt et le corrige. Les articles sans écart sont ignorés."}
+      </p>
       {erreur && <div className="message-erreur">{erreur}</div>}
+      {sortiesImpossibles.length > 0 && (
+        <div className="message-erreur">
+          Pas assez de stock dans ce dépôt :{" "}
+          {sortiesImpossibles
+            .map((l) => `${l.produitNom} (il y en a ${formaterQuantite(enStock(l.varianteId))})`)
+            .join(", ")}
+          .
+        </div>
+      )}
       <div className="colonnes-mouvement-groupe">
         <div className="colonne-recherche-groupe">
           <div className="ligne-champs-recherche-commande">
@@ -614,25 +679,43 @@ function FormulaireMouvementGroupe({
             </label>
             <label>
               Type
-              <select value={type} onChange={(e) => setType(e.target.value as TypeMouvement)}>
-                {fabricationPropre && <option value="entree">Entrée</option>}
+              <select value={type} onChange={(e) => changerType(e.target.value as "sortie" | "ajustement")}>
                 <option value="sortie">Sortie</option>
-                <option value="ajustement">Ajustement (correction signée)</option>
+                <option value="ajustement">Ajustement (quantité comptée)</option>
               </select>
             </label>
             <label>
               Motif
-              <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="ex. Réassort livraison" />
+              <input
+                list="motifs-mouvement"
+                value={motif}
+                onChange={(e) => setMotif(e.target.value)}
+                placeholder={`ex. ${MOTIFS_RAPIDES[type][0]}`}
+              />
+              <datalist id="motifs-mouvement">
+                {MOTIFS_RAPIDES[type].map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
             </label>
 
-            <div className="recherche-commande-combobox">
+            <div className="recherche-commande-combobox recherche-mouvement-groupe">
               <input
-                placeholder="Rechercher un article à ajouter…"
+                placeholder="🔍 Rechercher un article à ajouter…"
                 value={terme}
                 onChange={(e) => setTerme(e.target.value)}
                 onFocus={() => setDropdownOuvert(true)}
                 onBlur={() => setDropdownOuvert(false)}
               />
+              <button
+                type="button"
+                className="bouton-tous-articles-entree"
+                title="Voir tous les articles et en cocher plusieurs"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={ouvrirTousLesArticles}
+              >
+                ☰ Voir tout
+              </button>
               {terme.trim() && dropdownOuvert && (
                 <ul className="resultats-recherche">
                   {resultats
@@ -648,6 +731,7 @@ function FormulaireMouvementGroupe({
                         <span>
                           {v.produitNom} {v.reference && `(${v.reference})`}
                         </span>
+                        <span className="sous-info">en stock {formaterQuantite(enStock(v.id))}</span>
                       </li>
                     ))}
                   {resultats.length === 0 && <li className="liste-vide">Aucun résultat.</li>}
@@ -665,7 +749,9 @@ function FormulaireMouvementGroupe({
                   <th className="colonne-numero-groupe">N°</th>
                   <th>Référence</th>
                   <th className="col-designation-groupe">Désignation</th>
-                  <th>Quantité {type === "ajustement" && "(± )"}</th>
+                  <th>Stock (dépôt)</th>
+                  <th>{type === "sortie" ? "Quantité à sortir" : "Quantité comptée"}</th>
+                  <th>{type === "sortie" ? "Après" : "Écart"}</th>
                   <th />
                 </tr>
               </thead>
@@ -675,14 +761,30 @@ function FormulaireMouvementGroupe({
                     <td data-label="N°" className="colonne-numero-groupe">{index + 1}</td>
                     <td data-label="Référence">{l.reference || ""}</td>
                     <td data-label="Désignation" className="col-designation-groupe">{l.produitNom}</td>
-                    <td data-label="Quantité">
+                    <td data-label="Stock (dépôt)" className="nowrap">
+                      {formaterQuantite(enStock(l.varianteId))}
+                      {uniteDe(l.varianteId) && <span className="sous-info"> {uniteDe(l.varianteId)}</span>}
+                    </td>
+                    <td data-label={type === "sortie" ? "Quantité à sortir" : "Quantité comptée"}>
                       <input
                         type="number"
-                        min={type === "ajustement" ? undefined : 0.01}
+                        min={type === "ajustement" ? 0 : 0.01}
                         step="any"
                         value={l.quantite}
                         onChange={(e) => modifierQuantite(l.varianteId, Number(e.target.value))}
                       />
+                    </td>
+                    <td data-label={type === "sortie" ? "Après" : "Écart"} className="nowrap">
+                      {type === "sortie" ? (
+                        <strong className={apres(l) < 0 ? "texte-erreur" : undefined}>
+                          {apres(l) < 0 ? "−" : ""}
+                          {formaterQuantite(apres(l))}
+                        </strong>
+                      ) : (
+                        <strong className={ecart(l) < 0 ? "quantite-sortie" : ecart(l) > 0 ? "quantite-entree" : "sous-info"}>
+                          {ecart(l) === 0 ? "aucun" : `${signe(ecart(l))}${formaterQuantite(ecart(l))}`}
+                        </strong>
+                      )}
                     </td>
                     <td>
                       <button
@@ -698,11 +800,9 @@ function FormulaireMouvementGroupe({
                 ))}
                 {Array.from({ length: Math.max(0, 10 - lignes.length) }).map((_, i) => (
                   <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                    <td className="colonne-numero-groupe">&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td className="col-designation-groupe">&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
+                    {Array.from({ length: 7 }).map((__, j) => (
+                      <td key={j}>&nbsp;</td>
+                    ))}
                   </tr>
                 ))}
               </tbody>
@@ -710,6 +810,19 @@ function FormulaireMouvementGroupe({
           </div>
         </div>
       </div>
+      {tousLesArticles && (
+        <ModaleTousLesArticles
+          articles={tousLesArticles}
+          stockDepot={new Map([...stockDepot].map(([id, s]) => [id, s.quantite]))}
+          dejaAjoutes={new Set(lignes.map((l) => l.varianteId))}
+          avecRecette={null}
+          onAjouter={(choisis) => {
+            choisis.forEach(ajouterLigne);
+            setTousLesArticles(null);
+          }}
+          onFermer={() => setTousLesArticles(null)}
+        />
+      )}
     </form>
   );
 }
@@ -742,6 +855,9 @@ function FormulaireTransfert({
   const [lignes, setLignes] = useState<LigneTransfertGroupe[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  /** Stock de chaque article dans chaque dépôt (clé « dépôt|article »), avec son unité. */
+  const [stocks, setStocks] = useState<Map<string, number>>(new Map());
+  const [unites, setUnites] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     if (!terme.trim()) {
@@ -753,7 +869,23 @@ function FormulaireTransfert({
     }, 200);
     return () => clearTimeout(identifiant);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terme]);
+  }, [terme, session.boutiqueId]);
+
+  useEffect(() => {
+    listerStock(session.boutiqueId).then((liste) => {
+      setStocks(new Map(liste.map((s) => [`${s.depotId}|${s.varianteId}`, Number(s.quantite)])));
+      setUnites(new Map(liste.map((s) => [s.varianteId, s.unite ?? ""])));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId]);
+
+  const stockDans = (depotId: string, varianteId: string) => stocks.get(`${depotId}|${varianteId}`) ?? 0;
+
+  // « ☰ Voir tout » : liste complète des articles, à cocher.
+  const [tousLesArticles, setTousLesArticles] = useState<VarianteActive[] | null>(null);
+  async function ouvrirTousLesArticles() {
+    setTousLesArticles(await listerVariantesActives(session.boutiqueId));
+  }
 
   function ajouterLigne(variante: VarianteAchat) {
     setLignes((actuel) => {
@@ -768,6 +900,7 @@ function FormulaireTransfert({
   }
 
   function modifierQuantite(varianteId: string, quantite: number) {
+    setErreur(null);
     setLignes((actuel) => actuel.map((l) => (l.varianteId === varianteId ? { ...l, quantite } : l)));
   }
 
@@ -775,36 +908,31 @@ function FormulaireTransfert({
     setLignes((actuel) => actuel.filter((l) => l.varianteId !== varianteId));
   }
 
+  function inverserDepots() {
+    setDepotSourceId(depotDestinationId);
+    setDepotDestinationId(depotSourceId);
+  }
+
+  const memeDepot = !!depotSourceId && depotSourceId === depotDestinationId;
+  const manques = lignes.filter((l) => l.quantite > stockDans(depotSourceId, l.varianteId));
+
   async function soumettre(evenement: React.FormEvent) {
     evenement.preventDefault();
     setErreur(null);
-    if (!depotSourceId || !depotDestinationId) {
-      setErreur("Choisissez les dépôts source et destination.");
-      return;
-    }
-    if (depotSourceId === depotDestinationId) {
-      setErreur("Les dépôts source et destination doivent être différents.");
-      return;
-    }
-    if (lignes.length === 0) {
-      setErreur("Ajoutez au moins un article.");
-      return;
-    }
+    if (!depotSourceId || !depotDestinationId) return setErreur("Choisissez les dépôts de départ et d'arrivée.");
+    if (memeDepot) return setErreur("Les dépôts de départ et d'arrivée doivent être différents.");
+    if (lignes.length === 0) return setErreur("Ajoutez au moins un article.");
     setEnCours(true);
     try {
-      for (const ligne of lignes) {
-        try {
-          await transfererStock({
-            varianteId: ligne.varianteId,
-            depotSourceId,
-            depotDestinationId,
-            quantite: ligne.quantite,
-            utilisateurId: session.utilisateurId,
-          });
-        } catch (e) {
-          setErreur(`${ligne.produitNom} : ${e instanceof ErreurStock ? e.message : "Erreur inattendue."}`);
-          return;
-        }
+      try {
+        await creerTransfertsGroupe({
+          depotSourceId,
+          depotDestinationId,
+          utilisateurId: session.utilisateurId,
+          lignes: lignes.map((l) => ({ varianteId: l.varianteId, quantite: l.quantite })),
+        });
+      } catch (e) {
+        return setErreur(e instanceof ErreurStock ? e.message : "Erreur inattendue.");
       }
       onCree();
     } finally {
@@ -812,12 +940,33 @@ function FormulaireTransfert({
     }
   }
 
+  if (depots.length < 2) {
+    return (
+      <div className="formulaire-mouvement-groupe">
+        <div className="modale-entete entete-fixe">
+          <h3>Nouveau transfert</h3>
+          <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
+            ← Retour
+          </button>
+        </div>
+        <p className="regle-mouvement">
+          Un transfert déplace de la marchandise d'un dépôt à un autre : il faut au moins deux dépôts. Créez d'abord un
+          deuxième dépôt (par exemple « Magasin » et « Boutique »).
+        </p>
+      </div>
+    );
+  }
+
   return (
     <form onSubmit={soumettre} className="formulaire-mouvement-groupe">
       <div className="modale-entete entete-fixe">
         <h3>Nouveau transfert</h3>
         <div className="actions-formulaire">
-          <button type="submit" disabled={enCours}>
+          <button
+            className="bouton-enregistrer"
+            type="submit"
+            disabled={enCours || memeDepot || manques.length > 0}
+          >
             {enCours ? "Enregistrement…" : `Transférer (${lignes.length})`}
           </button>
           <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
@@ -826,11 +975,21 @@ function FormulaireTransfert({
         </div>
       </div>
       {erreur && <div className="message-erreur">{erreur}</div>}
+      {memeDepot && <div className="message-erreur">Choisissez deux dépôts différents.</div>}
+      {manques.length > 0 && (
+        <div className="message-erreur">
+          Pas assez de stock au départ :{" "}
+          {manques
+            .map((l) => `${l.produitNom} (il y en a ${formaterQuantite(stockDans(depotSourceId, l.varianteId))})`)
+            .join(", ")}
+          .
+        </div>
+      )}
       <div className="colonnes-mouvement-groupe">
         <div className="colonne-recherche-groupe">
           <div className="ligne-champs-recherche-commande">
             <label>
-              Dépôt source
+              Dépôt de départ
               <select value={depotSourceId} onChange={(e) => setDepotSourceId(e.target.value)}>
                 {depots.map((d) => (
                   <option key={d.id} value={d.id}>
@@ -839,8 +998,16 @@ function FormulaireTransfert({
                 ))}
               </select>
             </label>
+            <button
+              type="button"
+              className="bouton-inverser-depots"
+              title="Inverser départ et arrivée"
+              onClick={inverserDepots}
+            >
+              ⇄
+            </button>
             <label>
-              Dépôt destination
+              Dépôt d'arrivée
               <select value={depotDestinationId} onChange={(e) => setDepotDestinationId(e.target.value)}>
                 {depots.map((d) => (
                   <option key={d.id} value={d.id}>
@@ -849,15 +1016,23 @@ function FormulaireTransfert({
                 ))}
               </select>
             </label>
-
-            <div className="recherche-commande-combobox">
+            <div className="recherche-commande-combobox recherche-mouvement-groupe">
               <input
-                placeholder="Rechercher un article à ajouter…"
+                placeholder="🔍 Rechercher un article à transférer…"
                 value={terme}
                 onChange={(e) => setTerme(e.target.value)}
                 onFocus={() => setDropdownOuvert(true)}
                 onBlur={() => setDropdownOuvert(false)}
               />
+              <button
+                type="button"
+                className="bouton-tous-articles-entree"
+                title="Voir tous les articles et en cocher plusieurs"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={ouvrirTousLesArticles}
+              >
+                ☰ Voir tout
+              </button>
               {terme.trim() && dropdownOuvert && (
                 <ul className="resultats-recherche">
                   {resultats
@@ -873,6 +1048,7 @@ function FormulaireTransfert({
                         <span>
                           {v.produitNom} {v.reference && `(${v.reference})`}
                         </span>
+                        <span className="sous-info">au départ {formaterQuantite(stockDans(depotSourceId, v.id))}</span>
                       </li>
                     ))}
                   {resultats.length === 0 && <li className="liste-vide">Aucun résultat.</li>}
@@ -890,44 +1066,62 @@ function FormulaireTransfert({
                   <th className="colonne-numero-groupe">N°</th>
                   <th>Référence</th>
                   <th className="col-designation-groupe">Désignation</th>
+                  <th title="Stock du dépôt de départ, avant → après">Départ</th>
                   <th>Quantité</th>
+                  <th title="Stock du dépôt d'arrivée, avant → après">Arrivée</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
-                {lignes.map((l, index) => (
-                  <tr key={l.varianteId}>
-                    <td data-label="N°" className="colonne-numero-groupe">{index + 1}</td>
-                    <td data-label="Référence">{l.reference || ""}</td>
-                    <td data-label="Désignation" className="col-designation-groupe">{l.produitNom}</td>
-                    <td data-label="Quantité">
-                      <input
-                        type="number"
-                        min={0.01}
-                        step="any"
-                        value={l.quantite}
-                        onChange={(e) => modifierQuantite(l.varianteId, Number(e.target.value))}
-                      />
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className="bouton-retirer-ligne-groupe"
-                        title="Retirer de la liste"
-                        onClick={() => retirerLigne(l.varianteId)}
-                      >
-                        ✕
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {lignes.map((l, index) => {
+                  const depart = stockDans(depotSourceId, l.varianteId);
+                  const arrivee = stockDans(depotDestinationId, l.varianteId);
+                  const unite = unites.get(l.varianteId);
+                  return (
+                    <tr key={l.varianteId}>
+                      <td data-label="N°" className="colonne-numero-groupe">{index + 1}</td>
+                      <td data-label="Référence">{l.reference || ""}</td>
+                      <td data-label="Désignation" className="col-designation-groupe">{l.produitNom}</td>
+                      <td data-label="Départ" className="nowrap">
+                        <span className="sous-info">{formaterQuantite(depart)}</span> →{" "}
+                        <strong className={depart - l.quantite < 0 ? "texte-erreur" : undefined}>
+                          {depart - l.quantite < 0 ? "−" : ""}
+                          {formaterQuantite(depart - l.quantite)}
+                        </strong>
+                        {unite && <span className="sous-info"> {unite}</span>}
+                      </td>
+                      <td data-label="Quantité">
+                        <input
+                          type="number"
+                          min={0.01}
+                          step="any"
+                          value={l.quantite}
+                          onChange={(e) => modifierQuantite(l.varianteId, Number(e.target.value))}
+                        />
+                      </td>
+                      <td data-label="Arrivée" className="nowrap">
+                        <span className="sous-info">{formaterQuantite(arrivee)}</span> →{" "}
+                        <strong className="quantite-entree">{formaterQuantite(arrivee + l.quantite)}</strong>
+                        {unite && <span className="sous-info"> {unite}</span>}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="bouton-retirer-ligne-groupe"
+                          title="Retirer de la liste"
+                          onClick={() => retirerLigne(l.varianteId)}
+                        >
+                          ✕
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {Array.from({ length: Math.max(0, 10 - lignes.length) }).map((_, i) => (
                   <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                    <td className="colonne-numero-groupe">&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td className="col-designation-groupe">&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
+                    {Array.from({ length: 7 }).map((__, j) => (
+                      <td key={j}>&nbsp;</td>
+                    ))}
                   </tr>
                 ))}
               </tbody>
@@ -935,18 +1129,33 @@ function FormulaireTransfert({
           </div>
         </div>
       </div>
+      {tousLesArticles && (
+        <ModaleTousLesArticles
+          articles={tousLesArticles}
+          stockDepot={new Map(tousLesArticles.map((a) => [a.id, stockDans(depotSourceId, a.id)]))}
+          dejaAjoutes={new Set(lignes.map((l) => l.varianteId))}
+          avecRecette={null}
+          onAjouter={(choisis) => {
+            choisis.forEach(ajouterLigne);
+            setTousLesArticles(null);
+          }}
+          onFermer={() => setTousLesArticles(null)}
+        />
+      )}
     </form>
   );
 }
 
 function OngletTransferts({ session }: { session: Session }) {
   const nomUtilisateur = useNomsUtilisateurs(session);
+  const devise = useDevise();
   const peutGerer = !!session.permissions.gerer_produits_stock_achats;
+  const peutVoirCout = !!session.permissions.voir_benefices_achat;
   const [depots, setDepots] = useState<DepotResume[]>([]);
   const [transferts, setTransferts] = useState<TransfertResume[]>([]);
   const [afficherForm, setAfficherForm] = useState(false);
   // Filtre de période (même composant que Stock → Historique) : par défaut les
-  // 30 derniers jours, jusqu'à 5 000 lignes chargées au lieu des 100 dernières.
+  // 30 derniers jours ; toute la période choisie est chargée, sans plafond.
   const [periode, setPeriode] = useState<PeriodeHistorique>("30j");
   const [debutPerso, setDebutPerso] = useState(jourLocal(new Date()));
   const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
@@ -954,9 +1163,13 @@ function OngletTransferts({ session }: { session: Session }) {
   const [terme, setTerme] = useState("");
 
   async function rafraichir() {
-    const tous = await listerTransferts(session.boutiqueId, 5000);
-    // Un caissier ne voit que les transferts qui concernent son dépôt (source
-    // ou destination) — le Patron/Gérant garde la vue globale.
+    const b = bornesPeriode(periode, debutPerso, finPerso);
+    const depuis = b && !b[0].startsWith("0000") ? new Date(`${b[0]}T00:00:00`).toISOString() : null;
+    const jusqua =
+      b && !b[1].startsWith("9999") ? new Date(new Date(`${b[1]}T00:00:00`).getTime() + 86400000).toISOString() : null;
+    const tous = await listerTransferts(session.boutiqueId, null, depuis, jusqua);
+    // Un caissier ne voit que les transferts qui concernent son dépôt (source ou
+    // destination) — le Patron/Gérant garde la vue globale.
     setTransferts(
       peutGerer || !session.depotNom
         ? tous
@@ -965,9 +1178,12 @@ function OngletTransferts({ session }: { session: Session }) {
   }
   useEffect(() => {
     listerDepotsDetail(session.boutiqueId).then(setDepots);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId]);
+  useEffect(() => {
     rafraichir();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [session.boutiqueId, periode, debutPerso, finPerso]);
 
   const cle = terme.trim().toLowerCase();
   const nomsDepots = [...new Set(transferts.flatMap((t) => [t.depotSourceNom, t.depotDestinationNom]))].sort((a, b) =>
@@ -979,13 +1195,35 @@ function OngletTransferts({ session }: { session: Session }) {
       (!depotFiltre || t.depotSourceNom === depotFiltre || t.depotDestinationNom === depotFiltre) &&
       (!cle || t.produitNom.toLowerCase().includes(cle) || (t.reference ?? "").toLowerCase().includes(cle)),
   );
-  const articlesDeplaces = transfertsFiltres.reduce((total, t) => total + t.quantite, 0);
-  // Dépôt d'où part le plus de marchandise sur la période.
+  // On compte (additionner cartons et kg n'aurait pas de sens) ; la valeur, elle, s'additionne.
+  const articlesDifferents = new Set(transfertsFiltres.map((t) => t.varianteId ?? `${t.produitNom}|${t.reference}`)).size;
+  const valeurDeplacee = Math.round(transfertsFiltres.reduce((total, t) => total + t.quantite * (t.prixAchat ?? 0), 0));
+  // Dépôt d'où partent le plus de transferts sur la période.
   const envoisParDepot = transfertsFiltres.reduce(
-    (parDepot, t) => parDepot.set(t.depotSourceNom, (parDepot.get(t.depotSourceNom) ?? 0) + t.quantite),
+    (parDepot, t) => parDepot.set(t.depotSourceNom, (parDepot.get(t.depotSourceNom) ?? 0) + 1),
     new Map<string, number>(),
   );
   const premierExpediteur = [...envoisParDepot.entries()].sort((a, b) => b[1] - a[1])[0];
+  const colonnesExport: ColonneExport[] = [
+    { cle: "date", libelle: "Date" },
+    { cle: "article", libelle: "Article" },
+    { cle: "de", libelle: "De" },
+    { cle: "vers", libelle: "Vers" },
+    { cle: "quantite", libelle: "Quantité" },
+    { cle: "unite", libelle: "Unité" },
+    ...(peutVoirCout ? [{ cle: "valeur", libelle: `Valeur (${devise})` }] : []),
+    { cle: "faitPar", libelle: "Fait par" },
+  ];
+  const lignesExport = transfertsFiltres.map((t) => ({
+    date: dateHeure(t.dateCreation),
+    article: t.produitNom + (t.reference ? ` (${t.reference})` : ""),
+    de: t.depotSourceNom,
+    vers: t.depotDestinationNom,
+    quantite: t.quantite,
+    unite: t.unite ?? "",
+    valeur: Math.round(t.quantite * (t.prixAchat ?? 0)),
+    faitPar: nomUtilisateur(t.utilisateurId),
+  }));
 
   return (
     <div className="onglet-transferts liste-dettes-credits">
@@ -995,12 +1233,30 @@ function OngletTransferts({ session }: { session: Session }) {
           <strong>{transfertsFiltres.length}</strong>
         </div>
         <div className="tuile-fiche">
-          <span className="sous-info">📦 Articles déplacés</span>
-          <strong>{formaterMontant(articlesDeplaces)}</strong>
+          <span className="sous-info">📦 Articles différents</span>
+          <strong>{articlesDifferents}</strong>
         </div>
-        <div className="tuile-fiche">
+        {peutVoirCout && (
+          <div className="tuile-fiche" title="Quantités déplacées × coût moyen actuel de chaque article">
+            <span className="sous-info">💰 Valeur déplacée</span>
+            <strong>
+              ≈ {formaterMontant(valeurDeplacee)} {devise}
+            </strong>
+          </div>
+        )}
+        <div
+          {...(premierExpediteur || depotFiltre
+            ? tuileFiltre(!!depotFiltre && depotFiltre === premierExpediteur?.[0], () =>
+                setDepotFiltre(depotFiltre && depotFiltre === premierExpediteur?.[0] ? "" : (premierExpediteur?.[0] ?? "")),
+              )
+            : { className: "tuile-fiche" })}
+        >
           <span className="sous-info">📤 Dépôt qui envoie le plus</span>
-          <strong>{premierExpediteur ? `${premierExpediteur[0]} (${formaterMontant(premierExpediteur[1])})` : "—"}</strong>
+          <strong>
+            {premierExpediteur
+              ? `${premierExpediteur[0]} (${premierExpediteur[1]} transfert${premierExpediteur[1] > 1 ? "s" : ""})`
+              : "—"}
+          </strong>
         </div>
       </div>
       <div className="barre-actions barre-actions-avec-onglets barre-filtres-historique">
@@ -1022,7 +1278,14 @@ function OngletTransferts({ session }: { session: Session }) {
             ))}
           </select>
         )}
-        <input type="search" placeholder="Rechercher un article…" value={terme} onChange={(e) => setTerme(e.target.value)} />
+        <input
+          type="search"
+          className="champ-recherche-mouvements"
+          placeholder="🔍 Rechercher un article (nom ou référence)…"
+          value={terme}
+          onChange={(e) => setTerme(e.target.value)}
+        />
+        <BoutonsExport titre="Transferts de stock" colonnes={colonnesExport} lignes={lignesExport} compact />
         {peutGerer && !afficherForm && (
           <span className="actions-ligne">
             <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherForm(true)}>
@@ -1047,56 +1310,64 @@ function OngletTransferts({ session }: { session: Session }) {
         </div>
       )}
       <div className="zone-tableau-scroll">
-        <table className="tableau-catalogue carte-mobile">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Désignation</th>
-              <th>De</th>
-              <th>Vers</th>
-              <th>Quantité</th>
-              <th>Fait par</th>
+      <table className="tableau-catalogue carte-mobile">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Désignation</th>
+            <th>De</th>
+            <th>Vers</th>
+            <th>Quantité</th>
+            <th>Fait par</th>
+          </tr>
+        </thead>
+        <tbody>
+          {transfertsFiltres.map((t) => (
+            <tr key={t.id}>
+              <td data-label="Date" className="nowrap">{dateHeure(t.dateCreation)}</td>
+              <td data-label="Désignation">
+                {t.produitNom} {t.reference && <span className="sous-info">({t.reference})</span>}
+              </td>
+              <td data-label="De">{t.depotSourceNom}</td>
+              <td data-label="Vers">{t.depotDestinationNom}</td>
+              <td data-label="Quantité" className="nowrap">
+                {formaterQuantite(t.quantite)}
+                {t.unite && <span className="sous-info"> {t.unite}</span>}
+              </td>
+              <td data-label="Fait par">{nomUtilisateur(t.utilisateurId)}</td>
             </tr>
-          </thead>
-          <tbody>
-            {transfertsFiltres.map((t) => (
-              <tr key={t.id}>
-                <td data-label="Date" title={new Date(t.dateCreation).toLocaleString("fr-FR")}>{new Date(t.dateCreation).toLocaleDateString("fr-FR")}</td>
-                <td data-label="Désignation">
-                  {t.produitNom} {t.reference && `(${t.reference})`}
-                </td>
-                <td data-label="De">{t.depotSourceNom}</td>
-                <td data-label="Vers">{t.depotDestinationNom}</td>
-                <td data-label="Quantité">{t.quantite}</td>
-                <td data-label="Fait par">{nomUtilisateur(t.utilisateurId)}</td>
-              </tr>
-            ))}
-            {transfertsFiltres.length === 0 && (
-              <tr>
-                <td colSpan={6} className="liste-vide">
-                  {transferts.length === 0 ? "Aucun transfert." : "Aucun transfert pour ces filtres."}
-                </td>
-              </tr>
-            )}
-            {Array.from({ length: Math.max(0, 10 - Math.max(1, transfertsFiltres.length)) }).map((_, i) => (
-              <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-                <td>&nbsp;</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+          ))}
+          {transfertsFiltres.length === 0 && (
+            <tr>
+              <td colSpan={6} className="liste-vide">
+                {transferts.length === 0 ? "Aucun transfert." : "Aucun transfert pour ces filtres."}
+              </td>
+            </tr>
+          )}
+          {Array.from({ length: Math.max(0, 10 - Math.max(1, transfertsFiltres.length)) }).map((_, i) => (
+            <tr key={`vide-${i}`} className="ligne-groupe-vide">
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+              <td>&nbsp;</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
       </div>
       {transfertsFiltres.length > 0 && (
         <div className="totaux">
           <div>
-            {transfertsFiltres.length} transfert{transfertsFiltres.length > 1 ? "s" : ""}
+            {transfertsFiltres.length} transfert{transfertsFiltres.length > 1 ? "s" : ""} · {articlesDifferents} article
+            {articlesDifferents > 1 ? "s" : ""} différent{articlesDifferents > 1 ? "s" : ""}
           </div>
-          <div className="total-net">Articles déplacés : {formaterMontant(articlesDeplaces)}</div>
+          {peutVoirCout && (
+            <div className="total-net">
+              Valeur déplacée : ≈ {formaterMontant(valeurDeplacee)} {devise}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1106,6 +1377,17 @@ function OngletTransferts({ session }: { session: Session }) {
 // --- Onglet Inventaire ---
 
 /** Saisie libre jusqu'à confirmation explicite (Entrée ou ✓), comme les Mouvements. */
+/** Écart d'inventaire : « +2 » en vert (surplus), « −3 » en rouge (manquant), « 0 » discret. */
+function EcartInventaire({ valeur, montant = false }: { valeur: number; montant?: boolean }) {
+  if (valeur === 0) return <span className="sous-info">0</span>;
+  return (
+    <strong className={valeur < 0 ? "quantite-sortie" : "quantite-entree"}>
+      {valeur > 0 ? "+" : "−"}
+      {montant ? formaterMontant(Math.abs(valeur)) : formaterQuantite(valeur)}
+    </strong>
+  );
+}
+
 function LigneInventaireEditable({
   ligne,
   onEnregistrer,
@@ -1119,7 +1401,7 @@ function LigneInventaireEditable({
   const nombreValeur = Number(valeur);
   const valeurValide = valeur.trim() !== "" && !Number.isNaN(nombreValeur);
   const modifie = valeurValide && nombreValeur !== ligne.qtePhysique;
-  const ecartAffiche = valeurValide ? nombreValeur - ligne.qteTheorique : ligne.ecart;
+  const ecartAffiche = valeurValide ? Math.round((nombreValeur - ligne.qteTheorique) * 100) / 100 : ligne.ecart;
 
   async function enregistrer() {
     if (!modifie) return;
@@ -1136,8 +1418,8 @@ function LigneInventaireEditable({
 
   return (
     <>
-      <td data-label="Physique">
-        <div className="champ-mot-de-passe-genere">
+      <td data-label="Compté" className="col-nombre">
+        <div className="saisie-inventaire">
           <input
             type="number"
             step="any"
@@ -1155,7 +1437,9 @@ function LigneInventaireEditable({
         </div>
         {erreur && <div className="message-erreur">{erreur}</div>}
       </td>
-      <td data-label="Écart">{ecartAffiche}</td>
+      <td data-label="Écart" className="col-nombre">
+        <EcartInventaire valeur={ecartAffiche} />
+      </td>
     </>
   );
 }
@@ -1270,7 +1554,7 @@ function DetailInventaire({
         </div>
         <div className="entete-detail-actions">
           {!estValide && peutGerer && (
-            <button type="button" className="bouton-primaire" onClick={valider} disabled={enCours}>
+            <button type="button" className="bouton-primaire bouton-enregistrer" onClick={valider} disabled={enCours}>
               {enCours ? "Validation…" : "Valider l'inventaire"}
             </button>
           )}
@@ -1279,7 +1563,7 @@ function DetailInventaire({
           </button>
         </div>
       </div>
-      <div className="modale-corps">
+      <div className="modale-corps corps-detail-inventaire">
         {erreur && <div className="message-erreur">{erreur}</div>}
       {!estValide && peutGerer && (
         <div className="barre-saisie-inventaire">
@@ -1329,82 +1613,117 @@ function DetailInventaire({
           {erreurSaisie && <span className="message-erreur">{erreurSaisie}</span>}
         </div>
       )}
-        <div className="zone-tableau-scroll">
-          <table className="tableau-catalogue carte-mobile">
-            <thead>
-              <tr>
-                <th>Désignation</th>
-                <th>Référence</th>
-                <th>Théorique</th>
-                <th>Physique</th>
-                <th>Écart</th>
-                <th>Valeur théorique ({devise})</th>
-                <th>Valeur physique ({devise})</th>
-                <th>Écart ({devise})</th>
-                <th>CA période ({devise})</th>
-              </tr>
-            </thead>
-            <tbody>
-              {inventaire.lignes.map((l) =>
-                estValide || !peutGerer ? (
-                  <tr key={l.id}>
-                    <td data-label="Désignation">{l.produitNom}</td>
-                    <td data-label="Référence">{l.reference || ""}</td>
-                    <td data-label="Théorique">{l.qteTheorique}</td>
-                    <td data-label="Physique">{l.qtePhysique}</td>
-                    <td data-label="Écart">{l.ecart}</td>
-                    <td data-label={`Valeur théorique (${devise})`}>{formaterMontant(l.valeurTheorique)}</td>
-                    <td data-label={`Valeur physique (${devise})`}>{formaterMontant(l.valeurPhysique)}</td>
-                    <td data-label={`Écart (${devise})`}>{formaterMontant(l.valeurEcart)}</td>
-                    <td data-label={`CA période (${devise})`}>{formaterMontant(l.caPeriode)}</td>
-                  </tr>
+      <div className="zone-tableau-scroll zone-tableau-inventaire">
+        <table className="tableau-catalogue carte-mobile tableau-inventaire">
+          <thead>
+            <tr>
+              <th className="colonne-numero-groupe">N°</th>
+              <th>Désignation</th>
+              <th className="col-nombre">Théorique</th>
+              <th className="col-nombre">Compté</th>
+              <th className="col-nombre">Écart</th>
+              <th className="col-nombre">Valeur théorique</th>
+              <th className="col-nombre">Valeur comptée</th>
+              <th className="col-nombre">Écart en valeur</th>
+              <th className="col-nombre">CA période</th>
+            </tr>
+          </thead>
+          <tbody>
+            {inventaire.lignes.map((l, index) => (
+              <tr key={l.id} className={l.ecart !== 0 ? "ligne-inventaire-ecart" : undefined}>
+                <td data-label="N°" className="colonne-numero-groupe">
+                  {index + 1}
+                </td>
+                <td data-label="Désignation">
+                  {l.produitNom}
+                  {l.reference && <span className="sous-info"> ({l.reference})</span>}
+                </td>
+                <td data-label="Théorique" className="col-nombre">
+                  {formaterQuantite(l.qteTheorique)}
+                </td>
+                {estValide || !peutGerer ? (
+                  <>
+                    <td data-label="Compté" className="col-nombre">
+                      {formaterQuantite(l.qtePhysique)}
+                    </td>
+                    <td data-label="Écart" className="col-nombre">
+                      <EcartInventaire valeur={l.ecart} />
+                    </td>
+                  </>
                 ) : (
-                  <tr key={l.id}>
-                    <td data-label="Désignation">{l.produitNom}</td>
-                    <td data-label="Référence">{l.reference || ""}</td>
-                    <td data-label="Théorique">{l.qteTheorique}</td>
-                    <LigneInventaireEditable ligne={l} onEnregistrer={enregistrerLigne} />
-                    <td data-label={`Valeur théorique (${devise})`}>{formaterMontant(l.valeurTheorique)}</td>
-                    <td data-label={`Valeur physique (${devise})`}>{formaterMontant(l.valeurPhysique)}</td>
-                    <td data-label={`Écart (${devise})`}>{formaterMontant(l.valeurEcart)}</td>
-                    <td data-label={`CA période (${devise})`}>{formaterMontant(l.caPeriode)}</td>
-                  </tr>
-                ),
-              )}
-              {inventaire.lignes.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="liste-vide">
-                    Aucune ligne (aucun stock dans ce dépôt au démarrage de l'inventaire).
-                  </td>
-                </tr>
-              )}
-              {Array.from({ length: Math.max(0, 10 - Math.max(1, inventaire.lignes.length)) }).map((_, i) => (
-                <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                  <td>&nbsp;</td>
-                  <td>&nbsp;</td>
-                  <td>&nbsp;</td>
-                  <td>&nbsp;</td>
-                  <td>&nbsp;</td>
-                  <td>&nbsp;</td>
-                  <td>&nbsp;</td>
-                  <td>&nbsp;</td>
-                  <td>&nbsp;</td>
-                </tr>
-              ))}
-            </tbody>
-            {inventaire.lignes.length > 0 && (
-              <tfoot>
-                <tr className="ligne-total-inventaire">
-                  <td colSpan={5}>Total</td>
-                  <td data-label={`Valeur théorique (${devise})`}>{formaterMontant(inventaire.valeurTheorique)}</td>
-                  <td data-label={`Valeur physique (${devise})`}>{formaterMontant(inventaire.valeurPhysique)}</td>
-                  <td data-label={`Écart (${devise})`}>{formaterMontant(inventaire.ecartValeur)}</td>
-                  <td data-label={`CA période (${devise})`}>{formaterMontant(inventaire.caPeriode)}</td>
-                </tr>
-              </tfoot>
+                  <LigneInventaireEditable ligne={l} onEnregistrer={enregistrerLigne} />
+                )}
+                <td data-label="Valeur théorique" className="col-nombre">
+                  {formaterMontant(l.valeurTheorique)}
+                </td>
+                <td data-label="Valeur comptée" className="col-nombre">
+                  {formaterMontant(l.valeurPhysique)}
+                </td>
+                <td data-label="Écart en valeur" className="col-nombre">
+                  <EcartInventaire valeur={l.valeurEcart} montant />
+                </td>
+                <td data-label="CA période" className="col-nombre">
+                  {formaterMontant(l.caPeriode)}
+                </td>
+              </tr>
+            ))}
+            {inventaire.lignes.length === 0 && (
+              <tr>
+                <td colSpan={9} className="liste-vide">
+                  Aucune ligne (aucun stock dans ce dépôt au démarrage de l'inventaire).
+                </td>
+              </tr>
             )}
-          </table>
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, inventaire.lignes.length)) }).map((_, i) => (
+              <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                {Array.from({ length: 9 }).map((__, j) => (
+                  <td key={j}>&nbsp;</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {/* Totaux hors du défilement : toujours visibles sous le tableau. */}
+      {inventaire.lignes.length > 0 && (
+        <div className="totaux-inventaire">
+          <div className="total-inventaire">
+            <span className="sous-info">Articles</span>
+            <strong>{inventaire.lignes.length}</strong>
+            <span className="sous-info">{inventaire.lignes.filter((l) => l.ecart !== 0).length} avec écart</span>
+          </div>
+          <div className="total-inventaire">
+            <span className="sous-info">Valeur théorique</span>
+            <strong>
+              {formaterMontant(inventaire.valeurTheorique)} {devise}
+            </strong>
+          </div>
+          <div className="total-inventaire">
+            <span className="sous-info">Valeur comptée</span>
+            <strong>
+              {formaterMontant(inventaire.valeurPhysique)} {devise}
+            </strong>
+          </div>
+          <div
+            className={`total-inventaire${inventaire.ecartValeur < 0 ? " total-negatif" : inventaire.ecartValeur > 0 ? " total-positif" : ""}`}
+          >
+            <span className="sous-info">Écart en valeur</span>
+            <strong>
+              {inventaire.ecartValeur > 0 ? "+" : inventaire.ecartValeur < 0 ? "−" : ""}
+              {formaterMontant(Math.abs(inventaire.ecartValeur))} {devise}
+            </strong>
+            <span className="sous-info">
+              {inventaire.ecartValeur < 0 ? "manquant" : inventaire.ecartValeur > 0 ? "surplus" : "aucun écart"}
+            </span>
+          </div>
+          <div className="total-inventaire">
+            <span className="sous-info">CA de la période</span>
+            <strong>
+              {formaterMontant(inventaire.caPeriode)} {devise}
+            </strong>
+          </div>
         </div>
+      )}
       </div>
     </>
   );
@@ -1422,6 +1741,8 @@ function OngletInventaire({ session }: { session: Session }) {
   // « Comptage à zéro » : chaque article part de 0 ; ce qui n'est pas compté
   // sera considéré comme absent à la validation (stock très faux à reprendre).
   const [aZero, setAZero] = useState(false);
+  // Carte « Inventaires en cours » : la liste n'affiche que ceux-là.
+  const [enCoursSeulement, setEnCoursSeulement] = useState(false);
 
   async function rafraichir() {
     const tous = await listerInventaires(session.boutiqueId);
@@ -1440,6 +1761,7 @@ function OngletInventaire({ session }: { session: Session }) {
   const devise = useDevise();
   const enCoursListe = inventaires.filter((i) => i.statut !== "valide");
   const valides = inventaires.filter((i) => i.statut === "valide");
+  const inventairesAffiches = enCoursSeulement ? enCoursListe : inventaires;
   const dernierValide = valides[0];
   const ecartValide = valides.reduce((total, i) => total + i.ecartValeur, 0);
   // Un seul inventaire en cours par dépôt : le bouton reprend celui qui existe.
@@ -1470,7 +1792,13 @@ function OngletInventaire({ session }: { session: Session }) {
   return (
     <div className="liste-dettes-credits">
       <div className="tuiles-fiche">
-        <div className={`tuile-fiche${enCoursListe.length > 0 ? " tuile-fiche--attention" : ""}`}>
+        <div
+          {...tuileFiltre(
+            enCoursSeulement,
+            () => setEnCoursSeulement(!enCoursSeulement),
+            enCoursListe.length > 0 ? "tuile-fiche--attention" : "",
+          )}
+        >
           <span className="sous-info">📝 Inventaires en cours</span>
           <strong>{enCoursListe.length}</strong>
         </div>
@@ -1549,7 +1877,7 @@ function OngletInventaire({ session }: { session: Session }) {
             </tr>
           </thead>
           <tbody>
-            {inventaires.map((i) => (
+            {inventairesAffiches.map((i) => (
               <tr key={i.id} onClick={() => ouvrir(i.id)} title="Ouvrir cet inventaire">
                 <td data-label="Date" title={new Date(i.dateCreation).toLocaleString("fr-FR")}>{jour(i.dateCreation)}</td>
                 <td data-label="Dépôt">{i.depotNom}</td>
@@ -1575,7 +1903,7 @@ function OngletInventaire({ session }: { session: Session }) {
                 </td>
               </tr>
             )}
-            {Array.from({ length: Math.max(0, 10 - Math.max(1, inventaires.length)) }).map((_, i) => (
+            {Array.from({ length: Math.max(0, 10 - Math.max(1, inventairesAffiches.length)) }).map((_, i) => (
               <tr key={`vide-${i}`} className="ligne-groupe-vide">
                 <td>&nbsp;</td>
                 <td>&nbsp;</td>
@@ -1789,6 +2117,15 @@ function ModaleStockNiveau({
 
 // --- Onglet Pertes : sortie sans vente (périmé, casse, vol, don…) ---
 
+interface LignePerte {
+  varianteId: string;
+  produitNom: string;
+  reference: string;
+  quantite: number;
+  motif: MotifPerte;
+  detail: string;
+}
+
 function FormulairePerte({
   session,
   depots,
@@ -1800,15 +2137,20 @@ function FormulairePerte({
   onAnnuler: () => void;
   onCree: () => void;
 }) {
+  const devise = useDevise();
   const [depotId, setDepotId] = useState(depots[0]?.id ?? "");
-  const [motif, setMotif] = useState<MotifPerte>("perime");
-  const [detail, setDetail] = useState("");
+  /** Motif donné aux articles ajoutés ; chaque ligne garde ensuite le sien. */
+  const [motifParDefaut, setMotifParDefaut] = useState<MotifPerte>("perime");
   const [terme, setTerme] = useState("");
   const [resultats, setResultats] = useState<VarianteAchat[]>([]);
   const [dropdownOuvert, setDropdownOuvert] = useState(false);
-  const [lignes, setLignes] = useState<LigneTransfertGroupe[]>([]);
+  const [lignes, setLignes] = useState<LignePerte[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  /** Stock de chaque article dans le dépôt choisi, avec son unité et son coût moyen. */
+  const [stockDepot, setStockDepot] = useState<Map<string, { quantite: number; unite: string; prixAchat: number }>>(
+    new Map(),
+  );
 
   useEffect(() => {
     if (!terme.trim()) {
@@ -1819,57 +2161,80 @@ function FormulairePerte({
       rechercherVariantesAchat(session.boutiqueId, terme.trim()).then(setResultats);
     }, 200);
     return () => clearTimeout(identifiant);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terme, session.boutiqueId]);
+
+  useEffect(() => {
+    if (!depotId) return;
+    listerStock(session.boutiqueId, depotId).then((liste) =>
+      setStockDepot(
+        new Map(
+          liste.map((s) => [s.varianteId, { quantite: Number(s.quantite), unite: s.unite ?? "", prixAchat: Number(s.prixAchat) }]),
+        ),
+      ),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId, depotId]);
+
+  const enStock = (varianteId: string) => stockDepot.get(varianteId)?.quantite ?? 0;
+  const valeurLigne = (l: LignePerte) => Math.round(l.quantite * (stockDepot.get(l.varianteId)?.prixAchat ?? 0));
+
+  // « ☰ Voir tout » : liste complète des articles, à cocher.
+  const [tousLesArticles, setTousLesArticles] = useState<VarianteActive[] | null>(null);
+  async function ouvrirTousLesArticles() {
+    setTousLesArticles(await listerVariantesActives(session.boutiqueId));
+  }
 
   function ajouterLigne(variante: VarianteAchat) {
     setLignes((actuel) => {
       if (actuel.some((l) => l.varianteId === variante.id)) return actuel;
       return [
         ...actuel,
-        { varianteId: variante.id, produitNom: variante.produitNom, reference: variante.reference, quantite: 1 },
+        {
+          varianteId: variante.id,
+          produitNom: variante.produitNom,
+          reference: variante.reference,
+          quantite: 1,
+          motif: motifParDefaut,
+          detail: "",
+        },
       ];
     });
+    setTerme("");
+    setResultats([]);
   }
 
-  function modifierQuantite(varianteId: string, quantite: number) {
-    setLignes((actuel) => actuel.map((l) => (l.varianteId === varianteId ? { ...l, quantite } : l)));
+  function modifierLigne(varianteId: string, champs: Partial<LignePerte>) {
+    setErreur(null);
+    setLignes((actuel) => actuel.map((l) => (l.varianteId === varianteId ? { ...l, ...champs } : l)));
   }
 
   function retirerLigne(varianteId: string) {
     setLignes((actuel) => actuel.filter((l) => l.varianteId !== varianteId));
   }
 
+  const manques = lignes.filter((l) => l.quantite > enStock(l.varianteId));
+  const sansPrecision = lignes.filter((l) => l.motif === "autre" && !l.detail.trim());
+  const valeurTotale = lignes.reduce((t, l) => t + valeurLigne(l), 0);
+
   async function soumettre(evenement: React.FormEvent) {
     evenement.preventDefault();
     setErreur(null);
-    if (!depotId) {
-      setErreur("Choisissez un dépôt.");
-      return;
-    }
-    if (motif === "autre" && !detail.trim()) {
-      setErreur("Précisez la raison de la perte.");
-      return;
-    }
-    if (lignes.length === 0) {
-      setErreur("Ajoutez au moins un article.");
-      return;
+    if (!depotId) return setErreur("Choisissez un dépôt.");
+    if (lignes.length === 0) return setErreur("Ajoutez au moins un article.");
+    if (sansPrecision.length > 0) {
+      return setErreur(`Précisez la raison pour : ${sansPrecision.map((l) => l.produitNom).join(", ")} (motif « Autre »).`);
     }
     setEnCours(true);
     try {
-      for (const ligne of lignes) {
-        try {
-          await declarerPerte({
-            varianteId: ligne.varianteId,
-            depotId,
-            quantite: ligne.quantite,
-            motif,
-            detail,
-            utilisateurId: session.utilisateurId,
-          });
-        } catch (e) {
-          setErreur(`${ligne.produitNom} : ${e instanceof ErreurStock ? e.message : "Erreur inattendue."}`);
-          return;
-        }
+      try {
+        await declarerPertesGroupe({
+          depotId,
+          utilisateurId: session.utilisateurId,
+          lignes: lignes.map((l) => ({ varianteId: l.varianteId, quantite: l.quantite, motif: l.motif, detail: l.detail })),
+        });
+      } catch (e) {
+        return setErreur(e instanceof ErreurStock ? e.message : "Erreur inattendue.");
       }
       onCree();
     } finally {
@@ -1882,7 +2247,7 @@ function FormulairePerte({
       <div className="modale-entete entete-fixe">
         <h3>Déclarer une perte</h3>
         <div className="actions-formulaire">
-          <button type="submit" disabled={enCours}>
+          <button className="bouton-enregistrer" type="submit" disabled={enCours || manques.length > 0}>
             {enCours ? "Enregistrement…" : `Déclarer (${lignes.length})`}
           </button>
           <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
@@ -1890,7 +2255,17 @@ function FormulairePerte({
           </button>
         </div>
       </div>
+      <p className="regle-mouvement">
+        Chaque article a son motif (ex. des yaourts périmés et un carton abîmé dans la même déclaration). La perte est
+        valorisée au coût moyen actuel : ce montant restera figé dans les rapports.
+      </p>
       {erreur && <div className="message-erreur">{erreur}</div>}
+      {manques.length > 0 && (
+        <div className="message-erreur">
+          Pas assez de stock dans ce dépôt :{" "}
+          {manques.map((l) => `${l.produitNom} (il y en a ${formaterQuantite(enStock(l.varianteId))})`).join(", ")}.
+        </div>
+      )}
       <div className="colonnes-mouvement-groupe">
         <div className="colonne-recherche-groupe">
           <div className="ligne-champs-recherche-commande">
@@ -1904,9 +2279,9 @@ function FormulairePerte({
                 ))}
               </select>
             </label>
-            <label>
-              Motif
-              <select value={motif} onChange={(e) => setMotif(e.target.value as MotifPerte)}>
+            <label title="Motif donné aux articles que vous ajoutez ; modifiable ligne par ligne">
+              Motif des articles ajoutés
+              <select value={motifParDefaut} onChange={(e) => setMotifParDefaut(e.target.value as MotifPerte)}>
                 {MOTIFS_PERTE.map((m) => (
                   <option key={m.valeur} value={m.valeur}>
                     {m.label}
@@ -1914,23 +2289,23 @@ function FormulairePerte({
                 ))}
               </select>
             </label>
-            <label>
-              {motif === "autre" ? "Précision (obligatoire)" : "Précision (facultatif)"}
+            <div className="recherche-commande-combobox recherche-mouvement-groupe">
               <input
-                value={detail}
-                onChange={(e) => setDetail(e.target.value)}
-                placeholder="ex. Lot du 12/09, carton tombé…"
-              />
-            </label>
-
-            <div className="recherche-commande-combobox">
-              <input
-                placeholder="Rechercher un article à ajouter…"
+                placeholder="🔍 Rechercher un article perdu…"
                 value={terme}
                 onChange={(e) => setTerme(e.target.value)}
                 onFocus={() => setDropdownOuvert(true)}
                 onBlur={() => setDropdownOuvert(false)}
               />
+              <button
+                type="button"
+                className="bouton-tous-articles-entree"
+                title="Voir tous les articles et en cocher plusieurs"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={ouvrirTousLesArticles}
+              >
+                ☰ Voir tout
+              </button>
               {terme.trim() && dropdownOuvert && (
                 <ul className="resultats-recherche">
                   {resultats
@@ -1946,6 +2321,7 @@ function FormulairePerte({
                         <span>
                           {v.produitNom} {v.reference && `(${v.reference})`}
                         </span>
+                        <span className="sous-info">en stock {formaterQuantite(enStock(v.id))}</span>
                       </li>
                     ))}
                   {resultats.length === 0 && <li className="liste-vide">Aucun résultat.</li>}
@@ -1956,51 +2332,104 @@ function FormulairePerte({
         </div>
 
         <div className="colonne-lignes-groupe">
+          <div className="barre-totaux-entree">
+            <div className="resume-entree-stock">
+              <strong>
+                {lignes.length} article{lignes.length > 1 ? "s" : ""}
+              </strong>
+            </div>
+            <div className="recap-paiement-entree">
+              <div className="ligne-recap-entree">
+                <span>Valeur de la perte</span>
+                <strong className={valeurTotale > 0 ? "texte-erreur" : undefined}>
+                  ≈ {formaterMontant(valeurTotale)} {devise}
+                </strong>
+              </div>
+            </div>
+          </div>
           <div className="lignes-groupe-scrollable">
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile tableau-pertes-saisie">
               <thead>
                 <tr>
                   <th className="colonne-numero-groupe">N°</th>
-                  <th>Référence</th>
                   <th className="col-designation-groupe">Désignation</th>
-                  <th>Quantité perdue</th>
+                  <th title="Stock du dépôt, avant → après la perte">Stock</th>
+                  <th>Quantité</th>
+                  <th>Motif</th>
+                  <th>Précision</th>
+                  <th className="col-montant-entree">Valeur</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
-                {lignes.map((l, index) => (
-                  <tr key={l.varianteId}>
-                    <td className="colonne-numero-groupe">{index + 1}</td>
-                    <td>{l.reference || ""}</td>
-                    <td className="col-designation-groupe">{l.produitNom}</td>
-                    <td>
-                      <input
-                        type="number"
-                        min={0.01}
-                        step="any"
-                        value={l.quantite}
-                        onChange={(e) => modifierQuantite(l.varianteId, Number(e.target.value))}
-                      />
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className="bouton-retirer-ligne-groupe"
-                        title="Retirer de la liste"
-                        onClick={() => retirerLigne(l.varianteId)}
-                      >
-                        ✕
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {lignes.map((l, index) => {
+                  const avant = enStock(l.varianteId);
+                  const unite = stockDepot.get(l.varianteId)?.unite;
+                  return (
+                    <tr key={l.varianteId}>
+                      <td data-label="N°" className="colonne-numero-groupe">{index + 1}</td>
+                      <td data-label="Désignation" className="col-designation-groupe">
+                        {l.produitNom}
+                        {l.reference && <span className="sous-info"> ({l.reference})</span>}
+                      </td>
+                      <td data-label="Stock" className="nowrap">
+                        <span className="sous-info">{formaterQuantite(avant)}</span> →{" "}
+                        <strong className={avant - l.quantite < 0 ? "texte-erreur" : undefined}>
+                          {avant - l.quantite < 0 ? "−" : ""}
+                          {formaterQuantite(avant - l.quantite)}
+                        </strong>
+                        {unite && <span className="sous-info"> {unite}</span>}
+                      </td>
+                      <td data-label="Quantité">
+                        <input
+                          type="number"
+                          min={0.01}
+                          step="any"
+                          value={l.quantite}
+                          onChange={(e) => modifierLigne(l.varianteId, { quantite: Number(e.target.value) })}
+                        />
+                      </td>
+                      <td data-label="Motif">
+                        <select
+                          value={l.motif}
+                          onChange={(e) => modifierLigne(l.varianteId, { motif: e.target.value as MotifPerte })}
+                        >
+                          {MOTIFS_PERTE.map((m) => (
+                            <option key={m.valeur} value={m.valeur}>
+                              {m.label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td data-label="Précision">
+                        <input
+                          className={l.motif === "autre" && !l.detail.trim() ? "champ-obligatoire-vide" : undefined}
+                          value={l.detail}
+                          placeholder={l.motif === "autre" ? "Obligatoire" : "ex. lot du 12/09"}
+                          onChange={(e) => modifierLigne(l.varianteId, { detail: e.target.value })}
+                        />
+                      </td>
+                      <td data-label="Valeur" className="nowrap col-montant-entree">
+                        {formaterMontant(valeurLigne(l))}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="bouton-retirer-ligne-groupe"
+                          title="Retirer de la liste"
+                          onClick={() => retirerLigne(l.varianteId)}
+                        >
+                          ✕
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {Array.from({ length: Math.max(0, 10 - lignes.length) }).map((_, i) => (
                   <tr key={`vide-${i}`} className="ligne-groupe-vide">
-                    <td className="colonne-numero-groupe">&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td className="col-designation-groupe">&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
+                    {Array.from({ length: 8 }).map((__, j) => (
+                      <td key={j}>&nbsp;</td>
+                    ))}
                   </tr>
                 ))}
               </tbody>
@@ -2008,6 +2437,19 @@ function FormulairePerte({
           </div>
         </div>
       </div>
+      {tousLesArticles && (
+        <ModaleTousLesArticles
+          articles={tousLesArticles}
+          stockDepot={new Map([...stockDepot].map(([id, s]) => [id, s.quantite]))}
+          dejaAjoutes={new Set(lignes.map((l) => l.varianteId))}
+          avecRecette={null}
+          onAjouter={(choisis) => {
+            choisis.forEach(ajouterLigne);
+            setTousLesArticles(null);
+          }}
+          onFermer={() => setTousLesArticles(null)}
+        />
+      )}
     </form>
   );
 }
@@ -2054,7 +2496,32 @@ function OngletPertes({ session }: { session: Session }) {
   // Une perte annulée reste affichée (traçabilité) mais ne compte plus.
   const pertesActives = pertesFiltrees.filter((p) => !p.annulee);
   const valeurTotale = pertesActives.reduce((somme, p) => somme + p.valeur, 0);
-  const quantiteTotale = pertesActives.reduce((somme, p) => somme + p.quantite, 0);
+  // On compte les articles (additionner cartons et kg n'aurait pas de sens) ; la valeur, elle, s'additionne.
+  const articlesDifferents = new Set(pertesActives.map((p) => p.varianteId ?? `${p.produitNom}|${p.reference}`)).size;
+  const colonnesExport: ColonneExport[] = [
+    { cle: "date", libelle: "Date" },
+    { cle: "article", libelle: "Article" },
+    { cle: "depot", libelle: "Dépôt" },
+    { cle: "motif", libelle: "Motif" },
+    { cle: "detail", libelle: "Précision" },
+    { cle: "quantite", libelle: "Quantité" },
+    { cle: "unite", libelle: "Unité" },
+    { cle: "valeur", libelle: `Valeur perdue (${devise})` },
+    { cle: "faitPar", libelle: "Déclaré par" },
+    { cle: "etat", libelle: "État" },
+  ];
+  const lignesExport = pertesFiltrees.map((p) => ({
+    date: dateHeure(p.dateCreation),
+    article: p.produitNom + (p.reference ? ` (${p.reference})` : ""),
+    depot: p.depotNom,
+    motif: libelleMotifPerte(p.motif),
+    detail: p.detail,
+    quantite: p.quantite,
+    unite: p.unite ?? "",
+    valeur: p.annulee ? 0 : p.valeur,
+    faitPar: nomUtilisateur(p.utilisateurId),
+    etat: p.annulee ? "Annulée" : "",
+  }));
   const motifFrequent = [
     ...pertesActives.reduce((parMotif, p) => parMotif.set(p.motif, (parMotif.get(p.motif) ?? 0) + 1), new Map<string, number>()).entries(),
   ].sort((a, b) => b[1] - a[1])[0];
@@ -2083,8 +2550,8 @@ function OngletPertes({ session }: { session: Session }) {
           <strong>{pertesActives.length}</strong>
         </div>
         <div className="tuile-fiche">
-          <span className="sous-info">📦 Quantité perdue</span>
-          <strong>{formaterMontant(quantiteTotale)}</strong>
+          <span className="sous-info">📦 Articles différents</span>
+          <strong>{articlesDifferents}</strong>
         </div>
         <div className={`tuile-fiche${valeurTotale > 0 ? " tuile-fiche--alerte" : ""}`}>
           <span className="sous-info">💸 Valeur perdue</span>
@@ -2092,7 +2559,13 @@ function OngletPertes({ session }: { session: Session }) {
             {formaterMontant(valeurTotale)} {devise}
           </strong>
         </div>
-        <div className="tuile-fiche">
+        <div
+          {...(motifFrequent || motifFiltre
+            ? tuileFiltre(!!motifFiltre && motifFiltre === motifFrequent?.[0], () =>
+                setMotifFiltre(motifFiltre && motifFiltre === motifFrequent?.[0] ? "" : (motifFrequent?.[0] ?? "")),
+              )
+            : { className: "tuile-fiche" })}
+        >
           <span className="sous-info">🔎 Motif le plus fréquent</span>
           <strong>{motifFrequent ? `${libelleMotifPerte(motifFrequent[0])} (${motifFrequent[1]})` : "—"}</strong>
         </div>
@@ -2124,7 +2597,14 @@ function OngletPertes({ session }: { session: Session }) {
             ))}
           </select>
         )}
-        <input type="search" placeholder="Rechercher un article…" value={terme} onChange={(e) => setTerme(e.target.value)} />
+        <input
+          type="search"
+          className="champ-recherche-mouvements"
+          placeholder="🔍 Rechercher un article (nom ou référence)…"
+          value={terme}
+          onChange={(e) => setTerme(e.target.value)}
+        />
+        <BoutonsExport titre="Pertes de stock" colonnes={colonnesExport} lignes={lignesExport} compact />
         {peutGerer && (
           <span className="actions-ligne">
             <button type="button" className="bouton-ajouter-variante" onClick={() => setAfficherForm(true)}>
@@ -2137,7 +2617,7 @@ function OngletPertes({ session }: { session: Session }) {
       {perteAAnnuler && (
         <ModaleConfirmation
           titre="Annuler cette perte ?"
-          description={`${perteAAnnuler.quantite} × ${perteAAnnuler.produitNom} reviendront dans le stock du dépôt ${perteAAnnuler.depotNom}. La perte restera visible, marquée « Annulée ».`}
+          description={`${formaterQuantite(perteAAnnuler.quantite)} × ${perteAAnnuler.produitNom} reviendront dans le stock du dépôt ${perteAAnnuler.depotNom}. La perte restera visible, marquée « Annulée ».`}
           labelConfirmer="Annuler la perte"
           dangereux
           enCours={enCoursPerte}
@@ -2177,7 +2657,7 @@ function OngletPertes({ session }: { session: Session }) {
           <tbody>
             {pertesFiltrees.map((p) => (
               <tr key={p.id} className={p.annulee ? "ligne-annulee" : undefined}>
-                <td data-label="Date" title={new Date(p.dateCreation).toLocaleString("fr-FR")}>{new Date(p.dateCreation).toLocaleDateString("fr-FR")}</td>
+                <td data-label="Date" className="nowrap">{dateHeure(p.dateCreation)}</td>
                 <td data-label="Désignation">
                   {p.produitNom} {p.reference && `(${p.reference})`}
                 </td>
@@ -2187,7 +2667,10 @@ function OngletPertes({ session }: { session: Session }) {
                   {p.annulee && <span className="badge-brouillon">Annulée</span>}
                   {p.detail && <span className="sous-info"> — {p.detail}</span>}
                 </td>
-                <td data-label="Quantité">{p.quantite}</td>
+                <td data-label="Quantité" className="nowrap">
+                  {formaterQuantite(p.quantite)}
+                  {p.unite && <span className="sous-info"> {p.unite}</span>}
+                </td>
                 <td data-label="Valeur perdue" className="nowrap">
                   {formaterMontant(p.valeur)} {devise}
                 </td>
@@ -2228,7 +2711,7 @@ function OngletPertes({ session }: { session: Session }) {
       {pertesFiltrees.length > 0 && (
         <div className="totaux">
           <div>
-            {pertesActives.length} perte{pertesActives.length > 1 ? "s" : ""} · {formaterMontant(quantiteTotale)} unité(s)
+            {pertesActives.length} perte{pertesActives.length > 1 ? "s" : ""} · {articlesDifferents} article{articlesDifferents > 1 ? "s" : ""} différent{articlesDifferents > 1 ? "s" : ""}
           </div>
           <div className="total-net">
             Valeur totale perdue : {formaterMontant(valeurTotale)} {devise}
@@ -2427,7 +2910,7 @@ export function FormulaireDestockage({
       <div className="modale-entete entete-fixe">
         <h3>Mettre en déstockage</h3>
         <div className="actions-formulaire">
-          <button type="submit" className="bouton-primaire" disabled={enCours || !toutValide}>
+          <button type="submit" className="bouton-primaire bouton-enregistrer" disabled={enCours || !toutValide}>
             {enCours ? "Enregistrement…" : `Mettre en déstockage (${selection.length})`}
           </button>
           <button type="button" className="lien bouton-retour" onClick={onAnnuler}>
@@ -2514,7 +2997,7 @@ export function FormulaireDestockage({
                 ))}
               </div>
               <div className="zone-tableau-destockage">
-                <table className="tableau-catalogue">
+                <table className="tableau-catalogue carte-mobile">
                   <thead>
                     <tr>
                       <th>Article</th>
@@ -2844,7 +3327,7 @@ function OngletDestockage({ session }: { session: Session }) {
   return (
     <div className="liste-dettes-credits">
       <div className="tuiles-fiche">
-        <div className="tuile-fiche">
+        <div {...tuileFiltre(filtreStatut === "en_cours", () => setFiltreStatut(filtreStatut === "en_cours" ? "tous" : "en_cours"))}>
           <span className="sous-info">🏷️ Déstockages en cours</span>
           <strong>{enCoursNombre}</strong>
         </div>
@@ -3170,7 +3653,7 @@ function GraphiqueArgentQuiDort({ releves, devise }: { releves: ReleveDormants[]
       </div>
       <details className="details-releves-dormants">
         <summary>Voir les relevés en chiffres</summary>
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>{parMois ? "Mois" : "Jour"}</th>
@@ -3181,9 +3664,9 @@ function GraphiqueArgentQuiDort({ releves, devise }: { releves: ReleveDormants[]
           <tbody>
             {[...points].reverse().map((r) => (
               <tr key={r.date}>
-                <td>{libelle(r)}</td>
-                <td>{r.nombreArticles}</td>
-                <td>
+                <td data-label={parMois ? "Mois" : "Jour"}>{libelle(r)}</td>
+                <td data-label="Articles dormants">{r.nombreArticles}</td>
+                <td data-label="Argent qui dort">
                   {formaterMontant(r.valeurImmobilisee)} {devise}
                 </td>
               </tr>
@@ -3206,6 +3689,91 @@ const LIBELLES_SORTIE_DORMANCE: Record<string, { label: string; classe: string }
 function motifCourt(motif: string): string {
   const i = (motif ?? "").indexOf(" (");
   return i > 0 ? motif.slice(0, i) : (motif ?? "");
+}
+
+/** Quantité avec son sens : + pour une entrée, − pour une sortie (un ajustement est déjà signé). */
+function quantiteSignee(m: MouvementResume): number {
+  return m.type === "sortie" ? -m.quantite : m.quantite;
+}
+
+function formaterQuantite(quantite: number): string {
+  return Math.abs(quantite).toLocaleString("fr-FR", { maximumFractionDigits: 2 }).replace(/\u202f|\u00a0/g, " ");
+}
+
+function dateHeure(iso: string): string {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString("fr-FR")} ${d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+function QuantiteMouvement({ m }: { m: MouvementResume }) {
+  const q = quantiteSignee(m);
+  return (
+    <>
+      <span className={q < 0 ? "quantite-sortie" : "quantite-entree"}>
+        {q > 0 ? "+" : q < 0 ? "−" : ""}
+        {formaterQuantite(q)}
+      </span>
+      {m.unite && <span className="sous-info"> {m.unite}</span>}
+    </>
+  );
+}
+
+/** Détail d'un mouvement sans document à ouvrir (perte, transfert, entrée de stock, saisie manuelle…). */
+function ModaleDetailMouvement({
+  mouvement: m,
+  faitPar,
+  peutVoirCout,
+  devise,
+  onFermer,
+}: {
+  mouvement: MouvementResume;
+  faitPar: string;
+  peutVoirCout: boolean;
+  devise: string;
+  onFermer: () => void;
+}) {
+  return (
+    <div className="fond-modale" onClick={onFermer}>
+      <div className="modale-confirmation modale-detail-mouvement" onClick={(e) => e.stopPropagation()}>
+        <h3>
+          {libelleTypeMouvement(m.type)} · {libelleOrigineMouvement(m.referenceType) || "Saisie manuelle"}
+        </h3>
+        <dl className="details-mouvement">
+          <dt>Date</dt>
+          <dd>{new Date(m.dateCreation).toLocaleString("fr-FR")}</dd>
+          <dt>Article</dt>
+          <dd>
+            {m.produitNom}
+            {m.reference && <span className="sous-info"> ({m.reference})</span>}
+          </dd>
+          <dt>Dépôt</dt>
+          <dd>{m.depotNom}</dd>
+          <dt>Quantité</dt>
+          <dd>
+            <QuantiteMouvement m={m} />
+          </dd>
+          {peutVoirCout && (
+            <>
+              <dt>Valeur</dt>
+              <dd>
+                ≈ {formaterMontant(Math.round(Math.abs(quantiteSignee(m)) * (m.prixAchat ?? 0)))} {devise}{" "}
+                <span className="sous-info">(au coût moyen actuel)</span>
+              </dd>
+            </>
+          )}
+          <dt>Motif</dt>
+          <dd>{m.motif || "—"}</dd>
+          <dt>Fait par</dt>
+          <dd>{faitPar}</dd>
+        </dl>
+        <div className="actions-formulaire">
+          <button type="button" onClick={onFermer}>
+            Fermer
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 type SectionHistorique = "mouvements" | "pertes" | "destockages" | "transferts" | "inventaires" | "dormants";
@@ -3252,17 +3820,37 @@ export function ModaleHistoriqueStock({
   const [depotMouvement, setDepotMouvement] = useState("");
   const [rechercheMouvement, setRechercheMouvement] = useState("");
   const [formMouvement, setFormMouvement] = useState(false);
+  // Clic sur un mouvement : son document (vente, commande d'achat, inventaire) ou son détail.
+  const [mouvementOuvert, setMouvementOuvert] = useState<MouvementResume | null>(null);
+  const [fournisseursAchat, setFournisseursAchat] = useState<FournisseurResume[]>([]);
+  const peutVoirCout = !!session.permissions.voir_benefices_achat;
+  function ouvrirMouvement(m: MouvementResume) {
+    if (m.referenceType.startsWith("stock.Inventaire") && m.referenceId) {
+      setInventaireOuvertId(m.referenceId);
+      return;
+    }
+    if (m.commandeId && fournisseursAchat.length === 0) listerFournisseurs(session.boutiqueId).then(setFournisseursAchat);
+    setMouvementOuvert(m);
+  }
   const [inventaires, setInventaires] = useState<InventaireResume[]>([]);
   const [depotInventaire, setDepotInventaire] = useState("");
   const [inventaireOuvertId, setInventaireOuvertId] = useState<string | null>(null);
 
   // Sans droit de gestion, on ne voit que les mouvements de son dépôt (comme l'ancienne carte Mouvements).
   const depotMouvements = peutGerer ? undefined : (session.depotId ?? undefined);
+  // Toute la période choisie, sans plafond (bornes en jours locaux → instants ISO, fin exclue).
   async function rafraichirMouvements() {
-    setMouvements(await listerMouvements(session.boutiqueId, depotMouvements, 5000));
+    const b = bornesPeriode(periode, debutPerso, finPerso);
+    const depuis = b && !b[0].startsWith("0000") ? new Date(`${b[0]}T00:00:00`).toISOString() : null;
+    const jusqua =
+      b && !b[1].startsWith("9999") ? new Date(new Date(`${b[1]}T00:00:00`).getTime() + 86400000).toISOString() : null;
+    setMouvements(await listerMouvements(session.boutiqueId, depotMouvements, null, depuis, jusqua));
   }
   useEffect(() => {
     rafraichirMouvements();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId, periode, debutPerso, finPerso]);
+  useEffect(() => {
     listerInventaires(session.boutiqueId).then((tous) =>
       // Inventaires terminés seulement : ceux en cours restent dans la carte Inventaire.
       setInventaires(
@@ -3276,14 +3864,26 @@ export function ModaleHistoriqueStock({
   useEffect(() => {
     Promise.all([
       listerPertes(session.boutiqueId),
-      listerTransferts(session.boutiqueId, 5000),
       listerDestockages(session.boutiqueId),
       listerDepotsDetail(session.boutiqueId),
-    ]).then(([toutesPertes, tousTransferts, tousDestockages, listeDepots]) => {
+    ]).then(([toutesPertes, tousDestockages, listeDepots]) => {
       // Sans droit de gestion, on ne voit que les pertes de son dépôt (même règle que la carte Pertes).
       setPertes(
         peutGerer || !session.depotNom ? toutesPertes : toutesPertes.filter((p) => p.depotNom === session.depotNom),
       );
+      setDestockages(tousDestockages);
+      setDepots(listeDepots);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId]);
+
+  // Transferts : toute la période choisie, sans plafond (comme les mouvements).
+  useEffect(() => {
+    const b = bornesPeriode(periode, debutPerso, finPerso);
+    const depuis = b && !b[0].startsWith("0000") ? new Date(`${b[0]}T00:00:00`).toISOString() : null;
+    const jusqua =
+      b && !b[1].startsWith("9999") ? new Date(new Date(`${b[1]}T00:00:00`).getTime() + 86400000).toISOString() : null;
+    listerTransferts(session.boutiqueId, null, depuis, jusqua).then((tousTransferts) =>
       // Même règle que la carte Transferts : sans droit de gestion, seulement ceux
       // qui touchent son dépôt (départ ou arrivée).
       setTransferts(
@@ -3292,12 +3892,10 @@ export function ModaleHistoriqueStock({
           : tousTransferts.filter(
               (t) => t.depotSourceNom === session.depotNom || t.depotDestinationNom === session.depotNom,
             ),
-      );
-      setDestockages(tousDestockages);
-      setDepots(listeDepots);
-    });
+      ),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.boutiqueId]);
+  }, [session.boutiqueId, periode, debutPerso, finPerso]);
 
   useEffect(() => {
     listerRelevesDormants(session.boutiqueId).then(setReleves);
@@ -3346,11 +3944,43 @@ export function ModaleHistoriqueStock({
         m.produitNom.toLowerCase().includes(rechercheM) ||
         (m.reference ?? "").toLowerCase().includes(rechercheM)),
   );
-  const totalEntrees = mouvementsFiltres.filter((m) => m.type === "entree").reduce((t, m) => t + m.quantite, 0);
-  const totalSorties = mouvementsFiltres.filter((m) => m.type === "sortie").reduce((t, m) => t + m.quantite, 0);
-  const totalAjustements = mouvementsFiltres
-    .filter((m) => m.type === "ajustement")
-    .reduce((t, m) => t + m.quantite, 0);
+  // On compte les mouvements (additionner cartons, kg et pièces n'aurait pas de sens) ;
+  // la valeur, elle, s'additionne : quantité × coût moyen actuel de l'article.
+  const nombreEntrees = mouvementsFiltres.filter((m) => m.type === "entree").length;
+  const nombreSorties = mouvementsFiltres.filter((m) => m.type === "sortie").length;
+  const nombreAjustements = mouvementsFiltres.filter((m) => m.type === "ajustement").length;
+  const valeurMouvement = (m: MouvementResume) => quantiteSignee(m) * (m.prixAchat ?? 0);
+  const valeurEntrees = Math.round(
+    mouvementsFiltres.filter((m) => m.type === "entree").reduce((t, m) => t + valeurMouvement(m), 0),
+  );
+  const valeurSorties = Math.round(
+    mouvementsFiltres.filter((m) => m.type === "sortie").reduce((t, m) => t - valeurMouvement(m), 0),
+  );
+  const valeurSolde = Math.round(mouvementsFiltres.reduce((t, m) => t + valeurMouvement(m), 0));
+  const colonnesExportMouvements: ColonneExport[] = [
+    { cle: "date", libelle: "Date" },
+    { cle: "article", libelle: "Article" },
+    { cle: "depot", libelle: "Dépôt" },
+    { cle: "type", libelle: "Type" },
+    { cle: "origine", libelle: "Origine" },
+    { cle: "quantite", libelle: "Quantité" },
+    { cle: "unite", libelle: "Unité" },
+    ...(peutVoirCout ? [{ cle: "valeur", libelle: `Valeur (${devise})` }] : []),
+    { cle: "motif", libelle: "Motif" },
+    { cle: "faitPar", libelle: "Fait par" },
+  ];
+  const lignesExportMouvements = mouvementsFiltres.map((m) => ({
+    date: dateHeure(m.dateCreation),
+    article: m.produitNom + (m.reference ? ` (${m.reference})` : ""),
+    depot: m.depotNom,
+    type: libelleTypeMouvement(m.type),
+    origine: libelleOrigineMouvement(m.referenceType),
+    quantite: quantiteSignee(m),
+    unite: m.unite ?? "",
+    valeur: Math.round(valeurMouvement(m)),
+    motif: m.motif,
+    faitPar: nomUtilisateur(m.utilisateurId),
+  }));
   const inventairesFiltres = inventaires.filter(
     (i) =>
       dansPeriode(i.dateValidation ?? i.dateCreation, bornes) && (!depotInventaire || i.depotNom === depotInventaire),
@@ -3400,6 +4030,32 @@ export function ModaleHistoriqueStock({
             </div>
           </div>
         )}
+        {mouvementOuvert && mouvementOuvert.referenceType.startsWith("ventes.Vente") && mouvementOuvert.referenceId ? (
+          <div className="fond-modale" onClick={() => setMouvementOuvert(null)}>
+            <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+              <DetailVente venteId={mouvementOuvert.referenceId} session={session} onRetour={() => setMouvementOuvert(null)} />
+            </div>
+          </div>
+        ) : mouvementOuvert?.commandeId ? (
+          <div className="fond-modale" onClick={() => setMouvementOuvert(null)}>
+            <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+              <DetailCommande
+                commandeId={mouvementOuvert.commandeId}
+                session={session}
+                fournisseurs={fournisseursAchat}
+                onRetour={() => setMouvementOuvert(null)}
+              />
+            </div>
+          </div>
+        ) : mouvementOuvert ? (
+          <ModaleDetailMouvement
+            mouvement={mouvementOuvert}
+            faitPar={nomUtilisateur(mouvementOuvert.utilisateurId)}
+            peutVoirCout={peutVoirCout}
+            devise={devise}
+            onFermer={() => setMouvementOuvert(null)}
+          />
+        ) : null}
         <div className="modale-avec-menu">
           {!mouvementsSeuls && (
             <nav className="menu-modale">
@@ -3464,6 +4120,39 @@ export function ModaleHistoriqueStock({
           <div className="modale-corps">
             {section === "mouvements" ? (
               <>
+                <div className="tuiles-fiche">
+                  <div {...tuileFiltre(!typeMouvement, () => setTypeMouvement(""))}>
+                    <span className="sous-info">🔄 Mouvements</span>
+                    <strong>{mouvementsFiltres.length}</strong>
+                  </div>
+                  <div {...tuileFiltre(typeMouvement === "entree", () => setTypeMouvement(typeMouvement === "entree" ? "" : "entree"))}>
+                    <span className="sous-info">📥 Entrées</span>
+                    <strong>{nombreEntrees}</strong>
+                    {peutVoirCout && <span className="sous-info">≈ {formaterMontant(valeurEntrees)} {devise}</span>}
+                  </div>
+                  <div {...tuileFiltre(typeMouvement === "sortie", () => setTypeMouvement(typeMouvement === "sortie" ? "" : "sortie"))}>
+                    <span className="sous-info">📤 Sorties</span>
+                    <strong>{nombreSorties}</strong>
+                    {peutVoirCout && <span className="sous-info">≈ {formaterMontant(valeurSorties)} {devise}</span>}
+                  </div>
+                  {peutVoirCout ? (
+                    <div
+                      className={`tuile-fiche${valeurSolde < 0 ? " tuile-fiche--alerte" : ""}`}
+                      title="Entrées − sorties (ajustements compris), au coût moyen actuel de chaque article"
+                    >
+                      <span className="sous-info">⚖️ Solde en valeur</span>
+                      <strong>
+                        {valeurSolde > 0 ? "+" : valeurSolde < 0 ? "−" : ""}
+                        {formaterMontant(Math.abs(valeurSolde))} {devise}
+                      </strong>
+                    </div>
+                  ) : (
+                    <div {...tuileFiltre(typeMouvement === "ajustement", () => setTypeMouvement(typeMouvement === "ajustement" ? "" : "ajustement"))}>
+                      <span className="sous-info">🔧 Ajustements</span>
+                      <strong>{nombreAjustements}</strong>
+                    </div>
+                  )}
+                </div>
                 <div className="barre-actions barre-filtres-historique">
                   {filtrePeriode}
                   <select value={typeMouvement} onChange={(e) => setTypeMouvement(e.target.value as typeof typeMouvement)}>
@@ -3494,36 +4183,22 @@ export function ModaleHistoriqueStock({
                     : session.depotNom && <span className="depot-fixe">{session.depotNom}</span>}
                   <input
                     type="search"
-                    placeholder="Rechercher un article…"
+                    className="champ-recherche-mouvements"
+                    placeholder="🔍 Rechercher un article (nom ou référence)…"
                     value={rechercheMouvement}
                     onChange={(e) => setRechercheMouvement(e.target.value)}
+                  />
+                  <BoutonsExport
+                    titre="Mouvements de stock"
+                    colonnes={colonnesExportMouvements}
+                    lignes={lignesExportMouvements}
+                    compact
                   />
                   {peutGerer && (
                     <button type="button" className="bouton-ajouter-variante" onClick={() => setFormMouvement(true)}>
                       + Nouveau mouvement
                     </button>
                   )}
-                </div>
-                <div className="tuiles-fiche">
-                  <div className="tuile-fiche">
-                    <span className="sous-info">🔄 Mouvements</span>
-                    <strong>{mouvementsFiltres.length}</strong>
-                  </div>
-                  <div className="tuile-fiche">
-                    <span className="sous-info">📥 Entrées</span>
-                    <strong>{formaterMontant(totalEntrees)}</strong>
-                  </div>
-                  <div className="tuile-fiche">
-                    <span className="sous-info">📤 Sorties</span>
-                    <strong>{formaterMontant(totalSorties)}</strong>
-                  </div>
-                  <div className={`tuile-fiche${totalEntrees - totalSorties + totalAjustements < 0 ? " tuile-fiche--alerte" : ""}`}>
-                    <span className="sous-info">⚖️ Solde{totalAjustements !== 0 ? " (ajustements compris)" : ""}</span>
-                    <strong>
-                      {totalEntrees - totalSorties + totalAjustements > 0 ? "+" : ""}
-                      {formaterMontant(totalEntrees - totalSorties + totalAjustements)}
-                    </strong>
-                  </div>
                 </div>
                 <div className="zone-tableau-scroll">
                   <table className="tableau-catalogue carte-mobile">
@@ -3541,13 +4216,15 @@ export function ModaleHistoriqueStock({
                     </thead>
                     <tbody>
                       {mouvementsFiltres.map((m) => (
-                        <tr key={m.id}>
-                          <td data-label="Date" title={new Date(m.dateCreation).toLocaleString("fr-FR")}>{new Date(m.dateCreation).toLocaleDateString("fr-FR")}</td>
+                        <tr key={m.id} className="ligne-cliquable" title="Cliquer pour voir le détail" onClick={() => ouvrirMouvement(m)}>
+                          <td data-label="Date" className="nowrap">{dateHeure(m.dateCreation)}</td>
                           <td data-label="Désignation">{m.produitNom} {m.reference && <span className="sous-info">({m.reference})</span>}</td>
                           <td data-label="Dépôt">{m.depotNom}</td>
                           <td data-label="Type">{libelleTypeMouvement(m.type)}</td>
                           <td data-label="Origine">{libelleOrigineMouvement(m.referenceType)}</td>
-                          <td data-label="Quantité">{m.quantite}</td>
+                          <td data-label="Quantité" className="nowrap">
+                            <QuantiteMouvement m={m} />
+                          </td>
                           <td data-label="Motif" title={m.motif || undefined}>
                             {motifCourt(m.motif)}
                           </td>
@@ -3579,14 +4256,16 @@ export function ModaleHistoriqueStock({
                 {mouvementsFiltres.length > 0 && (
                   <div className="totaux">
                     <div>
-                      {mouvementsFiltres.length} mouvement{mouvementsFiltres.length > 1 ? "s" : ""} · Entrées : {totalEntrees} ·
-                      Sorties : {totalSorties}
-                      {totalAjustements !== 0 && ` · Ajustements : ${totalAjustements > 0 ? "+" : ""}${totalAjustements}`}
+                      {mouvementsFiltres.length} mouvement{mouvementsFiltres.length > 1 ? "s" : ""} · {nombreEntrees} entrée
+                      {nombreEntrees > 1 ? "s" : ""} · {nombreSorties} sortie{nombreSorties > 1 ? "s" : ""}
+                      {nombreAjustements > 0 && ` · ${nombreAjustements} ajustement${nombreAjustements > 1 ? "s" : ""}`}
                     </div>
-                    <div className="total-net">
-                      Solde : {totalEntrees - totalSorties + totalAjustements > 0 ? "+" : ""}
-                      {totalEntrees - totalSorties + totalAjustements}
-                    </div>
+                    {peutVoirCout && (
+                      <div className="total-net">
+                        Solde en valeur : {valeurSolde > 0 ? "+" : valeurSolde < 0 ? "−" : ""}
+                        {formaterMontant(Math.abs(valeurSolde))} {devise}
+                      </div>
+                    )}
                   </div>
                 )}
               </>

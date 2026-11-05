@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 
 import type { Session } from "../api/auth";
 import ChampMontant from "../components/ChampMontant";
+import ModaleTousLesArticles from "../components/ModaleTousLesArticles";
+import { listerVariantesActives } from "../services/catalogue";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant, normaliserTelephone } from "../lib/formatage";
@@ -51,6 +53,7 @@ const donnees = {
   listerDepots: listerDepotsDetail,
   stockDepot: (boutiqueId: string, depotId: string) => listerStock(boutiqueId, depotId),
   rechercherArticles: rechercherVariantesAchat,
+  listerTousArticles: listerVariantesActives,
   boutique: obtenirBoutiqueLocale,
   formatTicket: async (boutiqueId: string) =>
     (await listerParametres(boutiqueId)).find((p) => p.cle === "format_ticket")?.valeur || "a4",
@@ -413,7 +416,7 @@ function ListeCommandes({
           />
         </div>
         <div className="zone-tableau-scroll zone-commandes-clients" ref={grille.zone}>
-          <table className="tableau-catalogue">
+          <table className="tableau-catalogue carte-mobile">
             <thead>
               <tr>
                 <th>N°</th>
@@ -436,24 +439,24 @@ function ListeCommandes({
                   className={`ligne-cliquable${enRetard(c) ? " ligne-commande-en-retard" : ""}`}
                   onClick={() => onOuvrir({ type: "detail", id: c.id })}
                 >
-                  <td className="nowrap">{c.numero}</td>
-                  <td>
+                  <td data-label="N°" className="nowrap">{c.numero}</td>
+                  <td data-label="Client">
                     {c.clientNom}
                     {c.clientTelephone && <div className="sous-info">{c.clientTelephone}</div>}
                   </td>
-                  <td>
+                  <td data-label="Livraison prévue">
                     <DateLivraison commande={c} />
                   </td>
-                  <td>{c.nombreArticles}</td>
-                  <td className="nowrap col-montant-commande">{formaterMontant(c.total)}</td>
-                  <td className="nowrap col-montant-commande">{c.avance > 0 ? formaterMontant(c.avance) : "—"}</td>
-                  <td className="nowrap col-montant-commande">
+                  <td data-label="Articles">{c.nombreArticles}</td>
+                  <td data-label="Total" className="nowrap col-montant-commande">{formaterMontant(c.total)}</td>
+                  <td data-label="Avance" className="nowrap col-montant-commande">{c.avance > 0 ? formaterMontant(c.avance) : "—"}</td>
+                  <td data-label="Reste à livrer" className="nowrap col-montant-commande">
                     {estOuverte(c.statut) ? formaterMontant(c.resteALivrer) : "—"}
                   </td>
-                  <td>
+                  <td data-label="Statut">
                     <BadgeStatut statut={c.statut} />
                   </td>
-                  <td className="col-prete-commande" onClick={(e) => e.stopPropagation()}>
+                  <td data-label="Prête" className="col-prete-commande" onClick={(e) => e.stopPropagation()}>
                     {c.statut === "en_attente" || c.statut === "prete" ? (
                       <input
                         type="checkbox"
@@ -594,6 +597,14 @@ function FormulaireCommande({
     return Math.max(0, total - propre);
   }
 
+  // « ☰ Voir tout » : liste complète des articles, à cocher.
+  const [tousLesArticles, setTousLesArticles] = useState<Awaited<ReturnType<typeof donnees.listerTousArticles>> | null>(
+    null,
+  );
+  async function ouvrirTousLesArticles() {
+    setTousLesArticles(await donnees.listerTousArticles(session.boutiqueId));
+  }
+
   function ajouterArticle(article: ArticleRecherche) {
     setTerme("");
     setErreur(null);
@@ -700,7 +711,7 @@ function FormulaireCommande({
       <div className="modale-entete entete-fixe">
         <h3>{commandeId ? `Modifier la commande ${commande?.numero ?? ""}` : "Nouvelle commande"}</h3>
         <div className="actions-formulaire">
-          <button type="button" className="bouton-primaire" onClick={enregistrer} disabled={enCours}>
+          <button type="button" className="bouton-primaire bouton-enregistrer" onClick={enregistrer} disabled={enCours}>
             {enCours ? "Enregistrement…" : "Enregistrer"}
           </button>
           <button type="button" className="lien bouton-retour" onClick={onRetour}>
@@ -810,7 +821,16 @@ function FormulaireCommande({
             </label>
           </div>
           <div className="ligne-champs-recherche-commande">
-            <div className="recherche-commande-combobox recherche-article-commande">
+            <div className="recherche-commande-combobox recherche-article-commande recherche-mouvement-groupe">
+              <button
+                type="button"
+                className="bouton-tous-articles-entree"
+                title="Voir tous les articles et en cocher plusieurs"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={ouvrirTousLesArticles}
+              >
+                ☰ Voir tout
+              </button>
               <input
                 placeholder="🔍 Ajouter un article (nom, référence, code-barres)…"
                 value={terme}
@@ -867,7 +887,7 @@ function FormulaireCommande({
         </div>
         <div className="colonne-lignes-groupe">
           <div className="lignes-groupe-scrollable zone-lignes-commande" ref={grille.zone}>
-            <table className="tableau-catalogue">
+            <table className="tableau-catalogue carte-mobile">
               <thead>
                 <tr>
                   <th>N°</th>
@@ -886,19 +906,19 @@ function FormulaireCommande({
                   const manque = nombre(l.quantite) - l.quantiteLivree > libre;
                   return (
                     <tr key={l.varianteId}>
-                      <td>{i + 1}</td>
-                      <td>{l.reference}</td>
-                      <td>
+                      <td data-label="N°">{i + 1}</td>
+                      <td data-label="Référence">{l.reference}</td>
+                      <td data-label="Désignation">
                         {l.produitNom}
                         {l.quantiteLivree > 0 && (
                           <div className="sous-info">Déjà livré : {formaterMontant(l.quantiteLivree)}</div>
                         )}
                       </td>
-                      <td className={`nowrap${manque ? " texte-manque-stock" : ""}`} title={manque ? "Pas assez de stock libre : à commander chez le fournisseur." : undefined}>
+                      <td data-label="Stock libre" className={`nowrap${manque ? " texte-manque-stock" : ""}`} title={manque ? "Pas assez de stock libre : à commander chez le fournisseur." : undefined}>
                         {formaterMontant(libre)}
                         {manque && " ⚠"}
                       </td>
-                      <td>
+                      <td data-label="Qté">
                         <input
                           className="champ-quantite-commande"
                           type="number"
@@ -908,7 +928,7 @@ function FormulaireCommande({
                           onChange={(e) => modifierLigne(l.varianteId, { quantite: e.target.value })}
                         />
                       </td>
-                      <td>
+                      <td data-label="Prix unitaire">
                         <ChampMontant
                           className="champ-prix-commande"
                           value={l.prixUnitaire}
@@ -923,10 +943,10 @@ function FormulaireCommande({
                           }
                         />
                       </td>
-                      <td className="colonne-sous-total">
+                      <td data-label="Sous-total" className="colonne-sous-total">
                         <strong>{formaterMontant(Math.round(nombre(l.quantite) * nombre(l.prixUnitaire)))}</strong>
                       </td>
-                      <td className="colonne-actions-variante">
+                      <td data-label="" className="colonne-actions-variante">
                         <button
                           type="button"
                           className="bouton-retirer-ligne-groupe"
@@ -946,6 +966,19 @@ function FormulaireCommande({
           </div>
         </div>
       </div>
+      {tousLesArticles && (
+        <ModaleTousLesArticles
+          articles={tousLesArticles}
+          stockDepot={stock}
+          dejaAjoutes={new Set(lignes.map((l) => l.varianteId))}
+          avecRecette={null}
+          onAjouter={(choisis) => {
+            choisis.forEach(ajouterArticle);
+            setTousLesArticles(null);
+          }}
+          onFermer={() => setTousLesArticles(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1134,7 +1167,7 @@ function DetailCommande({
           </div>
         </div>
         <div className="zone-tableau-scroll zone-lignes-commande" ref={grille.zone}>
-          <table className="tableau-catalogue">
+          <table className="tableau-catalogue carte-mobile">
             <thead>
               <tr>
                 <th>Article</th>
@@ -1153,21 +1186,21 @@ function DetailCommande({
                 const manque = ouverte && reste > libre;
                 return (
                   <tr key={l.id}>
-                    <td>
+                    <td data-label="Article">
                       {l.produitNom}
                       {l.reference && <div className="sous-info">{l.reference}</div>}
                     </td>
-                    <td>{formaterMontant(l.quantite)}</td>
-                    <td>{formaterMontant(l.quantiteLivree)}</td>
-                    <td>
+                    <td data-label="Commandé">{formaterMontant(l.quantite)}</td>
+                    <td data-label="Livré">{formaterMontant(l.quantiteLivree)}</td>
+                    <td data-label="Reste">
                       <strong>{formaterMontant(reste)}</strong>
                     </td>
-                    <td className={manque ? "texte-manque-stock" : undefined}>
+                    <td data-label="Stock libre" className={manque ? "texte-manque-stock" : undefined}>
                       {formaterMontant(libre)}
                       {manque && ` ⚠ manque ${formaterMontant(reste - Math.max(0, libre))}`}
                     </td>
-                    <td className="nowrap col-montant-commande">{formaterMontant(l.prixUnitaire)}</td>
-                    <td className="nowrap col-montant-commande">{formaterMontant(l.sousTotal)}</td>
+                    <td data-label="Prix" className="nowrap col-montant-commande">{formaterMontant(l.prixUnitaire)}</td>
+                    <td data-label="Montant" className="nowrap col-montant-commande">{formaterMontant(l.sousTotal)}</td>
                   </tr>
                 );
               })}
@@ -1316,7 +1349,7 @@ function LivraisonCommande({
       <div className="modale-entete entete-fixe">
         <h3>Livrer la commande {commande.numero}</h3>
         <div className="actions-formulaire">
-          <button type="button" className="bouton-primaire" onClick={preparerLivraison} disabled={enCours || total <= 0}>
+          <button type="button" className="bouton-primaire bouton-enregistrer" onClick={preparerLivraison} disabled={enCours || total <= 0}>
             Confirmer la livraison
           </button>
           <button type="button" className="lien bouton-retour" onClick={onRetour}>
@@ -1394,7 +1427,7 @@ function LivraisonCommande({
         </span>
       </div>
       <div className="zone-tableau-scroll zone-lignes-commande" ref={grille.zone}>
-        <table className="tableau-catalogue">
+        <table className="tableau-catalogue carte-mobile">
           <thead>
             <tr>
               <th>Article</th>
@@ -1412,12 +1445,12 @@ function LivraisonCommande({
                 const q = nombre(quantites[l.varianteId] ?? "");
                 return (
                   <tr key={l.id}>
-                    <td>{l.produitNom}</td>
-                    <td>{formaterMontant(l.quantite - l.quantiteLivree)}</td>
-                    <td className={l.stockDepot < l.quantite - l.quantiteLivree ? "texte-manque-stock" : undefined}>
+                    <td data-label="Article">{l.produitNom}</td>
+                    <td data-label="Reste à livrer">{formaterMontant(l.quantite - l.quantiteLivree)}</td>
+                    <td data-label="Stock du dépôt" className={l.stockDepot < l.quantite - l.quantiteLivree ? "texte-manque-stock" : undefined}>
                       {formaterMontant(l.stockDepot)}
                     </td>
-                    <td>
+                    <td data-label="À livrer maintenant">
                       <input
                         className="champ-quantite-commande"
                         type="number"
@@ -1430,8 +1463,8 @@ function LivraisonCommande({
                         }}
                       />
                     </td>
-                    <td className="nowrap col-montant-commande">{formaterMontant(l.prixUnitaire)}</td>
-                    <td className="nowrap col-montant-commande">
+                    <td data-label="Prix" className="nowrap col-montant-commande">{formaterMontant(l.prixUnitaire)}</td>
+                    <td data-label="Montant" className="nowrap col-montant-commande">
                       <strong>{formaterMontant(Math.round(q * l.prixUnitaire))}</strong>
                     </td>
                   </tr>
@@ -1529,7 +1562,7 @@ function AvanceCommande({
       <div className="modale-entete entete-fixe">
         <h3>Avance sur la commande {commande.numero}</h3>
         <div className="actions-formulaire">
-          <button type="button" className="bouton-primaire" onClick={verser} disabled={enCours}>
+          <button type="button" className="bouton-primaire bouton-enregistrer" onClick={verser} disabled={enCours}>
             {enCours ? "Enregistrement…" : "Enregistrer l'avance"}
           </button>
           <button type="button" className="lien bouton-retour" onClick={onRetour}>
@@ -1641,7 +1674,7 @@ function ContenuBon({
           )}
         </div>
       </div>
-      <table className="tableau-catalogue">
+      <table className="tableau-catalogue carte-mobile">
         <thead>
           <tr>
             <th>Article</th>
@@ -1653,10 +1686,10 @@ function ContenuBon({
         <tbody>
           {commande.lignes.map((l) => (
             <tr key={l.id}>
-              <td>{l.produitNom}</td>
-              <td>{formaterMontant(l.quantite)}</td>
-              <td>{formaterMontant(l.prixUnitaire)}</td>
-              <td>{formaterMontant(l.sousTotal)}</td>
+              <td data-label="Article">{l.produitNom}</td>
+              <td data-label="Qté">{formaterMontant(l.quantite)}</td>
+              <td data-label="Prix">{formaterMontant(l.prixUnitaire)}</td>
+              <td data-label="Montant">{formaterMontant(l.sousTotal)}</td>
             </tr>
           ))}
         </tbody>

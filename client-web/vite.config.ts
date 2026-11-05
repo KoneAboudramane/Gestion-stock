@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     // PWA installable + démarrage hors-ligne (Caisse). L'icône pwa-icon.png est
@@ -10,6 +10,11 @@ export default defineConfig({
     // à redécliner en tailles propres (192/512, maskable) pour la production,
     // un seul fichier suffit pour ce premier passage.
     VitePWA({
+      // Appli Android (mode « capacitor », voir capacitor.config.ts) : les pages
+      // sont déjà dans l'appli, un service worker ne servirait à rien et
+      // garderait d'anciennes versions en cache après une mise à jour du Play Store.
+      // `disable` garde les modules virtuels (useRegisterSW) qui ne font alors rien.
+      disable: mode === "capacitor",
       registerType: "autoUpdate",
       includeAssets: ["pwa-icon.png"],
       manifest: {
@@ -48,4 +53,4 @@ export default defineConfig({
   server: {
     port: 5174,
   },
-});
+}));

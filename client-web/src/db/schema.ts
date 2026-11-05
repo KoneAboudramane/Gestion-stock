@@ -34,6 +34,8 @@ export interface BoutiqueLocale extends SuiviSync {
   formule: string;
   /** Voir comptes.Boutique.synchro_autorisee côté backend — champ protégé, jamais poussé par un push client normal. */
   synchro_autorisee: 0 | 1;
+  /** Réseau de la boutique activé par l'administrateur (comptes.Boutique.reseau_autorise) — champ protégé. */
+  reseau_autorise?: 0 | 1;
 }
 
 export interface CategorieLocale extends SuiviSync {
@@ -84,6 +86,17 @@ export interface VarianteLocale extends SuiviSync {
   /** Vente au détail : article de détail et combien il en contient (voir stock.Detaillage). */
   variante_detail_id?: string | null;
   quantite_detail?: number | null;
+  /** Recette (boutiques qui fabriquent) : lot de la recette et autres frais par unité (voir LigneRecetteLocale). */
+  recette_quantite?: number;
+  recette_frais?: number;
+}
+
+/** Ingrédient de la recette d'un article fabriqué, pour un lot de variantes.recette_quantite. */
+export interface LigneRecetteLocale extends SuiviSync {
+  id: string;
+  variante_id: string;
+  ingredient_id: string;
+  quantite: number;
 }
 
 export interface VarianteValeurLocale extends SuiviSync {
@@ -569,6 +582,11 @@ export interface GestionStockDB extends DBSchema {
     value: VarianteValeurLocale;
     indexes: { variante_id: string; synchronise: number };
   };
+  lignes_recette: {
+    key: string;
+    value: LigneRecetteLocale;
+    indexes: { variante_id: string; synchronise: number };
+  };
   depots: { key: string; value: DepotLocal; indexes: { boutique_id: string; synchronise: number } };
   clients: { key: string; value: ClientLocal; indexes: { boutique_id: string; synchronise: number } };
   fournisseurs: { key: string; value: FournisseurLocal; indexes: { boutique_id: string; synchronise: number } };
@@ -749,4 +767,4 @@ export interface GestionStockDB extends DBSchema {
 }
 
 export const NOM_BASE = "gestion-stock";
-export const VERSION_BASE = 14;
+export const VERSION_BASE = 15;

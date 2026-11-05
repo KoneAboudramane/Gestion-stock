@@ -1,11 +1,30 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
+import { obtenirEtatAbonnement, type EtatAbonnement } from "../services/abonnement";
 import {
+  detailAbonnementAdmin,
+  lireAbonnementEnAttente,
   obtenirBoutiqueInstallee,
   soumettreAbonnement,
   type AbonnementBoutique,
+  type AbonnementDetailAdmin,
   type ChampsAbonnement,
 } from "../services/abonnementAdmin";
+
+/** Même forme que le canal IPC du bureau : succès + résultat, ou message. */
+async function soumettreSur(
+  username: string,
+  password: string,
+  boutiqueId: string,
+  boutiqueNom: string,
+  champs: ChampsAbonnement,
+): Promise<{ succes: true; resultat: { statut: "synchronise" | "horsLigne" } } | { succes: false; message: string }> {
+  try {
+    return { succes: true, resultat: await soumettreAbonnement(username, password, boutiqueId, boutiqueNom, champs) };
+  } catch (e) {
+    return { succes: false, message: e instanceof Error ? e.message : "Échec de la modification." };
+  }
+}
 
 const LIBELLES_FORMULE: Record<string, string> = {
   essentiel: "Essentiel",
@@ -34,28 +53,61 @@ const FONCTIONNALITES_FORMULE: Record<string, string[]> = {
   ],
 };
 
-function formaterDateExpiration(iso: string | null): string {
-  if (!iso) return "Illimité";
-  return new Date(iso).toLocaleDateString("fr-FR");
+const MODES_PAIEMENT: [string, string][] = [
+  ["wave", "Wave"],
+  ["orange_money", "Orange Money"],
+  ["mtn", "MTN Mobile Money"],
+  ["moov", "Moov Money"],
+  ["especes", "Espèces"],
+  ["banque", "Banque"],
+  ["autre", "Autre"],
+];
+
+const DUREES = [1, 3, 6, 12];
+
+type Rubrique = "apercu" | "renouveler" | "paiements" | "historique" | "code" | "options";
+type Ton = "ok" | "attention" | "alerte" | "neutre";
+const CLASSE_TON: Record<Ton, string> = { ok: "marche", attention: "arrete", alerte: "panne", neutre: "neutre" };
+
+function dateLongue(iso: string | null): string {
+  return iso ? new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" }) : "sans limite";
+}
+
+function dateCourte(iso: string | null): string {
+  return iso ? new Date(iso).toLocaleDateString("fr-FR") : "—";
+}
+
+function montant(valeur: string | number | null | undefined): string {
+  const n = Number(valeur ?? 0);
+  return n ? `${n.toLocaleString("fr-FR")} F` : "—";
+}
+
+/** Même calcul que le serveur (comptes/services.py::ajouter_mois) : même jour, ou dernier jour du mois. */
+function ajouterMois(date: Date, mois: number): Date {
+  const resultat = new Date(date);
+  const jour = resultat.getDate();
+  resultat.setDate(1);
+  resultat.setMonth(resultat.getMonth() + mois);
+  const dernier = new Date(resultat.getFullYear(), resultat.getMonth() + 1, 0).getDate();
+  resultat.setDate(Math.min(jour, dernier));
+  return resultat;
 }
 
 /**
- * Port navigateur de client-electron/src/pages/GererAbonnement.tsx. Carte
- * "Gérer abonnement" de l'Espace Admin (voir AccesCreationBoutique.tsx) :
- * agit sur la boutique déjà installée sur ce poste. Même patron vue/édition
- * que Réglages > Informations boutique : on affiche d'abord l'état actuel,
- * "Modifier" bascule sur le formulaire — pensé pour le cas où l'exploitant
- * est chez le commerçant sans internet, la modification s'applique toujours
- * en local immédiatement, et se synchronise avec le serveur dès que possible
- * (tout de suite si le réseau répond, sinon voir Réglages > Synchronisation
- * pour la pousser plus tard). Réutilise les identifiants déjà saisis pour
- * franchir le verrou admin — jamais redemandés ici.
+ * Port navigateur de client-electron/src/pages/GererAbonnement.tsx.
+ * Carte « Gérer abonnement » de l'Espace Admin (voir AccesCreationBoutique.tsx),
+ * pour la boutique installée sur ce poste (un poste = une boutique). Barre
+ * latérale : Vue d'ensemble, Renouveler (en 1 clic, prix selon vos tarifs),
+ * Paiements déclarés (à valider), Historique, Code d'activation, Options.
  *
- * `masquerSynchro` : utilisé juste après une création hors-ligne (voir
- * Inscription.tsx) — "Données en ligne" n'a aucun effet tant que la boutique
- * n'a pas été "activée en ligne" (elle n'existe pas encore côté serveur),
- * donc pas de sens de le proposer à ce moment-là. `demarrerEnEdition` évite
- * un clic "Modifier" superflu dans ce même contexte.
+ * Sans internet, renouveler et les options s'appliquent tout de suite en local
+ * et partent au serveur au retour de la connexion (Réglages > Synchronisation) ;
+ * le détail (historique, paiements déclarés, tarifs, code) demande le serveur.
+ * Identifiants de l'Espace Admin réutilisés, jamais redemandés.
+ *
+ * `masquerSynchro` : juste après une création hors ligne (voir Inscription.tsx),
+ * la boutique n'existe pas encore sur le serveur — pas d'options en ligne.
+ * `demarrerEnEdition` : ouvre directement « Renouveler ».
  */
 export default function GererAbonnement({
   onFermer,
@@ -71,253 +123,756 @@ export default function GererAbonnement({
   demarrerEnEdition?: boolean;
 }) {
   const [boutique, setBoutique] = useState<AbonnementBoutique | null | undefined>(undefined);
-  const [modeEdition, setModeEdition] = useState(demarrerEnEdition);
-  const [formule, setFormule] = useState("essentiel");
-  const [illimite, setIllimite] = useState(true);
-  const [dateExpiration, setDateExpiration] = useState("");
-  const [synchroAutorisee, setSynchroAutorisee] = useState(false);
-  const [nature, setNature] = useState<"paiement" | "offert" | "ajustement">("paiement");
-  const [montant, setMontant] = useState("");
-  const [mode, setMode] = useState("");
-  const [reference, setReference] = useState("");
+  const [etat, setEtat] = useState<EtatAbonnement | null>(null);
+  const [detail, setDetail] = useState<AbonnementDetailAdmin | null>(null);
+  const [horsLigne, setHorsLigne] = useState(false);
+  const [rubrique, setRubrique] = useState<Rubrique>(demarrerEnEdition ? "renouveler" : "apercu");
   const [erreur, setErreur] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  // Renouveler
+  const [formule, setFormule] = useState("essentiel");
+  const [duree, setDuree] = useState<number | null>(1);
+  const [illimite, setIllimite] = useState(false);
+  const [dateManuelle, setDateManuelle] = useState("");
+  const [nature, setNature] = useState<"paiement" | "offert" | "ajustement">("paiement");
+  const [montantSaisi, setMontantSaisi] = useState("");
+  const [mode, setMode] = useState("");
+  const [reference, setReference] = useState("");
+  // Paiements déclarés : rejet avec motif
+  const [aRejeter, setARejeter] = useState<string | null>(null);
+  const [motif, setMotif] = useState("");
+  // Options
+  const [synchroAutorisee, setSynchroAutorisee] = useState(false);
+  // Code d'activation
+  const [code, setCode] = useState<string | null>(null);
 
-  useEffect(() => {
-    obtenirBoutiqueInstallee().then((b) => {
-      setBoutique(b);
-      if (b && demarrerEnEdition) {
-        setFormule(b.formule);
-        setIllimite(!b.dateExpirationAbonnement);
-        setDateExpiration(b.dateExpirationAbonnement ? b.dateExpirationAbonnement.slice(0, 10) : "");
-        setSynchroAutorisee(b.synchroAutorisee);
+  async function charger() {
+    const b = await obtenirBoutiqueInstallee();
+    setBoutique(b);
+    if (!b) return;
+    setFormule(b.formule || "essentiel");
+    setSynchroAutorisee(b.synchroAutorisee);
+    setEtat(await obtenirEtatAbonnement(b.boutiqueId).catch(() => null));
+    const r = await detailAbonnementAdmin(username, password, b.boutiqueId);
+    if (r.succes) {
+      setDetail(r.resultat);
+      setHorsLigne(false);
+      // Le serveur a une autre période (paiement validé, renouvellement fait dans l'admin Django) :
+      // ce poste s'aligne — sauf si une modification faite ici hors ligne attend d'y être envoyée.
+      const serveur = r.resultat.boutique;
+      const dateServeur = serveur.date_expiration_abonnement ? Date.parse(serveur.date_expiration_abonnement) : null;
+      const dateLocale = b.dateExpirationAbonnement ? Date.parse(b.dateExpirationAbonnement) : null;
+      if ((serveur.formule !== b.formule || dateServeur !== dateLocale) && !(lireAbonnementEnAttente())) {
+        const alignement = await soumettreSur(username, password, b.boutiqueId, b.boutiqueNom, {
+          formule: serveur.formule,
+          dateExpirationAbonnement: serveur.date_expiration_abonnement,
+        });
+        if (alignement.succes) {
+          setBoutique(await obtenirBoutiqueInstallee());
+          setEtat(await obtenirEtatAbonnement(b.boutiqueId).catch(() => null));
+        }
       }
-    });
+    } else {
+      setDetail(null);
+      setHorsLigne(true);
+    }
+  }
+  useEffect(() => {
+    charger();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function demarrerEdition() {
-    if (!boutique) return;
-    setFormule(boutique.formule);
-    setIllimite(!boutique.dateExpirationAbonnement);
-    setDateExpiration(boutique.dateExpirationAbonnement ? boutique.dateExpirationAbonnement.slice(0, 10) : "");
-    setSynchroAutorisee(boutique.synchroAutorisee);
-    setNature("paiement");
-    setMontant("");
-    setMode("");
-    setReference("");
+  function aller(r: Rubrique) {
     setErreur(null);
-    setModeEdition(true);
+    setMessage(null);
+    setRubrique(r);
   }
 
-  async function soumettre(evenement: React.FormEvent) {
-    evenement.preventDefault();
+  // --- Renouveler ---
+  const finActuelle = boutique?.dateExpirationAbonnement ? new Date(boutique.dateExpirationAbonnement) : null;
+  /** Les jours déjà payés ne sont pas perdus : on repart de la fin actuelle si elle est à venir. */
+  const depart = finActuelle && finActuelle > new Date() ? finActuelle : new Date();
+  const nouvelleFin: Date | null = illimite
+    ? null
+    : duree
+      ? ajouterMois(depart, duree)
+      : dateManuelle
+        ? new Date(`${dateManuelle}T23:59:59`)
+        : null;
+  const tarif = detail?.tarifs.find((t) => t.formule === formule && t.duree_mois === duree) ?? null;
+
+  function choisirDuree(mois: number) {
+    setDuree(mois);
+    setIllimite(false);
+    const t = detail?.tarifs.find((x) => x.formule === formule && x.duree_mois === mois);
+    if (t && nature === "paiement") setMontantSaisi(String(Number(t.prix)));
+  }
+
+  useEffect(() => {
+    // Formule changée : le prix suit (s'il y a des tarifs).
+    if (duree && nature === "paiement" && tarif) setMontantSaisi(String(Number(tarif.prix)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formule]);
+
+  async function soumettre(champs: ChampsAbonnement, succes: string) {
+    if (!boutique) return;
+    setErreur(null);
+    setMessage(null);
+    setEnCours(true);
+    const r = await soumettreSur(username, password, boutique.boutiqueId, boutique.boutiqueNom, champs);
+    setEnCours(false);
+    if (!r.succes) return setErreur(r.message);
+    setMessage(
+      r.resultat.statut === "synchronise"
+        ? `✅ ${succes} (sur ce poste et sur le serveur).`
+        : `✅ ${succes} sur ce poste. Pas de connexion : le serveur sera prévenu au retour d'internet (Réglages → Synchronisation).`,
+    );
+    await charger();
+  }
+
+  async function renouveler() {
+    if (!illimite && !nouvelleFin) return setErreur("Choisissez une durée ou une date de fin.");
+    if (nature === "paiement" && !(Number(montantSaisi) > 0)) {
+      return setErreur("Indiquez le montant reçu, ou choisissez « Offert » ou « Correction de date ».");
+    }
+    await soumettre(
+      {
+        formule,
+        dateExpirationAbonnement: nouvelleFin ? nouvelleFin.toISOString() : null,
+        nature,
+        ...(nature === "paiement" ? { montant: Number(montantSaisi), mode, reference: reference.trim() } : {}),
+      },
+      illimite ? "Abonnement sans limite enregistré" : `Abonnement prolongé jusqu'au ${dateLongue(nouvelleFin!.toISOString())}`,
+    );
+    setReference("");
+    setRubrique("apercu");
+  }
+
+  // --- Paiements déclarés ---
+  async function traiterDemande(demandeId: string, action: "valider" | "rejeter") {
+    if (!boutique) return;
+    if (action === "rejeter" && !motif.trim()) return setErreur("Indiquez le motif du rejet (il sera visible par la boutique).");
+    setErreur(null);
+    setMessage(null);
+    setEnCours(true);
+    const r = await detailAbonnementAdmin(username, password, boutique.boutiqueId, action, {
+      demandeId,
+      motif: action === "rejeter" ? motif.trim() : undefined,
+    });
+    setEnCours(false);
+    if (!r.succes) return setErreur(r.message);
+    setDetail(r.resultat);
+    setARejeter(null);
+    setMotif("");
+    setMessage(action === "valider" ? "✅ Paiement validé : la période est ajoutée à l'abonnement." : "Paiement rejeté.");
+    await charger(); // aligne aussi la nouvelle date sur ce poste
+  }
+
+  // --- Code d'activation ---
+  async function genererCode() {
     if (!boutique) return;
     setErreur(null);
     setEnCours(true);
-    try {
-      const nouvelleDate = illimite || !dateExpiration ? null : new Date(`${dateExpiration}T23:59:59`).toISOString();
-      // La période change : elle est inscrite au registre, avec le paiement reçu.
-      const periodeModifiee =
-        formule !== boutique.formule ||
-        (nouvelleDate?.slice(0, 10) ?? null) !== (boutique.dateExpirationAbonnement?.slice(0, 10) ?? null);
-      if (periodeModifiee && nature === "paiement" && !(Number(montant) > 0)) {
-        setErreur("Indiquez le montant reçu, ou choisissez « Offert » ou « Correction de date ».");
-        return;
-      }
-      const champs: ChampsAbonnement = {
-        formule,
-        dateExpirationAbonnement: nouvelleDate,
-        ...(masquerSynchro ? {} : { synchroAutorisee }),
-        ...(periodeModifiee
-          ? { nature, ...(nature === "paiement" ? { montant: Number(montant), mode, reference: reference.trim() } : {}) }
-          : {}),
-      };
-      const resultat = await soumettreAbonnement(username, password, boutique.boutiqueId, boutique.boutiqueNom, champs);
-      setBoutique({
-        ...boutique,
-        formule: champs.formule!,
-        dateExpirationAbonnement: champs.dateExpirationAbonnement ?? null,
-        synchroAutorisee: champs.synchroAutorisee ?? boutique.synchroAutorisee,
-      });
-      setMessage(
-        resultat.statut === "synchronise"
-          ? "Abonnement mis à jour et synchronisé avec le serveur."
-          : "Pas de connexion : la modification s'applique déjà sur ce poste, elle sera transmise au serveur depuis Réglages > Synchronisation dès que la connexion reviendra.",
-      );
-      setModeEdition(false);
-    } catch (e) {
-      setErreur(e instanceof Error ? e.message : String(e));
-    } finally {
-      setEnCours(false);
-    }
+    const r = await detailAbonnementAdmin(username, password, boutique.boutiqueId, "code");
+    setEnCours(false);
+    if (!r.succes) return setErreur(r.message);
+    setDetail(r.resultat);
+    setCode(r.resultat.code);
   }
 
-  if (boutique === undefined || boutique === null) {
-    return (
-      <div className="fond-modale" onClick={onFermer}>
-        <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
-          <div className="modale-entete">
-            <h3>Gérer abonnement 💳</h3>
-            <button type="button" className="lien bouton-retour" onClick={onFermer}>
-              ← Retour
-            </button>
-          </div>
-          <div className="modale-corps">
-            <p className="sous-titre">
-              {boutique === undefined ? "Chargement…" : "Aucune boutique n'est encore installée sur ce poste."}
-            </p>
-          </div>
-        </div>
+  // ---------------------------------------------------------------------------
+
+  const enAttente = detail?.demandes.filter((d) => d.statut === "en_attente") ?? [];
+  const rubriques: { cle: Rubrique; label: string; compteur?: string }[] = [
+    { cle: "apercu", label: "💳 Vue d'ensemble" },
+    { cle: "renouveler", label: "🔄 Renouveler" },
+    { cle: "paiements", label: "📨 Paiements déclarés", compteur: enAttente.length ? String(enAttente.length) : undefined },
+    { cle: "historique", label: "🧾 Historique" },
+    { cle: "code", label: "🔑 Code d'activation" },
+    ...(masquerSynchro ? [] : [{ cle: "options" as Rubrique, label: "⚙️ Options" }]),
+  ];
+
+  const blocHorsLigne = (texte: string) => (
+    <div className="prochaine-etape prochaine-etape--neutre">
+      <div>
+        <span className="libelle-prochaine-etape">Sans connexion au serveur</span>
+        <p>{texte}</p>
       </div>
+      <button type="button" disabled={enCours} onClick={() => charger()}>
+        ⟳ Réessayer
+      </button>
+    </div>
+  );
+
+  function vueEnsemble() {
+    if (!boutique) return null;
+    const niveau = etat?.niveau ?? "ok";
+    const sansLimite = !boutique.dateExpirationAbonnement;
+    let icone: string;
+    let titre: string;
+    let sousTitre: string;
+    let ton: Ton;
+    if (sansLimite) {
+      icone = "♾️";
+      titre = "Abonnement sans limite";
+      sousTitre = `Formule ${LIBELLES_FORMULE[boutique.formule] ?? boutique.formule}`;
+      ton = "ok";
+    } else if (niveau === "bloque") {
+      icone = "🔴";
+      titre = "Vente bloquée";
+      sousTitre = `Abonnement terminé le ${dateLongue(boutique.dateExpirationAbonnement)}, délai de grâce dépassé`;
+      ton = "alerte";
+    } else if (niveau === "grace") {
+      icone = "🟠";
+      titre = "Délai de grâce";
+      sousTitre = `Terminé le ${dateLongue(boutique.dateExpirationAbonnement)} · vente encore permise jusqu'au ${dateLongue(etat?.finGrace ?? null)}`;
+      ton = "alerte";
+    } else {
+      icone = niveau === "bientot" ? "⏳" : "✅";
+      titre = niveau === "bientot" ? `Se termine dans ${etat?.joursRestants ?? "?"} jour(s)` : "Abonnement actif";
+      sousTitre = `Formule ${LIBELLES_FORMULE[boutique.formule] ?? boutique.formule} · jusqu'au ${dateLongue(boutique.dateExpirationAbonnement)}${etat?.joursRestants != null && niveau === "ok" ? ` (${etat.joursRestants} jours)` : ""}`;
+      ton = niveau === "bientot" ? "attention" : "ok";
+    }
+
+    let etape: { ton: Ton; texte: ReactNode; action?: { libelle: string; onClick: () => void } };
+    if (enAttente.length > 0) {
+      etape = {
+        ton: "attention",
+        texte: `${enAttente.length} paiement(s) Mobile Money déclaré(s) par la boutique à vérifier.`,
+        action: { libelle: "📨 Vérifier", onClick: () => aller("paiements") },
+      };
+    } else if (!sansLimite && (niveau === "bloque" || niveau === "grace" || niveau === "bientot")) {
+      etape = {
+        ton: niveau === "bientot" ? "attention" : "alerte",
+        texte: niveau === "bientot" ? "Proposez le renouvellement à la boutique." : "Renouvelez l'abonnement pour que la boutique continue de vendre.",
+        action: { libelle: "🔄 Renouveler", onClick: () => aller("renouveler") },
+      };
+    } else {
+      etape = { ton: "ok", texte: "Rien à faire : l'abonnement est à jour." };
+    }
+
+    const dernier = detail?.historique[0] ?? null;
+    const cartes: { cle: string; titre: string; lignes: ReactNode[]; onClick?: () => void }[] = [
+      {
+        cle: "formule",
+        titre: "📦 Formule",
+        onClick: () => aller("renouveler"),
+        lignes: [
+          <strong key="f">{LIBELLES_FORMULE[boutique.formule] ?? boutique.formule}</strong>,
+          <span key="d" className="sous-info">{FONCTIONNALITES_FORMULE[boutique.formule]?.[1] ?? ""}</span>,
+        ],
+      },
+      {
+        cle: "fin",
+        titre: "📅 Fin de l'abonnement",
+        lignes: [
+          <strong key="f">{dateLongue(boutique.dateExpirationAbonnement)}</strong>,
+          <span key="g" className="sous-info">délai de grâce de 3 jours ensuite</span>,
+        ],
+      },
+      {
+        cle: "paiements",
+        titre: "📨 Paiements déclarés",
+        onClick: () => aller("paiements"),
+        lignes: [
+          <strong key="n">{horsLigne ? "—" : enAttente.length ? `${enAttente.length} à vérifier` : "aucun en attente"}</strong>,
+          <span key="d" className="sous-info">Mobile Money déclarés dans l'appli</span>,
+        ],
+      },
+      {
+        cle: "dernier",
+        titre: "🧾 Dernier enregistrement",
+        onClick: () => aller("historique"),
+        lignes: dernier
+          ? [
+              <strong key="n">{dernier.nature_libelle}</strong>,
+              <span key="d" className="sous-info">
+                {dateCourte(dernier.date)} · {montant(dernier.montant)}
+              </span>,
+            ]
+          : [<strong key="v">{horsLigne ? "—" : "aucun"}</strong>],
+      },
+      ...(masquerSynchro
+        ? []
+        : [
+            {
+              cle: "enligne",
+              titre: "🌐 Envoi en ligne",
+              onClick: () => aller("options"),
+              lignes: [
+                <strong key="s">{boutique.synchroAutorisee ? "Autorisé" : "🔒 100 % local"}</strong>,
+                <span key="d" className="sous-info">réglable dans Options</span>,
+              ],
+            },
+          ]),
+    ];
+
+    return (
+      <>
+        <div className={`carte-etat-serveur carte-etat-serveur--${CLASSE_TON[ton]}`}>
+          <div className="entete-vue-ensemble">
+            <span className="icone-vue-ensemble">{icone}</span>
+            <div>
+              <strong className="etat-serveur-titre">{titre}</strong>
+              <span className="sous-info ligne-detail-article">{sousTitre}</span>
+            </div>
+          </div>
+          <button type="button" className="bouton-primaire" onClick={() => aller("renouveler")}>
+            🔄 Renouveler
+          </button>
+        </div>
+        <div className={`prochaine-etape prochaine-etape--${etape.ton}`}>
+          <div>
+            <span className="libelle-prochaine-etape">{etape.ton === "ok" ? "✓ État" : "👉 Prochaine étape"}</span>
+            <p>{etape.texte}</p>
+          </div>
+          {etape.action && (
+            <button type="button" className="bouton-primaire" onClick={etape.action.onClick}>
+              {etape.action.libelle}
+            </button>
+          )}
+        </div>
+        {horsLigne && blocHorsLigne("L'historique et les paiements déclarés ne peuvent pas être lus. Renouveler reste possible : c'est appliqué sur ce poste et transmis au serveur au retour d'internet.")}
+        <div className="grille-cartes-reseau">
+          {cartes.map((c) =>
+            c.onClick ? (
+              <button key={c.cle} type="button" className="carte-info-reseau cliquable" onClick={c.onClick}>
+                <span className="titre-carte-reseau">
+                  {c.titre} <span className="sous-info">›</span>
+                </span>
+                {c.lignes}
+              </button>
+            ) : (
+              <div key={c.cle} className="carte-info-reseau">
+                <span className="titre-carte-reseau">{c.titre}</span>
+                {c.lignes}
+              </div>
+            ),
+          )}
+        </div>
+        <div className="grille-cartes-reseau">
+          {(["essentiel", "pro"] as const).map((cle) => (
+            <div key={cle} className={`carte-info-reseau${boutique.formule === cle ? " carte-formule-actuelle" : ""}`}>
+              <span className="titre-carte-reseau">
+                {LIBELLES_FORMULE[cle]}
+                {boutique.formule === cle ? " · formule actuelle" : ""}
+              </span>
+              <ul className="liste-fonctionnalites-formule">
+                {FONCTIONNALITES_FORMULE[cle].map((ligne) => (
+                  <li key={ligne}>{ligne}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </>
     );
   }
 
-  if (!modeEdition) {
-    return (
-      <div className="fond-modale" onClick={onFermer}>
-        <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
-          <div className="modale-entete entete-fixe">
-            <h3>Gérer abonnement 💳</h3>
-            <div className="actions-formulaire">
-              <button type="button" className="bouton-primaire" onClick={demarrerEdition}>
-                Modifier
-              </button>
-              <button type="button" className="lien bouton-retour" onClick={onFermer}>
-                ← Retour
-              </button>
+  function contenu() {
+    if (!boutique) return null;
+    switch (rubrique) {
+      case "renouveler":
+        return (
+          <>
+            <h4 className="titre-rubrique-reseau">🔄 Renouveler l'abonnement</h4>
+            <div className="etape-reseau">
+              <span className="numero-etape-reseau">1</span>
+              <div className="champ-etape-reseau">
+                <strong>Formule</strong>
+                <div className="choix-formule-abonnement">
+                  {(["essentiel", "pro"] as const).map((cle) => (
+                    <button
+                      key={cle}
+                      type="button"
+                      className={`puce-nom-poste${formule === cle ? " choisi" : ""}`}
+                      onClick={() => setFormule(cle)}
+                    >
+                      {LIBELLES_FORMULE[cle]}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="modale-corps">
-            <div className="formulaire-catalogue formulaire-pleine-largeur-modale">
-              {message && <p className="note-aide">{message}</p>}
-              <p className="sous-titre">{boutique.boutiqueNom}</p>
-              <div className="grille-champs">
-                <div>
-                  <p className="note-aide">Formule</p>
-                  <p>{LIBELLES_FORMULE[boutique.formule] ?? boutique.formule}</p>
+            <div className="etape-reseau">
+              <span className="numero-etape-reseau">2</span>
+              <div className="champ-etape-reseau">
+                <strong>Durée</strong>
+                <div className="grille-durees-abonnement">
+                  {DUREES.map((mois) => {
+                    const t = detail?.tarifs.find((x) => x.formule === formule && x.duree_mois === mois);
+                    return (
+                      <button
+                        key={mois}
+                        type="button"
+                        className={`carte-duree-abonnement${duree === mois && !illimite ? " choisi" : ""}`}
+                        onClick={() => choisirDuree(mois)}
+                      >
+                        <strong>+{mois} mois</strong>
+                        <span className="sous-info">jusqu'au {dateCourte(ajouterMois(depart, mois).toISOString())}</span>
+                        {t && <span className="prix-duree-abonnement">{montant(t.prix)}</span>}
+                        {t && Number(t.remise) > 0 && <span className="sous-info">−{Number(t.remise)} %</span>}
+                      </button>
+                    );
+                  })}
                 </div>
-                <div>
-                  <p className="note-aide">Expiration de l'abonnement</p>
-                  <p>{formaterDateExpiration(boutique.dateExpirationAbonnement)}</p>
+                <span className="note-aide">
+                  {finActuelle && finActuelle > new Date()
+                    ? `Part de la fin actuelle (${dateCourte(finActuelle.toISOString())}) : les jours déjà payés ne sont pas perdus.`
+                    : "Part d'aujourd'hui (l'abonnement est terminé)."}
+                </span>
+                <details className="details-abonnement">
+                  <summary>Autre date, ou sans limite</summary>
+                  <div className="champs-sauvegarde">
+                    <label>
+                      Date de fin choisie
+                      <input
+                        type="date"
+                        value={dateManuelle}
+                        onChange={(e) => {
+                          setDateManuelle(e.target.value);
+                          setDuree(null);
+                          setIllimite(false);
+                        }}
+                      />
+                    </label>
+                    <label className="case-secours-sauvegarde">
+                      <span>
+                        <input
+                          type="checkbox"
+                          checked={illimite}
+                          onChange={(e) => {
+                            setIllimite(e.target.checked);
+                            if (e.target.checked) setDuree(null);
+                          }}
+                        />{" "}
+                        Sans limite (pas de date de fin)
+                      </span>
+                    </label>
+                  </div>
+                </details>
+              </div>
+            </div>
+            <div className="etape-reseau">
+              <span className="numero-etape-reseau">3</span>
+              <div className="champ-etape-reseau champs-sauvegarde">
+                <strong>Paiement</strong>
+                <div className="choix-methode-restauration">
+                  {(
+                    [
+                      ["paiement", "💵 Paiement reçu"],
+                      ["offert", "🎁 Offert"],
+                      ["ajustement", "✏️ Correction de date"],
+                    ] as const
+                  ).map(([cle, libelle]) => (
+                    <label key={cle}>
+                      <input type="radio" checked={nature === cle} onChange={() => setNature(cle)} /> {libelle}
+                    </label>
+                  ))}
                 </div>
-                {!masquerSynchro && (
-                  <div>
-                    <p className="note-aide">Données en ligne</p>
-                    <p>{boutique.synchroAutorisee ? "Activée" : "Désactivée"}</p>
+                {nature === "paiement" && (
+                  <div className="grille-paiement-abonnement">
+                    <label>
+                      Montant reçu
+                      <input type="number" min={0} step="any" value={montantSaisi} onChange={(e) => setMontantSaisi(e.target.value)} />
+                      <span className="note-aide">
+                        {tarif ? `Tarif : ${montant(tarif.prix)}` : detail ? "Pas de tarif saisi pour ce choix." : "Tarifs indisponibles sans connexion."}
+                      </span>
+                    </label>
+                    <label>
+                      Payé par
+                      <select value={mode} onChange={(e) => setMode(e.target.value)}>
+                        <option value="">—</option>
+                        {MODES_PAIEMENT.map(([cle, libelle]) => (
+                          <option key={cle} value={cle}>
+                            {libelle}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Référence de la transaction
+                      <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="ex. MP2410…" />
+                    </label>
                   </div>
                 )}
               </div>
-              <div className="grille-champs">
-                {(["essentiel", "pro"] as const).map((cle) => (
-                  <div key={cle}>
-                    <p className="note-aide">{LIBELLES_FORMULE[cle]}</p>
-                    <ul className="liste-fonctionnalites-formule">
-                      {FONCTIONNALITES_FORMULE[cle].map((ligne) => (
-                        <li key={ligne}>{ligne}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
             </div>
-          </div>
-        </div>
-      </div>
-    );
+            <div className="prochaine-etape prochaine-etape--neutre">
+              <div>
+                <span className="libelle-prochaine-etape">Récapitulatif</span>
+                <p>
+                  {LIBELLES_FORMULE[formule]} {illimite ? "sans limite" : nouvelleFin ? `jusqu'au ${dateLongue(nouvelleFin.toISOString())}` : "— choisissez une durée"}
+                  {nature === "paiement" ? ` · ${montant(montantSaisi)} reçus` : nature === "offert" ? " · offert" : " · correction"}
+                </p>
+              </div>
+              <button type="button" className="bouton-primaire" disabled={enCours} onClick={renouveler}>
+                {enCours ? "Enregistrement…" : "✅ Enregistrer"}
+              </button>
+            </div>
+          </>
+        );
+      case "paiements":
+        return (
+          <>
+            <h4 className="titre-rubrique-reseau">📨 Paiements déclarés par la boutique</h4>
+            <p className="note-aide">
+              La boutique envoie l'argent par Mobile Money puis déclare la référence dans l'appli. Vérifiez la référence
+              sur votre téléphone, puis validez (la période est ajoutée) ou rejetez avec un motif.
+            </p>
+            {horsLigne ? (
+              blocHorsLigne("Les paiements déclarés sont sur le serveur : reconnectez-vous pour les voir.")
+            ) : (
+              <div className="zone-tableau-scroll zone-appareils-reseau">
+                <table className="tableau-catalogue carte-mobile tableau-appareils-reseau">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Formule</th>
+                      <th>Durée</th>
+                      <th>Montant</th>
+                      <th>Mode</th>
+                      <th>Référence</th>
+                      <th>Statut</th>
+                      <th className="colonne-action-reseau">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(detail?.demandes ?? []).map((d) => (
+                      <tr key={d.id ?? d.date}>
+                        <td data-label="Date" className="nowrap">{dateCourte(d.date)}</td>
+                        <td data-label="Formule">{LIBELLES_FORMULE[d.formule] ?? d.formule}</td>
+                        <td data-label="Durée">{d.duree_libelle}</td>
+                        <td data-label="Montant" className="nowrap">{montant(d.montant)}</td>
+                        <td data-label="Mode">{d.mode_libelle}</td>
+                        <td data-label="Référence">
+                          <code>{d.reference}</code>
+                        </td>
+                        <td data-label="Statut">
+                          <span
+                            className={`pastille-etat-reseau${d.statut === "validee" ? " pastille-etat-reseau--relie" : ""}`}
+                            title={d.motif_rejet || undefined}
+                          >
+                            {d.statut_libelle}
+                          </span>
+                        </td>
+                        <td data-label="Action" className="colonne-action-reseau">
+                          {d.statut === "en_attente" && d.id ? (
+                            aRejeter === d.id ? (
+                              <span className="ligne-dossier-sauvegarde">
+                                <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="Motif du rejet" autoFocus />
+                                <button type="button" className="bouton-danger" disabled={enCours} onClick={() => traiterDemande(d.id!, "rejeter")}>
+                                  Rejeter
+                                </button>
+                                <button type="button" className="lien" onClick={() => setARejeter(null)}>
+                                  Annuler
+                                </button>
+                              </span>
+                            ) : (
+                              <span className="actions-code-reseau">
+                                <button type="button" className="bouton-primaire" disabled={enCours} onClick={() => traiterDemande(d.id!, "valider")}>
+                                  Valider
+                                </button>
+                                <button type="button" className="lien lien-danger" onClick={() => setARejeter(d.id!)}>
+                                  Rejeter
+                                </button>
+                              </span>
+                            )
+                          ) : (
+                            <span className="sous-info">{d.motif_rejet || "—"}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {(detail?.demandes.length ?? 0) === 0 && (
+                      <tr>
+                        <td colSpan={8} className="liste-vide">
+                          Aucun paiement déclaré.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        );
+      case "historique":
+        return (
+          <>
+            <h4 className="titre-rubrique-reseau">🧾 Historique de l'abonnement</h4>
+            {horsLigne ? (
+              blocHorsLigne("L'historique est sur le serveur : reconnectez-vous pour le voir.")
+            ) : (
+              <>
+                <div className="zone-tableau-scroll zone-appareils-reseau">
+                  <table className="tableau-catalogue carte-mobile tableau-appareils-reseau">
+                    <thead>
+                      <tr>
+                        <th>Enregistré le</th>
+                        <th>Nature</th>
+                        <th>Formule</th>
+                        <th>Période</th>
+                        <th>Montant</th>
+                        <th>Mode</th>
+                        <th>Référence</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(detail?.historique ?? []).map((h, i) => (
+                        <tr key={`${h.date}-${i}`}>
+                          <td data-label="Enregistré le" className="nowrap">{dateCourte(h.date)}</td>
+                          <td data-label="Nature">{h.nature_libelle}</td>
+                          <td data-label="Formule">{LIBELLES_FORMULE[h.formule] ?? h.formule}</td>
+                          <td data-label="Période" className="nowrap">
+                            {dateCourte(h.date_debut)} → {dateCourte(h.date_fin)}
+                          </td>
+                          <td data-label="Montant" className="nowrap">{montant(h.montant)}</td>
+                          <td data-label="Mode">{h.mode_libelle || "—"}</td>
+                          <td data-label="Référence">{h.reference || "—"}</td>
+                        </tr>
+                      ))}
+                      {(detail?.historique.length ?? 0) === 0 && (
+                        <tr>
+                          <td colSpan={7} className="liste-vide">
+                            Aucun enregistrement.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="totaux">
+                  <div>
+                    Total encaissé :{" "}
+                    <strong>{montant((detail?.historique ?? []).reduce((t, h) => t + Number(h.montant || 0), 0))}</strong>
+                  </div>
+                </div>
+              </>
+            )}
+          </>
+        );
+      case "code":
+        return (
+          <>
+            <h4 className="titre-rubrique-reseau">🔑 Code d'activation hors ligne</h4>
+            <p className="note-aide">
+              Pour une boutique sans internet : le code reprend la formule et la date de fin <strong>actuelles</strong>{" "}
+              (renouvelez d'abord, puis générez le code). La boutique le colle dans « Gérer l'abonnement → 🔑 Code
+              d'activation » ; il se vérifie sans internet et ne marche que pour elle.
+            </p>
+            <div className="carte-info-reseau">
+              <span className="titre-carte-reseau">Abonnement actuel</span>
+              <strong>
+                {LIBELLES_FORMULE[boutique.formule] ?? boutique.formule} · jusqu'au {dateLongue(boutique.dateExpirationAbonnement)}
+              </strong>
+            </div>
+            {horsLigne ? (
+              blocHorsLigne("Le code est signé par votre serveur : il faut une connexion pour le générer.")
+            ) : (
+              <div className="actions-formulaire">
+                <button type="button" className="bouton-primaire" disabled={enCours || !boutique.dateExpirationAbonnement} onClick={genererCode}>
+                  {enCours ? "Génération…" : "Générer le code"}
+                </button>
+              </div>
+            )}
+            {code && (
+              <div className="carte-code-reseau">
+                <code className="code-activation-genere">{code}</code>
+                <div className="actions-code-reseau">
+                  <button type="button" onClick={() => navigator.clipboard?.writeText(code)}>
+                    📋 Copier
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      window.open(`https://wa.me/?text=${encodeURIComponent(`Code d'activation de « ${boutique.boutiqueNom} » (jusqu'au ${dateLongue(boutique.dateExpirationAbonnement)}) :\n${code}`)}`,
+                        "_blank",
+                        "noopener",
+                      )
+                    }
+                  >
+                    💬 Envoyer par WhatsApp
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        );
+      case "options":
+        return (
+          <>
+            <h4 className="titre-rubrique-reseau">⚙️ Options de la boutique</h4>
+            <label className="case-secours-sauvegarde">
+              <span>
+                <input type="checkbox" checked={synchroAutorisee} onChange={(e) => setSynchroAutorisee(e.target.checked)} /> 🌐
+                Envoi des données en ligne (synchronisation)
+              </span>
+              <span className="note-aide">
+                Décoché : 100 % local, les ventes et le stock restent sur les ordinateurs de la boutique (seuls le nom et
+                l'abonnement sont en ligne). Pensez alors à la sauvegarde.
+              </span>
+            </label>
+            <div className="actions-formulaire">
+              <button
+                type="button"
+                className="bouton-primaire"
+                disabled={enCours || synchroAutorisee === boutique.synchroAutorisee}
+                onClick={() => soumettre({ synchroAutorisee }, synchroAutorisee ? "Envoi en ligne autorisé" : "Boutique passée en 100 % local")}
+              >
+                Enregistrer
+              </button>
+            </div>
+            <p className="note-aide">Le réseau de la boutique se règle dans sa propre carte : Espace Admin → 📶 Réseau de la boutique.</p>
+          </>
+        );
+      default:
+        return vueEnsemble();
+    }
   }
 
   return (
     <div className="fond-modale" onClick={onFermer}>
-      <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
-        <div className="modale-entete entete-fixe">
-          <h3>Gérer abonnement 💳</h3>
-          <div className="actions-formulaire">
-            <button type="button" onClick={() => setModeEdition(false)}>
-              Annuler
-            </button>
-            <button type="submit" form="form-abonnement" className="bouton-primaire" disabled={enCours}>
-              {enCours ? "Enregistrement…" : "Enregistrer"}
-            </button>
-            <button type="button" className="lien bouton-retour" onClick={onFermer}>
-              ← Retour
-            </button>
-          </div>
+      <div className="modale-selection-produits modale-abonnement-admin" onClick={(e) => e.stopPropagation()}>
+        <div className="modale-entete">
+          <h3>💳 Gérer abonnement{boutique ? ` — ${boutique.boutiqueNom}` : ""}</h3>
+          <button type="button" className="lien bouton-retour" onClick={onFermer}>
+            ← Retour
+          </button>
         </div>
         <div className="modale-corps">
-          <form id="form-abonnement" onSubmit={soumettre} className="formulaire-catalogue formulaire-pleine-largeur-modale">
-            <p className="sous-titre">{boutique.boutiqueNom}</p>
-            {erreur && <div className="message-erreur">{erreur}</div>}
-            <label>
-              Formule
-              <select value={formule} onChange={(e) => setFormule(e.target.value)}>
-                <option value="essentiel">Essentiel</option>
-                <option value="pro">Pro</option>
-              </select>
-            </label>
-            <label>
-              <input type="checkbox" checked={illimite} onChange={(e) => setIllimite(e.target.checked)} />{" "}
-              Abonnement illimité (pas de date d'expiration)
-            </label>
-            {!illimite && (
-              <label>
-                Date d'expiration de l'abonnement
-                <input
-                  type="date"
-                  value={dateExpiration}
-                  onChange={(e) => setDateExpiration(e.target.value)}
-                  required
-                />
-              </label>
-            )}
-            <fieldset className="paiement-abonnement">
-              <legend>Inscrit au registre des abonnements si la formule ou la date change</legend>
-              <label>
-                Nature
-                <select value={nature} onChange={(e) => setNature(e.target.value as typeof nature)}>
-                  <option value="paiement">Paiement reçu</option>
-                  <option value="offert">Offert (geste commercial)</option>
-                  <option value="ajustement">Correction de date</option>
-                </select>
-              </label>
-              {nature === "paiement" && (
-                <>
-                  <label>
-                    Montant reçu
-                    <input type="number" min={0} step="any" value={montant} onChange={(e) => setMontant(e.target.value)} />
-                  </label>
-                  <label>
-                    Payé par
-                    <select value={mode} onChange={(e) => setMode(e.target.value)}>
-                      <option value="">—</option>
-                      <option value="wave">Wave</option>
-                      <option value="orange_money">Orange Money</option>
-                      <option value="mtn">MTN Mobile Money</option>
-                      <option value="moov">Moov Money</option>
-                      <option value="especes">Espèces</option>
-                      <option value="banque">Banque</option>
-                      <option value="autre">Autre</option>
-                    </select>
-                  </label>
-                  <label>
-                    Référence de la transaction
-                    <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="ex. MP2410…" />
-                  </label>
-                </>
-              )}
-            </fieldset>
-            {!masquerSynchro && (
-              <label>
-                <input
-                  type="checkbox"
-                  checked={synchroAutorisee}
-                  onChange={(e) => setSynchroAutorisee(e.target.checked)}
-                />{" "}
-                Données en ligne (synchronisation activée)
-              </label>
-            )}
-          </form>
+          {boutique === undefined || boutique === null ? (
+            <p className="sous-titre">{boutique === undefined ? "Chargement…" : "Aucune boutique n'est encore installée sur ce poste."}</p>
+          ) : (
+            <div className="disposition-parametres">
+              <nav className="barre-laterale-parametres barre-laterale-reseau">
+                <div className={`role-reseau role-reseau--${etat?.niveau === "bloque" || etat?.niveau === "grace" ? "alerte" : "ok"}`}>
+                  <span className="sous-info">Abonnement</span>
+                  <strong>
+                    {LIBELLES_FORMULE[boutique.formule] ?? boutique.formule} ·{" "}
+                    {boutique.dateExpirationAbonnement ? dateCourte(boutique.dateExpirationAbonnement) : "sans limite"}
+                  </strong>
+                </div>
+                {rubriques.map((r) => (
+                  <button
+                    key={r.cle}
+                    type="button"
+                    className={`item-nav-parametres${rubrique === r.cle ? " actif" : ""}`}
+                    onClick={() => aller(r.cle)}
+                  >
+                    {r.label}
+                    {r.compteur && <span className="compteur-nav-reseau">{r.compteur}</span>}
+                  </button>
+                ))}
+              </nav>
+              <div className="contenu-parametres contenu-reseau">
+                {erreur && <div className="message-erreur">{erreur}</div>}
+                {message && <div className="message-succes">{message}</div>}
+                {contenu()}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -210,7 +210,7 @@ export default function ModaleAbonnement({ session, onFermer }: { session: Sessi
             <section className="historique-abonnement">
               <h4>Tarifs</h4>
               <div className="zone-tableau-scroll">
-                <table className="tableau-catalogue tableau-tarifs-abonnement">
+                <table className="tableau-catalogue carte-mobile tableau-tarifs-abonnement">
                   <thead>
                     <tr>
                       <th>Formule</th>
@@ -224,13 +224,13 @@ export default function ModaleAbonnement({ session, onFermer }: { session: Sessi
                       .filter((f) => detail.tarifs.some((t) => t.formule === f))
                       .map((f) => (
                         <tr key={f}>
-                          <td>
+                          <td data-label="Formule">
                             <strong>{LIBELLES_FORMULE[f]}</strong>
                           </td>
                           {[1, 3, 6, 12].map((mois) => {
                             const tarif = detail.tarifs.find((t) => t.formule === f && t.duree_mois === mois);
                             return (
-                              <td key={mois} className="nowrap">
+                              <td data-label={mois === 1 ? "1 mois" : `${mois} mois`} key={mois} className="nowrap">
                                 {tarif ? formaterMontant(Number(tarif.prix)) : "—"}
                                 {tarif && Number(tarif.remise) > 0 && (
                                   <div className="sous-info">−{Number(tarif.remise)} %</div>
@@ -334,7 +334,7 @@ export default function ModaleAbonnement({ session, onFermer }: { session: Sessi
             <section className="historique-abonnement">
               <h4>Paiements déclarés</h4>
               <div className="zone-tableau-scroll">
-                <table className="tableau-catalogue">
+                <table className="tableau-catalogue carte-mobile">
                   <thead>
                     <tr>
                       <th>Date</th>
@@ -348,14 +348,14 @@ export default function ModaleAbonnement({ session, onFermer }: { session: Sessi
                   <tbody>
                     {detail.demandes.map((d, i) => (
                       <tr key={i}>
-                        <td>{date(d.date)}</td>
-                        <td>
+                        <td data-label="Date">{date(d.date)}</td>
+                        <td data-label="Formule">
                           {LIBELLES_FORMULE[d.formule] ?? d.formule}, {d.duree_libelle}
                         </td>
-                        <td className="nowrap">{formaterMontant(Number(d.montant))}</td>
-                        <td>{d.mode_libelle}</td>
-                        <td>{d.reference}</td>
-                        <td>
+                        <td data-label="Montant" className="nowrap">{formaterMontant(Number(d.montant))}</td>
+                        <td data-label="Payé par">{d.mode_libelle}</td>
+                        <td data-label="Référence">{d.reference}</td>
+                        <td data-label="Statut">
                           <span className={`badge ${CLASSES_STATUT[d.statut] ?? ""}`}>{d.statut_libelle}</span>
                           {d.motif_rejet && <div className="sous-info">{d.motif_rejet}</div>}
                         </td>
@@ -371,7 +371,7 @@ export default function ModaleAbonnement({ session, onFermer }: { session: Sessi
             <section className="historique-abonnement">
               <h4>Historique</h4>
               <div className="zone-tableau-scroll">
-                <table className="tableau-catalogue">
+                <table className="tableau-catalogue carte-mobile">
                   <thead>
                     <tr>
                       <th>Date</th>
@@ -386,15 +386,15 @@ export default function ModaleAbonnement({ session, onFermer }: { session: Sessi
                   <tbody>
                     {detail.historique.map((p, i) => (
                       <tr key={i}>
-                        <td>{date(p.date)}</td>
-                        <td>{p.nature_libelle}</td>
-                        <td>{LIBELLES_FORMULE[p.formule] ?? p.formule}</td>
-                        <td className="nowrap">
+                        <td data-label="Date">{date(p.date)}</td>
+                        <td data-label="Nature">{p.nature_libelle}</td>
+                        <td data-label="Formule">{LIBELLES_FORMULE[p.formule] ?? p.formule}</td>
+                        <td data-label="Période" className="nowrap">
                           {date(p.date_debut)} → {p.date_fin ? date(p.date_fin) : "sans limite"}
                         </td>
-                        <td className="nowrap">{Number(p.montant) > 0 ? formaterMontant(Number(p.montant)) : "—"}</td>
-                        <td>{p.mode_libelle || "—"}</td>
-                        <td>{p.reference || "—"}</td>
+                        <td data-label="Montant" className="nowrap">{Number(p.montant) > 0 ? formaterMontant(Number(p.montant)) : "—"}</td>
+                        <td data-label="Payé par">{p.mode_libelle || "—"}</td>
+                        <td data-label="Référence">{p.reference || "—"}</td>
                       </tr>
                     ))}
                     {detail.historique.length === 0 && (

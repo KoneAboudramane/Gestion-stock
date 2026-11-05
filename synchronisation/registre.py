@@ -39,7 +39,12 @@ class EntreeRegistre:
 REGISTRE = [
     EntreeRegistre(
         "comptes", "Boutique", "__self__",
-        champs_proteges=frozenset({"actif", "date_expiration_abonnement", "formule", "synchro_autorisee"}),
+        champs_proteges=frozenset(
+            {
+                "actif", "date_expiration_abonnement", "formule", "synchro_autorisee",
+                "date_derniere_sauvegarde", "reseau_autorise",
+            }
+        ),
     ),
     EntreeRegistre("catalogue", "Categorie", "boutique"),
     EntreeRegistre("catalogue", "Unite", "boutique"),
@@ -48,6 +53,7 @@ REGISTRE = [
     EntreeRegistre("catalogue", "ValeurAttribut", "attribut__boutique"),
     EntreeRegistre("catalogue", "Variante", "produit__boutique"),
     EntreeRegistre("catalogue", "VarianteValeur", "variante__produit__boutique"),
+    EntreeRegistre("catalogue", "LigneRecette", "variante__produit__boutique"),
     EntreeRegistre("stock", "Depot", "boutique"),
     EntreeRegistre("clients", "Client", "boutique"),
     EntreeRegistre("fournisseurs", "Fournisseur", "boutique"),

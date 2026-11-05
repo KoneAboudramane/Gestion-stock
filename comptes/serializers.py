@@ -39,6 +39,19 @@ class EnregistrementBoutiqueLocaleSerializer(serializers.Serializer):
     patron_password = serializers.CharField(validators=[validate_password])
     patron_email = serializers.EmailField()
     patron_telephone = serializers.CharField(required=False, allow_blank=True)
+    patron_first_name = serializers.CharField(required=False, allow_blank=True, max_length=150)
+    patron_last_name = serializers.CharField(required=False, allow_blank=True, max_length=150)
+    # Le patron choisira son propre mot de passe à sa première connexion.
+    patron_doit_changer = serializers.BooleanField(required=False, default=False)
+    # Options choisies dans l'assistant « Créer une boutique » (sinon : essai gratuit, 100 % local, réseau non activé).
+    formule = serializers.ChoiceField(choices=Boutique.Formule.choices, required=False)
+    date_fin = serializers.DateTimeField(required=False, allow_null=True)
+    nature = serializers.ChoiceField(choices=PaiementAbonnement.Nature.choices, required=False)
+    montant = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, min_value=0)
+    mode = serializers.ChoiceField(choices=PaiementAbonnement.Mode.choices, required=False, allow_blank=True)
+    reference = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    synchro_autorisee = serializers.BooleanField(required=False, default=False)
+    reseau_autorise = serializers.BooleanField(required=False, default=False)
 
 
 class BoutiqueSerializer(serializers.ModelSerializer):
@@ -47,11 +60,11 @@ class BoutiqueSerializer(serializers.ModelSerializer):
         fields = [
             "id", "nom", "adresse", "telephone", "email", "logo",
             "devise", "actif", "date_expiration_abonnement", "formule",
-            "synchro_autorisee", "date_creation",
+            "synchro_autorisee", "reseau_autorise", "date_creation",
         ]
         read_only_fields = [
             "id", "actif", "date_expiration_abonnement", "formule",
-            "synchro_autorisee", "date_creation",
+            "synchro_autorisee", "reseau_autorise", "date_creation",
         ]
 
 
@@ -72,6 +85,7 @@ class AppliquerAbonnementSerializer(serializers.Serializer):
     formule = serializers.ChoiceField(choices=Boutique.Formule.choices, required=False)
     date_expiration_abonnement = serializers.DateTimeField(required=False, allow_null=True)
     synchro_autorisee = serializers.BooleanField(required=False)
+    reseau_autorise = serializers.BooleanField(required=False)
     # Inscrits au registre des abonnements (comptes.PaiementAbonnement) avec la nouvelle période.
     nature = serializers.ChoiceField(choices=PaiementAbonnement.Nature.choices, required=False)
     montant = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, min_value=0)
@@ -108,6 +122,8 @@ class ReinitialisationAdminSerializer(serializers.Serializer):
     password = serializers.CharField()
     username_cible = serializers.CharField()
     nouveau_mot_de_passe = serializers.CharField(validators=[validate_password])
+    # Proposé coché dans l'Espace Admin : l'utilisateur choisira le sien à la prochaine connexion.
+    doit_changer = serializers.BooleanField(required=False, default=False)
 
 
 class ListerPatronsSerializer(serializers.Serializer):
@@ -325,4 +341,6 @@ class ConnexionSerializer(TokenObtainPairSerializer):
         token["depot_nom"] = user.depot.nom if user.depot_id else None
         token["code_vendeur"] = user.code_vendeur
         token["synchro_autorisee"] = bool(user.boutique.synchro_autorisee) if user.boutique_id else False
+        token["reseau_autorise"] = bool(user.boutique.reseau_autorise) if user.boutique_id else False
+        token["doit_changer_mot_de_passe"] = bool(user.doit_changer_mot_de_passe)
         return token

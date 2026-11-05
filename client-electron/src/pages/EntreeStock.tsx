@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { FormulaireProduitsGroupe } from "./Produits";
 
 import { api } from "../api/client";
-import type { DepotResume, FournisseurResume, ResultatEcriture, Session, VarianteRecherchee } from "../api/client";
+import type { DepotResume, FournisseurResume, Recette, ResultatEcriture, Session, VarianteRecherchee } from "../api/client";
 import ChampMontant from "../components/ChampMontant";
+import ModaleRecette from "../components/ModaleRecette";
+import ModaleTousLesArticles from "../components/ModaleTousLesArticles";
 import { useDevise } from "../contexts/DeviseContext";
 import { useFabricationPropre } from "../hooks/useFabricationPropre";
 import { formaterMontant } from "../lib/formatage";
@@ -29,7 +32,7 @@ const ORIGINES: { cle: Origine; icone: string; label: string; aide: string; regl
     icone: "📦",
     label: "Stock d'ouverture",
     aide: "Articles créés sans stock initial : complétez ici la quantité que vous avez déjà.",
-    regle: "Voici vos articles créés sans stock initial. Saisissez la quantité de ceux que vous avez : une ligne laissée à 0 reste dans la liste pour plus tard.",
+    regle: "Voici vos articles qui n'ont pas encore de stock dans le dépôt choisi. Saisissez la quantité de ceux que vous avez : une ligne laissée à 0 reste pour plus tard. Changez de dépôt pour compléter les autres.",
   },
   {
     cle: "fabrication",
@@ -42,8 +45,8 @@ const ORIGINES: { cle: Origine; icone: string; label: string; aide: string; regl
     cle: "don",
     icone: "🎁",
     label: "Don / échantillon reçu",
-    aide: "Marchandise reçue gratuitement : elle entre au coût moyen actuel.",
-    regle: "Le coût moyen ne change pas. Une valeur estimée n'est demandée que pour un article sans prix d'achat.",
+    aide: "Marchandise reçue gratuitement (cadeau d'un fournisseur, échantillon) : elle se vend comme le reste.",
+    regle: "Les articles reçus gratuitement entrent à 0 : leur coût moyen baisse d'autant, et le bénéfice sera juste à la vente. Choisissez le fournisseur qui les offre : le don apparaîtra dans sa fiche.",
   },
 ];
 
@@ -65,6 +68,10 @@ interface LigneEntree {
   prixVente: string;
   /** Coût moyen actuel de l'article (don : entre à ce coût s'il est connu). */
   coutActuel: number;
+}
+
+function formaterQuantite(quantite: number): string {
+  return String(Math.round(quantite * 100) / 100).replace(".", ",");
 }
 
 function nombre(valeur: string): number {
@@ -145,6 +152,9 @@ export function ModaleEntreeStock({ session, onFermer }: { session: Session; onF
   );
 }
 
+/** Hauteur d'une ligne du tableau (voir .formulaire-entree-stock … tbody tr dans index.css). */
+const HAUTEUR_LIGNE_ENTREE = 46;
+
 function FormulaireEntreeStock({
   session,
   origine,
@@ -168,8 +178,7 @@ function FormulaireEntreeStock({
     if (!zone) return;
     const mesurer = () => {
       const entete = zone.querySelector("thead")?.getBoundingClientRect().height ?? 45;
-      const ligne = zone.querySelector("tbody tr")?.getBoundingClientRect().height || 52;
-      setLignesVisibles(Math.max(1, Math.floor((zone.clientHeight - entete) / ligne)));
+      setLignesVisibles(Math.max(1, Math.floor((zone.clientHeight - entete) / HAUTEUR_LIGNE_ENTREE)));
     };
     mesurer();
     const observateur = new ResizeObserver(mesurer);
@@ -189,24 +198,37 @@ function FormulaireEntreeStock({
   const [enCours, setEnCours] = useState(false);
   /** Ouverture : articles sans stock (seuls proposés à la recherche). */
   const [idsSansStock, setIdsSansStock] = useState<Set<string>>(new Set());
+  const [articlesOuverture, setArticlesOuverture] = useState<VarianteRecherchee[]>([]);
+  const [creationArticleOuverte, setCreationArticleOuverte] = useState(false);
 
+  /**
+   * Ouverture : articles encore sans stock dans le dépôt choisi (un article déjà
+   * ouvert ailleurs reste proposé ici). Les quantités déjà saisies sont gardées.
+   */
+  async function chargerOuverture() {
+    if (origine !== "ouverture" || !depotId) return;
+    const liste = await api.entreesStock.articlesSansStock(session.boutiqueId, depotId);
+    setIdsSansStock(new Set(liste.map((v) => v.id)));
+    setArticlesOuverture(liste);
+    setLignes((actuelles) =>
+      liste.map(
+        (v) =>
+          actuelles.find((l) => l.varianteId === v.id) ?? {
+            varianteId: v.id,
+            produitNom: v.produitNom,
+            reference: v.reference,
+            quantite: "",
+            prixAchat: String(v.prixAchat || ""),
+            prixVente: String(v.prixVente || ""),
+            coutActuel: v.prixAchat,
+          },
+      ),
+    );
+  }
   useEffect(() => {
-    if (origine !== "ouverture") return;
-    api.entreesStock.articlesSansStock(session.boutiqueId).then((liste) => {
-      setIdsSansStock(new Set(liste.map((v) => v.id)));
-      setLignes(
-        liste.map((v) => ({
-          varianteId: v.id,
-          produitNom: v.produitNom,
-          reference: v.reference,
-          quantite: "",
-          prixAchat: String(v.prixAchat || ""),
-          prixVente: String(v.prixVente || ""),
-          coutActuel: v.prixAchat,
-        })),
-      );
-    });
-  }, [session.boutiqueId, origine]);
+    chargerOuverture();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId, origine, depotId]);
 
   // Achat rapide : fournisseur ("" = Divers) et paiement.
   const [fournisseurs, setFournisseurs] = useState<FournisseurResume[]>([]);
@@ -221,7 +243,7 @@ function FormulaireEntreeStock({
       setDepots(liste);
       setDepotId((actuel) => actuel || liste[0]?.id || "");
     });
-    if (origine === "achat") api.fournisseurs.lister(session.boutiqueId).then(setFournisseurs);
+    if (origine === "achat" || origine === "don") api.fournisseurs.lister(session.boutiqueId).then(setFournisseurs);
   }, [session.boutiqueId, origine]);
 
   useEffect(() => {
@@ -230,6 +252,27 @@ function FormulaireEntreeStock({
       .lister(session.boutiqueId, depotId)
       .then((liste) => setStockDepot(new Map(liste.map((s) => [s.varianteId, Number(s.quantite)]))));
   }, [session.boutiqueId, depotId]);
+
+  // Fabrication : recettes de la boutique (coût calculé, ingrédients consommés).
+  const [recettes, setRecettes] = useState<Map<string, Recette>>(new Map());
+  const [recetteOuverte, setRecetteOuverte] = useState<LigneEntree | null>(null);
+  function chargerRecettes() {
+    if (origine !== "fabrication") return;
+    api.recettes.lister(session.boutiqueId).then((liste) => setRecettes(new Map(liste.map((r) => [r.varianteId, r]))));
+  }
+  useEffect(() => {
+    chargerRecettes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.boutiqueId, origine]);
+
+  // Bouton « ☰ Tous les articles » : liste complète, à cocher.
+  const [tousLesArticles, setTousLesArticles] = useState<(VarianteRecherchee & { categorieNom: string | null })[] | null>(
+    null,
+  );
+  async function ouvrirTousLesArticles() {
+    const liste = await api.catalogue.listerVariantesActives(session.boutiqueId);
+    setTousLesArticles(proposables(liste));
+  }
 
   useEffect(() => {
     setSoldeCompteFournisseur(0);
@@ -247,10 +290,26 @@ function FormulaireEntreeStock({
       return;
     }
     const identifiant = setTimeout(() => {
-      api.catalogue.rechercherVariantes(session.boutiqueId, terme.trim()).then(setResultats);
+      rechercher(terme.trim()).then(setResultats);
     }, 200);
     return () => clearTimeout(identifiant);
-  }, [terme, session.boutiqueId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terme, session.boutiqueId, origine, articlesOuverture]);
+
+  /**
+   * Ouverture : on cherche dans tous les articles sans stock, pas dans la recherche
+   * générale (limitée à 50 résultats, dont beaucoup pourraient déjà avoir du stock).
+   */
+  async function rechercher(saisie: string): Promise<VarianteRecherchee[]> {
+    if (origine !== "ouverture") return api.catalogue.rechercherVariantes(session.boutiqueId, saisie);
+    const minuscule = saisie.toLowerCase();
+    return articlesOuverture.filter(
+      (v) =>
+        v.produitNom.toLowerCase().includes(minuscule) ||
+        (v.reference || "").toLowerCase().includes(minuscule) ||
+        v.codeBarres === saisie,
+    );
+  }
 
   /** Ajoute l'article, ou +1 s'il est déjà dans la liste (douchette). */
   function ajouterLigne(variante: VarianteRecherchee) {
@@ -286,7 +345,7 @@ function FormulaireEntreeStock({
   async function validerRecherche() {
     const saisie = terme.trim();
     if (!saisie) return;
-    const liste = proposables(await api.catalogue.rechercherVariantes(session.boutiqueId, saisie));
+    const liste = proposables(await rechercher(saisie));
     const minuscule = saisie.toLowerCase();
     const trouve =
       liste.find((v) => v.codeBarres === saisie) ??
@@ -306,11 +365,39 @@ function FormulaireEntreeStock({
     setLignes((actuel) => actuel.filter((l) => l.varianteId !== varianteId));
   }
 
+  /** Fabrication : recette de la ligne, s'il y en a une. */
+  function recetteDe(l: LigneEntree): Recette | undefined {
+    return origine === "fabrication" ? recettes.get(l.varianteId) : undefined;
+  }
+
   /** Coût unitaire retenu pour la valeur de la ligne. */
   function coutLigne(l: LigneEntree): number {
-    if (origine === "don") return l.coutActuel > 0 ? l.coutActuel : nombre(l.prixAchat);
+    if (origine === "don") return 0; // reçu gratuitement : entre à 0
+    const recette = recetteDe(l);
+    if (recette) {
+      const ingredients = recette.lignes.reduce((t, i) => t + i.quantite * i.coutUnitaire, 0);
+      return Math.round(ingredients / recette.quantiteLot + recette.fraisParUnite);
+    }
     return nombre(l.prixAchat);
   }
+
+  /** Fabrication : ingrédients consommés par toutes les lignes, et ce qui manque dans le dépôt. */
+  const consommation = new Map<string, { nom: string; unite: string; besoin: number; enStock: number }>();
+  for (const l of lignes) {
+    const recette = recetteDe(l);
+    if (!recette || !(nombre(l.quantite) > 0)) continue;
+    for (const i of recette.lignes) {
+      const besoin = Math.round(((i.quantite * nombre(l.quantite)) / recette.quantiteLot) * 100) / 100;
+      const actuel = consommation.get(i.ingredientId);
+      consommation.set(i.ingredientId, {
+        nom: i.produitNom,
+        unite: i.unite,
+        besoin: (actuel?.besoin ?? 0) + besoin,
+        enStock: stockDepot.get(i.ingredientId) ?? 0,
+      });
+    }
+  }
+  const manques = [...consommation.values()].filter((c) => c.enStock < c.besoin);
 
   const total = lignes.reduce((t, l) => t + Math.round(nombre(l.quantite) * coutLigne(l)), 0);
   const unites = lignes.reduce((t, l) => t + nombre(l.quantite), 0);
@@ -327,13 +414,14 @@ function FormulaireEntreeStock({
     }
     for (const l of lignesAEnregistrer) {
       if (!(nombre(l.quantite) > 0)) return `${l.produitNom} : indiquez une quantité supérieure à 0.`;
-      if (origine === "don") {
-        if (l.coutActuel <= 0 && !(nombre(l.prixAchat) > 0)) {
-          return `${l.produitNom} n'a pas encore de prix d'achat : indiquez sa valeur estimée.`;
-        }
-      } else if (l.prixAchat.trim() === "") {
+      if (origine !== "don" && !recetteDe(l) && l.prixAchat.trim() === "") {
         return `${l.produitNom} : indiquez le ${origine === "achat" ? "prix d'achat" : "coût unitaire"}.`;
       }
+    }
+    if (manques.length > 0) {
+      return `Ingrédients insuffisants dans ce dépôt : ${manques
+        .map((m) => `${m.nom} (il manque ${formaterQuantite(m.besoin - m.enStock)})`)
+        .join(", ")}.`;
     }
     if (origine === "achat" && montantPaye > total) return "Le montant payé dépasse le total de l'achat.";
     if (origine === "achat" && modePaiement === "compte_fournisseur" && montantPaye > soldeCompteFournisseur) {
@@ -376,9 +464,10 @@ function FormulaireEntreeStock({
           lignes: lignesAEnregistrer.map((l) => ({
             varianteId: l.varianteId,
             quantite: nombre(l.quantite),
-            prixAchat: l.prixAchat.trim() === "" ? undefined : nombre(l.prixAchat),
+            prixAchat: recetteDe(l) || l.prixAchat.trim() === "" ? undefined : nombre(l.prixAchat),
             prixVente: origine === "don" || l.prixVente.trim() === "" ? undefined : nombre(l.prixVente),
           })),
+          ...(origine === "don" ? { fournisseurId: fournisseurId || null } : {}),
         };
         resultat =
           origine === "ouverture"
@@ -405,7 +494,9 @@ function FormulaireEntreeStock({
 
   const libelleCout =
     origine === "achat" ? "Prix d'achat" : origine === "don" ? "Coût" : origine === "fabrication" ? "Coût de fabrication" : "Coût unitaire";
-  const colonnes = origine === "don" ? 7 : 8;
+  // Ouverture : pas de colonne ✕ (une ligne laissée à 0 est simplement ignorée).
+  const avecRetrait = origine !== "ouverture";
+  const colonnes = (origine === "don" ? 6 : 7) + (avecRetrait ? 1 : 0);
 
   return (
     <div className={`formulaire-mouvement-groupe formulaire-entree-stock entree-${origine}`}>
@@ -414,7 +505,7 @@ function FormulaireEntreeStock({
           <span className="pastille-entree">{titre.icone}</span> {titre.label}
         </h3>
         <div className="actions-formulaire">
-          <button type="button" className="bouton-primaire" onClick={enregistrer} disabled={enCours}>
+          <button type="button" className="bouton-primaire bouton-enregistrer" onClick={enregistrer} disabled={enCours}>
             {enCours ? "Enregistrement…" : `Enregistrer (${lignesAEnregistrer.length})`}
           </button>
           <button type="button" className="lien bouton-retour" onClick={onRetour}>
@@ -457,6 +548,21 @@ function FormulaireEntreeStock({
                 <input value={motif} onChange={(e) => setMotif(e.target.value)} />
               </label>
             )}
+            {origine === "don" && (
+              <label>
+                Fournisseur
+                <select value={fournisseurId} onChange={(e) => setFournisseurId(e.target.value)}>
+                  <option value="">— Aucun —</option>
+                  {fournisseurs
+                    .filter((f) => f.nom.trim().toLowerCase() !== "divers")
+                    .map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.nom}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            )}
           <div className="recherche-commande-combobox recherche-entree-stock">
             <input
               ref={champRecherche}
@@ -473,6 +579,15 @@ function FormulaireEntreeStock({
                 }
               }}
             />
+            <button
+              type="button"
+              className="bouton-tous-articles-entree"
+              title="Voir tous les articles qu'on peut ajouter, et en cocher plusieurs"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={ouvrirTousLesArticles}
+            >
+              ☰ Tous les articles
+            </button>
             {terme.trim() && dropdownOuvert && (
               <ul className="resultats-recherche">
                 {proposables(resultats).map((v) => {
@@ -499,12 +614,21 @@ function FormulaireEntreeStock({
                 })}
                 {proposables(resultats).length === 0 && (
                   <li className="liste-vide">
-                    {origine === "ouverture" ? "Aucun article sans stock ne correspond." : "Aucun résultat."}
+                    {origine === "ouverture" ? "Aucun article sans stock dans ce dépôt ne correspond." : "Aucun résultat."}
                   </li>
                 )}
               </ul>
             )}
           </div>
+          {origine === "ouverture" && session.permissions.gerer_produits_stock_achats && (
+            <button
+              type="button"
+              className="bouton-ajouter-variante bouton-creer-article-entree"
+              onClick={() => setCreationArticleOuverte(true)}
+            >
+              + Créer un article
+            </button>
+          )}
           </div>
         </div>
 
@@ -514,7 +638,7 @@ function FormulaireEntreeStock({
               <strong>
                 {lignesAEnregistrer.length} article{lignesAEnregistrer.length > 1 ? "s" : ""}
               </strong>
-              {origine === "ouverture" && <span className="sous-info">sur {lignes.length} sans stock ·</span>}
+              {origine === "ouverture" && <span className="sous-info">sur {lignes.length} sans stock dans ce dépôt ·</span>}
               <span className="sous-info">
                 {formaterMontant(unites)} unité{unites > 1 ? "s" : ""}
               </span>
@@ -574,6 +698,19 @@ function FormulaireEntreeStock({
               </div>
             )}
           </div>
+          {consommation.size > 0 && (
+            <div className={`consommation-recettes${manques.length > 0 ? " consommation-manque" : ""}`}>
+              <strong>🧪 Ingrédients qui sortiront du stock :</strong>{" "}
+              {[...consommation.values()].map((c, i) => (
+                <span key={c.nom} className={c.enStock < c.besoin ? "texte-erreur" : undefined}>
+                  {i > 0 && " · "}
+                  {c.nom} {formaterQuantite(c.besoin)}
+                  {c.unite && ` ${c.unite}`}
+                  {c.enStock < c.besoin ? ` (il manque ${formaterQuantite(c.besoin - c.enStock)})` : ""}
+                </span>
+              ))}
+            </div>
+          )}
           <div className="lignes-groupe-scrollable" ref={zoneLignes}>
             <table className="tableau-catalogue">
               <thead>
@@ -585,7 +722,7 @@ function FormulaireEntreeStock({
                   <th>{libelleCout}</th>
                   {origine !== "don" && <th>Prix de vente</th>}
                   <th className="col-montant-entree">Valeur</th>
-                  <th />
+                  {avecRetrait && <th />}
                 </tr>
               </thead>
               <tbody>
@@ -613,16 +750,41 @@ function FormulaireEntreeStock({
                           onChange={(e) => modifierLigne(l.varianteId, { quantite: e.target.value })}
                         />
                       </td>
-                      <td>
-                        {origine === "don" && l.coutActuel > 0 ? (
-                          <span className="sous-info nowrap" title="Le don entre au coût moyen actuel, qui ne change pas.">
-                            {formaterMontant(l.coutActuel)} (coût moyen)
+                      <td className="nowrap">
+                        {origine === "fabrication" && recetteDe(l) ? (
+                          <span className="cout-recette" title="Coût calculé par la recette : ingrédients au coût moyen + frais.">
+                            <strong>{formaterMontant(coutLigne(l))}</strong>
+                            <button type="button" className="lien lien-recette" onClick={() => setRecetteOuverte(l)}>
+                              🧪 Recette
+                            </button>
+                          </span>
+                        ) : origine === "fabrication" ? (
+                          <span className="cout-recette">
+                            <ChampMontant
+                              className="champ-prix-entree"
+                              value={l.prixAchat}
+                              onChange={(valeur) => modifierLigne(l.varianteId, { prixAchat: valeur })}
+                            />
+                            <button
+                              type="button"
+                              className="lien lien-recette"
+                              title="Créer la recette : les ingrédients sortiront du stock et le coût sera calculé"
+                              onClick={() => setRecetteOuverte(l)}
+                            >
+                              + Recette
+                            </button>
+                          </span>
+                        ) : origine === "don" ? (
+                          <span
+                            className="sous-info nowrap"
+                            title="Reçu gratuitement : entre à 0, le coût moyen de l'article baisse en proportion."
+                          >
+                            0 (gratuit)
                           </span>
                         ) : (
                           <ChampMontant
                             className="champ-prix-entree"
                             value={l.prixAchat}
-                            placeholder={origine === "don" ? "Valeur estimée" : ""}
                             onChange={(valeur) => modifierLigne(l.varianteId, { prixAchat: valeur })}
                           />
                         )}
@@ -639,16 +801,18 @@ function FormulaireEntreeStock({
                       <td className="nowrap col-montant-entree">
                         <strong>{formaterMontant(Math.round(nombre(l.quantite) * coutLigne(l)))}</strong>
                       </td>
-                      <td>
-                        <button
-                          type="button"
-                          className="bouton-retirer-ligne-groupe"
-                          title="Retirer de la liste"
-                          onClick={() => retirerLigne(l.varianteId)}
-                        >
-                          ✕
-                        </button>
-                      </td>
+                      {avecRetrait && (
+                        <td>
+                          <button
+                            type="button"
+                            className="bouton-retirer-ligne-groupe"
+                            title="Retirer de la liste"
+                            onClick={() => retirerLigne(l.varianteId)}
+                          >
+                            ✕
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -656,7 +820,7 @@ function FormulaireEntreeStock({
                   <tr className="ligne-groupe-vide">
                     <td colSpan={colonnes} className="invite-entree-vide">
                       {origine === "ouverture"
-                        ? "Tous vos articles actifs ont déjà du stock : rien à compléter."
+                        ? "Tous vos articles actifs ont déjà du stock dans ce dépôt : rien à compléter ici."
                         : "Recherchez ou scannez un article pour l'ajouter."}
                     </td>
                   </tr>
@@ -673,6 +837,44 @@ function FormulaireEntreeStock({
           </div>
         </div>
       </div>
+      {recetteOuverte && (
+        <ModaleRecette
+          boutiqueId={session.boutiqueId}
+          varianteId={recetteOuverte.varianteId}
+          nomArticle={recetteOuverte.produitNom}
+          prixVente={nombre(recetteOuverte.prixVente)}
+          onFermer={() => setRecetteOuverte(null)}
+          onEnregistree={chargerRecettes}
+        />
+      )}
+      {tousLesArticles && (
+        <ModaleTousLesArticles
+          articles={tousLesArticles}
+          stockDepot={stockDepot}
+          dejaAjoutes={new Set(lignes.map((l) => l.varianteId))}
+          avecRecette={origine === "fabrication" ? new Set(recettes.keys()) : null}
+          onAjouter={(choisis) => {
+            choisis.forEach(ajouterLigne);
+            setTousLesArticles(null);
+          }}
+          onFermer={() => setTousLesArticles(null)}
+        />
+      )}
+      {creationArticleOuverte && (
+        <div className="fond-modale" onClick={() => setCreationArticleOuverte(false)}>
+          <div className="modale-selection-produits" onClick={(e) => e.stopPropagation()}>
+            <FormulaireProduitsGroupe
+              session={session}
+              onAnnuler={() => setCreationArticleOuverte(false)}
+              onCree={() => {
+                setCreationArticleOuverte(false);
+                chargerOuverture();
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

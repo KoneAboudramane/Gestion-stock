@@ -9,7 +9,7 @@ from .models import (
     Variante,
     VarianteValeur,
 )
-from .services import creer_produit
+from .services import article_du_meme_nom, cle_nom_article, creer_produit, variante_du_meme_code_barres
 
 
 class CategorieSerializer(serializers.ModelSerializer):
@@ -82,6 +82,18 @@ class VarianteSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     "Votre rôle ne permet pas de modifier les prix."
                 )
+        code_barres = attrs.get("code_barres")
+        produit = attrs.get("produit") or (self.instance.produit if self.instance else None)
+        # Contrôle seulement si le code change : un doublon ancien ne bloque pas les autres modifications.
+        change = self.instance is None or (self.instance.code_barres or "").strip() != (code_barres or "").strip()
+        if code_barres is not None and produit is not None and change:
+            doublon = variante_du_meme_code_barres(
+                produit.boutique_id, code_barres, self.instance.pk if self.instance else None
+            )
+            if doublon:
+                raise serializers.ValidationError(
+                    {"code_barres": f"Le code-barres {code_barres.strip()} est déjà utilisé par « {doublon.produit.nom} »."}
+                )
         return attrs
 
     def create(self, validated_data):
@@ -152,6 +164,26 @@ class ProduitSerializer(serializers.ModelSerializer):
             if not (role and role.permissions.get("modifier_prix", False)):
                 raise serializers.ValidationError(
                     "Votre rôle ne permet pas de modifier les prix."
+                )
+        if self.instance is not None:
+            boutique_id = self.instance.boutique_id
+        elif request and request.user.is_authenticated:
+            boutique_id = request.user.boutique_id
+        else:
+            boutique_id = None
+        nom = attrs.get("nom")
+        # Contrôle seulement si le nom change : un doublon ancien ne bloque pas les autres modifications.
+        if nom is not None and boutique_id and (
+            self.instance is None or cle_nom_article(self.instance.nom) != cle_nom_article(nom)
+        ):
+            doublon = article_du_meme_nom(boutique_id, nom, self.instance.pk if self.instance else None)
+            if doublon:
+                raise serializers.ValidationError({"nom": f"Un article nommé « {doublon.nom} » existe déjà."})
+        if self.instance is None and boutique_id and attrs.get("code_barres"):
+            doublon = variante_du_meme_code_barres(boutique_id, attrs["code_barres"])
+            if doublon:
+                raise serializers.ValidationError(
+                    {"code_barres": f"Le code-barres {attrs['code_barres'].strip()} est déjà utilisé par « {doublon.produit.nom} »."}
                 )
         return attrs
 

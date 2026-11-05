@@ -26,6 +26,8 @@ import Ventes from "./Ventes";
 import { CLE_PARAMETRE_FABRICATION_PROPRE } from "../hooks/useFabricationPropre";
 import { zoneAccessible } from "../lib/acces";
 import BandeauAbonnement from "../components/BandeauAbonnement";
+import IndicateurSynchro from "../components/IndicateurSynchro";
+import { BandeauSauvegarde, ModaleEtatSauvegarde } from "../components/EtatSauvegarde";
 import ModaleAbonnement from "../components/ModaleAbonnement";
 
 const ZONES = [
@@ -80,6 +82,7 @@ export default function Shell({
 }) {
   const [zone, setZone] = useState<Zone>("accueil");
   const [abonnementOuvert, setAbonnementOuvert] = useState(false);
+  const [sauvegardeOuverte, setSauvegardeOuverte] = useState(false);
   const zonesAccessibles = ZONES.filter((z) => zoneAccessible(z.cle, session.permissions));
   // Page interdite (lien d'une notification, d'un raccourci…) : message au lieu de la page.
   const zoneAffichee = zoneAccessible(zone, session.permissions) ? zone : "interdite";
@@ -103,6 +106,10 @@ export default function Shell({
   // Après chaque rafraîchissement de la session : l'échéance vient peut-être d'arriver du serveur.
   useEffect(() => {
     api.notifications.genererAlertesAbonnement(session.boutiqueId).catch(() => {});
+    // Articles en double déjà présents (anciens, venus d'un autre poste, réinstallation).
+    api.notifications.genererAlertesDoublons(session.boutiqueId).catch(() => {});
+    // Anciens articles créés avant la référence automatique.
+    api.produits.attribuerReferencesManquantes(session.boutiqueId).catch(() => {});
   }, [session]);
   const [notificationsNonLues, setNotificationsNonLues] = useState(0);
   const [ouvrirNouvelleCommande, setOuvrirNouvelleCommande] = useState(false);
@@ -227,7 +234,7 @@ export default function Shell({
             )}
             <span className="texte-logo">
               Gestion Stock
-              {version && <span className="version-app">v{version}</span>}
+              {version && <span className="version-app">v{version.replace(/\.0$/, "")}</span>}
             </span>
           </button>
           <button
@@ -274,6 +281,7 @@ export default function Shell({
             </div>
           </div>
           <div className="entete-droite">
+            <IndicateurSynchro session={session} />
             <button
               type="button"
               className="lien-deconnexion lien-deconnexion-entete bouton-verrouiller-entete"
@@ -291,6 +299,8 @@ export default function Shell({
         </header>
         <main className="zone-contenu">
           <BandeauAbonnement session={session} onVoirAbonnement={() => setAbonnementOuvert(true)} />
+          <BandeauSauvegarde session={session} onVoir={() => setSauvegardeOuverte(true)} />
+          {sauvegardeOuverte && <ModaleEtatSauvegarde onFermer={() => setSauvegardeOuverte(false)} />}
           {abonnementOuvert && <ModaleAbonnement session={session} onFermer={() => setAbonnementOuvert(false)} />}
           {zoneAffichee === "interdite" && (
             <div className="detail-produit acces-reserve">

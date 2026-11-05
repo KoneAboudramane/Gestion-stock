@@ -11,6 +11,7 @@ import {
   type NotificationResume,
   type TypeNotification,
 } from "../services/notifications";
+import { tuileFiltre } from "../lib/tuileFiltre";
 
 /**
  * Port de client-electron/src/pages/Notifications.tsx : alertes (ruptures,
@@ -37,6 +38,7 @@ const INFOS_TYPE: Record<TypeNotification, { titre: string; icone: string; retar
   commande_retard: { titre: "Commande client en retard", icone: "📋", retard: true, actions: [{ libelle: "Ouvrir les commandes clients", cible: "clients:commandes" }] },
   abonnement_proche: { titre: "Fin d'abonnement proche", icone: "⭐", retard: false, actions: [{ libelle: "Voir l'abonnement", cible: "abonnement" }] },
   abonnement_expire: { titre: "Abonnement expiré", icone: "⭐", retard: true, actions: [{ libelle: "Voir l'abonnement", cible: "abonnement" }] },
+  doublon_article: { titre: "Article en double", icone: "👯", retard: false, actions: [{ libelle: "Ouvrir les Articles", cible: "produits" }] },
 };
 
 const CATEGORIES: { cle: string; label: string; icone: string; types: TypeNotification[] | null }[] = [
@@ -48,6 +50,7 @@ const CATEGORIES: { cle: string; label: string; icone: string; types: TypeNotifi
   { cle: "abonnement", label: "Abonnement", icone: "⭐", types: ["abonnement_proche", "abonnement_expire"] },
   { cle: "destockage", label: "Déstockages", icone: "🏷️", types: ["fin_destockage"] },
   { cle: "dormants", label: "Produits dormants", icone: "😴", types: ["alerte_dormants"] },
+  { cle: "doublons", label: "Articles en double", icone: "👯", types: ["doublon_article"] },
 ];
 
 function infosType(type: string) {
@@ -130,6 +133,8 @@ function ModaleListeNotifications({
   const [finPerso, setFinPerso] = useState(jourLocal(new Date()));
   const [depot, setDepot] = useState("");
   const [terme, setTerme] = useState("");
+  // Cartes « Nouvelles » / « En retard » : la liste n'affiche que celles-là.
+  const [carte, setCarte] = useState<"nouvelles" | "retard" | null>(null);
   const depots = [...new Set(notifications.map((n) => n.depotNom ?? ""))].filter(Boolean).sort((a, b) => a.localeCompare(b, "fr"));
   const cle = terme.trim().toLowerCase();
   const filtrees = notifications.filter(
@@ -140,6 +145,10 @@ function ModaleListeNotifications({
   );
   const nouvelles = filtrees.filter((n) => !n.lu).length;
   const enRetard = filtrees.filter((n) => infosType(n.type).retard).length;
+  const affichees = filtrees.filter(
+    (n) => !carte || (carte === "nouvelles" ? !n.lu : infosType(n.type).retard),
+  );
+  const basculerCarte = (valeur: "nouvelles" | "retard") => setCarte(carte === valeur ? null : valeur);
 
   return (
     <div className="fond-modale" onClick={onFermer}>
@@ -147,15 +156,15 @@ function ModaleListeNotifications({
         <EnteteModale titre={titre} onFermer={onFermer} />
         <div className="modale-corps">
           <div className="tuiles-fiche">
-            <div className="tuile-fiche">
+            <div {...tuileFiltre(carte === null, () => setCarte(null))}>
               <span className="sous-info">🔔 Notifications</span>
               <strong>{filtrees.length}</strong>
             </div>
-            <div className={`tuile-fiche${nouvelles > 0 ? " tuile-fiche--attention" : ""}`}>
+            <div {...tuileFiltre(carte === "nouvelles", () => basculerCarte("nouvelles"), nouvelles > 0 ? "tuile-fiche--attention" : "")}>
               <span className="sous-info">✨ Nouvelles depuis votre dernière visite</span>
               <strong>{nouvelles}</strong>
             </div>
-            <div className={`tuile-fiche${enRetard > 0 ? " tuile-fiche--alerte" : ""}`}>
+            <div {...tuileFiltre(carte === "retard", () => basculerCarte("retard"), enRetard > 0 ? "tuile-fiche--alerte" : "")}>
               <span className="sous-info">⏰ En retard</span>
               <strong>{enRetard}</strong>
             </div>
@@ -192,7 +201,7 @@ function ModaleListeNotifications({
                 </tr>
               </thead>
               <tbody>
-                {filtrees.map((n) => {
+                {affichees.map((n) => {
                   const infos = infosType(n.type);
                   return (
                     <tr key={n.id} onClick={() => onOuvrir(n)} className={n.lu ? undefined : "ligne-non-lue"} title="Voir le détail">
@@ -211,14 +220,14 @@ function ModaleListeNotifications({
                     </tr>
                   );
                 })}
-                {filtrees.length === 0 && (
+                {affichees.length === 0 && (
                   <tr>
                     <td colSpan={4} className="liste-vide">
                       {notifications.length === 0 ? "Aucune notification : tout va bien 👍" : "Aucune notification pour ces filtres."}
                     </td>
                   </tr>
                 )}
-                {Array.from({ length: Math.max(0, 10 - Math.max(1, filtrees.length)) }).map((_, i) => (
+                {Array.from({ length: Math.max(0, 10 - Math.max(1, affichees.length)) }).map((_, i) => (
                   <tr key={`vide-${i}`} className="ligne-groupe-vide">
                     <td>&nbsp;</td>
                     <td>&nbsp;</td>

@@ -24,14 +24,59 @@ export class ErreurProduit extends Error {}
 // Générée seulement si le champ est laissé vide (voir FormulaireProduitsGroupe) :
 // REF-000001, REF-000002, ... par boutique, comptée sur toutes les variantes déjà
 // créées (y compris supprimées) pour rester unique.
+// Et au-delà du plus grand numéro déjà porté (références attribuées après coup
+// aux anciens articles, voir attribuerReferencesManquantes).
 async function genererReferenceProduit(boutiqueId: string): Promise<string> {
   const db = await ouvrirBaseDeDonnees();
   const produits = await db.getAllFromIndex("produits", "boutique_id", boutiqueId);
   let compteur = 0;
+  let plusGrand = 0;
   for (const produit of produits) {
-    compteur += (await db.getAllFromIndex("variantes", "produit_id", produit.id)).length;
+    const variantes = await db.getAllFromIndex("variantes", "produit_id", produit.id);
+    compteur += variantes.length;
+    for (const v of variantes) {
+      const n = (v.reference ?? "").startsWith("REF-") ? Number(v.reference.slice(4)) : NaN;
+      if (Number.isInteger(n) && n > plusGrand) plusGrand = n;
+    }
   }
-  return `REF-${String(compteur + 1).padStart(6, "0")}`;
+  return `REF-${String(Math.max(compteur, plusGrand) + 1).padStart(6, "0")}`;
+}
+
+/**
+ * Appelé à l'ouverture de l'appli (Shell.tsx) : donne une référence aux articles
+ * qui n'en ont pas (créés avant la référence automatique), à la suite de la
+ * numérotation, dans l'ordre de création. Remonte au serveur par la synchro.
+ */
+async function attribuerReferencesManquantesImpl(boutiqueId: string): Promise<number> {
+  const db = await ouvrirBaseDeDonnees();
+  const sansReference = [];
+  for (const produit of (await db.getAllFromIndex("produits", "boutique_id", boutiqueId)).filter((p) => !p.supprime)) {
+    for (const v of await db.getAllFromIndex("variantes", "produit_id", produit.id)) {
+      if (!v.supprime && !(v.reference ?? "").trim()) sansReference.push(v);
+    }
+  }
+  sansReference.sort((a, b) => a.date_creation.localeCompare(b.date_creation));
+  const heure = maintenant();
+  for (const v of sansReference) {
+    await ecrireLigne("variantes", {
+      ...v,
+      reference: await genererReferenceProduit(boutiqueId),
+      date_modification: heure,
+      synchronise: 0,
+    });
+  }
+  return sansReference.length;
+}
+
+let referencesManquantesEnCours: Promise<number> | null = null;
+
+/** Verrou : StrictMode double-invoque les effets. */
+export function attribuerReferencesManquantes(boutiqueId: string): Promise<number> {
+  if (referencesManquantesEnCours) return referencesManquantesEnCours;
+  referencesManquantesEnCours = attribuerReferencesManquantesImpl(boutiqueId).finally(() => {
+    referencesManquantesEnCours = null;
+  });
+  return referencesManquantesEnCours;
 }
 
 /** Aperçu côté UI de la référence qui sera assignée au prochain produit créé, sans rien écrire. */
@@ -46,6 +91,33 @@ async function boutiqueIdDuProduit(produitId: string): Promise<string> {
 }
 
 // --- Produits ---
+
+/** Nom d'article comparable : sans accents, sans majuscules, espaces réduits. */
+function cleNomArticle(nom: string): string {
+  return cleNomCategorie(nom).replace(/\s+/g, " ");
+}
+
+/** Refuse un nom d'article déjà pris dans la boutique (articles non supprimés). */
+async function verifierNomArticleLibre(boutiqueId: string, nom: string, saufProduitId?: string): Promise<void> {
+  const cle = cleNomArticle(nom);
+  const doublon = (await listerParIndex("produits", "boutique_id", boutiqueId)).find(
+    (p) => !p.supprime && p.id !== saufProduitId && cleNomArticle(p.nom) === cle,
+  );
+  if (doublon) throw new ErreurProduit(`Un article nommé « ${doublon.nom} » existe déjà.`);
+}
+
+/** Refuse un code-barres déjà porté par un autre article de la boutique (vide = pas de contrôle). */
+async function verifierCodeBarresLibre(boutiqueId: string, codeBarres: string, saufVarianteId?: string): Promise<void> {
+  const code = codeBarres.trim();
+  if (!code) return;
+  const produits = (await listerParIndex("produits", "boutique_id", boutiqueId)).filter((p) => !p.supprime);
+  for (const produit of produits) {
+    const variantes = await listerParIndex("variantes", "produit_id", produit.id);
+    if (variantes.some((v) => !v.supprime && v.id !== saufVarianteId && (v.code_barres ?? "").trim() === code)) {
+      throw new ErreurProduit(`Le code-barres ${code} est déjà utilisé par « ${produit.nom} ».`);
+    }
+  }
+}
 
 export interface ProduitResume {
   id: string;
@@ -62,6 +134,13 @@ export interface ProduitResume {
   seuilAlerte: number;
   /** Stock valorisé au prix d'achat de chaque variante. */
   valeurStock: number;
+  /** Dépôts où l'article a une ligne de stock (même à 0) : quantité et valeur dans ce dépôt. */
+  stocksParDepot: Record<string, { quantite: number; valeur: number }>;
+  /**
+   * Vente au détail : « gros » = se déballe en `quantite` unités de l'article `autreNom` ;
+   * « detail » = article vendu à l'unité, détail de l'article `autreNom`. null = ni l'un ni l'autre.
+   */
+  venteDetail: { role: "gros" | "detail"; autreNom: string; quantite: number } | null;
 }
 
 export async function listerProduits(boutiqueId: string, terme = ""): Promise<ProduitResume[]> {
@@ -69,6 +148,24 @@ export async function listerProduits(boutiqueId: string, terme = ""): Promise<Pr
   const produits = (await db.getAllFromIndex("produits", "boutique_id", boutiqueId)).filter((p) => !p.supprime);
   const categories = new Map((await listerParIndex("categories", "boutique_id", boutiqueId)).map((c) => [c.id, c.nom]));
   const stocks = await listerTout("stocks");
+  // Liens de vente au détail : le carton (gros) et l'article vendu à l'unité (détail), dans les deux sens.
+  const produitsActifs = new Map(produits.map((p) => [p.id, p]));
+  const toutesVariantes = (await listerTout("variantes")).filter((v) => !v.supprime && produitsActifs.has(v.produit_id));
+  const varianteParId = new Map(toutesVariantes.map((v) => [v.id, v]));
+  const venteDetail = new Map<string, NonNullable<ProduitResume["venteDetail"]>>();
+  for (const v of toutesVariantes) {
+    const d = v.variante_detail_id ? varianteParId.get(v.variante_detail_id) : undefined;
+    if (!d) continue;
+    const gros = produitsActifs.get(v.produit_id)!;
+    const detail = produitsActifs.get(d.produit_id)!;
+    venteDetail.set(gros.id, { role: "gros", autreNom: detail.nom, quantite: Number(v.quantite_detail ?? 0) });
+    if (!venteDetail.has(detail.id)) {
+      venteDetail.set(detail.id, { role: "detail", autreNom: gros.nom, quantite: Number(v.quantite_detail ?? 0) });
+    }
+  }
+  const depotsActifs = new Set(
+    (await listerParIndex("depots", "boutique_id", boutiqueId)).filter((d) => !d.supprime).map((d) => d.id),
+  );
 
   const motif = terme.trim().toLowerCase();
   const resultat: ProduitResume[] = [];
@@ -80,6 +177,13 @@ export async function listerProduits(boutiqueId: string, terme = ""): Promise<Pr
     const enStock = stocks.some((s) => idsVariantes.has(s.variante_id) && s.quantite > 0);
     const prixAchatParVariante = new Map(variantes.map((v) => [v.id, v.prix_achat ?? 0]));
     const stocksProduit = stocks.filter((s) => idsVariantes.has(s.variante_id));
+    const stocksParDepot: Record<string, { quantite: number; valeur: number }> = {};
+    for (const s of stocksProduit) {
+      if (!depotsActifs.has(s.depot_id)) continue;
+      const ligne = (stocksParDepot[s.depot_id] ??= { quantite: 0, valeur: 0 });
+      ligne.quantite += s.quantite;
+      ligne.valeur += s.quantite * (prixAchatParVariante.get(s.variante_id) ?? 0);
+    }
     resultat.push({
       id: produit.id,
       nom: produit.nom,
@@ -92,9 +196,11 @@ export async function listerProduits(boutiqueId: string, terme = ""): Promise<Pr
       quantiteStock: stocksProduit.reduce((t, s) => t + s.quantite, 0),
       seuilAlerte: varianteDefaut?.seuil_alerte ?? 0,
       valeurStock: stocksProduit.reduce((t, s) => t + s.quantite * (prixAchatParVariante.get(s.variante_id) ?? 0), 0),
+      stocksParDepot,
+      venteDetail: venteDetail.get(produit.id) ?? null,
     });
   }
-  return resultat.sort((a, b) => a.nom.localeCompare(b.nom)).slice(0, 200);
+  return resultat.sort((a, b) => a.nom.localeCompare(b.nom));
 }
 
 export interface VarianteResume {
@@ -208,6 +314,8 @@ export async function creerProduit(entree: CreerProduitEntree): Promise<ProduitC
   } = entree;
 
   if (!nom.trim()) throw new ErreurProduit("Le nom du produit est requis.");
+  await verifierNomArticleLibre(boutiqueId, nom);
+  await verifierCodeBarresLibre(boutiqueId, codeBarres);
 
   const produitId = crypto.randomUUID();
   const produit: ProduitLocal = {
@@ -251,6 +359,10 @@ export interface ModifierProduitEntree {
 export async function modifierProduit(id: string, champs: ModifierProduitEntree): Promise<void> {
   const produit = await obtenirLigne("produits", id);
   if (!produit) throw new ErreurProduit("Produit introuvable.");
+  // Contrôle seulement si le nom change : un doublon ancien ne bloque pas les autres modifications.
+  if (champs.nom !== undefined && cleNomArticle(produit.nom) !== cleNomArticle(champs.nom)) {
+    await verifierNomArticleLibre(produit.boutique_id, champs.nom, id);
+  }
   await ecrireLigne("produits", {
     ...produit,
     nom: champs.nom ?? produit.nom,
@@ -313,10 +425,12 @@ export async function creerVariante(entree: CreerVarianteEntree): Promise<string
     seuilAlerte = 0,
     valeurAttributIds = [],
   } = entree;
+  const boutiqueId = await boutiqueIdDuProduit(produitId);
+  await verifierCodeBarresLibre(boutiqueId, codeBarres);
 
   const heure = maintenant();
   const id = crypto.randomUUID();
-  const referenceFinale = reference.trim() || (await genererReferenceProduit(await boutiqueIdDuProduit(produitId)));
+  const referenceFinale = reference.trim() || (await genererReferenceProduit(boutiqueId));
   const variante: VarianteLocale = {
     id,
     produit_id: produitId,
@@ -346,6 +460,9 @@ export interface ModifierVarianteEntree {
 export async function modifierVariante(id: string, champs: ModifierVarianteEntree): Promise<void> {
   const variante = await obtenirLigne("variantes", id);
   if (!variante) throw new ErreurProduit("Variante introuvable.");
+  if (champs.codeBarres !== undefined && (variante.code_barres ?? "").trim() !== champs.codeBarres.trim()) {
+    await verifierCodeBarresLibre(await boutiqueIdDuProduit(variante.produit_id), champs.codeBarres, id);
+  }
   const heure = maintenant();
   await ecrireLigne("variantes", {
     ...variante,

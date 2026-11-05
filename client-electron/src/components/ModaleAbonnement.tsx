@@ -24,6 +24,12 @@ const donnees = {
     if (!resultat.succes) throw new Error(resultat.message);
   },
   ouvrirLien: (url: string) => api.systeme.ouvrirExterne(url),
+  /** Code d'activation (bureau seulement : il sert quand il n'y a pas internet). */
+  activerParCode: async (session: Session, code: string): Promise<EtatAbonnement> => {
+    const resultat = await api.abonnement.activerParCode(session.boutiqueId, code);
+    if (!resultat.succes) throw new Error(resultat.message);
+    return resultat.resultat.etat;
+  },
 };
 
 // --- Fenêtre « Abonnement » : où en est l'abonnement, comment le renouveler, historique ---
@@ -81,6 +87,26 @@ export default function ModaleAbonnement({ session, onFermer }: { session: Sessi
   const [erreurDeclaration, setErreurDeclaration] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
+  const [codeActivation, setCodeActivation] = useState("");
+  const [erreurActivation, setErreurActivation] = useState<string | null>(null);
+  const [messageActivation, setMessageActivation] = useState<string | null>(null);
+  const [activationEnCours, setActivationEnCours] = useState(false);
+
+  async function activerParCode() {
+    setErreurActivation(null);
+    setMessageActivation(null);
+    setActivationEnCours(true);
+    try {
+      const nouvelEtat = await donnees.activerParCode(session, codeActivation);
+      setEtat(nouvelEtat);
+      setCodeActivation("");
+      setMessageActivation(`✅ Abonnement activé jusqu'au ${date(nouvelEtat.dateExpiration)}.`);
+    } catch (e) {
+      setErreurActivation(e instanceof Error ? e.message : "Code d'activation refusé.");
+    } finally {
+      setActivationEnCours(false);
+    }
+  }
 
   function chargerDetail() {
     donnees
@@ -169,6 +195,36 @@ export default function ModaleAbonnement({ session, onFermer }: { session: Sessi
             <p className="note-aide">Pour renouveler l'abonnement, prévenez le responsable de la boutique.</p>
           )}
           {erreurDetail && <div className="bloc-hors-ligne">🌐 {erreurDetail}</div>}
+
+          {responsable && (
+            <section className="carte-profil code-activation-abonnement">
+              <h4>🔑 Code d'activation</h4>
+              <p className="note-aide">
+                Pas d'internet pour renouveler ? Après votre paiement, l'administrateur vous envoie un code (WhatsApp ou
+                SMS) : collez-le ici. Il se vérifie sans internet ; sur le poste principal, les caisses branchées
+                reçoivent aussi la nouvelle date.
+              </p>
+              <textarea
+                rows={3}
+                className="champ-code-activation"
+                placeholder="GS-XXXXX-XXXXX-…"
+                value={codeActivation}
+                onChange={(e) => setCodeActivation(e.target.value)}
+              />
+              {erreurActivation && <div className="message-erreur">{erreurActivation}</div>}
+              {messageActivation && <div className="message-succes">{messageActivation}</div>}
+              <div className="actions-formulaire">
+                <button
+                  type="button"
+                  className="bouton-primaire"
+                  disabled={!codeActivation.trim() || activationEnCours}
+                  onClick={activerParCode}
+                >
+                  {activationEnCours ? "Vérification…" : "Activer"}
+                </button>
+              </div>
+            </section>
+          )}
 
           {renouvellement && (
             <section className="carte-profil renouveler-abonnement">

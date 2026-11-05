@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS boutiques (
   date_expiration_abonnement TEXT,
   formule TEXT DEFAULT 'essentiel',
   synchro_autorisee INTEGER DEFAULT 0,
+  reseau_autorise INTEGER DEFAULT 0,
   ${SUIVI_SYNC}
 );
 
@@ -84,6 +85,18 @@ CREATE TABLE IF NOT EXISTS variantes (
   actif INTEGER DEFAULT 1,
   variante_detail_id TEXT,
   quantite_detail REAL,
+  recette_quantite REAL DEFAULT 1,
+  recette_frais REAL DEFAULT 0,
+  ${SUIVI_SYNC}
+);
+
+-- lignes_recette : ingrédients de la recette d'un article fabriqué, pour un lot
+-- de variantes.recette_quantite (voir services/recettes.ts).
+CREATE TABLE IF NOT EXISTS lignes_recette (
+  id TEXT PRIMARY KEY,
+  variante_id TEXT NOT NULL,
+  ingredient_id TEXT NOT NULL,
+  quantite REAL NOT NULL,
   ${SUIVI_SYNC}
 );
 

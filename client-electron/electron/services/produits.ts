@@ -21,14 +21,55 @@ function versEntier(valeur: boolean | number | undefined, defaut: number): numbe
 // --- Référence automatique ---
 // Générée seulement si le champ est laissé vide par l'utilisateur (voir
 // FormulaireProduit) : REF-000001, REF-000002, ... par boutique, comptée sur
-// toutes les variantes déjà créées (y compris supprimées) pour rester unique.
+// toutes les variantes déjà créées (y compris supprimées) pour rester unique —
+// et au-delà du plus grand numéro déjà porté (références attribuées après coup
+// aux anciens articles, voir attribuerReferencesManquantes).
 function genererReferenceProduit(boutiqueId: string): string {
   const resultat = unResultat<{ n: number }>(
     "SELECT COUNT(*) as n FROM variantes v JOIN produits p ON p.id = v.produit_id WHERE p.boutique_id = ?",
     [boutiqueId],
   );
-  const compteur = (resultat ? Number(resultat.n) : 0) + 1;
+  const compteur = Math.max(resultat ? Number(resultat.n) : 0, plusGrandNumeroReference(boutiqueId)) + 1;
   return `REF-${String(compteur).padStart(6, "0")}`;
+}
+
+/** Plus grand numéro REF-xxxxxx déjà utilisé dans la boutique (0 si aucun). */
+function plusGrandNumeroReference(boutiqueId: string): number {
+  return tousLesResultats<{ reference: string }>(
+    `SELECT v.reference as reference FROM variantes v JOIN produits p ON p.id = v.produit_id
+     WHERE p.boutique_id = ? AND v.reference LIKE 'REF-%'`,
+    [boutiqueId],
+  ).reduce((max, r) => {
+    const n = Number(r.reference.slice(4));
+    return Number.isInteger(n) && n > max ? n : max;
+  }, 0);
+}
+
+/**
+ * Appelé à l'ouverture de l'appli (Shell.tsx) : donne une référence aux articles
+ * qui n'en ont pas (créés avant la référence automatique), à la suite de la
+ * numérotation, dans l'ordre de création. Remonte au serveur par la synchro.
+ */
+export function attribuerReferencesManquantes(boutiqueId: string): number {
+  const sansReference = tousLesResultats<{ id: string }>(
+    `SELECT v.id as id FROM variantes v JOIN produits p ON p.id = v.produit_id
+     WHERE p.boutique_id = ? AND p.supprime = 0 AND v.supprime = 0 AND TRIM(COALESCE(v.reference, '')) = ''
+     ORDER BY v.date_creation`,
+    [boutiqueId],
+  );
+  if (sansReference.length === 0) return 0;
+  dansUneTransaction(() => {
+    const maintenant = new Date().toISOString();
+    for (const v of sansReference) {
+      executer("UPDATE variantes SET reference = ?, synchronise = 0, date_modification = ? WHERE id = ?", [
+        genererReferenceProduit(boutiqueId),
+        maintenant,
+        v.id,
+      ]);
+    }
+  });
+  sauvegarder();
+  return sansReference.length;
 }
 
 // Exposée pour l'aperçu côté UI (tableau "Plusieurs produits") : donne la
@@ -49,6 +90,33 @@ function boutiqueIdDuProduit(produitId: string): string {
 
 // --- Produits ---
 
+/** Nom d'article comparable : sans accents, sans majuscules, espaces réduits. */
+function cleNomArticle(nom: string): string {
+  return cleNomCategorie(nom).replace(/\s+/g, " ");
+}
+
+/** Refuse un nom d'article déjà pris dans la boutique (articles non supprimés). */
+function verifierNomArticleLibre(boutiqueId: string, nom: string, saufProduitId?: string): void {
+  const cle = cleNomArticle(nom);
+  const doublon = tousLesResultats<{ id: string; nom: string }>(
+    "SELECT id, nom FROM produits WHERE boutique_id = ? AND supprime = 0",
+    [boutiqueId],
+  ).find((p) => p.id !== saufProduitId && cleNomArticle(p.nom) === cle);
+  if (doublon) throw new ErreurProduit(`Un article nommé « ${doublon.nom} » existe déjà.`);
+}
+
+/** Refuse un code-barres déjà porté par un autre article de la boutique (vide = pas de contrôle). */
+function verifierCodeBarresLibre(boutiqueId: string, codeBarres: string, saufVarianteId?: string): void {
+  const code = codeBarres.trim();
+  if (!code) return;
+  const doublon = unResultat<{ nom: string }>(
+    `SELECT p.nom as nom FROM variantes v JOIN produits p ON p.id = v.produit_id
+     WHERE p.boutique_id = ? AND p.supprime = 0 AND v.supprime = 0 AND TRIM(v.code_barres) = ? AND v.id <> ?`,
+    [boutiqueId, code, saufVarianteId ?? ""],
+  );
+  if (doublon) throw new ErreurProduit(`Le code-barres ${code} est déjà utilisé par « ${doublon.nom} ».`);
+}
+
 export interface ProduitResume {
   id: string;
   nom: string;
@@ -65,11 +133,48 @@ export interface ProduitResume {
   seuilAlerte: number;
   /** Stock valorisé au prix d'achat de chaque variante. */
   valeurStock: number;
+  /** Dépôts où l'article a une ligne de stock (même à 0) : quantité et valeur dans ce dépôt. */
+  stocksParDepot: Record<string, { quantite: number; valeur: number }>;
+  /**
+   * Vente au détail : « gros » = se déballe en `quantite` unités de l'article `autreNom` ;
+   * « detail » = article vendu à l'unité, détail de l'article `autreNom`. null = ni l'un ni l'autre.
+   */
+  venteDetail: { role: "gros" | "detail"; autreNom: string; quantite: number } | null;
 }
 
 export function listerProduits(boutiqueId: string, terme = ""): ProduitResume[] {
   const motif = `%${terme}%`;
-  return tousLesResultats<ProduitResume>(
+  const stocksParDepot = new Map<string, Record<string, { quantite: number; valeur: number }>>();
+  for (const s of tousLesResultats<{ produitId: string; depotId: string; quantite: number; valeur: number }>(
+    `SELECT v.produit_id as produitId, s.depot_id as depotId,
+            SUM(s.quantite) as quantite, SUM(s.quantite * v.prix_achat) as valeur
+     FROM stocks s
+     JOIN variantes v ON v.id = s.variante_id
+     JOIN produits p ON p.id = v.produit_id
+     JOIN depots d ON d.id = s.depot_id
+     WHERE p.boutique_id = ? AND p.supprime = 0 AND v.supprime = 0 AND d.supprime = 0
+     GROUP BY v.produit_id, s.depot_id`,
+    [boutiqueId],
+  )) {
+    const parDepot = stocksParDepot.get(s.produitId) ?? {};
+    parDepot[s.depotId] = { quantite: Number(s.quantite), valeur: Number(s.valeur) };
+    stocksParDepot.set(s.produitId, parDepot);
+  }
+  // Liens de vente au détail : le carton (gros) et l'article vendu à l'unité (détail), dans les deux sens.
+  const venteDetail = new Map<string, NonNullable<ProduitResume["venteDetail"]>>();
+  for (const l of tousLesResultats<{ grosId: string; grosNom: string; detailId: string; detailNom: string; quantite: number }>(
+    `SELECT pg.id as grosId, pg.nom as grosNom, pd.id as detailId, pd.nom as detailNom, v.quantite_detail as quantite
+     FROM variantes v
+     JOIN produits pg ON pg.id = v.produit_id
+     JOIN variantes d ON d.id = v.variante_detail_id
+     JOIN produits pd ON pd.id = d.produit_id
+     WHERE pg.boutique_id = ? AND v.supprime = 0 AND d.supprime = 0 AND pg.supprime = 0 AND pd.supprime = 0`,
+    [boutiqueId],
+  )) {
+    venteDetail.set(l.grosId, { role: "gros", autreNom: l.detailNom, quantite: Number(l.quantite) });
+    if (!venteDetail.has(l.detailId)) venteDetail.set(l.detailId, { role: "detail", autreNom: l.grosNom, quantite: Number(l.quantite) });
+  }
+  return tousLesResultats<Omit<ProduitResume, "stocksParDepot" | "venteDetail">>(
     `SELECT p.id as id, p.nom as nom, v.reference as reference, c.nom as categorieNom, p.actif as actif,
             v.prix_vente as prixVente, v.prix_achat as prixAchat, p.date_creation as dateCreation,
             CASE WHEN EXISTS (
@@ -87,14 +192,15 @@ export function listerProduits(boutiqueId: string, terme = ""): ProduitResume[] 
      LEFT JOIN variantes v ON v.produit_id = p.id AND v.supprime = 0
      WHERE p.boutique_id = ? AND p.supprime = 0 AND p.nom LIKE ?
      GROUP BY p.id
-     ORDER BY p.nom
-     LIMIT 200`,
+     ORDER BY p.nom`,
     [boutiqueId, motif],
   ).map((p) => ({
     ...p,
     quantiteStock: Number(p.quantiteStock),
     seuilAlerte: Number(p.seuilAlerte),
     valeurStock: Number(p.valeurStock),
+    stocksParDepot: stocksParDepot.get(p.id) ?? {},
+    venteDetail: venteDetail.get(p.id) ?? null,
   }));
 }
 
@@ -185,6 +291,8 @@ export function creerProduit(params: ParametresProduit): { produitId: string; va
   } = params;
 
   if (!nom.trim()) throw new ErreurProduit("Le nom du produit est requis.");
+  verifierNomArticleLibre(boutiqueId, nom);
+  verifierCodeBarresLibre(boutiqueId, codeBarres);
 
   const resultat = dansUneTransaction(() => {
     const maintenant = new Date().toISOString();
@@ -228,6 +336,13 @@ export function modifierProduit(
     description: "description",
     actif: "actif",
   };
+  if (champs.nom !== undefined) {
+    // Contrôle seulement si le nom change : un doublon ancien ne bloque pas les autres modifications.
+    const actuel = unResultat<{ nom: string }>("SELECT nom FROM produits WHERE id = ?", [id]);
+    if (!actuel || cleNomArticle(actuel.nom) !== cleNomArticle(champs.nom)) {
+      verifierNomArticleLibre(boutiqueIdDuProduit(id), champs.nom, id);
+    }
+  }
   const colonnes: string[] = [];
   const valeurs: SqlValue[] = [];
   for (const [cle, valeur] of Object.entries(champs)) {
@@ -298,6 +413,7 @@ export function creerVariante(params: ParametresVarianteEntree): string {
     seuilAlerte = 0,
     valeurAttributIds = [],
   } = params;
+  verifierCodeBarresLibre(boutiqueIdDuProduit(produitId), codeBarres);
 
   const varianteId = dansUneTransaction(() => {
     const maintenant = new Date().toISOString();
@@ -330,6 +446,15 @@ export function modifierVariante(
   }>,
 ): void {
   const { valeurAttributIds, ...reste } = champs;
+  if (reste.codeBarres !== undefined) {
+    const actuelle = unResultat<{ codeBarres: string; produitId: string }>(
+      "SELECT code_barres as codeBarres, produit_id as produitId FROM variantes WHERE id = ?",
+      [id],
+    );
+    if (actuelle && (actuelle.codeBarres ?? "").trim() !== reste.codeBarres.trim()) {
+      verifierCodeBarresLibre(boutiqueIdDuProduit(actuelle.produitId), reste.codeBarres, id);
+    }
+  }
   const mapping: Record<string, string> = {
     reference: "reference",
     codeBarres: "code_barres",

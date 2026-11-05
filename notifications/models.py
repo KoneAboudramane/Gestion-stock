@@ -27,6 +27,7 @@ class Notification(ModeleBase):
         COMMANDE_RETARD = "commande_retard", "Commande client en retard"
         ABONNEMENT_PROCHE = "abonnement_proche", "Fin d'abonnement proche"
         ABONNEMENT_EXPIRE = "abonnement_expire", "Abonnement expiré"
+        DOUBLON_ARTICLE = "doublon_article", "Article en double"
 
     boutique = models.ForeignKey(
         "comptes.Boutique", on_delete=models.CASCADE, related_name="notifications"

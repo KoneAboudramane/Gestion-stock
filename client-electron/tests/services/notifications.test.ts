@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { executer } from "../../electron/db/helpers";
 import {
   compterNotificationsNonLues,
+  genererAlertesDoublons,
   genererAlertesRupture,
   listerNotifications,
   marquerNotificationsLues,
@@ -160,5 +161,57 @@ describe("notifications.compterNotificationsNonLues / marquerNotificationsLues",
     expect(compterNotificationsNonLues(boutiqueId, depotA)).toBe(0);
     // Le dépôt B n'a jamais été consulté : son compteur reste intact.
     expect(compterNotificationsNonLues(boutiqueId, depotB)).toBe(1);
+  });
+});
+
+describe("notifications.genererAlertesDoublons (articles déjà en double : anciens, autre poste, réinstallation)", () => {
+  const boutiqueId = randomUUID();
+
+  beforeEach(async () => {
+    await creerBaseDeTest();
+  });
+
+  // Insertion directe : simule des doublons arrivés sans passer par le contrôle (anciens ou synchronisés).
+  function article(nom: string, reference: string, codeBarres = "", supprime = 0): string {
+    const produitId = randomUUID();
+    executer("INSERT INTO produits (id, boutique_id, nom, supprime) VALUES (?, ?, ?, ?)", [produitId, boutiqueId, nom, supprime]);
+    executer("INSERT INTO variantes (id, produit_id, reference, code_barres) VALUES (?, ?, ?, ?)", [
+      randomUUID(),
+      produitId,
+      reference,
+      codeBarres,
+    ]);
+    return produitId;
+  }
+
+  it("crée une alerte par groupe de noms identiques (majuscules, accents, espaces ignorés)", () => {
+    article("Café", "REF-000001");
+    article("  CAFE ", "REF-000002");
+    article("cafe", "REF-000003");
+    article("Sucre", "REF-000004");
+
+    expect(genererAlertesDoublons(boutiqueId)).toHaveLength(1);
+    const [alerte] = listerNotifications(boutiqueId);
+    expect(alerte.type).toBe("doublon_article");
+    expect(alerte.message).toContain("3 articles s'appellent « Café »");
+    expect(alerte.message).toContain("REF-000001, REF-000002, REF-000003");
+  });
+
+  it("signale aussi un code-barres porté par deux articles", () => {
+    article("Huile", "REF-000001", "6111");
+    article("Vinaigre", "REF-000002", " 6111 ");
+
+    expect(genererAlertesDoublons(boutiqueId)).toHaveLength(1);
+    expect(listerNotifications(boutiqueId)[0].message).toContain("6111 est porté par « Huile », « Vinaigre »");
+  });
+
+  it("ne répète pas l'alerte dans les 24 h, ignore les articles supprimés", () => {
+    article("Riz", "REF-000001");
+    article("Riz", "REF-000002");
+    article("Savon", "REF-000003");
+    article("Savon", "REF-000004", "", 1);
+
+    expect(genererAlertesDoublons(boutiqueId)).toHaveLength(1);
+    expect(genererAlertesDoublons(boutiqueId)).toHaveLength(0);
   });
 });

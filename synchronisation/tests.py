@@ -336,3 +336,95 @@ class PushCommandeClientTests(APITestCase):
         self.assertEqual(commande.boutique, self.boutique)
         self.assertEqual(commande.lignes.get().quantite_livree, 10)
         self.assertEqual(Vente.objects.get(id=vente_id).commande_client, commande)
+
+
+class PushDoublonCatalogueTests(APITestCase):
+    """Deux postes hors ligne créent chacun « Café » : accepté (jamais de perte) mais signalé."""
+
+    def setUp(self):
+        self.boutique, self.patron = inscrire_boutique(
+            {"nom": "Boutique D"}, {"username": "patronDoublon", "password": "UnMotDePasseSolide123"}
+        )
+        self.boutique.synchro_autorisee = True
+        self.boutique.save(update_fields=["synchro_autorisee"])
+        self.client.force_authenticate(user=self.patron)
+        cafe = Produit.objects.create(boutique=self.boutique, nom="Café")
+        Variante.objects.create(produit=cafe, code_barres="6111")
+
+    def _pousser(self, changements):
+        reponse = self.client.post(
+            reverse("sync-push"), {"appareil": "poste-2", "changements": changements}, format="json"
+        )
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK, reponse.data)
+        return reponse.data["resultats"]
+
+    def test_nom_en_double_accepte_et_signale_une_seule_fois(self):
+        from notifications.models import Notification
+        import uuid
+
+        produit_id = str(uuid.uuid4())
+        resultats = self._pousser([
+            {"table": "catalogue.Produit", "action": "cree", "enregistrement_id": produit_id, "donnees": {"nom": "CAFE"}},
+        ])
+        self.assertEqual(resultats[0]["statut"], "synchronise")
+        self.assertTrue(Produit.objects.filter(id=produit_id).exists())
+        alertes = Notification.objects.filter(boutique=self.boutique, type=Notification.Type.DOUBLON_ARTICLE)
+        self.assertEqual(alertes.count(), 1)
+        self.assertEqual(str(alertes.first().reference_id), produit_id)
+
+        # Une modification ultérieure du même article ne répète pas l'alerte (fenêtre de 24 h).
+        self._pousser([
+            {
+                "table": "catalogue.Produit", "action": "modifie", "enregistrement_id": produit_id,
+                "donnees": {"nom": "CAFE", "description": "x", "date_modification": timezone.now().isoformat()},
+            },
+        ])
+        self.assertEqual(alertes.count(), 1)
+
+    def test_code_barres_en_double_signale(self):
+        from notifications.models import Notification
+        import uuid
+
+        produit_id, variante_id = str(uuid.uuid4()), str(uuid.uuid4())
+        resultats = self._pousser([
+            {"table": "catalogue.Produit", "action": "cree", "enregistrement_id": produit_id, "donnees": {"nom": "Thé"}},
+            {
+                "table": "catalogue.Variante", "action": "cree", "enregistrement_id": variante_id,
+                "donnees": {"produit": produit_id, "code_barres": "6111", "prix_vente": "500"},
+            },
+        ])
+        self.assertTrue(all(r["statut"] == "synchronise" for r in resultats), resultats)
+        alerte = Notification.objects.get(boutique=self.boutique, type=Notification.Type.DOUBLON_ARTICLE)
+        self.assertIn("6111", alerte.message)
+
+    def test_alerte_deja_creee_par_le_poste_dans_le_meme_envoi_pas_de_seconde_alerte(self):
+        from notifications.models import Notification
+        import uuid
+
+        cafe = Produit.objects.get(boutique=self.boutique, nom="Café")
+        produit_id = str(uuid.uuid4())
+        # Le poste a détecté le doublon à l'ouverture et pousse son alerte avec l'article.
+        self._pousser([
+            {"table": "catalogue.Produit", "action": "cree", "enregistrement_id": produit_id, "donnees": {"nom": "cafe"}},
+            {
+                "table": "notifications.Notification", "action": "cree", "enregistrement_id": str(uuid.uuid4()),
+                "donnees": {
+                    "type": "doublon_article",
+                    "message": "Article en double : 2 articles s'appellent « Café ». Renommez-les pour ne pas les confondre en caisse.",
+                    "reference_type": "catalogue.Produit",
+                    "reference_id": str(cafe.id),
+                },
+            },
+        ])
+        self.assertEqual(
+            Notification.objects.filter(boutique=self.boutique, type=Notification.Type.DOUBLON_ARTICLE).count(), 1
+        )
+
+    def test_pas_d_alerte_sans_doublon(self):
+        from notifications.models import Notification
+        import uuid
+
+        self._pousser([
+            {"table": "catalogue.Produit", "action": "cree", "enregistrement_id": str(uuid.uuid4()), "donnees": {"nom": "Sucre"}},
+        ])
+        self.assertFalse(Notification.objects.filter(type=Notification.Type.DOUBLON_ARTICLE).exists())

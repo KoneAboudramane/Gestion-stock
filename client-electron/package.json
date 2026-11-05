@@ -1,7 +1,7 @@
 {
   "name": "client-electron",
   "private": true,
-  "version": "0.1.0",
+  "version": "2.1.0",
   "description": "Client de bureau (Electron + React + SQLite locale) de gestion_stock",
   "main": "dist-electron/main.js",
   "scripts": {

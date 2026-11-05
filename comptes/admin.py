@@ -18,6 +18,7 @@ from .models import (
     Boutique,
     DemandeInscription,
     DemandeRenouvellement,
+    DemandeReseau,
     PaiementAbonnement,
     ReglagesPlateforme,
     Role,
@@ -25,6 +26,7 @@ from .models import (
     Utilisateur,
 )
 from .services import (
+    accepter_demandes_reseau,
     approuver_inscription,
     demarrer_essai,
     enregistrer_periode_abonnement,
@@ -36,6 +38,7 @@ from .services import (
     rejeter_demande_renouvellement,
     rejeter_inscription,
     supprimer_boutique_definitivement,
+    supprimer_donnees_en_ligne,
     valider_demande_renouvellement,
 )
 
@@ -92,11 +95,12 @@ class BoutiqueAdmin(admin.ModelAdmin):
     list_display = (
         "nom", "telephone", "devise", "formule", "actif",
         "date_expiration_abonnement", "etat_abonnement", "demandes", "signalements", "synchro_autorisee",
+        "reseau_autorise", "demande_reseau", "derniere_sauvegarde",
         "lien_renouveler", "lien_supprimer", "date_creation",
     )
-    list_editable = ("synchro_autorisee",)
+    list_editable = ("synchro_autorisee", "reseau_autorise")
     search_fields = ("nom", "telephone", "email")
-    list_filter = (FiltreEcheanceAbonnement, "actif", "formule", "devise", "synchro_autorisee")
+    list_filter = (FiltreEcheanceAbonnement, "actif", "formule", "devise", "synchro_autorisee", "reseau_autorise")
     inlines = [PaiementAbonnementInline]
 
     @admin.display(description="État")
@@ -113,6 +117,29 @@ class BoutiqueAdmin(admin.ModelAdmin):
             return format_html('<span style="color:#b91c1c">{}</span>', "Délai de grâce")
         return format_html('<strong style="color:#b91c1c">{}</strong>', "Vente bloquée")
 
+    @admin.display(description="Demande réseau")
+    def demande_reseau(self, obj):
+        if obj.reseau_autorise or not obj.demandes_reseau.filter(statut=DemandeReseau.Statut.EN_ATTENTE).exists():
+            return "—"
+        url = reverse("admin:comptes_demandereseau_changelist") + f"?boutique__id__exact={obj.pk}"
+        return format_html('<a href="{}" style="font-weight:bold">à traiter</a>', url)
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if obj.reseau_autorise:
+            accepter_demandes_reseau(obj, request.user)
+
+    @admin.display(description="Dernière sauvegarde", ordering="date_derniere_sauvegarde")
+    def derniere_sauvegarde(self, obj):
+        """Sauvegarde chiffrée du poste principal (docs/plan_reseau_local.md, lot 7) : la date seulement."""
+        date = obj.date_derniere_sauvegarde
+        if date is None:
+            return "—"
+        jours = (timezone.now() - date).days
+        couleur = "#15803d" if jours <= 3 else "#b45309" if jours <= 7 else "#b91c1c"
+        texte = "aujourd'hui" if jours == 0 else "hier" if jours == 1 else f"il y a {jours} jours"
+        return format_html('<span style="color:{}">{}</span>', couleur, texte)
+
     @admin.display(description="Paiements déclarés")
     def demandes(self, obj):
         nombre = obj.demandes_renouvellement.filter(statut=DemandeRenouvellement.Statut.EN_ATTENTE).count()
@@ -128,7 +155,7 @@ class BoutiqueAdmin(admin.ModelAdmin):
             return "—"
         url = reverse("admin:comptes_signalementabonnement_changelist") + f"?boutique__id__exact={obj.pk}&traite__exact=0"
         return format_html('<a href="{}" style="color:#b91c1c;font-weight:bold">{} à voir</a>', url, nombre)
-    actions = ["renouveler_abonnement_action"]
+    actions = ["renouveler_abonnement_action", "code_activation_action", "supprimer_donnees_en_ligne_action"]
 
     def has_delete_permission(self, request, obj=None):
         # Le "Supprimer" standard de l'admin échoue systématiquement dès qu'une
@@ -154,6 +181,16 @@ class BoutiqueAdmin(admin.ModelAdmin):
                 "<uuid:boutique_id>/supprimer/",
                 self.admin_site.admin_view(self.vue_suppression_definitive),
                 name="comptes_boutique_supprimer",
+            ),
+            path(
+                "<uuid:boutique_id>/code-activation/",
+                self.admin_site.admin_view(self.vue_code_activation),
+                name="comptes_boutique_code_activation",
+            ),
+            path(
+                "<uuid:boutique_id>/supprimer-donnees-en-ligne/",
+                self.admin_site.admin_view(self.vue_suppression_donnees_en_ligne),
+                name="comptes_boutique_supprimer_donnees",
             ),
         ] + super().get_urls()
 
@@ -228,6 +265,113 @@ class BoutiqueAdmin(admin.ModelAdmin):
             return
         boutique = queryset.first()
         return HttpResponseRedirect(reverse("admin:comptes_boutique_renouveler", args=[boutique.pk]))
+
+    @admin.action(description="Générer un code d'activation (abonnement sans internet)")
+    def code_activation_action(self, request, queryset):
+        if queryset.count() != 1:
+            self.message_user(request, "Sélectionnez une seule boutique à la fois.", level=messages.ERROR)
+            return
+        return HttpResponseRedirect(reverse("admin:comptes_boutique_code_activation", args=[queryset.first().pk]))
+
+    def vue_code_activation(self, request, boutique_id):
+        """Code d'activation signé (docs/plan_reseau_local.md, lot 6) pour la date de fin et la
+        formule ACTUELLES de la boutique : renouveler d'abord l'abonnement, puis générer le code."""
+        from .activation import ErreurActivation, generer_code
+
+        boutique = self.get_object(request, boutique_id)
+        if boutique is None:
+            self.message_user(request, "Boutique introuvable.", level=messages.ERROR)
+            return HttpResponseRedirect(reverse("admin:comptes_boutique_changelist"))
+        retour = reverse("admin:comptes_boutique_changelist")
+        if boutique.date_expiration_abonnement is None:
+            self.message_user(
+                request, f"« {boutique.nom} » n'a pas de date de fin d'abonnement : renouvelez d'abord son abonnement.",
+                level=messages.ERROR,
+            )
+            return HttpResponseRedirect(retour)
+        date_fin = timezone.localdate(boutique.date_expiration_abonnement)
+        try:
+            code = generer_code(boutique.id, date_fin, boutique.formule)
+        except ErreurActivation as erreur:
+            self.message_user(request, str(erreur), level=messages.ERROR)
+            return HttpResponseRedirect(retour)
+        return render(
+            request,
+            "admin/comptes/code_activation.html",
+            {
+                **self.admin_site.each_context(request),
+                "title": f"Code d'activation — {boutique.nom}",
+                "description": (
+                    f"Abonnement {boutique.get_formule_display()} jusqu'au {date_fin.strftime('%d/%m/%Y')}. "
+                    "Ce code ne fonctionne que pour cette boutique et ne peut pas être modifié."
+                ),
+                "code": code,
+                "back_url": retour,
+                "opts": self.model._meta,
+            },
+        )
+
+    @admin.action(description="Supprimer les données en ligne (mode 100 % local)")
+    def supprimer_donnees_en_ligne_action(self, request, queryset):
+        if queryset.count() != 1:
+            self.message_user(request, "Sélectionnez une seule boutique à la fois.", level=messages.ERROR)
+            return
+        return HttpResponseRedirect(reverse("admin:comptes_boutique_supprimer_donnees", args=[queryset.first().pk]))
+
+    def vue_suppression_donnees_en_ligne(self, request, boutique_id):
+        """Mode 100 % local (docs/plan_reseau_local.md, §5) : page de confirmation avant
+        supprimer_donnees_en_ligne — garde la boutique, l'abonnement, les comptes, les réglages."""
+        if not request.user.has_perm("comptes.delete_boutique"):
+            self.message_user(request, "Vous n'avez pas la permission de supprimer des données.", level=messages.ERROR)
+            return HttpResponseRedirect(reverse("admin:comptes_boutique_changelist"))
+        boutique = self.get_object(request, boutique_id)
+        if boutique is None:
+            self.message_user(request, "Boutique introuvable.", level=messages.ERROR)
+            return HttpResponseRedirect(reverse("admin:comptes_boutique_changelist"))
+        if boutique.synchro_autorisee:
+            self.message_user(
+                request,
+                f"« {boutique.nom} » a encore la synchronisation activée : décochez « Synchro autorisée » "
+                "(mode 100 % local) avant de supprimer ses données en ligne.",
+                level=messages.ERROR,
+            )
+            return HttpResponseRedirect(reverse("admin:comptes_boutique_changelist"))
+
+        if request.method == "POST":
+            compteurs = supprimer_donnees_en_ligne(boutique)
+            total = sum(compteurs.values())
+            self.message_user(
+                request,
+                f"Données en ligne de « {boutique.nom} » supprimées ({total} enregistrement(s)). "
+                "La boutique, son abonnement, ses comptes et ses réglages sont conservés ; ses postes gardent tout.",
+            )
+            return HttpResponseRedirect(reverse("admin:comptes_boutique_changelist"))
+
+        compteurs = {
+            "Ventes": boutique.ventes.count(),
+            "Commandes d'achat": boutique.commandes_achat.count(),
+            "Clients": boutique.clients.count(),
+            "Fournisseurs": boutique.fournisseurs.count(),
+            "Dépôts": boutique.depots.count(),
+        }
+        detail = " · ".join(f"{libelle} : {nombre}" for libelle, nombre in compteurs.items())
+        return render(
+            request,
+            "admin/comptes/confirmation.html",
+            {
+                **self.admin_site.each_context(request),
+                "title": f"Supprimer les données en ligne — {boutique.nom}",
+                "description": (
+                    f"Mode 100 % local : supprime du serveur les ventes, achats, stock, clients, fournisseurs, "
+                    f"trésorerie, comptabilité et messages de « {boutique.nom} » ({detail}). La boutique, son "
+                    "abonnement, ses comptes et ses réglages restent ; les ordinateurs de la boutique gardent "
+                    "toutes leurs données. Action irréversible côté serveur."
+                ),
+                "submit_label": "Supprimer les données en ligne",
+                "back_url": reverse("admin:comptes_boutique_changelist"),
+                "opts": self.model._meta,
+            },
+        )
 
     def vue_renouvellement(self, request, boutique_id):
         boutique = self.get_object(request, boutique_id)
@@ -517,6 +661,39 @@ class FiltreStatutDemande(admin.SimpleListFilter):
     def queryset(self, request, queryset):
         valeur = self.value() or DemandeRenouvellement.Statut.EN_ATTENTE
         return queryset if valeur == "tous" else queryset.filter(statut=valeur)
+
+
+@admin.register(DemandeReseau)
+class DemandeReseauAdmin(admin.ModelAdmin):
+    """Demandes d'activation du réseau de la boutique : accepter (active le réseau) ou refuser."""
+
+    list_display = ("date_creation", "boutique", "demandeur", "note", "statut", "traitee_par", "date_traitement")
+    list_filter = ("statut",)
+    search_fields = ("boutique__nom",)
+    actions = ["accepter_selection", "refuser_selection"]
+    readonly_fields = [f.name for f in DemandeReseau._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @admin.action(description="Accepter : activer le réseau de ces boutiques")
+    def accepter_selection(self, request, queryset):
+        boutiques = {d.boutique for d in queryset.filter(statut=DemandeReseau.Statut.EN_ATTENTE).select_related("boutique")}
+        for boutique in boutiques:
+            boutique.reseau_autorise = True
+            boutique.save(update_fields=["reseau_autorise"])
+            accepter_demandes_reseau(boutique, request.user)
+        self.message_user(request, f"Réseau activé pour {len(boutiques)} boutique(s).", messages.SUCCESS)
+
+    @admin.action(description="Refuser ces demandes")
+    def refuser_selection(self, request, queryset):
+        nombre = queryset.filter(statut=DemandeReseau.Statut.EN_ATTENTE).update(
+            statut=DemandeReseau.Statut.REFUSEE, traitee_par=request.user, date_traitement=timezone.now()
+        )
+        self.message_user(request, f"{nombre} demande(s) refusée(s).", messages.SUCCESS)
 
 
 @admin.register(DemandeRenouvellement)

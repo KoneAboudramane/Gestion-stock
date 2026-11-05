@@ -32,6 +32,7 @@ import BoutonsExport from "./BoutonsExport";
 import { PanneauCompte, type GenreTiers } from "./CompteTiers";
 import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant } from "../lib/formatage";
+import { tuileFiltre } from "../lib/tuileFiltre";
 
 interface Tiers {
   id: string;
@@ -184,7 +185,7 @@ function ModaleComptes({ genre, session, onFermer }: { genre: GenreTiers; sessio
                     {formaterMontant(total)} {devise}
                   </strong>
                 </div>
-                <div className="tuile-fiche">
+                <div {...tuileFiltre(filtre === "solde", () => setFiltre(filtre === "solde" ? "tous" : "solde"))}>
                   <span className="sous-info">{client ? "👥 Clients avec un solde" : "🚚 Fournisseurs avec un solde"}</span>
                   <strong>{avecSolde}</strong>
                 </div>

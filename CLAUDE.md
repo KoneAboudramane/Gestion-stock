@@ -34,6 +34,7 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 - `ValeurAttribut` — attribut (FK → valeurs), valeur (ex. M, Rouge).
 - `Variante` — produit (FK → variantes), reference (SKU), code_barres, **prix_achat**, **prix_vente**, seuil_alerte, photo, actif. **C'est l'article vendu et stocké.** variante_detail (FK self, null) + quantite_detail : article de gros (carton) qui se **détaille** en `quantite_detail` unités de `variante_detail` (paquets).
 - `VarianteValeur` — variante (FK → valeurs), valeur_attribut (FK). unique_together(variante, valeur_attribut).
+- `LigneRecette` — variante (FK → lignes_recette), ingredient (FK Variante → utilise_dans_recettes, PROTECT), quantite. **Recette d'un article fabriqué** : ingrédients pour un lot de `Variante.recette_quantite` (déf. 1), plus `Variante.recette_frais` (autres frais par unité). Pas de ligne = pas de recette. À la fabrication (Entrée de stock → Fabrication), chaque ingrédient sort du dépôt (`MouvementStock` `sortie`, reference_type `stock.ConsommationFabrication`, refusé s'il en manque) et le coût de l'article = ingrédients au CUMP / lot + frais. Sans recette : coût saisi à la main.
 
 ### stock  (tout est par Variante + Depot)
 - `Depot` — boutique (FK), nom, adresse.
@@ -82,6 +83,13 @@ Client **Electron + React + SQLite** (appli locale, hors-ligne), qui se synchron
 
 ### synchronisation
 - `JournalSync` — boutique (FK), appareil, table (ex. "ventes.Vente"), enregistrement_id (UUID), action {cree|modifie|supprime}, statut {en_attente|synchronise|conflit}, donnees (JSON).
+
+### administration  (site d'administration client-admin — aucune donnée métier des boutiques)
+- `ProfilAdmin` — utilisateur (OneToOne → profil_admin), droits (JSON, clés de `administration/droits.py`), double_verification_exigee, totp_secret, totp_actif, totp_dernier_pas. **Le superuser a tout** (plus gérer les admins, réglages plateforme, journal) ; un admin staff **sans profil** garde tous les droits non réservés (compatibilité). Double vérification par appli d'authentification (TOTP), activée admin par admin par le superuser.
+- `JournalAdmin` — admin (FK, null), admin_identifiant, action, boutique (FK, null), boutique_nom, detail, donnees (JSON), origine {espace_admin|bureau}, adresse_ip. Ajout seul.
+- API `/api/admin/…` : connexion en 2 étapes (`admin/connexion/` puis `admin/connexion/code/`), jeton marqué `espace_admin`, session bornée à 12 h ; permissions `EstAdmin`, `EstSuperAdmin`, `a_le_droit_admin(cle)`. Les API de l'Espace Admin du bureau (`comptes/views.py`) appliquent les mêmes droits et écrivent au journal (origine `bureau`). L'admin Django est réservé au superuser.
+- Client **`client-admin`** (Vite + React, port 5175) : site d'administration séparé, à publier sur un sous-domaine ; son origine doit figurer dans `CORS_ALLOWED_ORIGINS`.
+- Fichiers d'API : `views.py` (connexion, profil), `api_boutiques.py` (tableau de bord, boutiques, inscriptions, création), `api_abonnements.py` (paiements, registre, code d'activation, réseau, signalements, comptes), `api_principal.py` (superuser : administrateurs, réglages plateforme, journal ; + changer son mot de passe). Aucune donnée métier des boutiques n'y est lue. `Boutique.actif` n'est appliqué nulle part : ne pas proposer de « désactiver une boutique » sans décider d'abord ce que ça bloque.
 
 ## Logique métier attendue (dans les vues/services, pas dans les modèles)
 

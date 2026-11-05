@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Gestion Stock — Guide d'utilisation</title>
+<style>
+  :root {
+    --bleu: #2563eb;
+    --bleu-fonce: #1e3a8a;
+    --bleu-clair: #eff6ff;
+    --bleu-trait: #bfdbfe;
+    --encre: #1f2937;
+    --gris: #6b7280;
+    --gris-clair: #f3f4f6;
+    --trait: #e5e7eb;
+    --ambre: #b45309;
+    --ambre-clair: #fffbeb;
+    --vert: #047857;
+    --vert-clair: #ecfdf5;
+  }
+  @page {
+    size: A4;
+    margin: 20mm 18mm 22mm 18mm;
+    @bottom-left {
+      content: "Gestion Stock — Guide d'utilisation";
+      font: 8.5pt "Segoe UI", sans-serif;
+      color: #9ca3af;
+    }
+    @bottom-right {
+      content: "Page " counter(page) " / " counter(pages);
+      font: 8.5pt "Segoe UI", sans-serif;
+      color: #9ca3af;
+    }
+  }
+  @page couverture {
+    margin: 0;
+    @bottom-left { content: none; }
+    @bottom-right { content: none; }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", "Segoe UI Emoji", Arial, sans-serif;
+    font-size: 10pt;
+    line-height: 1.5;
+    color: var(--encre);
+    background: #fff;
+  }
+
+  /* ---------- Couverture ---------- */
+  .couverture {
+    page: couverture;
+    height: 297mm;
+    width: 210mm;
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(160deg, #1e3a8a 0%, #2563eb 62%, #3b82f6 100%);
+    color: #fff;
+    break-after: page;
+  }
+  .couverture .cercle { position: absolute; border-radius: 50%; background: rgba(255,255,255,.07); }
+  .couverture .c1 { width: 520px; height: 520px; right: -170px; top: -150px; }
+  .couverture .c2 { width: 300px; height: 300px; left: -110px; bottom: 140px; }
+  .couverture .c3 { width: 160px; height: 160px; right: 90px; bottom: 260px; background: rgba(255,255,255,.05); }
+  .couverture .contenu { position: absolute; left: 24mm; right: 24mm; top: 78mm; }
+  .couverture .etiquette {
+    display: inline-block; font-size: 10pt; letter-spacing: .18em; text-transform: uppercase;
+    border: 1px solid rgba(255,255,255,.5); padding: 4px 12px; border-radius: 999px; margin-bottom: 26px;
+  }
+  .couverture h1 { font-size: 46pt; line-height: 1.05; margin: 0 0 14px; font-weight: 700; letter-spacing: -.01em; }
+  .couverture .sous-titre { font-size: 17pt; font-weight: 300; margin: 0 0 34px; opacity: .95; }
+  .couverture .trait { width: 70px; height: 4px; background: #fff; border-radius: 2px; margin-bottom: 30px; }
+  .couverture .resume { font-size: 11.5pt; max-width: 125mm; opacity: .92; line-height: 1.6; }
+  .couverture .pied {
+    position: absolute; left: 24mm; right: 24mm; bottom: 22mm;
+    display: flex; justify-content: space-between; font-size: 10pt; opacity: .85;
+    border-top: 1px solid rgba(255,255,255,.3); padding-top: 12px;
+  }
+
+  /* ---------- Sommaire ---------- */
+  .sommaire { break-after: page; }
+  .sommaire h2 { border: none; padding: 0; margin: 0 0 3mm; }
+  .sommaire ol { list-style: none; padding: 0; margin: 0; counter-reset: s; }
+  .sommaire li {
+    display: grid; grid-template-columns: 13mm 1fr; align-items: baseline;
+    padding: 0.7mm 0; border-bottom: 1px solid var(--trait);
+  }
+  .sommaire li .num { font-size: 14pt; font-weight: 700; color: var(--bleu); }
+  .sommaire li a { color: var(--encre); text-decoration: none; font-weight: 600; font-size: 11.5pt; }
+  .sommaire li .desc { display: block; font-weight: 400; color: var(--gris); font-size: 9.5pt; margin-top: 1px; }
+
+  /* ---------- Chapitres ---------- */
+  .chapitre { break-before: page; }
+  .entete-chapitre {
+    display: flex; align-items: center; gap: 5mm;
+    margin: 0 0 6mm; padding-bottom: 4mm; border-bottom: 2px solid var(--bleu);
+  }
+  .entete-chapitre .numero {
+    flex: none; width: 14mm; height: 14mm; border-radius: 3mm;
+    background: var(--bleu); color: #fff; font-size: 17pt; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .entete-chapitre h2 { margin: 0; border: none; padding: 0; }
+  h2 { font-size: 21pt; color: var(--bleu-fonce); line-height: 1.15; font-weight: 700; }
+  h3 {
+    font-size: 13pt; color: var(--bleu-fonce); margin: 6mm 0 2.2mm;
+    break-after: avoid; display: flex; align-items: center; gap: 2.5mm;
+  }
+  h3::before { content: ""; width: 3px; height: 13pt; background: var(--bleu); border-radius: 2px; flex: none; }
+  h4 { font-size: 10.8pt; margin: 4.5mm 0 1.5mm; color: var(--encre); break-after: avoid; }
+  p { margin: 0 0 2.6mm; }
+  .chapo { font-size: 11.3pt; color: #374151; margin-bottom: 4mm; }
+  ul, ol { margin: 0 0 3mm; padding-left: 6mm; }
+  li { margin-bottom: 1.2mm; }
+  li > ul { margin-top: 1.2mm; margin-bottom: 0; }
+  strong { color: #111827; }
+
+  /* Étapes numérotées */
+  ol.etapes { list-style: none; padding: 0; counter-reset: e; }
+  ol.etapes > li {
+    counter-increment: e; position: relative; padding: 0 0 0 10mm; margin-bottom: 2.6mm; break-inside: avoid;
+  }
+  ol.etapes > li::before {
+    content: counter(e); position: absolute; left: 0; top: .5mm;
+    width: 6.4mm; height: 6.4mm; border-radius: 50%;
+    background: var(--bleu-clair); color: var(--bleu); border: 1px solid var(--bleu-trait);
+    font-weight: 700; font-size: 9pt; display: flex; align-items: center; justify-content: center;
+  }
+
+  /* Tableaux */
+  table {
+    width: 100%; border-collapse: separate; border-spacing: 0; margin: 2mm 0 4.5mm;
+    font-size: 9.6pt; border-top: 2px solid var(--bleu); border-bottom: 1px solid var(--trait);
+  }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; }
+  th {
+    background: var(--bleu-clair); color: var(--bleu-fonce); text-align: left; font-weight: 600;
+    padding: 1.8mm 3mm; border-bottom: 1px solid var(--bleu-trait);
+  }
+  td { padding: 1.6mm 3mm; border-bottom: 1px solid var(--trait); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:nth-child(even) td { background: #fafafa; }
+  td:first-child { font-weight: 600; color: #111827; width: 34%; }
+  table.large td:first-child { width: 26%; }
+
+  /* Encadrés */
+  .encadre {
+    border-radius: 2mm; padding: 3mm 4mm; margin: 3mm 0 4.5mm; break-inside: avoid;
+    border-left: 4px solid; font-size: 9.9pt;
+  }
+  .encadre .titre { font-weight: 700; display: block; margin-bottom: 1mm; }
+  .encadre p:last-child, .encadre ul:last-child { margin-bottom: 0; }
+  .retenir { background: var(--bleu-clair); border-color: var(--bleu); }
+  .retenir .titre { color: var(--bleu-fonce); }
+  .attention { background: var(--ambre-clair); border-color: #f59e0b; }
+  .attention .titre { color: var(--ambre); }
+  .astuce { background: var(--vert-clair); border-color: #10b981; }
+  .astuce .titre { color: var(--vert); }
+
+  /* Parcours (étapes de statut) */
+  .parcours { display: flex; flex-wrap: wrap; align-items: center; gap: 2mm; margin: 2mm 0 4mm; }
+  .parcours span.etat {
+    background: #fff; border: 1px solid var(--bleu-trait); color: var(--bleu-fonce);
+    padding: 1.2mm 3.2mm; border-radius: 999px; font-weight: 600; font-size: 9.3pt;
+  }
+  .parcours span.etat.fin { background: var(--bleu); color: #fff; border-color: var(--bleu); }
+  .parcours span.etat.annule { border-color: #fecaca; color: #b91c1c; background: #fef2f2; }
+  .parcours .fleche { color: var(--gris); }
+
+  /* Grille de boutons d'une page */
+  .boutons { display: flex; flex-wrap: wrap; gap: 2mm; margin: 1mm 0 4mm; }
+  .boutons span {
+    border: 1px solid var(--trait); background: var(--gris-clair); border-radius: 1.6mm;
+    padding: 1.2mm 3mm; font-size: 9.3pt; font-weight: 600;
+  }
+
+  /* Cases à cocher */
+  ul.cases { list-style: none; padding: 0; }
+  ul.cases li { padding-left: 8mm; position: relative; margin-bottom: 2mm; }
+  ul.cases li::before {
+    content: ""; position: absolute; left: 0; top: 1mm; width: 4mm; height: 4mm;
+    border: 1.5px solid var(--bleu); border-radius: 1mm;
+  }
+  .bloc, table.court { break-inside: avoid; }
+  .parcours { break-after: avoid; }
+  table.serre td { padding-top: 1.1mm; padding-bottom: 1.1mm; }
+</style>

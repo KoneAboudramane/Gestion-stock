@@ -46,6 +46,98 @@ function finEssai(): string {
 
 export class ErreurInscriptionLocale extends Error {}
 
+/** Options choisies dans l'assistant « Créer une boutique » (sinon : essai gratuit, 100 % local, réseau non activé). */
+export interface OptionsCreationBoutique {
+  formule: string;
+  /** Fin de l'abonnement choisi ; null = essai gratuit de 15 jours. */
+  dateFin: string | null;
+  nature?: "paiement" | "offert";
+  montant?: number;
+  mode?: string;
+  reference?: string;
+  synchroAutorisee: boolean;
+  reseauAutorise: boolean;
+}
+
+/** Assistant « Créer une boutique » (Inscription.tsx). */
+export interface ParametresCreationBoutique {
+  boutiqueNom: string;
+  telephone?: string;
+  adresse?: string;
+  devise?: string;
+  username: string;
+  password: string;
+  email: string;
+  patronTelephone?: string;
+  prenom?: string;
+  nom?: string;
+  /** Le patron choisira son propre mot de passe à sa première connexion. */
+  doitChanger?: boolean;
+  options?: OptionsCreationBoutique;
+}
+
+/** Corps commun de /auth/enregistrer-boutique-locale/ (création en ligne et « Activer en ligne »). */
+function corpsEnregistrement(boutiqueId: string, p: ParametresCreationBoutique): Record<string, unknown> {
+  const o = p.options;
+  return {
+    boutique_id: boutiqueId,
+    boutique_nom: p.boutiqueNom,
+    boutique_adresse: p.adresse ?? "",
+    boutique_telephone: p.telephone ?? "",
+    boutique_email: p.email,
+    boutique_devise: p.devise || "FCFA",
+    patron_username: p.username,
+    patron_password: p.password,
+    patron_email: p.email,
+    patron_telephone: p.patronTelephone ?? "",
+    patron_first_name: p.prenom ?? "",
+    patron_last_name: p.nom ?? "",
+    patron_doit_changer: !!p.doitChanger,
+    ...(o
+      ? {
+          formule: o.formule,
+          synchro_autorisee: o.synchroAutorisee,
+          reseau_autorise: o.reseauAutorise,
+          ...(o.dateFin
+            ? {
+                date_fin: o.dateFin,
+                nature: o.nature ?? "offert",
+                ...(o.nature === "paiement" ? { montant: o.montant ?? 0, mode: o.mode ?? "", reference: o.reference ?? "" } : {}),
+              }
+            : {}),
+        }
+      : {}),
+  };
+}
+
+/** Ligne de la boutique sur ce poste, avec ses options. */
+function insererBoutiqueLocale(boutiqueId: string, p: ParametresCreationBoutique, synchronise: 0 | 1): void {
+  const maintenant = new Date().toISOString();
+  const o = p.options;
+  executer(
+    `INSERT INTO boutiques
+       (id, nom, adresse, telephone, email, devise, actif, date_expiration_abonnement, formule,
+        synchro_autorisee, reseau_autorise, date_creation, date_modification, synchronise, supprime)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [
+      boutiqueId,
+      p.boutiqueNom,
+      p.adresse ?? "",
+      p.telephone ?? "",
+      p.email,
+      p.devise || "FCFA",
+      o?.dateFin ?? finEssai(),
+      o?.formule ?? "essentiel",
+      o?.synchroAutorisee ? 1 : 0,
+      o?.reseauAutorise ? 1 : 0,
+      maintenant,
+      maintenant,
+      synchronise,
+    ],
+  );
+  sauvegarder();
+}
+
 export interface BoutiqueLocaleEnAttente {
   boutiqueId: string;
   utilisateurIdLocal: string;
@@ -57,6 +149,11 @@ export interface BoutiqueLocaleEnAttente {
   patronUsername: string;
   patronEmail: string;
   patronTelephone: string;
+  /** Ajoutés par l'assistant (absents des créations plus anciennes). */
+  patronPrenom?: string;
+  patronNom?: string;
+  patronDoitChanger?: boolean;
+  options?: OptionsCreationBoutique;
 }
 
 function cheminEnAttente(): string {
@@ -87,12 +184,7 @@ function effacerEnAttente(): void {
  * bloque la création si ce poste sert déjà à une boutique existante, pour ne
  * jamais mélanger deux boutiques dans le même SQLite local.
  */
-export function creerBoutiqueLocale(params: {
-  boutiqueNom: string;
-  username: string;
-  password: string;
-  email: string;
-}): Session {
+export function creerBoutiqueLocale(params: ParametresCreationBoutique): Session {
   const dejaInstallee = unResultat<{ id: string }>("SELECT id FROM boutiques LIMIT 1");
   if (dejaInstallee) {
     throw new ErreurInscriptionLocale("Ce poste est déjà utilisé pour une boutique existante.");
@@ -100,28 +192,24 @@ export function creerBoutiqueLocale(params: {
 
   const boutiqueId = randomUUID();
   const utilisateurIdLocal = randomUUID();
-  const maintenant = new Date().toISOString();
+  insererBoutiqueLocale(boutiqueId, params, 0);
 
-  executer(
-    `INSERT INTO boutiques
-       (id, nom, adresse, telephone, email, devise, actif, date_expiration_abonnement, formule,
-        synchro_autorisee, date_creation, date_modification, synchronise, supprime)
-     VALUES (?, ?, '', '', ?, 'FCFA', 1, ?, 'essentiel', 0, ?, ?, 0, 0)`,
-    [boutiqueId, params.boutiqueNom, params.email, finEssai(), maintenant, maintenant],
-  );
-  sauvegarder();
-
+  // Tout ce qu'il faudra envoyer au serveur à « Activer en ligne » (sauf le mot de passe, redemandé).
   enregistrerEnAttente({
     boutiqueId,
     utilisateurIdLocal,
     boutiqueNom: params.boutiqueNom,
-    adresse: "",
-    telephone: "",
+    adresse: params.adresse ?? "",
+    telephone: params.telephone ?? "",
     email: params.email,
-    devise: "FCFA",
+    devise: params.devise || "FCFA",
     patronUsername: params.username,
     patronEmail: params.email,
-    patronTelephone: "",
+    patronTelephone: params.patronTelephone ?? "",
+    patronPrenom: params.prenom ?? "",
+    patronNom: params.nom ?? "",
+    patronDoitChanger: !!params.doitChanger,
+    options: params.options,
   });
 
   const session: Session = {
@@ -135,7 +223,8 @@ export function creerBoutiqueLocale(params: {
     permissions: PERMISSIONS_PATRON,
     depotId: null,
     depotNom: null,
-    synchroAutorisee: false,
+    synchroAutorisee: !!params.options?.synchroAutorisee,
+    doitChangerMotDePasse: params.doitChanger || undefined,
   };
   ouvrirSessionLocale(params.username, params.password, session);
 
@@ -160,7 +249,7 @@ export type ResultatCreationEnLigne = { statut: "enLigne"; session: Session } | 
 export async function creerBoutiqueEnLigne(
   usernameAdmin: string,
   passwordAdmin: string,
-  params: { boutiqueNom: string; username: string; password: string; email: string },
+  params: ParametresCreationBoutique,
 ): Promise<ResultatCreationEnLigne> {
   const dejaInstallee = unResultat<{ id: string }>("SELECT id FROM boutiques LIMIT 1");
   if (dejaInstallee) {
@@ -172,27 +261,9 @@ export async function creerBoutiqueEnLigne(
     await appelerApi("/auth/enregistrer-boutique-locale/", {
       username: usernameAdmin,
       password: passwordAdmin,
-      boutique_id: boutiqueId,
-      boutique_nom: params.boutiqueNom,
-      boutique_adresse: "",
-      boutique_telephone: "",
-      boutique_email: params.email,
-      boutique_devise: "FCFA",
-      patron_username: params.username,
-      patron_password: params.password,
-      patron_email: params.email,
-      patron_telephone: "",
+      ...corpsEnregistrement(boutiqueId, params),
     });
-
-    const maintenant = new Date().toISOString();
-    executer(
-      `INSERT INTO boutiques
-         (id, nom, adresse, telephone, email, devise, actif, date_expiration_abonnement, formule,
-          synchro_autorisee, date_creation, date_modification, synchronise, supprime)
-       VALUES (?, ?, '', '', ?, 'FCFA', 1, ?, 'essentiel', 0, ?, ?, 1, 0)`,
-      [boutiqueId, params.boutiqueNom, params.email, finEssai(), maintenant, maintenant],
-    );
-    sauvegarder();
+    insererBoutiqueLocale(boutiqueId, params, 1);
 
     // Vrais jetons JWT via une connexion réelle, plutôt qu'une session bricolée
     // avec des jetons vides : sans ça, toute requête authentifiée ultérieure
@@ -247,16 +318,20 @@ export async function activerEnLigne(
   const donnees = await appelerApi("/auth/enregistrer-boutique-locale/", {
     username: usernameAdmin,
     password: passwordAdmin,
-    boutique_id: enAttente.boutiqueId,
-    boutique_nom: enAttente.boutiqueNom,
-    boutique_adresse: enAttente.adresse,
-    boutique_telephone: enAttente.telephone,
-    boutique_email: enAttente.email,
-    boutique_devise: enAttente.devise,
-    patron_username: enAttente.patronUsername,
-    patron_password: patronPassword,
-    patron_email: enAttente.patronEmail,
-    patron_telephone: enAttente.patronTelephone,
+    ...corpsEnregistrement(enAttente.boutiqueId, {
+      boutiqueNom: enAttente.boutiqueNom,
+      adresse: enAttente.adresse,
+      telephone: enAttente.telephone,
+      devise: enAttente.devise,
+      username: enAttente.patronUsername,
+      password: patronPassword,
+      email: enAttente.patronEmail,
+      patronTelephone: enAttente.patronTelephone,
+      prenom: enAttente.patronPrenom,
+      nom: enAttente.patronNom,
+      doitChanger: enAttente.patronDoitChanger,
+      options: enAttente.options,
+    }),
   });
 
   const utilisateurIdReel = String(donnees.utilisateur_id);
@@ -266,4 +341,14 @@ export async function activerEnLigne(
   const sessionMiseAJour: Session = { ...session, utilisateurId: utilisateurIdReel };
   ouvrirSessionLocale(enAttente.patronUsername, patronPassword, sessionMiseAJour);
   return sessionMiseAJour;
+}
+
+/** Assistant : l'identifiant du patron est-il libre ? null sans internet (vérifié à l'enregistrement en ligne). */
+export async function identifiantDisponible(usernameAdmin: string, passwordAdmin: string, identifiant: string): Promise<boolean | null> {
+  try {
+    const donnees = await appelerApi("/auth/identifiant-disponible/", { username: usernameAdmin, password: passwordAdmin, identifiant });
+    return Boolean(donnees?.disponible);
+  } catch {
+    return null;
+  }
 }

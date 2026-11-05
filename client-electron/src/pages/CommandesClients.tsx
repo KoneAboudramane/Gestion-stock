@@ -16,6 +16,7 @@ import type {
   VarianteRecherchee,
 } from "../api/client";
 import ChampMontant from "../components/ChampMontant";
+import ModaleTousLesArticles from "../components/ModaleTousLesArticles";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import { useDevise } from "../contexts/DeviseContext";
 import { useLogoBoutique } from "../contexts/LogoContext";
@@ -52,6 +53,7 @@ const donnees = {
   listerDepots: (boutiqueId: string) => api.depots.lister(boutiqueId),
   stockDepot: (boutiqueId: string, depotId: string) => api.stock.lister(boutiqueId, depotId),
   rechercherArticles: (boutiqueId: string, terme: string) => api.catalogue.rechercherVariantes(boutiqueId, terme),
+  listerTousArticles: (boutiqueId: string) => api.catalogue.listerVariantesActives(boutiqueId),
   boutique: (boutiqueId: string) => api.reglages.obtenirBoutique(boutiqueId),
   formatTicket: async (boutiqueId: string) =>
     (await api.reglages.listerParametres(boutiqueId)).find((p) => p.cle === "format_ticket")?.valeur || "a4",
@@ -597,6 +599,14 @@ function FormulaireCommande({
     return Math.max(0, total - propre);
   }
 
+  // « ☰ Voir tout » : liste complète des articles, à cocher.
+  const [tousLesArticles, setTousLesArticles] = useState<Awaited<ReturnType<typeof donnees.listerTousArticles>> | null>(
+    null,
+  );
+  async function ouvrirTousLesArticles() {
+    setTousLesArticles(await donnees.listerTousArticles(session.boutiqueId));
+  }
+
   function ajouterArticle(article: ArticleRecherche) {
     setTerme("");
     setErreur(null);
@@ -703,7 +713,7 @@ function FormulaireCommande({
       <div className="modale-entete entete-fixe">
         <h3>{commandeId ? `Modifier la commande ${commande?.numero ?? ""}` : "Nouvelle commande"}</h3>
         <div className="actions-formulaire">
-          <button type="button" className="bouton-primaire" onClick={enregistrer} disabled={enCours}>
+          <button type="button" className="bouton-primaire bouton-enregistrer" onClick={enregistrer} disabled={enCours}>
             {enCours ? "Enregistrement…" : "Enregistrer"}
           </button>
           <button type="button" className="lien bouton-retour" onClick={onRetour}>
@@ -813,7 +823,16 @@ function FormulaireCommande({
             </label>
           </div>
           <div className="ligne-champs-recherche-commande">
-            <div className="recherche-commande-combobox recherche-article-commande">
+            <div className="recherche-commande-combobox recherche-article-commande recherche-mouvement-groupe">
+              <button
+                type="button"
+                className="bouton-tous-articles-entree"
+                title="Voir tous les articles et en cocher plusieurs"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={ouvrirTousLesArticles}
+              >
+                ☰ Voir tout
+              </button>
               <input
                 placeholder="🔍 Ajouter un article (nom, référence, code-barres)…"
                 value={terme}
@@ -949,6 +968,19 @@ function FormulaireCommande({
           </div>
         </div>
       </div>
+      {tousLesArticles && (
+        <ModaleTousLesArticles
+          articles={tousLesArticles}
+          stockDepot={stock}
+          dejaAjoutes={new Set(lignes.map((l) => l.varianteId))}
+          avecRecette={null}
+          onAjouter={(choisis) => {
+            choisis.forEach(ajouterArticle);
+            setTousLesArticles(null);
+          }}
+          onFermer={() => setTousLesArticles(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1319,7 +1351,7 @@ function LivraisonCommande({
       <div className="modale-entete entete-fixe">
         <h3>Livrer la commande {commande.numero}</h3>
         <div className="actions-formulaire">
-          <button type="button" className="bouton-primaire" onClick={preparerLivraison} disabled={enCours || total <= 0}>
+          <button type="button" className="bouton-primaire bouton-enregistrer" onClick={preparerLivraison} disabled={enCours || total <= 0}>
             Confirmer la livraison
           </button>
           <button type="button" className="lien bouton-retour" onClick={onRetour}>
@@ -1532,7 +1564,7 @@ function AvanceCommande({
       <div className="modale-entete entete-fixe">
         <h3>Avance sur la commande {commande.numero}</h3>
         <div className="actions-formulaire">
-          <button type="button" className="bouton-primaire" onClick={verser} disabled={enCours}>
+          <button type="button" className="bouton-primaire bouton-enregistrer" onClick={verser} disabled={enCours}>
             {enCours ? "Enregistrement…" : "Enregistrer l'avance"}
           </button>
           <button type="button" className="lien bouton-retour" onClick={onRetour}>

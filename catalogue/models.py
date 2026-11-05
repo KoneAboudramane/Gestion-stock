@@ -102,6 +102,11 @@ class Variante(ModeleBase):
         "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="variantes_gros"
     )
     quantite_detail = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    # Recette (boutiques qui fabriquent) : les LigneRecette décrivent les
+    # ingrédients pour un lot de `recette_quantite` articles ; `recette_frais`
+    # = autres frais par unité (main-d'œuvre, gaz…). Pas de ligne = pas de recette.
+    recette_quantite = models.DecimalField(max_digits=12, decimal_places=2, default=1)
+    recette_frais = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
     def __str__(self):
         details = ", ".join(v.valeur_attribut.valeur for v in self.valeurs.all())
@@ -118,3 +123,20 @@ class VarianteValeur(ModeleBase):
 
     class Meta:
         unique_together = ("variante", "valeur_attribut")
+
+
+class LigneRecette(ModeleBase):
+    """Un ingrédient de la recette d'un article fabriqué (pour un lot de
+    `variante.recette_quantite`). À la fabrication, l'ingrédient sort du stock
+    du dépôt et son coût moyen entre dans le coût de l'article."""
+
+    variante = models.ForeignKey(
+        Variante, on_delete=models.CASCADE, related_name="lignes_recette"
+    )
+    ingredient = models.ForeignKey(
+        Variante, on_delete=models.PROTECT, related_name="utilise_dans_recettes"
+    )
+    quantite = models.DecimalField(max_digits=12, decimal_places=2)
+
+    def __str__(self):
+        return f"{self.variante} ← {self.quantite} × {self.ingredient}"

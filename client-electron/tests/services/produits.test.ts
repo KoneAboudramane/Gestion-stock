@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { executer, tousLesResultats, unResultat } from "../../electron/db/helpers";
 import {
+  attribuerReferencesManquantes,
   creerAttribut,
   creerCategorie,
   creerProduit,
@@ -12,6 +13,7 @@ import {
   listerArticlesCategorie,
   listerCategories,
   listerCategoriesDetail,
+  listerProduits,
   listerUnites,
   modifierAttribut,
   modifierCategorie,
@@ -21,6 +23,7 @@ import {
   obtenirProduit,
   supprimerAttribut,
   supprimerCategorie,
+  supprimerProduit,
   supprimerUnite,
 } from "../../electron/services/produits";
 import { creerBaseDeTest } from "../setup";
@@ -241,5 +244,95 @@ describe("catégories : doublons, suppression protégée, articles d'une catégo
     const { produitId } = creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "Rouleau", categorieId: peinture });
     supprimerCategorie(peinture, null);
     expect(obtenirProduit(produitId)!.categorieId).toBeNull();
+  });
+});
+
+describe("noms et codes-barres d'articles uniques dans la boutique", () => {
+  it("refuse un nom déjà pris, sans tenir compte des majuscules, accents et espaces", () => {
+    creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "Lait Nido carton" });
+    expect(() => creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "  lait  nido CARTON " })).toThrow(/existe déjà/);
+    creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "Café" });
+    expect(() => creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "cafe" })).toThrow(/existe déjà/);
+  });
+
+  it("accepte le nom d'un article supprimé", () => {
+    const { produitId } = creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "Savon" });
+    supprimerProduit(produitId);
+    expect(() => creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "Savon" })).not.toThrow();
+  });
+
+  it("refuse de renommer un article avec le nom d'un autre, mais laisse garder le sien", () => {
+    creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "Riz" });
+    const { produitId } = creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "Sucre" });
+    expect(() => modifierProduit(produitId, { nom: "RIZ" })).toThrow(/existe déjà/);
+    expect(() => modifierProduit(produitId, { nom: "sucre" })).not.toThrow();
+  });
+
+  it("refuse un code-barres déjà utilisé, à la création comme à la modification", () => {
+    creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "Huile", codeBarres: "6111" });
+    expect(() => creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "Vinaigre", codeBarres: " 6111 " })).toThrow(
+      /déjà utilisé par « Huile »/,
+    );
+    const { produitId, varianteId } = creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "Sel", codeBarres: "6222" });
+    expect(() => modifierVariante(varianteId, { codeBarres: "6111" })).toThrow(/déjà utilisé/);
+    expect(() => modifierVariante(varianteId, { codeBarres: "6222" })).not.toThrow();
+    expect(() => creerVariante({ produitId, codeBarres: "6111" })).toThrow(/déjà utilisé/);
+  });
+
+  it("autorise plusieurs articles sans code-barres", () => {
+    creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "Article A" });
+    expect(() => creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "Article B" })).not.toThrow();
+  });
+});
+
+describe("listerProduits", () => {
+  it("affiche tous les articles de la boutique, sans limite de nombre", () => {
+    for (let i = 1; i <= 250; i++) {
+      creerProduit({ boutiqueId: BOUTIQUE_ID, nom: `Article ${String(i).padStart(3, "0")}` });
+    }
+    const liste = listerProduits(BOUTIQUE_ID);
+    expect(liste).toHaveLength(250);
+    expect(liste[249].nom).toBe("Article 250");
+  });
+});
+
+describe("listerProduits — stock par dépôt (filtre « Dépôt » de la liste des articles)", () => {
+  it("donne la quantité et la valeur par dépôt, ignore les dépôts supprimés", () => {
+    executer("INSERT INTO depots (id, boutique_id, nom) VALUES ('d1', ?, 'Magasin'), ('d2', ?, 'Entrepôt')", [
+      BOUTIQUE_ID,
+      BOUTIQUE_ID,
+    ]);
+    executer("INSERT INTO depots (id, boutique_id, nom, supprime) VALUES ('d3', ?, 'Ancien', 1)", [BOUTIQUE_ID]);
+    const riz = creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "Riz", prixAchat: 100 });
+    creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "Sucre" });
+    executer(
+      "INSERT INTO stocks (id, variante_id, depot_id, quantite) VALUES ('s1', ?, 'd1', 5), ('s2', ?, 'd2', 0), ('s3', ?, 'd3', 7)",
+      [riz.varianteId, riz.varianteId, riz.varianteId],
+    );
+
+    const [produitRiz, produitSucre] = listerProduits(BOUTIQUE_ID);
+    expect(produitRiz.stocksParDepot).toEqual({ d1: { quantite: 5, valeur: 500 }, d2: { quantite: 0, valeur: 0 } });
+    expect(produitSucre.stocksParDepot).toEqual({});
+  });
+});
+
+describe("attribuerReferencesManquantes (anciens articles créés avant la référence automatique)", () => {
+  it("numérote à la suite, dans l'ordre de création, et les articles créés ensuite ne reprennent pas ces numéros", () => {
+    const a = creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "A" }); // REF-000001
+    const b = creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "B" }); // REF-000002
+    const c = creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "C" }); // REF-000003
+    executer("UPDATE variantes SET reference = '', date_creation = '2026-07-01' WHERE id = ?", [b.varianteId]);
+    executer("UPDATE variantes SET reference = NULL, date_creation = '2026-06-01' WHERE id = ?", [c.varianteId]);
+
+    expect(attribuerReferencesManquantes(BOUTIQUE_ID)).toBe(2);
+    const reference = (id: string) =>
+      unResultat<{ reference: string }>("SELECT reference FROM variantes WHERE id = ?", [id])!.reference;
+    expect(reference(a.varianteId)).toBe("REF-000001");
+    expect(reference(c.varianteId)).toBe("REF-000004");
+    expect(reference(b.varianteId)).toBe("REF-000005");
+
+    const d = creerProduit({ boutiqueId: BOUTIQUE_ID, nom: "D" });
+    expect(reference(d.varianteId)).toBe("REF-000006");
+    expect(attribuerReferencesManquantes(BOUTIQUE_ID)).toBe(0);
   });
 });

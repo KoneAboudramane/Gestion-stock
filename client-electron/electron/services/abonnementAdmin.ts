@@ -20,6 +20,7 @@ export interface AbonnementBoutique {
   formule: string;
   dateExpirationAbonnement: string | null;
   synchroAutorisee: boolean;
+  reseauAutorise: boolean;
 }
 
 export function obtenirBoutiqueLocale(): AbonnementBoutique | null {
@@ -29,7 +30,8 @@ export function obtenirBoutiqueLocale(): AbonnementBoutique | null {
     formule: string;
     date_expiration_abonnement: string | null;
     synchro_autorisee: number;
-  }>("SELECT id, nom, formule, date_expiration_abonnement, synchro_autorisee FROM boutiques LIMIT 1");
+    reseau_autorise: number;
+  }>("SELECT id, nom, formule, date_expiration_abonnement, synchro_autorisee, reseau_autorise FROM boutiques LIMIT 1");
   if (!ligne) return null;
   return {
     boutiqueId: ligne.id,
@@ -37,6 +39,7 @@ export function obtenirBoutiqueLocale(): AbonnementBoutique | null {
     formule: ligne.formule,
     dateExpirationAbonnement: ligne.date_expiration_abonnement,
     synchroAutorisee: Boolean(ligne.synchro_autorisee),
+    reseauAutorise: Boolean(ligne.reseau_autorise),
   };
 }
 
@@ -44,6 +47,8 @@ export interface ChampsAbonnement {
   formule?: string;
   dateExpirationAbonnement?: string | null;
   synchroAutorisee?: boolean;
+  /** Réseau de la boutique (ordinateurs reliés sans internet). */
+  reseauAutorise?: boolean;
   /** Inscrits au registre des abonnements avec la nouvelle période (voir comptes/views.py::AppliquerAbonnementView). */
   nature?: "paiement" | "offert" | "ajustement";
   montant?: number;
@@ -72,6 +77,10 @@ function appliquerLocalement(boutiqueId: string, champs: ChampsAbonnement): void
   if (champs.synchroAutorisee !== undefined) {
     colonnes.push("synchro_autorisee");
     valeurs.push(champs.synchroAutorisee ? 1 : 0);
+  }
+  if (champs.reseauAutorise !== undefined) {
+    colonnes.push("reseau_autorise");
+    valeurs.push(champs.reseauAutorise ? 1 : 0);
   }
   if (colonnes.length === 0) return;
   executer(`UPDATE boutiques SET ${colonnes.map((c) => `${c} = ?`).join(", ")} WHERE id = ?`, [
@@ -115,6 +124,50 @@ function effacerEnAttente(): void {
 export type ResultatAbonnement = { statut: "synchronise" } | { statut: "horsLigne" };
 
 /**
+ * Espace Admin → Gérer abonnement (comptes/views.py::AdminAbonnementBoutiqueView) :
+ * détail complet lu sur le serveur, validation / rejet d'un paiement déclaré,
+ * code d'activation hors ligne. Internet nécessaire (identifiants admin revérifiés).
+ */
+export async function detailAbonnementAdmin(
+  username: string,
+  password: string,
+  boutiqueId: string,
+  action?: "valider" | "rejeter" | "code",
+  params: { demandeId?: string; motif?: string } = {},
+): Promise<unknown> {
+  return appelerApi("/auth/abonnement-boutique/", {
+    username,
+    password,
+    boutique_id: boutiqueId,
+    ...(action ? { action } : {}),
+    ...(params.demandeId ? { demande_id: params.demandeId } : {}),
+    ...(params.motif ? { motif: params.motif } : {}),
+  });
+}
+
+/** Espace Admin → Réseau de la boutique (comptes/views.py::AdminReseauBoutiqueView). */
+export interface EtatReseauAdmin {
+  reseau_autorise: boolean;
+  demandes: {
+    date: string;
+    demandeur: string;
+    note: string;
+    statut: "en_attente" | "acceptee" | "refusee";
+    statut_libelle: string;
+    date_traitement: string | null;
+  }[];
+}
+
+export async function etatReseauAdmin(
+  username: string,
+  password: string,
+  boutiqueId: string,
+  action?: "refuser",
+): Promise<EtatReseauAdmin> {
+  return appelerApi("/auth/reseau-boutique/", { username, password, boutique_id: boutiqueId, ...(action ? { action } : {}) });
+}
+
+/**
  * Tente toujours le serveur d'abord (identifiants admin revérifiés là-bas,
  * voir comptes/views.py::AppliquerAbonnementView) et n'écrit "en attente"
  * localement que si le réseau est réellement indisponible — le mot de passe
@@ -139,6 +192,7 @@ export async function soumettreAbonnement(
         ? { date_expiration_abonnement: champs.dateExpirationAbonnement }
         : {}),
       ...(champs.synchroAutorisee !== undefined ? { synchro_autorisee: champs.synchroAutorisee } : {}),
+      ...(champs.reseauAutorise !== undefined ? { reseau_autorise: champs.reseauAutorise } : {}),
       ...(champs.nature ? { nature: champs.nature } : {}),
       ...(champs.montant ? { montant: champs.montant } : {}),
       ...(champs.mode ? { mode: champs.mode } : {}),
@@ -150,7 +204,12 @@ export async function soumettreAbonnement(
   } catch (erreur) {
     if (!estErreurReseau(erreur)) throw erreur;
     appliquerLocalement(boutiqueId, champs);
-    enregistrerEnAttente({ boutiqueId, boutiqueNom, champs });
+    const precedente = lireAbonnementEnAttente();
+    enregistrerEnAttente({
+      boutiqueId,
+      boutiqueNom,
+      champs: precedente?.boutiqueId === boutiqueId ? { ...precedente.champs, ...champs } : champs,
+    });
     return { statut: "horsLigne" };
   }
 }

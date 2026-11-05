@@ -2,6 +2,7 @@ import initSqlJs from "sql.js";
 
 import { SCHEMA_SQL } from "../electron/db/schema";
 import { definirBaseDeDonneesPourLesTests } from "../electron/db/index";
+import { installerSuiviReseau } from "../electron/db/reseau";
 
 /** Base sql.js en mémoire, réinitialisée pour chaque test (pas de fichier, pas d'Electron). */
 export async function creerBaseDeTest(): Promise<void> {
@@ -12,5 +13,6 @@ export async function creerBaseDeTest(): Promise<void> {
   });
   const db = new SQL.Database();
   db.run(SCHEMA_SQL);
+  installerSuiviReseau(db);
   definirBaseDeDonneesPourLesTests(db);
 }
