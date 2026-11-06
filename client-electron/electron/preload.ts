@@ -507,5 +507,6 @@ contextBridge.exposeInMainWorld("api", {
     exporterPdf: (nomFichierDefaut: string) => ipcRenderer.invoke("systeme:exporterPdf", nomFichierDefaut),
     ouvrirExterne: (url: string) => ipcRenderer.invoke("systeme:ouvrirExterne", url),
     version: () => ipcRenderer.invoke("systeme:version"),
+    urlAppliAndroid: () => ipcRenderer.invoke("systeme:urlAppliAndroid"),
   },
 });

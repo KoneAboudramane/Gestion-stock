@@ -1618,6 +1618,8 @@ export interface BoutiqueDetail {
   /** Abonnement (formule Essentiel/Pro et échéance), affiché dans Informations boutique. */
   formule: string;
   dateExpirationAbonnement: string | null;
+  /** Carte « 📱 Appli mobile » de Réglages, activée par l'administrateur. */
+  appliMobileAutorisee: boolean;
 }
 
 /** Nombre d'articles qui utilisent chaque unité / chaque attribut (Réglages → Paramètres). */
@@ -2484,6 +2486,8 @@ export interface WindowApi {
     exporterPdf(nomFichierDefaut: string): Promise<ResultatExporter>;
     ouvrirExterne(url: string): Promise<void>;
     version(): Promise<string>;
+    /** Adresse de téléchargement de l'appli Android (encodée dans le QR code). */
+    urlAppliAndroid(): Promise<string>;
   };
 }
 

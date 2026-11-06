@@ -95,10 +95,10 @@ class BoutiqueAdmin(admin.ModelAdmin):
     list_display = (
         "nom", "telephone", "devise", "formule", "actif",
         "date_expiration_abonnement", "etat_abonnement", "demandes", "signalements", "synchro_autorisee",
-        "reseau_autorise", "demande_reseau", "derniere_sauvegarde",
+        "reseau_autorise", "appli_mobile_autorisee", "demande_reseau", "derniere_sauvegarde",
         "lien_renouveler", "lien_supprimer", "date_creation",
     )
-    list_editable = ("synchro_autorisee", "reseau_autorise")
+    list_editable = ("synchro_autorisee", "reseau_autorise", "appli_mobile_autorisee")
     search_fields = ("nom", "telephone", "email")
     list_filter = (FiltreEcheanceAbonnement, "actif", "formule", "devise", "synchro_autorisee", "reseau_autorise")
     inlines = [PaiementAbonnementInline]

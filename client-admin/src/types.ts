@@ -19,6 +19,8 @@ export interface ResumeBoutique {
   abonnement: EtatAbonnement;
   synchro_autorisee: boolean;
   reseau_autorise: boolean;
+  /** Carte « 📱 Appli mobile » (QR de téléchargement) visible dans les Réglages de la boutique. */
+  appli_mobile_autorisee: boolean;
   nb_utilisateurs: number;
   derniere_synchro: string | null;
   date_derniere_sauvegarde: string | null;

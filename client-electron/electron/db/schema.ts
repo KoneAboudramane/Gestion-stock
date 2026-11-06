@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS boutiques (
   formule TEXT DEFAULT 'essentiel',
   synchro_autorisee INTEGER DEFAULT 0,
   reseau_autorise INTEGER DEFAULT 0,
+  appli_mobile_autorisee INTEGER DEFAULT 0,
   ${SUIVI_SYNC}
 );
 

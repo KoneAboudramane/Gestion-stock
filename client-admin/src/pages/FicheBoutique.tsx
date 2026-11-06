@@ -21,7 +21,7 @@ export default function FicheBoutique({ id, surFermer, surModifiee }: Props) {
   const [enregistrement, setEnregistrement] = useState(false);
   const [erreurAction, setErreurAction] = useState("");
 
-  async function modifier(champs: Partial<Pick<Fiche, "synchro_autorisee">>, confirmation: string) {
+  async function modifier(champs: Partial<Pick<Fiche, "synchro_autorisee" | "appli_mobile_autorisee">>, confirmation: string) {
     if (!window.confirm(confirmation)) return;
     setEnregistrement(true);
     setErreurAction("");
@@ -103,6 +103,22 @@ export default function FicheBoutique({ id, surFermer, surModifiee }: Props) {
                   }
                 />
                 Synchronisation en ligne
+              </label>
+              <label className="interrupteur">
+                <input
+                  type="checkbox"
+                  checked={fiche.appli_mobile_autorisee}
+                  disabled={enregistrement}
+                  onChange={(e) =>
+                    modifier(
+                      { appli_mobile_autorisee: e.target.checked },
+                      e.target.checked
+                        ? `Afficher la carte « 📱 Appli mobile » (QR code de téléchargement Android) dans les Réglages de « ${fiche.nom} » ?`
+                        : `Cacher la carte « 📱 Appli mobile » des Réglages de « ${fiche.nom} » ?`,
+                    )
+                  }
+                />
+                Appli mobile
               </label>
             </div>
           </section>

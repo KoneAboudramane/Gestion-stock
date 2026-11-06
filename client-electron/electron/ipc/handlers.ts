@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { URL_BASE_API } from "../config";
 
 import * as abonnement from "../services/abonnement";
 import * as abonnementAdmin from "../services/abonnementAdmin";
@@ -1221,4 +1222,8 @@ export function enregistrerLesHandlers(): void {
   });
 
   ipcMain.handle("systeme:version", () => app.getVersion());
+
+  // Adresse fixe de téléchargement de l'appli Android (QR code de Informations
+  // boutique) : même serveur que l'API, route Django /telecharger/android/.
+  ipcMain.handle("systeme:urlAppliAndroid", () => `${URL_BASE_API.replace(/\/api\/?$/, "")}/telecharger/android/`);
 }

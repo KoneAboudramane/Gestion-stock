@@ -1,8 +1,11 @@
 from django.contrib import admin
 from django.urls import include, path
 
+from configuration.telechargement import telecharger_android
+
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("telecharger/android/", telecharger_android, name="telecharger-android"),
     path("api/", include("comptes.urls")),
     path("api/", include("catalogue.urls")),
     path("api/", include("stock.urls")),

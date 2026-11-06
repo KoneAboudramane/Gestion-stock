@@ -42,7 +42,7 @@ REGISTRE = [
         champs_proteges=frozenset(
             {
                 "actif", "date_expiration_abonnement", "formule", "synchro_autorisee",
-                "date_derniere_sauvegarde", "reseau_autorise",
+                "date_derniere_sauvegarde", "reseau_autorise", "appli_mobile_autorisee",
             }
         ),
     ),

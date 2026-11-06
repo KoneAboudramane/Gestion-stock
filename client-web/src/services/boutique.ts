@@ -28,6 +28,8 @@ export interface BoutiqueDetail {
   /** Abonnement (formule Essentiel/Pro et échéance), affiché dans Informations boutique. */
   formule: string;
   dateExpirationAbonnement: string | null;
+  /** Carte « 📱 Appli mobile » de Réglages, activée par l'administrateur. */
+  appliMobileAutorisee: boolean;
 }
 
 export async function obtenirBoutique(boutiqueId: string): Promise<BoutiqueDetail | undefined> {
@@ -42,6 +44,7 @@ export async function obtenirBoutique(boutiqueId: string): Promise<BoutiqueDetai
     devise: boutique.devise,
     formule: boutique.formule || "essentiel",
     dateExpirationAbonnement: boutique.date_expiration_abonnement ?? null,
+    appliMobileAutorisee: boutique.appli_mobile_autorisee === 1,
   };
 }
 

@@ -53,6 +53,10 @@ class Boutique(ModeleBase):
     # par défaut. Réglé dans l'admin Django ou dans l'Espace Admin de l'appli
     # (AppliquerAbonnementView) ; protégé de la synchro (synchronisation/registre.py).
     reseau_autorise = models.BooleanField(default=False)
+    # Carte « 📱 Appli mobile » de Réglages (QR code de téléchargement de l'appli
+    # Android) : cachée tant que l'administrateur ne l'active pas, boutique par
+    # boutique (site d'administration, fiche boutique). Protégé de la synchro.
+    appli_mobile_autorisee = models.BooleanField(default=False)
 
     def __str__(self):
         return self.nom

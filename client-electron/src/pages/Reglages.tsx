@@ -32,6 +32,7 @@ import type {
 import { appliquerTheme, themeActuel, type Theme } from "../lib/theme";
 import { CLE_PARAMETRE_FABRICATION_PROPRE } from "../hooks/useFabricationPropre";
 import ModaleAbonnement from "../components/ModaleAbonnement";
+import ModaleAppliMobile from "../components/ModaleAppliMobile";
 
 const CLES_PERMISSIONS: { cle: string; label: string }[] = [
   { cle: "vendre", label: "Vendre / encaisser" },
@@ -112,6 +113,7 @@ const SECTIONS = [
   { cle: "utilisateurs", label: "Utilisateurs & rôles", icone: "👥" },
   { cle: "parametres", label: "Paramètres", icone: "⚙️" },
   { cle: "synchronisation", label: "Synchronisation", icone: "🔄" },
+  { cle: "appli", label: "Appli mobile", icone: "📱" },
   { cle: "reseau", label: "Réseau de la boutique", icone: "📶" },
   { cle: "sauvegarde", label: "Sauvegarde", icone: "💾" },
 ] as const;
@@ -2604,9 +2606,12 @@ export default function Reglages({
   const [reseauAutorise, setReseauAutorise] = useState<boolean | null>(null);
   const [sauvegardeConfiguree, setSauvegardeConfiguree] = useState<boolean | null>(null);
   const [demandeReseau, setDemandeReseau] = useState<string | null>(null);
+  // Carte « 📱 Appli mobile » : grisée tant que l'administrateur ne l'a pas activée pour la boutique.
+  const [appliMobileAutorisee, setAppliMobileAutorisee] = useState(false);
 
   useEffect(() => {
     if (sectionOuverte) return;
+    api.reglages.obtenirBoutique(session.boutiqueId).then((b) => setAppliMobileAutorisee(Boolean(b?.appliMobileAutorisee)));
     api.reseau.etat().then((r) => setReseauAutorise(r.reseauAutorise)).catch(() => setReseauAutorise(false));
     api.sauvegarde.etat().then((e) => setSauvegardeConfiguree(e.configuree)).catch(() => setSauvegardeConfiguree(false));
   }, [sectionOuverte]);
@@ -2628,6 +2633,7 @@ export default function Reglages({
   function raisonDesactivee(cle: Section): string | null {
     if (cle === "reseau" && reseauAutorise === false) return "Non activé par votre administrateur";
     if (cle === "sauvegarde" && sauvegardeConfiguree === false) return "Non paramétrée par votre administrateur";
+    if (cle === "appli" && !appliMobileAutorisee) return "Non activé par votre administrateur";
     return null;
   }
 
@@ -2697,6 +2703,9 @@ export default function Reglages({
       )}
       {sectionOuverte === "reseau" && <ModaleReseauBoutique session={session} onFermer={() => setSectionOuverte(null)} />}
       {sectionOuverte === "sauvegarde" && <ModaleEtatSauvegarde onFermer={() => setSectionOuverte(null)} />}
+      {sectionOuverte === "appli" && appliMobileAutorisee && (
+        <ModaleAppliMobile nomBoutique={session.boutiqueNom} onFermer={() => setSectionOuverte(null)} />
+      )}
       {sectionOuverte === "synchronisation" && (
         <ModaleSynchronisation
           session={session}

@@ -36,6 +36,8 @@ export interface BoutiqueLocale extends SuiviSync {
   synchro_autorisee: 0 | 1;
   /** Réseau de la boutique activé par l'administrateur (comptes.Boutique.reseau_autorise) — champ protégé. */
   reseau_autorise?: 0 | 1;
+  /** Carte « 📱 Appli mobile » de Réglages activée par l'administrateur (comptes.Boutique.appli_mobile_autorisee) — champ protégé. */
+  appli_mobile_autorisee?: 0 | 1;
 }
 
 export interface CategorieLocale extends SuiviSync {

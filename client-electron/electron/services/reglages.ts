@@ -23,14 +23,18 @@ export interface BoutiqueDetail {
   /** Abonnement (formule Essentiel/Pro et échéance), affiché dans Informations boutique. */
   formule: string;
   dateExpirationAbonnement: string | null;
+  /** Carte « 📱 Appli mobile » de Réglages, activée par l'administrateur. */
+  appliMobileAutorisee: boolean;
 }
 
 export function obtenirBoutique(boutiqueId: string): BoutiqueDetail | undefined {
-  return unResultat<BoutiqueDetail>(
+  const ligne = unResultat<Omit<BoutiqueDetail, "appliMobileAutorisee"> & { appliMobileAutorisee: number | null }>(
     `SELECT id, nom, adresse, telephone, email, devise, COALESCE(formule, 'essentiel') as formule,
-            date_expiration_abonnement as dateExpirationAbonnement FROM boutiques WHERE id = ?`,
+            date_expiration_abonnement as dateExpirationAbonnement,
+            appli_mobile_autorisee as appliMobileAutorisee FROM boutiques WHERE id = ?`,
     [boutiqueId],
   );
+  return ligne && { ...ligne, appliMobileAutorisee: Boolean(ligne.appliMobileAutorisee) };
 }
 
 export function modifierBoutique(

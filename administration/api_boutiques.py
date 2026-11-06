@@ -100,6 +100,7 @@ def resume_boutique(b, maintenant=None):
         "abonnement": etat_abonnement(b, maintenant),
         "synchro_autorisee": b.synchro_autorisee,
         "reseau_autorise": b.reseau_autorise,
+        "appli_mobile_autorisee": b.appli_mobile_autorisee,
         "nb_utilisateurs": b.nb_utilisateurs if hasattr(b, "nb_utilisateurs") else b.utilisateurs.count(),
         "derniere_synchro": getattr(b, "derniere_synchro", None),
         "date_derniere_sauvegarde": b.date_derniere_sauvegarde,
@@ -188,6 +189,7 @@ class ModificationBoutiqueSerializer(serializers.Serializer):
     # Pas de « actif » ici : Boutique.actif n'est appliqué nulle part (connexion,
     # synchro), le proposer laisserait croire qu'on peut couper une boutique.
     synchro_autorisee = serializers.BooleanField(required=False)
+    appli_mobile_autorisee = serializers.BooleanField(required=False)
 
 
 class FicheBoutiqueView(APIView):
@@ -255,6 +257,7 @@ class FicheBoutiqueView(APIView):
             for champ in champs:
                 action = {
                     "synchro_autorisee": "synchro_activee" if b.synchro_autorisee else "synchro_desactivee",
+                    "appli_mobile_autorisee": "appli_mobile_activee" if b.appli_mobile_autorisee else "appli_mobile_desactivee",
                 }[champ]
                 journaliser(request, request.user, action, boutique=b)
         return self.get(request, pk)

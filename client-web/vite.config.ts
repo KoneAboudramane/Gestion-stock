@@ -50,6 +50,10 @@ export default defineConfig(({ mode }) => ({
       },
     }),
   ],
+  // L'appli Android a son propre dossier (webDir de capacitor.config.ts) :
+  // dist/ est versionné et servi tel quel par Django en production, il ne doit
+  // jamais recevoir la version Android (API en adresse absolue, sans service worker).
+  build: mode === "capacitor" ? { outDir: "dist-android" } : {},
   server: {
     port: 5174,
   },

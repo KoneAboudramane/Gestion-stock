@@ -60,6 +60,7 @@ import { compterEnAttente } from "../sync";
 import { CLE_PARAMETRE_FABRICATION_PROPRE } from "../hooks/useFabricationPropre";
 import { fabricationPropreActive } from "../services/stock";
 import ModaleAbonnement from "../components/ModaleAbonnement";
+import ModaleAppliMobile from "../components/ModaleAppliMobile";
 
 /**
  * Port simplifié de client-electron/src/pages/Reglages.tsx. Non repris ici :
@@ -155,6 +156,7 @@ const SECTIONS = [
   { cle: "utilisateurs", label: "Utilisateurs & rôles", icone: "👥" },
   { cle: "parametres", label: "Paramètres", icone: "⚙️" },
   { cle: "synchronisation", label: "Synchronisation", icone: "🔄" },
+  { cle: "appli", label: "Appli mobile", icone: "📱" },
 ] as const;
 
 type Section = (typeof SECTIONS)[number]["cle"];
@@ -2545,6 +2547,13 @@ function ModaleParametres({ session, onFermer }: { session: Session; onFermer: (
 
 export default function Reglages({ session }: { session: Session }) {
   const [sectionOuverte, setSectionOuverte] = useState<Section | null>(null);
+  // Carte « 📱 Appli mobile » : grisée tant que l'administrateur ne l'a pas activée pour la boutique.
+  const [appliMobileAutorisee, setAppliMobileAutorisee] = useState(false);
+
+  useEffect(() => {
+    if (sectionOuverte) return;
+    obtenirBoutique(session.boutiqueId).then((b) => setAppliMobileAutorisee(Boolean(b?.appliMobileAutorisee)));
+  }, [sectionOuverte, session.boutiqueId]);
 
   return (
     <div className="page-produits page-accueil">
@@ -2569,17 +2578,30 @@ export default function Reglages({ session }: { session: Session }) {
         />
       ))}
       <div className="grille-documents-comptables">
-        {SECTIONS.map((s) => (
-          <button
-            key={s.cle}
-            type="button"
-            className="carte-document-comptable"
-            onClick={() => setSectionOuverte(s.cle)}
-          >
-            <span className="icone-document-comptable">{s.icone}</span>
-            {s.label}
-          </button>
-        ))}
+        {SECTIONS.map((s) =>
+          s.cle === "appli" && !appliMobileAutorisee ? (
+            <div
+              key={s.cle}
+              className="carte-document-comptable carte-document-desactivee"
+              title="Non activé par votre administrateur"
+              aria-disabled="true"
+            >
+              <span className="icone-document-comptable">{s.icone}</span>
+              {s.label}
+              <span className="mention-carte-desactivee">🔒 Non activé par votre administrateur</span>
+            </div>
+          ) : (
+            <button
+              key={s.cle}
+              type="button"
+              className="carte-document-comptable"
+              onClick={() => setSectionOuverte(s.cle)}
+            >
+              <span className="icone-document-comptable">{s.icone}</span>
+              {s.label}
+            </button>
+          ),
+        )}
       </div>
       {sectionOuverte === "profil" && (
         <ModaleProfilBoutique session={session} onFermer={() => setSectionOuverte(null)} />
@@ -2592,6 +2614,9 @@ export default function Reglages({ session }: { session: Session }) {
       )}
       {sectionOuverte === "synchronisation" && (
         <ModaleSynchronisation session={session} onFermer={() => setSectionOuverte(null)} />
+      )}
+      {sectionOuverte === "appli" && appliMobileAutorisee && (
+        <ModaleAppliMobile nomBoutique={session.boutiqueNom} onFermer={() => setSectionOuverte(null)} />
       )}
     </div>
   );

@@ -164,6 +164,12 @@ MEDIA_ROOT = BASE_DIR / "media"
 WHITENOISE_ROOT = BASE_DIR / "client-web" / "dist"
 WHITENOISE_INDEX_FILE = True
 
+# Appli Android à télécharger (QR code de Réglages > Informations boutique) :
+# l'APK est déposé à la main sur le serveur (FTP / gestionnaire de fichiers),
+# pas versionné. Adresse fixe : /telecharger/android/ (voir configuration/telechargement.py).
+TELECHARGEMENTS_DIR = Path(os.environ.get("TELECHARGEMENTS_DIR", BASE_DIR / "telechargements"))
+APK_ANDROID_NOM = "gestion-stock.apk"
+
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",

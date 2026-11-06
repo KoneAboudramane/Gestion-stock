@@ -77,6 +77,16 @@ class BoutiquesTests(BaseAdmin):
         self.boutique.refresh_from_db()
         self.assertTrue(self.boutique.actif)
 
+    def test_activer_l_appli_mobile_est_journalise(self):
+        self.connecter()
+        url = reverse("admin-fiche-boutique", args=[self.boutique.id])
+        self.assertFalse(self.client.get(url).data["appli_mobile_autorisee"])
+        r = self.client.patch(url, {"appli_mobile_autorisee": True}, format="json")
+        self.assertTrue(r.data["appli_mobile_autorisee"])
+        self.boutique.refresh_from_db()
+        self.assertTrue(self.boutique.appli_mobile_autorisee)
+        self.assertTrue(JournalAdmin.objects.filter(action="appli_mobile_activee", boutique=self.boutique).exists())
+
     def test_sans_le_droit_boutiques(self):
         limite = Utilisateur.objects.create_user(username="limite", password=MDP, is_staff=True)
         ProfilAdmin.objects.create(utilisateur=limite, droits=["paiements"])

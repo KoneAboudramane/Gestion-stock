@@ -11342,3 +11342,108 @@ button.pastille-admin:hover {
   font-size: 0.85rem;
   font-weight: 500;
 }
+
+/* Informations boutique > 📱 Appli mobile : modale du QR code de téléchargement Android. */
+.modale-corps.appli-mobile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0.9rem;
+}
+
+.modale-corps.appli-mobile .note-aide {
+  max-width: 34rem;
+  margin: 0;
+}
+
+/* Fond blanc même en thème sombre : un QR doit être sombre sur clair pour se scanner. */
+.qr-appli-mobile {
+  width: 260px;
+  height: 260px;
+  background: #ffffff;
+  border-radius: var(--rayon-sm);
+}
+
+.lien-appli-mobile {
+  font-size: 0.8rem;
+  color: var(--gris-500);
+  overflow-wrap: anywhere;
+}
+
+.actions-appli-mobile {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+/* Affiche à imprimer : hors de #root (portail), visible seulement à l'impression. */
+.zone-impression-affiche-appli {
+  display: none;
+}
+
+@media print {
+  body.impression-affiche-appli .zone-impression-affiche-appli {
+    display: block !important;
+    text-align: center;
+    color: #000000;
+    background: #ffffff;
+    padding-top: 1.5cm;
+  }
+
+  .zone-impression-affiche-appli h1 {
+    font-size: 26pt;
+    margin: 0 0 0.3cm;
+  }
+
+  .zone-impression-affiche-appli h2 {
+    font-size: 18pt;
+    font-weight: normal;
+    margin: 0 0 0.8cm;
+  }
+
+  .zone-impression-affiche-appli img {
+    width: 9cm;
+    height: 9cm;
+  }
+
+  .zone-impression-affiche-appli ol {
+    display: inline-block;
+    text-align: left;
+    font-size: 13pt;
+    line-height: 1.6;
+    margin: 0.8cm auto 0.5cm;
+  }
+
+  .zone-impression-affiche-appli .lien-affiche {
+    font-size: 10pt;
+    color: #444444;
+  }
+}
+
+/* Réglages : carte d'une option pas encore activée par l'administrateur. */
+.carte-document-comptable.carte-document-desactivee {
+  opacity: 0.6;
+  cursor: not-allowed;
+  filter: grayscale(0.6);
+}
+
+.carte-document-comptable.carte-document-desactivee:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.carte-document-desactivee .lien {
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.mention-carte-desactivee {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--gris-600);
+}

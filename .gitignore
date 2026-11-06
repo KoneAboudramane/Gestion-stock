@@ -15,6 +15,7 @@ staticfiles/
 node_modules/
 dist/
 dist-electron/
+dist-android/
 release/
 *.tsbuildinfo
 npm-debug.log*
@@ -30,3 +31,6 @@ client-electron/_*_tmp*.mjs
 
 # --- État interne Claude Code (spécifique à la machine) ---
 .claude/scheduled_tasks.lock
+
+# --- Appli Android déposée sur le serveur (voir TELECHARGEMENTS_DIR) ---
+telechargements/

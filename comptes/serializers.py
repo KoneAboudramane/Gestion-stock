@@ -60,11 +60,11 @@ class BoutiqueSerializer(serializers.ModelSerializer):
         fields = [
             "id", "nom", "adresse", "telephone", "email", "logo",
             "devise", "actif", "date_expiration_abonnement", "formule",
-            "synchro_autorisee", "reseau_autorise", "date_creation",
+            "synchro_autorisee", "reseau_autorise", "appli_mobile_autorisee", "date_creation",
         ]
         read_only_fields = [
             "id", "actif", "date_expiration_abonnement", "formule",
-            "synchro_autorisee", "reseau_autorise", "date_creation",
+            "synchro_autorisee", "reseau_autorise", "appli_mobile_autorisee", "date_creation",
         ]
 
 

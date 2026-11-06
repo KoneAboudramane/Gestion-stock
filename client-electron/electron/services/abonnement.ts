@@ -162,6 +162,8 @@ export interface BoutiqueServeur {
   synchro_autorisee: boolean;
   /** Absent d'un serveur pas encore à jour : le réglage du poste est alors gardé. */
   reseau_autorise?: boolean;
+  /** Carte « 📱 Appli mobile » de Réglages, activée par l'administrateur. */
+  appli_mobile_autorisee?: boolean;
 }
 
 /**
@@ -190,12 +192,14 @@ export function memoriserAbonnementBoutique(boutique: BoutiqueServeur): void {
   );
   executer(
     `UPDATE boutiques SET formule = ?, date_expiration_abonnement = ?, synchro_autorisee = ?,
-       reseau_autorise = COALESCE(?, reseau_autorise) WHERE id = ?`,
+       reseau_autorise = COALESCE(?, reseau_autorise),
+       appli_mobile_autorisee = COALESCE(?, appli_mobile_autorisee) WHERE id = ?`,
     [
       boutique.formule,
       boutique.date_expiration_abonnement,
       boutique.synchro_autorisee ? 1 : 0,
       boutique.reseau_autorise === undefined ? null : boutique.reseau_autorise ? 1 : 0,
+      boutique.appli_mobile_autorisee === undefined ? null : boutique.appli_mobile_autorisee ? 1 : 0,
       boutique.id,
     ],
   );
