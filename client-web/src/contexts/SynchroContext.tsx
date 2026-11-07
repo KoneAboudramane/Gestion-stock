@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { rafraichirPermissions } from "../api/auth";
 import type { Session } from "../api/auth";
 import { useSession } from "./SessionContext";
+import { estCaisseBranchee, lireConfigReseau, synchroniserAvecPrincipal } from "../services/reseau";
 import { etatSynchro, synchroniser as synchroniserSession } from "../sync";
 
 /**
@@ -14,6 +15,8 @@ import { etatSynchro, synchroniser as synchroniserSession } from "../sync";
  */
 
 const INTERVALLE_SYNCHRO_AUTO_MS = 5 * 60 * 1000;
+/** Poste principal du réseau de la boutique : il relaie les ventes des caisses, il synchronise plus souvent. */
+const INTERVALLE_SYNCHRO_POSTE_PRINCIPAL_MS = 60 * 1000;
 
 interface EtatSynchro {
   derniereSynchro: string | null;
@@ -51,6 +54,13 @@ export function SynchroProvider({ session, children }: { session: Session; child
     setEnCours(true);
     if (!silencieux) setErreur(null);
     try {
+      // Une caisse branchée ne parle pas au serveur en ligne : c'est le poste
+      // principal qui relaie tout (un seul chemin, pas de doublons) — comme le bureau.
+      if (estCaisseBranchee()) {
+        await synchroniserAvecPrincipal();
+        if (!silencieux) setErreur("Cette caisse est branchée au poste principal : c'est lui qui synchronise en ligne.");
+        return;
+      }
       const resultat = await synchroniserSession(sessionRef.current);
       setEtat({ derniereSynchro: resultat.derniereSynchro, enLigne: true });
     } catch (e) {
@@ -66,7 +76,17 @@ export function SynchroProvider({ session, children }: { session: Session; child
     setEtat({ derniereSynchro: etatSynchro().derniereSynchro, enLigne: navigator.onLine });
     synchroniser(true);
 
-    const intervalleSynchro = setInterval(() => synchroniser(true), INTERVALLE_SYNCHRO_AUTO_MS);
+    // Toutes les minutes sur le poste principal, toutes les 5 minutes sur un appareil seul ;
+    // une caisse branchée échange avec le poste principal (services/reseau.ts), pas en ligne.
+    let minutes = 0;
+    const intervalleSynchro = setInterval(() => {
+      minutes++;
+      const role = lireConfigReseau().role;
+      if (role === "caisse") return;
+      if (role === "principal" || minutes % (INTERVALLE_SYNCHRO_AUTO_MS / INTERVALLE_SYNCHRO_POSTE_PRINCIPAL_MS) === 0) {
+        synchroniser(true);
+      }
+    }, INTERVALLE_SYNCHRO_POSTE_PRINCIPAL_MS);
     const surReconnexion = () => {
       setEtat((etatActuel) => (etatActuel ? { ...etatActuel, enLigne: true } : etatActuel));
       synchroniser(true);

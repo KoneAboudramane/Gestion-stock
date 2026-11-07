@@ -647,6 +647,15 @@ export default function ModaleReseauBoutique({ session, onFermer }: { session: S
             </div>
           </div>
           <div className="bloc-reseau">
+            <h4>📱 Téléphones et tablettes</h4>
+            <p className="note-aide">
+              Avec l'appli mobile, un téléphone ou une tablette peut être <strong>caisse</strong> ou <strong>poste
+              principal</strong>, et se mélanger avec des ordinateurs. Un poste principal mobile : sur chargeur, appli
+              ouverte (une notification « 🟢 Serveur de la boutique actif » reste affichée), et retiré de l'économie de
+              batterie — sinon certaines marques (Tecno, Infinix, Itel, Xiaomi…) coupent le serveur écran éteint.
+            </p>
+          </div>
+          <div className="bloc-reseau">
             <h4>🛡️ Pare-feu Windows</h4>
             <p className="note-aide">
               Au premier démarrage du poste principal, Windows peut demander d'autoriser l'application sur le réseau :

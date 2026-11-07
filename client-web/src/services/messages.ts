@@ -5,10 +5,8 @@ import type { MessageLocal } from "../db/schema";
 /**
  * Port navigateur de client-electron/electron/services/messages.ts : rappel
  * de crédit, envoi simulé (toujours "envoyee", pas de réseau — voir la note
- * en tête du fichier Electron : aucune clé d'API disponible). Contrairement à
- * l'Electron, le ticket WhatsApp généré à la vente (genererTicketWhatsapp)
- * n'est pas porté ici : aucun écran de client-web ne l'utilise pour l'instant
- * (voir Messages.tsx, qui envoie le ticket directement depuis la facture).
+ * en tête du fichier Electron : aucune clé d'API disponible) et trace du ticket
+ * envoyé par WhatsApp depuis la facture (genererTicketWhatsapp).
  */
 
 export class ErreurMessage extends Error {}
@@ -218,6 +216,44 @@ function formaterNombre(valeur: number): string {
   return Math.round(Number(valeur) || 0)
     .toString()
     .replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+}
+
+/**
+ * Ticket d'une vente, gardé dans Messages (« en attente ») — miroir de
+ * genererTicketWhatsapp du bureau. La facture l'envoie aussitôt (envoyerMessage)
+ * quand elle ouvre WhatsApp, pour en laisser la trace.
+ */
+export async function genererTicketWhatsapp(venteId: string): Promise<string> {
+  const db = await ouvrirBaseDeDonnees();
+  const vente = await db.get("ventes", venteId);
+  if (!vente) throw new ErreurMessage("Vente introuvable.");
+  const client = vente.client_id ? await db.get("clients", vente.client_id) : undefined;
+  const devise = (await db.get("boutiques", vente.boutique_id))?.devise || "FCFA";
+  const lignes = (await db.getAllFromIndex("lignes_vente", "vente_id", venteId)).filter((l) => !l.supprime);
+  const textes: string[] = [];
+  for (const ligne of lignes) {
+    const variante = await db.get("variantes", ligne.variante_id);
+    const produit = variante ? await db.get("produits", variante.produit_id) : undefined;
+    textes.push(`- ${produit?.nom ?? "Article"} x${ligne.quantite} = ${formaterNombre(ligne.sous_total)} ${devise}`);
+  }
+  const destinataire = client?.telephone ?? "";
+  const messageLocal: MessageLocal = {
+    id: crypto.randomUUID(),
+    boutique_id: vente.boutique_id,
+    depot_id: vente.depot_id,
+    utilisateur_id: vente.utilisateur_id,
+    type: "ticket_whatsapp",
+    canal: destinataire ? "whatsapp" : "interne",
+    destinataire,
+    message: [`Ticket ${vente.numero}`, ...textes, `Total : ${formaterNombre(vente.total_net)} ${devise}`].join("\n"),
+    reference_type: "ventes.Vente",
+    reference_id: venteId,
+    statut: "en_attente",
+    date_envoi: null,
+    ...suiviSyncNeuf(),
+  };
+  await db.put("messages", messageLocal);
+  return messageLocal.id;
 }
 
 /** Texte d'un rappel de crédit, adressé au client (envoyable tel quel par WhatsApp). */

@@ -65,3 +65,46 @@ export async function modifierBoutique(
     synchronise: 0,
   });
 }
+
+// --- Logo de la boutique ---
+// Comme au bureau (table locale boutique_logo) : gardé sur l'appareil seulement,
+// jamais synchronisé (les images ne passent pas par la synchro).
+
+const PREFIXE_CLE_LOGO = "gestion-stock:logo:";
+/** Côté le plus long du logo enregistré : assez pour un ticket A4, léger pour le stockage du navigateur. */
+const TAILLE_MAX_LOGO = 400;
+
+export function obtenirLogoBoutique(boutiqueId: string): string {
+  return localStorage.getItem(PREFIXE_CLE_LOGO + boutiqueId) ?? "";
+}
+
+export function definirLogoBoutique(boutiqueId: string, logo: string): void {
+  if (logo) localStorage.setItem(PREFIXE_CLE_LOGO + boutiqueId, logo);
+  else localStorage.removeItem(PREFIXE_CLE_LOGO + boutiqueId);
+}
+
+/**
+ * Image choisie → image réduite (TAILLE_MAX_LOGO px au plus), en PNG pour garder
+ * la transparence. Une photo de téléphone (plusieurs Mo) ne tiendrait pas dans
+ * le stockage du navigateur.
+ */
+export function preparerLogo(fichier: File): Promise<string> {
+  return new Promise((resoudre, rejeter) => {
+    const lecteur = new FileReader();
+    lecteur.onerror = () => rejeter(new ErreurBoutique("Image illisible."));
+    lecteur.onload = () => {
+      const image = new Image();
+      image.onerror = () => rejeter(new ErreurBoutique("Ce fichier n'est pas une image."));
+      image.onload = () => {
+        const echelle = Math.min(1, TAILLE_MAX_LOGO / Math.max(image.width, image.height));
+        const toile = document.createElement("canvas");
+        toile.width = Math.max(1, Math.round(image.width * echelle));
+        toile.height = Math.max(1, Math.round(image.height * echelle));
+        toile.getContext("2d")?.drawImage(image, 0, 0, toile.width, toile.height);
+        resoudre(toile.toDataURL("image/png"));
+      };
+      image.src = String(lecteur.result);
+    };
+    lecteur.readAsDataURL(fichier);
+  });
+}

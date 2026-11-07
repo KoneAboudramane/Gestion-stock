@@ -19,6 +19,10 @@ export interface SuiviSync {
   synchronise: 0 | 1;
   supprime: 0 | 1;
   date_synchronisation: string | null;
+  /** Réseau de la boutique (db/suiviReseau.ts) : 1 = envoyée au poste principal. */
+  synchro_reseau?: 0 | 1;
+  /** Réseau de la boutique : numéro d'écriture servi par un poste principal. */
+  seq_reseau?: number;
 }
 
 export interface BoutiqueLocale extends SuiviSync {
@@ -769,4 +773,4 @@ export interface GestionStockDB extends DBSchema {
 }
 
 export const NOM_BASE = "gestion-stock";
-export const VERSION_BASE = 15;
+export const VERSION_BASE = 16;

@@ -5,6 +5,8 @@ import type { Session } from "./api";
 import EcranVerrouillage from "./components/EcranVerrouillage";
 import MiseAJourDisponible from "./components/MiseAJourDisponible";
 import { DeviseProvider } from "./contexts/DeviseContext";
+import { LogoProvider } from "./contexts/LogoContext";
+import { NomBoutiqueProvider } from "./contexts/NomBoutiqueContext";
 import { useSession } from "./contexts/SessionContext";
 import { SynchroProvider } from "./contexts/SynchroContext";
 import { useDelaiVerrouillage, VerrouillageProvider } from "./contexts/VerrouillageContext";
@@ -99,15 +101,19 @@ export default function App() {
   } else {
     contenu = (
       <DeviseProvider boutiqueId={session!.boutiqueId}>
-        <VerrouillageProvider boutiqueId={session!.boutiqueId}>
-          <SynchroProvider session={session!}>
-            <GestionnaireInactivite actif={!verrouille} onInactif={() => setVerrouille(true)} />
-            <Shell session={session!} onDeconnexion={surDeconnexion} onVerrouiller={() => setVerrouille(true)} />
-            {verrouille && (
-              <EcranVerrouillage session={session!} onDeverrouille={surDeverrouille} onDeconnexion={surDeconnexion} />
-            )}
-          </SynchroProvider>
-        </VerrouillageProvider>
+        <LogoProvider boutiqueId={session!.boutiqueId}>
+          <NomBoutiqueProvider boutiqueId={session!.boutiqueId} nomInitial={session!.boutiqueNom}>
+            <VerrouillageProvider boutiqueId={session!.boutiqueId}>
+              <SynchroProvider session={session!}>
+                <GestionnaireInactivite actif={!verrouille} onInactif={() => setVerrouille(true)} />
+                <Shell session={session!} onDeconnexion={surDeconnexion} onVerrouiller={() => setVerrouille(true)} />
+                {verrouille && (
+                  <EcranVerrouillage session={session!} onDeverrouille={surDeverrouille} onDeconnexion={surDeconnexion} />
+                )}
+              </SynchroProvider>
+            </VerrouillageProvider>
+          </NomBoutiqueProvider>
+        </LogoProvider>
       </DeviseProvider>
     );
   }

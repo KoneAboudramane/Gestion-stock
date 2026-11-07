@@ -6,10 +6,12 @@ import type { Session } from "../api/auth";
 import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant } from "../lib/formatage";
 import { libelleModeReglement } from "../lib/libelles";
+import { useLogoBoutique } from "../contexts/LogoContext";
 import { obtenirBoutiqueLocale } from "../services/boutique";
 import { listerParametres } from "../services/configuration";
 import { obtenirClient, obtenirCredit, type CreditDetail, type PaiementCreditDetail } from "../services/clients";
 import type { BoutiqueLocale } from "../db/schema";
+import { imprimer } from "../lib/impression";
 
 /** Port navigateur de client-electron/src/components/RecuCredit.tsx. */
 
@@ -32,6 +34,7 @@ function ContenuRecu({
   credit,
   paiement,
   boutique,
+  logo,
   devise,
   session,
   encaissePar,
@@ -39,6 +42,7 @@ function ContenuRecu({
   credit: CreditDetail;
   paiement: PaiementCreditDetail;
   boutique: BoutiqueLocale | null;
+  logo: string;
   devise: string;
   session: Session;
   encaissePar: string;
@@ -46,6 +50,7 @@ function ContenuRecu({
   return (
     <div className="facture-imprimable">
       <div className="facture-entete-boutique">
+        {logo && <img src={logo} alt="" className="facture-logo" />}
         <div>
           <h2>
             {boutique?.nom ?? session.boutiqueNom}
@@ -108,6 +113,7 @@ export default function RecuCredit({
 }) {
   const devise = useDevise();
   const [credit, setCredit] = useState<CreditDetail | null>(null);
+  const logo = useLogoBoutique();
   const [boutique, setBoutique] = useState<BoutiqueLocale | null>(null);
   const [clientTelephone, setClientTelephone] = useState<string | null>(null);
   const [formatTicket, setFormatTicket] = useState("a4");
@@ -173,7 +179,7 @@ export default function RecuCredit({
               Envoyer par WhatsApp
             </button>
           )}
-          <button type="button" className="bouton-primaire" onClick={() => window.print()}>
+          <button type="button" className="bouton-primaire" onClick={() => void imprimer("Recu-credit")}>
             Imprimer / PDF
           </button>
           <button type="button" className="lien bouton-retour" onClick={onRetour}>
@@ -186,6 +192,7 @@ export default function RecuCredit({
           credit={credit}
           paiement={paiement}
           boutique={boutique}
+          logo={logo}
           devise={devise}
           session={session}
           encaissePar={encaissePar}
@@ -198,6 +205,7 @@ export default function RecuCredit({
           credit={credit}
           paiement={paiement}
           boutique={boutique}
+          logo={logo}
           devise={devise}
           session={session}
           encaissePar={encaissePar}

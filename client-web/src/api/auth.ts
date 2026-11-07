@@ -307,6 +307,29 @@ function noterEchecAdmin(): number {
 }
 
 /** Écran de connexion de l'Espace Admin : serveur joignable ? qui peut entrer sans internet ? attente en cours ? */
+/**
+ * Espace Admin sur un appareil qui n'a jamais vu internet : laissez-passer +
+ * identifiant + mot de passe (docs/plan_laissez_passer_admin.md). Même
+ * protection contre les essais répétés que la connexion admin.
+ */
+export function connexionAdminParLaissezPasser(code: string, username: string, password: string): Promise<ResultatEcriture<void>> {
+  return executerEnSecurite(async () => {
+    const attente = attenteRestanteAdmin();
+    if (attente > 0) throw new ErreurApi(`Trop d'essais : réessayez dans ${attente} s.`);
+    const { utiliserLaissezPasser } = await import("../services/laissezPasser");
+    try {
+      await utiliserLaissezPasser(code, username, password);
+    } catch (erreur) {
+      const nouvelleAttente = noterEchecAdmin();
+      throw new ErreurApi(
+        (erreur instanceof Error ? erreur.message : "Laissez-passer refusé.") +
+          (nouvelleAttente ? ` Trop d'essais : réessayez dans ${nouvelleAttente} s.` : ""),
+      );
+    }
+    ecrireEssaisAdmin({ echecs: 0, bloqueJusqua: 0 });
+  });
+}
+
 export async function etatConnexionAdmin(): Promise<{ serveurJoint: boolean; adminsDuPoste: string[]; echecs: number; attenteSecondes: number }> {
   let serveurJoint = false;
   try {

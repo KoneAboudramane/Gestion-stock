@@ -5,31 +5,35 @@ import type { Session } from "../api/auth";
 import { useDevise } from "../contexts/DeviseContext";
 import { formaterMontant } from "../lib/formatage";
 import { libelleModePaiement } from "../lib/libelles";
+import { useLogoBoutique } from "../contexts/LogoContext";
+import { useNomsUtilisateurs } from "../hooks/useNomsUtilisateurs";
 import { obtenirBoutiqueLocale } from "../services/boutique";
+import { envoyerMessage, genererTicketWhatsapp } from "../services/messages";
 import { listerParametres } from "../services/configuration";
 import { obtenirVenteDetail, type VenteDetail } from "../services/ventes";
 import type { BoutiqueLocale } from "../db/schema";
+import { imprimer } from "../lib/impression";
 
 /**
- * Port navigateur de client-electron/src/components/FactureVente.tsx.
- * Deux adaptations obligatoires (pas d'équivalent Electron en navigateur) :
- * - "Exporter en PDF" (webContents.printToPDF, API Electron) → repli sur
- *   window.print() ("Imprimer"), le navigateur propose "Enregistrer en PDF"
- *   dans sa boîte de dialogue d'impression.
- * - WhatsApp (shell.openExternal) → window.open(), fonctionne nativement.
- * Pas de logo (client-web n'a pas de LogoContext — hors périmètre ici, comme
- * pour la synchro : les images ne sont jamais synchronisées).
+ * Port de client-electron/src/components/FactureVente.tsx (logo de l'appareil,
+ * nom du vendeur, trace WhatsApp dans Messages). « Exporter en PDF » du bureau
+ * (webContents.printToPDF) → « Imprimer / PDF » : la fenêtre d'impression
+ * propose « Enregistrer en PDF ».
  */
 
 function ContenuFacture({
   vente,
   boutique,
+  logo,
+  vendeurNom,
   devise,
   session,
   formatTicket,
 }: {
   vente: VenteDetail;
   boutique: BoutiqueLocale | null;
+  logo: string;
+  vendeurNom: string;
   devise: string;
   session: Session;
   formatTicket: string;
@@ -40,6 +44,7 @@ function ContenuFacture({
   return (
     <div className="facture-imprimable">
       <div className="facture-entete-boutique">
+        {logo && <img src={logo} alt="" className="facture-logo" />}
         <div>
           <h2>
             {boutique?.nom ?? session.boutiqueNom}
@@ -62,7 +67,7 @@ function ContenuFacture({
         <div>
           <strong>Client</strong> {vente.clientNom ?? "Client de passage"}
           <br />
-          <strong>Vendu par</strong> {session.username}
+          <strong>Vendu par</strong> {vendeurNom || session.username}
         </div>
       </div>
 
@@ -142,6 +147,8 @@ export default function FactureVente({
   const devise = useDevise();
   const [vente, setVente] = useState<VenteDetail | null>(null);
   const [boutique, setBoutique] = useState<BoutiqueLocale | null>(null);
+  const logo = useLogoBoutique();
+  const nomUtilisateur = useNomsUtilisateurs(session, { sansVous: true });
   const [formatTicket, setFormatTicket] = useState("a4");
 
   useEffect(() => {
@@ -155,13 +162,20 @@ export default function FactureVente({
     );
   }, [session.boutiqueId]);
 
-  function envoyerParWhatsapp() {
+  async function envoyerParWhatsapp() {
     if (!vente?.clientTelephone) return;
     const numero = vente.clientTelephone.replace(/\D/g, "");
     const message =
       `Bonjour ${vente.clientNom ?? ""}, voici votre facture ${vente.numero} de ${boutique?.nom ?? session.boutiqueNom}. ` +
       `Montant total : ${formaterMontant(vente.totalNet)} ${devise}. Merci pour votre achat !`;
     window.open(`https://wa.me/${numero}?text=${encodeURIComponent(message)}`, "_blank", "noopener");
+
+    // Laisse une trace dans le journal Messages, comme le rappel de crédit.
+    try {
+      await envoyerMessage(await genererTicketWhatsapp(venteId));
+    } catch {
+      // La trace n'est qu'un plus : WhatsApp est déjà ouvert.
+    }
   }
 
   if (!vente) return <p>Chargement…</p>;
@@ -176,7 +190,7 @@ export default function FactureVente({
               Envoyer par WhatsApp
             </button>
           )}
-          <button type="button" className="bouton-primaire" onClick={() => window.print()}>
+          <button type="button" className="bouton-primaire" onClick={() => void imprimer(vente ? `Facture-${vente.numero}` : "Facture")}>
             Imprimer / PDF
           </button>
           <button type="button" className="lien bouton-retour" onClick={onRetour}>
@@ -185,12 +199,28 @@ export default function FactureVente({
         </div>
       </div>
       <div className="modale-corps">
-        <ContenuFacture vente={vente} boutique={boutique} devise={devise} session={session} formatTicket={formatTicket} />
+        <ContenuFacture
+          vente={vente}
+          boutique={boutique}
+          logo={logo}
+          vendeurNom={vente.utilisateurId ? nomUtilisateur(vente.utilisateurId) : ""}
+          devise={devise}
+          session={session}
+          formatTicket={formatTicket}
+        />
       </div>
 
       {createPortal(
         <div className={`zone-impression-facture format-ticket-${formatTicket}`}>
-          <ContenuFacture vente={vente} boutique={boutique} devise={devise} session={session} formatTicket={formatTicket} />
+          <ContenuFacture
+          vente={vente}
+          boutique={boutique}
+          logo={logo}
+          vendeurNom={vente.utilisateurId ? nomUtilisateur(vente.utilisateurId) : ""}
+          devise={devise}
+          session={session}
+          formatTicket={formatTicket}
+        />
         </div>,
         document.body,
       )}

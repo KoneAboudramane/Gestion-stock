@@ -4,6 +4,9 @@ import { api } from "../api";
 import type { Session } from "../api";
 import PanneauMarque from "../components/PanneauMarque";
 import { obtenirBoutiqueInstallee } from "../services/abonnementAdmin";
+import RejoindreReseauAvantConnexion from "../components/RejoindreReseauAvantConnexion";
+import { estAppliMobile } from "../lib/appliAndroid";
+import { etatReseauComplet, lireConfigReseau, surChangementReseau } from "../services/reseau";
 import MotDePasseOublie from "./MotDePasseOublie";
 
 /** « Se souvenir de mon identifiant » : l'identifiant seulement, jamais le mot de passe. */
@@ -21,7 +24,7 @@ function minutesSecondes(secondes: number): string {
   return `${Math.floor(secondes / 60)}:${String(secondes % 60).padStart(2, "0")}`;
 }
 
-/** Ce que sait cet ordinateur avant toute connexion (boutique, abonnement, réseau, internet). */
+/** Ce que sait cet appareil avant toute connexion (boutique, abonnement, réseau, internet). */
 interface EtatPoste {
   serveurJoint: boolean;
   boutique: { nom: string; synchroAutorisee: boolean } | null;
@@ -53,14 +56,24 @@ export default function Connexion({
   // Espace Admin (voir AccesCreationBoutique.tsx > ReinitialiserMotDePasseAdmin).
   const [synchroAutorisee, setSynchroAutorisee] = useState(false);
   const [motDePasseOublieOuvert, setMotDePasseOublieOuvert] = useState(false);
-  // Le navigateur ne fait pas partie du réseau de la boutique : jamais « relié à un poste principal ».
+  // Rejoindre le réseau de la boutique avant toute connexion (appareil neuf, ou de la même boutique) :
+  // dans l'appli mobile seulement (un navigateur ne peut pas joindre le réseau local).
   const [posteRelie, setPosteRelie] = useState<string | null>(null);
+  const [rejoindreOuvert, setRejoindreOuvert] = useState(false);
+  // Caisse branchée : liaison réelle avec le poste principal, relue après chaque échange (toutes les 4 s).
+  const [relieAuPoste, setRelieAuPoste] = useState(false);
+  useEffect(() => {
+    const relire = () => void etatReseauComplet().then((e) => setRelieAuPoste(!!e.caisse?.relie)).catch(() => {});
+    relire();
+    return surChangementReseau(relire);
+  }, []);
 
   function chargerPoste() {
     api.auth.etatPosteConnexion().then((e) => {
       setPoste(e);
       setSynchroAutorisee(Boolean(e.boutique?.synchroAutorisee));
-      setPosteRelie(null); // le navigateur ne fait pas partie du réseau de la boutique
+      const reseau = lireConfigReseau();
+      setPosteRelie(reseau.role === "caisse" ? reseau.nomPostePrincipal : null);
       setAttente(e.attenteSecondes);
     });
   }
@@ -124,12 +137,12 @@ export default function Connexion({
             <div className={`etat-connexion-admin etat-connexion-admin--${poste.serveurJoint || posteRelie ? "ok" : "horsligne"}`}>
               <span>
                 {posteRelie
-                  ? `📶 Relié au poste principal « ${posteRelie} »${poste.reseau?.relie ? "" : " (injoignable pour l'instant)"}`
+                  ? `📶 Relié au poste principal « ${posteRelie} »${relieAuPoste ? "" : " (injoignable pour l'instant)"}`
                   : poste.serveurJoint
                     ? poste.boutique && !poste.boutique.synchroAutorisee
                       ? "🔒 100 % local · serveur joint pour la connexion"
                       : "🌐 En ligne"
-                    : `🟠 Sans internet : seuls les comptes déjà utilisés sur cet ordinateur peuvent entrer (${poste.comptesDuPoste}).`}
+                    : `🟠 Sans internet : seuls les comptes déjà utilisés sur cet appareil peuvent entrer (${poste.comptesDuPoste}).`}
               </span>
             </div>
           )}
@@ -191,7 +204,7 @@ export default function Connexion({
           {majuscules && <span className="alerte-majuscules">⇪ Majuscules activées</span>}
           <label className="case-retenir-identifiant">
             <input type="checkbox" checked={retenir} onChange={(e) => setRetenir(e.target.checked)} /> Se souvenir de mon
-            identifiant sur cet ordinateur
+            identifiant sur cet appareil
           </label>
           <button type="submit" disabled={enCours || attente > 0}>
             {enCours ? "Connexion…" : attente > 0 ? `Patientez ${minutesSecondes(attente)}` : "Se connecter"}
@@ -199,6 +212,12 @@ export default function Connexion({
           {synchroAutorisee && (
             <button type="button" className="lien" onClick={() => setMotDePasseOublieOuvert(true)}>
               Mot de passe oublié ?
+            </button>
+          )}
+          {posteRelie && <p className="note-aide note-poste-relie">📶 Relié au poste principal « {posteRelie} »</p>}
+          {!posteRelie && estAppliMobile && (
+            <button type="button" className="lien lien-rejoindre-reseau" onClick={() => setRejoindreOuvert(true)}>
+              📶 Rejoindre le réseau de la boutique
             </button>
           )}
         </form>
@@ -216,6 +235,18 @@ export default function Connexion({
         </button>
       </div>
       {motDePasseOublieOuvert && <MotDePasseOublie onFermer={() => setMotDePasseOublieOuvert(false)} />}
+      {rejoindreOuvert && (
+        <RejoindreReseauAvantConnexion
+          onFermer={() => {
+            setRejoindreOuvert(false);
+            chargerPoste();
+          }}
+          onRejoint={() => {
+            setRejoindreOuvert(false);
+            chargerPoste();
+          }}
+        />
+      )}
     </div>
   );
 }

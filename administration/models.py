@@ -65,3 +65,55 @@ class JournalAdmin(ModeleBase):
 
     def __str__(self):
         return f"{self.admin_identifiant} · {self.action}"
+
+
+class LaissezPasser(ModeleBase):
+    """
+    Laissez-passer admin (docs/plan_laissez_passer_admin.md) : code signé qui
+    ouvre l'Espace Admin d'un appareil SANS internet (avec le mot de passe de
+    l'admin). Le code lui-même n'est jamais gardé ici, seulement de quoi le
+    reconnaître (numéro) et décider s'il vaut encore, quand l'appareil revient
+    sur internet.
+    """
+
+    admin = models.ForeignKey(
+        "comptes.Utilisateur", on_delete=models.CASCADE, related_name="laissez_passer"
+    )
+    admin_identifiant = models.CharField(max_length=150)
+    # 8 octets aléatoires en hexadécimal, inscrits dans le code.
+    numero = models.CharField(max_length=16, unique=True)
+    # Vide : illimité.
+    date_fin = models.DateField(null=True, blank=True)
+    # Mot de passe (haché par Django) au moment de la génération : s'il change,
+    # le laissez-passer ne vaut plus (décision du 07/11/2026).
+    empreinte_compte = models.CharField(max_length=256)
+    revoque = models.BooleanField(default=False)
+    date_revocation = models.DateTimeField(null=True, blank=True)
+    revoque_par = models.ForeignKey(
+        "comptes.Utilisateur", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    utilisations = models.PositiveIntegerField(default=0)
+    derniere_utilisation = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-date_creation"]
+        verbose_name = "laissez-passer admin"
+        verbose_name_plural = "laissez-passer admin"
+
+    def __str__(self):
+        return f"Laissez-passer {self.numero} de {self.admin_identifiant}"
+
+    def etat(self, aujourdhui=None):
+        """« actif », « expire », « revoque » ou « mot_de_passe_change » (ou compte désactivé)."""
+        from datetime import date
+
+        if self.revoque:
+            return "revoque"
+        admin = self.admin
+        if not (admin.is_active and (admin.is_staff or admin.is_superuser)):
+            return "compte_desactive"
+        if admin.password != self.empreinte_compte:
+            return "mot_de_passe_change"
+        if self.date_fin is not None and self.date_fin < (aujourdhui or date.today()):
+            return "expire"
+        return "actif"

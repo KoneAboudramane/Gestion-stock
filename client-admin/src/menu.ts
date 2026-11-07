@@ -20,6 +20,7 @@ export const RUBRIQUES: Rubrique[] = [
   { id: "paiements", libelle: "Paiements", icone: "💳", droit: "paiements", groupe: "argent", lot: 4 },
   { id: "demandes-reseau", libelle: "Demandes de réseau", icone: "🖧", droit: "demandes_reseau", groupe: "argent", lot: 4 },
   { id: "signalements", libelle: "Signalements", icone: "⚠️", droit: "signalements", groupe: "argent", lot: 4 },
+  { id: "laissez-passer", libelle: "Laissez-passer", icone: "🎫", droit: "laissez_passer", groupe: "boutiques", lot: 6 },
   { id: "administrateurs", libelle: "Administrateurs", icone: "🛡️", droit: "admins", groupe: "principal", lot: 5 },
   { id: "reglages", libelle: "Réglages de la plateforme", icone: "⚙️", droit: "reglages_plateforme", groupe: "principal", lot: 5 },
   { id: "journal", libelle: "Journal des actions", icone: "📜", droit: "journal", groupe: "principal", lot: 5 },

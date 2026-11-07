@@ -38,6 +38,11 @@ contextBridge.exposeInMainWorld("api", {
     etatConnexionAdmin: () => ipcRenderer.invoke("auth:etatConnexionAdmin"),
     etatPosteConnexion: () => ipcRenderer.invoke("auth:etatPosteConnexion"),
     connexionAdmin: (username: string, password: string) => ipcRenderer.invoke("auth:connexionAdmin", username, password),
+    connexionAdminParLaissezPasser: (code: string, username: string, password: string) =>
+      ipcRenderer.invoke("auth:connexionAdminParLaissezPasser", code, username, password),
+    signalerLaissezPasser: () => ipcRenderer.invoke("auth:signalerLaissezPasser"),
+    genererLaissezPasser: (username: string, password: string, dureeJours: number | null) =>
+      ipcRenderer.invoke("auth:genererLaissezPasser", username, password, dureeJours),
     listerComptesAdmin: (usernameAdmin: string, passwordAdmin: string) =>
       ipcRenderer.invoke("auth:listerComptesAdmin", usernameAdmin, passwordAdmin),
     reinitialisationsARefaire: () => ipcRenderer.invoke("auth:reinitialisationsARefaire"),

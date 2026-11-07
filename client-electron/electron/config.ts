@@ -8,4 +8,4 @@ export const URL_BASE_API =
   process.env.GESTION_STOCK_API_URL ??
   (process.env.VITE_DEV_SERVER_URL
     ? "http://localhost:8000/api"
-    : "http://gestion.stock.sc3trsi4875.universe.wf/api");
+    : "https://gestion.stock.digi-ba.com/api");

@@ -10,8 +10,11 @@ import {
   type AbonnementBoutique,
 } from "../services/abonnementAdmin";
 import { lireBoutiqueLocaleEnAttente } from "../services/inscriptionLocale";
+import { estAppliMobile } from "../lib/appliAndroid";
+import { etatReseauComplet, type EtatReseau } from "../services/reseau";
+import { etatSauvegarde, type EtatSauvegarde } from "../services/sauvegarde";
 
-export type CarteAdmin = "inscription" | "reinitialiserMotDePasse" | "abonnement" | "reseau";
+export type CarteAdmin = "inscription" | "reinitialiserMotDePasse" | "abonnement" | "sauvegarde" | "reseau" | "laissezPasser";
 
 interface EtatPoste {
   boutique: AbonnementBoutique | null;
@@ -22,6 +25,9 @@ interface EtatPoste {
   modificationEnAttente: boolean;
   aRefaire: string[];
   activationEnAttente: boolean;
+  /** Appli mobile seulement (null dans un navigateur). */
+  sauvegarde: EtatSauvegarde | null;
+  reseau: EtatReseau | null;
 }
 
 type Ton = "ok" | "attention" | "alerte" | "neutre";
@@ -31,8 +37,8 @@ function dateCourte(iso: string | null | undefined): string {
 }
 
 /**
- * Port navigateur de client-electron/src/components/AccueilAdmin.tsx (sans la sauvegarde ni le rôle
- * de l'appareil dans le réseau, propres à l'application de bureau).
+ * Port de client-electron/src/components/AccueilAdmin.tsx. Sauvegarde et rôle de l'appareil dans
+ * le réseau : dans l'appli mobile (docs/plan_mobile_complet.md, lots 2 à 4) ; grisés dans un navigateur.
  * Accueil de l'Espace Admin (après le verrou admin, voir AccesCreationBoutique.tsx) :
  * tableau de bord plein écran — l'état de cet ordinateur en un coup d'œil, la
  * liste « À faire », et les cartes groupées (Boutique de cet ordinateur,
@@ -62,6 +68,9 @@ export default function AccueilAdmin({
       const enAttente = lireAbonnementEnAttente();
       const aRefaire = lireReinitialisationsARefaire();
       const activation = lireBoutiqueLocaleEnAttente();
+      const [sauvegarde, reseau] = estAppliMobile
+        ? await Promise.all([etatSauvegarde().catch(() => null), etatReseauComplet().catch(() => null)])
+        : [null, null];
       let paiementsEnAttente: number | null = null;
       let demandeReseau: boolean | null = null;
       if (boutique && !activation) {
@@ -81,6 +90,8 @@ export default function AccueilAdmin({
           modificationEnAttente: !!enAttente,
           aRefaire,
           activationEnAttente: !!activation,
+          sauvegarde,
+          reseau,
         });
       }
     })();
@@ -114,8 +125,32 @@ export default function AccueilAdmin({
             cle: "reseau",
             carte: "reseau",
             ton: "neutre",
-            texte: boutique.reseauAutorise ? "📶 réseau activé" : "📶 réseau non activé",
+            texte: !boutique.reseauAutorise
+              ? "📶 réseau non activé"
+              : etat.reseau?.role === "principal"
+                ? `🖥️ poste principal · ${etat.reseau.appareils.length} caisse(s)`
+                : etat.reseau?.role === "caisse"
+                  ? "📶 caisse branchée"
+                  : "📶 réseau activé",
           },
+          ...(estAppliMobile
+            ? [
+                {
+                  cle: "sauvegarde",
+                  carte: "sauvegarde" as CarteAdmin,
+                  ton: (!etat.sauvegarde?.configuree
+                    ? boutique.synchroAutorisee
+                      ? "neutre"
+                      : "attention"
+                    : etat.sauvegarde.alerte === "aucune"
+                      ? "ok"
+                      : "alerte") as Ton,
+                  texte: !etat.sauvegarde?.configuree
+                    ? "💾 pas de sauvegarde"
+                    : `💾 ${etat.sauvegarde.alerte === "aucune" ? "à jour" : "en retard"} (${dateCourte(etat.sauvegarde.derniereSauvegarde)})`,
+                },
+              ]
+            : []),
           {
             cle: "internet",
             ton: enLigne ? "ok" : "attention",
@@ -164,6 +199,21 @@ export default function AccueilAdmin({
       }
       if (etat.modificationEnAttente) {
         aFaire.push({ cle: "envoi", ton: "neutre", texte: "Une modification d'abonnement attend d'être envoyée au serveur (Réglages → Synchronisation)." });
+      }
+      if (estAppliMobile && !etat.sauvegarde?.configuree && !boutique.synchroAutorisee) {
+        aFaire.push({
+          cle: "sauvegarde",
+          ton: "attention",
+          texte: "Aucune sauvegarde alors que la boutique est en 100 % local.",
+          action: { libelle: "Paramétrer", carte: "sauvegarde" },
+        });
+      } else if (etat.sauvegarde?.configuree && etat.sauvegarde.alerte !== "aucune") {
+        aFaire.push({
+          cle: "sauvegarde",
+          ton: "alerte",
+          texte: `Sauvegarde en retard${etat.sauvegarde.derniereErreur ? ` : ${etat.sauvegarde.derniereErreur}` : ""}.`,
+          action: { libelle: "Voir", carte: "sauvegarde" },
+        });
       }
     }
     if (etat.aRefaire.length) {
@@ -254,6 +304,14 @@ export default function AccueilAdmin({
                 boutique ? (boutique.reseauAutorise ? "activé" : "non activé") : undefined,
                 boutique ? undefined : "Aucune boutique sur cet ordinateur",
               )}
+              {carte(
+                "sauvegarde",
+                "💾",
+                "Sauvegarde",
+                "Sauvegarde chiffrée quotidienne, copies, restauration, clé de secours.",
+                etat?.sauvegarde?.configuree ? `dernière : ${dateCourte(etat.sauvegarde.derniereSauvegarde)}` : "non paramétrée",
+                estAppliMobile ? undefined : "Dans l'appli mobile et sur ordinateur",
+              )}
             </div>
           </section>
           <section>
@@ -272,6 +330,13 @@ export default function AccueilAdmin({
                 "Créer une boutique",
                 "Assistant en 4 étapes : boutique, patron, options, récapitulatif.",
                 boutique ? "cet ordinateur en a déjà une" : "sur cet ordinateur",
+              )}
+              {carte(
+                "laissezPasser",
+                "🎫",
+                "Laissez-passer",
+                "Générer (avec internet) le code qui ouvrira l'Espace Admin d'un appareil sans internet.",
+                enLigne === false ? "internet nécessaire" : undefined,
               )}
             </div>
           </section>

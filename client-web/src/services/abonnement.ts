@@ -1,4 +1,5 @@
 import { ecrireLigne, obtenirLigne } from "../db/helpers";
+import { appliquerCodeActivation, dateExpirationParCode, type CodeActivationLu } from "./activation";
 
 /**
  * Port navigateur de client-electron/electron/services/abonnement.ts :
@@ -96,20 +97,52 @@ function rafraichirDatePlafond(): string {
   return nouveauPlafond;
 }
 
+/**
+ * Date de fin retenue : la plus lointaine entre celle du serveur et celle d'un
+ * code d'activation saisi (activation.ts). Sans date du serveur (null = sans
+ * limite), rien ne la restreint.
+ */
+export async function dateExpirationEffective(boutiqueId: string, dateServeur: string | null | undefined): Promise<string | null> {
+  if (!dateServeur) return dateServeur ?? null;
+  const parCode = await dateExpirationParCode(boutiqueId);
+  return parCode && new Date(parCode).getTime() > new Date(dateServeur).getTime() ? parCode : dateServeur;
+}
+
+/** Saisie d'un code d'activation (sans internet) ; renvoie le nouvel état de l'abonnement. */
+export async function activerParCode(boutiqueId: string, code: string): Promise<{ code: CodeActivationLu; etat: EtatAbonnement }> {
+  const boutique = await obtenirLigne("boutiques", boutiqueId);
+  const lu = await appliquerCodeActivation(
+    code,
+    boutiqueId,
+    await dateExpirationEffective(boutiqueId, boutique?.date_expiration_abonnement),
+  );
+  return { code: lu, etat: await obtenirEtatAbonnement(boutiqueId) };
+}
+
+/**
+ * Date du jour « sûre » (ISO) : l'horloge de l'appareil, sauf si elle a reculé
+ * (date plafond) — sert aussi aux laissez-passer admin (services/laissezPasser.ts).
+ */
+export function dateDuJourSure(): string {
+  return rafraichirDatePlafond();
+}
+
 /** Lève ErreurAbonnement si l'abonnement de cette boutique est expiré. */
 export async function verifierAbonnementActif(boutiqueId: string): Promise<void> {
   const boutique = await obtenirLigne("boutiques", boutiqueId);
   // Boutique pas encore synchronisée localement : on ne bloque jamais faute de donnée.
   if (!boutique) return;
 
-  const etat = etatAbonnement(boutique.date_expiration_abonnement, rafraichirDatePlafond());
+  const dateFin = await dateExpirationEffective(boutiqueId, boutique.date_expiration_abonnement);
+  const etat = etatAbonnement(dateFin, rafraichirDatePlafond());
   if (etat.niveau === "bloque") throw new ErreurAbonnement(messageBlocage(etat));
 }
 
 /** État de l'abonnement pour le bandeau de l'appli (voir components/BandeauAbonnement.tsx). */
 export async function obtenirEtatAbonnement(boutiqueId: string): Promise<EtatAbonnement> {
   const boutique = await obtenirLigne("boutiques", boutiqueId);
-  return etatAbonnement(boutique?.date_expiration_abonnement, rafraichirDatePlafond());
+  const dateFin = await dateExpirationEffective(boutiqueId, boutique?.date_expiration_abonnement);
+  return etatAbonnement(dateFin, rafraichirDatePlafond());
 }
 
 /** Boutique telle que renvoyée par /auth/moi/ (comptes.BoutiqueSerializer). */

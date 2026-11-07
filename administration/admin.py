@@ -1,7 +1,7 @@
 """Admin Django (secours, superuser seul) : profils admin et journal en lecture seule."""
 from django.contrib import admin
 
-from .models import JournalAdmin, ProfilAdmin
+from .models import JournalAdmin, ProfilAdmin, LaissezPasser
 
 
 @admin.register(ProfilAdmin)
@@ -28,4 +28,17 @@ class JournalAdminAdmin(admin.ModelAdmin):
         return False
 
     def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(LaissezPasser)
+class LaissezPasserAdmin(admin.ModelAdmin):
+    """Consultation seulement : on génère et on révoque depuis le site d'administration."""
+
+    list_display = ("numero", "admin_identifiant", "date_creation", "date_fin", "revoque", "utilisations")
+    list_filter = ("revoque",)
+    search_fields = ("numero", "admin_identifiant")
+    readonly_fields = [f.name for f in LaissezPasser._meta.fields]
+
+    def has_add_permission(self, request):
         return False

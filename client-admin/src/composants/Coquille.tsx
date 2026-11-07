@@ -14,6 +14,7 @@ import MonMotDePasse from "../pages/MonMotDePasse";
 import Paiements from "../pages/Paiements";
 import Reglages from "../pages/Reglages";
 import Signalements from "../pages/Signalements";
+import LaissezPasser from "../pages/LaissezPasser";
 import TableauDeBord from "../pages/TableauDeBord";
 
 interface Props {
@@ -32,6 +33,7 @@ const PAGES: Record<string, (moi: Moi) => JSX.Element> = {
   paiements: () => <Paiements />,
   "demandes-reseau": () => <DemandesReseau />,
   signalements: () => <Signalements />,
+  "laissez-passer": () => <LaissezPasser />,
   administrateurs: (moi) => <Administrateurs moi={moi} />,
   reglages: () => <Reglages />,
   journal: () => <Journal />,

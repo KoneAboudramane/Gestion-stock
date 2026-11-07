@@ -7,6 +7,7 @@ import ModaleTousLesArticles from "../components/ModaleTousLesArticles";
 import { listerVariantesActives } from "../services/catalogue";
 import ModaleConfirmation from "../components/ModaleConfirmation";
 import { useDevise } from "../contexts/DeviseContext";
+import { useLogoBoutique } from "../contexts/LogoContext";
 import { formaterMontant, normaliserTelephone } from "../lib/formatage";
 import { OPERATEURS_MOBILE_MONEY } from "../lib/libelles";
 import { jourLocal } from "../lib/periode";
@@ -32,6 +33,7 @@ import type { ModeArgent } from "../services/comptesTiers";
 import { listerParametres } from "../services/configuration";
 import { listerDepotsDetail, listerStock, type DepotResume } from "../services/stock";
 import type { ModePaiement } from "../services/ventes";
+import { imprimer } from "../lib/impression";
 
 // --- Carte « Commandes clients » de la page Clients ---
 // Port de client-electron/src/pages/CommandesClients.tsx : seul l'adaptateur
@@ -61,8 +63,7 @@ const donnees = {
   ouvrirLien: (url: string) => {
     window.open(url, "_blank", "noopener");
   },
-  /** Pas de logo de boutique côté web (comme les autres reçus). */
-  useLogo: () => "",
+  useLogo: useLogoBoutique,
   /** L'impression du navigateur propose aussi l'enregistrement en PDF. */
   pdfSepare: false,
 };
@@ -1780,7 +1781,7 @@ function BonDeCommande({ session, commandeId, onRetour }: { session: Session; co
               {enExport ? "Export…" : "Exporter en PDF"}
             </button>
           )}
-          <button type="button" className="bouton-primaire" onClick={() => window.print()}>
+          <button type="button" className="bouton-primaire" onClick={() => void imprimer(`Commande-${commande.numero}`)}>
             {donnees.pdfSepare ? "Imprimer" : "Imprimer / PDF"}
           </button>
           <button type="button" className="lien bouton-retour" onClick={onRetour}>

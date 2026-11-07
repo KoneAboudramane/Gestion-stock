@@ -10896,3 +10896,20 @@ button.pastille-admin:hover {
     color: #444444;
   }
 }
+
+/* Espace Admin : case « 🎫 J'ai un laissez-passer » (docs/plan_laissez_passer_admin.md). */
+.carte-auth .case-laissez-passer {
+  flex-direction: row;
+  font-weight: 400;
+  font-size: 0.9rem;
+}
+
+.carte-auth .case-laissez-passer input {
+  width: auto;
+  margin-right: 0.35rem;
+}
+
+.carte-auth textarea.champ-code-activation {
+  font-size: 0.8rem;
+  word-break: break-all;
+}

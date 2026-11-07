@@ -8,6 +8,8 @@
  *   en PDF » (évite d'embarquer une seconde bibliothèque lourde).
  */
 
+import { enregistrerFichier, imprimerHtml } from "./impression";
+
 export type FormatExport = "csv" | "xlsx" | "pdf";
 
 export interface ColonneExport {
@@ -20,15 +22,9 @@ function nomFichier(titre: string, extension: string): string {
   return `${titre.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "")}-${date}.${extension}`;
 }
 
-function telecharger(contenu: Blob, nom: string): void {
-  const url = URL.createObjectURL(contenu);
-  const lien = document.createElement("a");
-  lien.href = url;
-  lien.download = nom;
-  document.body.appendChild(lien);
-  lien.click();
-  lien.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+/** Téléchargement (navigateur) ou feuille de partage (appli Android) : voir lib/impression.ts. */
+function telecharger(contenu: Blob, nom: string): Promise<void> {
+  return enregistrerFichier(contenu, nom);
 }
 
 function echapperHtml(valeur: string): string {
@@ -146,7 +142,7 @@ export async function exporterTableau(
   format: FormatExport,
 ): Promise<void> {
   if (format === "csv") {
-    telecharger(
+    await telecharger(
       new Blob(["﻿" + construireCsv(colonnes, lignes)], { type: "text/csv;charset=utf-8" }),
       nomFichier(titre, "csv"),
     );
@@ -156,7 +152,7 @@ export async function exporterTableau(
   if (format === "xlsx") {
     const { default: ExcelJS } = await import("exceljs");
     const tampon = await construireClasseur(ExcelJS, titre, colonnes, lignes);
-    telecharger(
+    await telecharger(
       new Blob([tampon], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
       nomFichier(titre, "xlsx"),
     );
@@ -166,9 +162,8 @@ export async function exporterTableau(
   // PDF : page d'impression du tableau mis en forme ; le navigateur propose « Enregistrer en PDF ».
   const numeriques = colonnesNumeriques(colonnes, lignes);
   const alignement = (cle: string) => (numeriques.has(cle) ? ' class="nombre"' : "");
-  const fenetre = window.open("", "_blank");
-  if (!fenetre) throw new Error("Autorisez les fenêtres pop-up pour exporter en PDF.");
-  fenetre.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${echapperHtml(titre)}</title>
+  await imprimerHtml(
+    `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${echapperHtml(titre)}</title>
 <style>
   @page { size: A4 ${colonnes.length > 6 ? "landscape" : "portrait"}; margin: 12mm; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -188,8 +183,7 @@ export async function exporterTableau(
 <tbody>${lignes
     .map((l) => `<tr>${colonnes.map((c) => `<td${alignement(c.cle)}>${echapperHtml(texteCellule(l[c.cle]))}</td>`).join("")}</tr>`)
     .join("")}</tbody></table>
-</body></html>`);
-  fenetre.document.close();
-  fenetre.focus();
-  fenetre.print();
+</body></html>`,
+    nomFichier(titre, "pdf"),
+  );
 }

@@ -9,6 +9,7 @@ import {
 } from "../services/inscriptionLocale";
 import ChampNouveauMotDePasse from "../components/ChampNouveauMotDePasse";
 import { soliditeMotDePasse } from "../lib/motDePasse";
+import { imprimer } from "../lib/impression";
 
 type Etape = 1 | 2 | 3 | 4;
 export type ModaleSuite = "abonnement" | "reseau";
@@ -309,9 +310,7 @@ export default function Inscription({
               <button
                 type="button"
                 onClick={() => {
-                  document.body.classList.add("impression-fiche");
-                  window.print();
-                  document.body.classList.remove("impression-fiche");
+                  void imprimer("Fiche-de-connexion", "impression-fiche");
                 }}
               >
                 🖨️ Imprimer

@@ -6,6 +6,7 @@ import { appliquerMouvement, destockageActif, terminerDestockageSiEpuise } from 
 import { ajouterMouvementCompteClient, soldeCompteClient } from "./comptesTiers";
 import { enregistrerMouvement } from "./tresorerie";
 import { prochainNumero } from "./numerotation";
+import { synchroniserAvecPrincipal, verifierStockAvantVente } from "./reseau";
 
 /**
  * Port navigateur de client-electron/electron/services/ventes.ts::creerVente
@@ -55,7 +56,23 @@ export interface VenteCreee {
 }
 
 
+/**
+ * Vente validée en caisse (ou livraison d'une commande). Sur une caisse branchée
+ * au poste principal (services/reseau.ts) : article presque en rupture → on
+ * demande d'abord au poste principal, et la vente lui part tout de suite.
+ */
 export async function creerVente(params: ParametresVente): Promise<VenteCreee> {
+  try {
+    await verifierStockAvantVente({ depotId: params.depotId, lignes: params.lignes });
+  } catch (e) {
+    throw new ErreurVente(e instanceof Error ? e.message : "Plus assez de stock.");
+  }
+  const vente = await enregistrerVente(params);
+  void synchroniserAvecPrincipal();
+  return vente;
+}
+
+async function enregistrerVente(params: ParametresVente): Promise<VenteCreee> {
   const {
     boutiqueId,
     depotId,

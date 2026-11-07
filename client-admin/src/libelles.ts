@@ -1,5 +1,8 @@
 /** Libellés lisibles des actions du journal (administration/…: journaliser(…, action)). */
 export const LIBELLES_ACTIONS: Record<string, string> = {
+  laissez_passer_genere: "Laissez-passer généré",
+  laissez_passer_revoque: "Laissez-passer révoqué",
+  laissez_passer_utilise: "Laissez-passer utilisé (appareil sans internet)",
   connexion: "Connexion",
   deconnexion: "Déconnexion",
   code_refuse: "Code de vérification refusé",

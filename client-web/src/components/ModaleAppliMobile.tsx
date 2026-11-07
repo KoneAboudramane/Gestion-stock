@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import QRCode from "qrcode";
 import { BASE_URL } from "../api/transport";
+import { imprimer as imprimerPage } from "../lib/impression";
 
 /** Même serveur que l'API (relative « /api » en production : servie par Django). */
 function adresseAppliAndroid(): string {
@@ -36,9 +37,7 @@ export default function ModaleAppliMobile({ nomBoutique, onFermer }: { nomBoutiq
   }
 
   function imprimer() {
-    document.body.classList.add("impression-affiche-appli");
-    window.print();
-    document.body.classList.remove("impression-affiche-appli");
+    void imprimerPage("Affiche-appli-mobile", "impression-affiche-appli");
   }
 
   return (

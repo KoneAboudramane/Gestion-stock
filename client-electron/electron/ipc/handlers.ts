@@ -147,6 +147,21 @@ export function enregistrerLesHandlers(): void {
   ipcMain.handle("auth:connexionAdmin", (_evt, username: string, password: string) =>
     executerEnSecuriteAsync(() => auth.connexionAdmin(username, password)),
   );
+  ipcMain.handle("auth:connexionAdminParLaissezPasser", (_evt, code: string, username: string, password: string) =>
+    executerEnSecuriteAsync(() => auth.connexionAdminParLaissezPasser(code, username, password)),
+  );
+  ipcMain.handle(
+    "auth:genererLaissezPasser",
+    (_evt, username: string, password: string, dureeJours: number | null) =>
+      executerEnSecuriteAsync(async () => (await import("../services/laissezPasser")).genererLaissezPasser(username, password, dureeJours)),
+  );
+  ipcMain.handle("auth:signalerLaissezPasser", async () => {
+    try {
+      await auth.signalerLaissezPasser();
+    } catch {
+      // silencieux : réessayé à la prochaine ouverture de l'Espace Admin
+    }
+  });
   ipcMain.handle("auth:verifierRevocationAdmin", async () => {
     try {
       await auth.verifierRevocationAdmin();

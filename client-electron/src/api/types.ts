@@ -1958,6 +1958,14 @@ export interface WindowApi {
     }>;
     /** Connexion à l'Espace Admin (anti-essais, messages clairs). */
     connexionAdmin(username: string, password: string): Promise<ResultatEcriture<{ source: "serveur" | "poste" }>>;
+    /** Laissez-passer admin : Espace Admin d'un ordinateur sans internet (docs/plan_laissez_passer_admin.md). */
+    connexionAdminParLaissezPasser(code: string, username: string, password: string): Promise<ResultatEcriture<void>>;
+    signalerLaissezPasser(): Promise<void>;
+    genererLaissezPasser(
+      username: string,
+      password: string,
+      dureeJours: number | null,
+    ): Promise<ResultatEcriture<{ code: string; numero: string; date_fin: string | null; illimite: boolean }>>;
     /** Comptes réinitialisés sans internet sur ce poste, à refaire en ligne. */
     reinitialisationsARefaire(): Promise<string[]>;
     /** L'utilisateur choisit son mot de passe (obligatoire après un provisoire). */

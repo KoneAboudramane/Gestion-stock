@@ -8,7 +8,11 @@ import { api, type Session } from "../api";
  * l'annuaire (/utilisateurs/annuaire/, noms seulement) est lu en ligne puis
  * gardé dans le navigateur pour rester lisible hors-ligne.
  */
-export function useNomsUtilisateurs(session: Session): (utilisateurId: string | number | null | undefined) => string {
+export function useNomsUtilisateurs(
+  session: Session,
+  /** Documents imprimés (facture, reçu) : le vrai nom, jamais « Vous ». */
+  options: { sansVous?: boolean } = {},
+): (utilisateurId: string | number | null | undefined) => string {
   const cle = `annuaire-utilisateurs:${session.boutiqueId}`;
   const [noms, setNoms] = useState<Map<string, string>>(() => {
     try {
@@ -36,7 +40,7 @@ export function useNomsUtilisateurs(session: Session): (utilisateurId: string | 
   return (utilisateurId) => {
     if (utilisateurId === null || utilisateurId === undefined || utilisateurId === "") return "—";
     const id = String(utilisateurId);
-    if (id === String(session.utilisateurId)) return "Vous";
+    if (id === String(session.utilisateurId)) return options.sansVous ? (noms.get(id) ?? session.username) : "Vous";
     return noms.get(id) ?? `Utilisateur n°${id}`;
   };
 }

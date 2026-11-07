@@ -1,7 +1,7 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
-from . import api_abonnements, api_boutiques, api_principal, views
+from . import api_abonnements, api_boutiques, api_laissez_passer, api_principal, views
 
 urlpatterns = [
     # Socle (lot 1)
@@ -65,4 +65,21 @@ urlpatterns = [
     path("admin/reglages/", api_principal.ReglagesView.as_view(), name="admin-reglages"),
     path("admin/journal/", api_principal.JournalView.as_view(), name="admin-journal"),
     path("admin/mon-mot-de-passe/", api_principal.MonMotDePasseView.as_view(), name="admin-mon-mot-de-passe"),
+    # Laissez-passer admin (Espace Admin d'un appareil sans internet, docs/plan_laissez_passer_admin.md).
+    path("admin/laissez-passer/", api_laissez_passer.LaissezPasserView.as_view(), name="admin-laissez-passer"),
+    path(
+        "admin/laissez-passer/<uuid:pk>/revoquer/",
+        api_laissez_passer.RevoquerLaissezPasserView.as_view(),
+        name="admin-laissez-passer-revoquer",
+    ),
+    path(
+        "admin/laissez-passer/depuis-appli/",
+        api_laissez_passer.LaissezPasserAppliView.as_view(),
+        name="admin-laissez-passer-appli",
+    ),
+    path(
+        "admin/laissez-passer/utilisation/",
+        api_laissez_passer.UtilisationLaissezPasserView.as_view(),
+        name="admin-laissez-passer-utilisation",
+    ),
 ]

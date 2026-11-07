@@ -3,12 +3,15 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import AccueilAdmin from "../components/AccueilAdmin";
 import ModaleReseauAdmin from "../components/ModaleReseauAdmin";
+import ModaleLaissezPasserAdmin from "../components/ModaleLaissezPasserAdmin";
+import ModaleSauvegardeAdmin from "../components/ModaleSauvegardeAdmin";
 import { useInactivite } from "../hooks/useInactivite";
+import { signalerLaissezPasser } from "../services/laissezPasser";
 import GererAbonnement from "./GererAbonnement";
 import Inscription from "./Inscription";
 import ReinitialiserMotDePasseAdmin from "./ReinitialiserMotDePasseAdmin";
 
-type Modale = "inscription" | "reinitialiserMotDePasse" | "abonnement" | "reseau" | null;
+type Modale = "inscription" | "reinitialiserMotDePasse" | "abonnement" | "sauvegarde" | "reseau" | "laissezPasser" | null;
 
 /**
  * Port de client-electron/src/pages/AccesCreationBoutique.tsx : verrou devant
@@ -50,6 +53,9 @@ export default function AccesCreationBoutique({ allerConnexion }: { allerConnexi
   const [majuscules, setMajuscules] = useState(false);
   const [etatConnexion, setEtatConnexion] = useState<{ serveurJoint: boolean; adminsDuPoste: string[] } | null>(null);
   const [attente, setAttente] = useState(0);
+  // Laissez-passer admin : appareil qui n'a jamais vu internet (docs/plan_laissez_passer_admin.md).
+  const [avecLaissezPasser, setAvecLaissezPasser] = useState(false);
+  const [laissezPasser, setLaissezPasser] = useState("");
 
   async function chargerEtatConnexion() {
     const etat = await api.auth.etatConnexionAdmin();
@@ -79,6 +85,8 @@ export default function AccesCreationBoutique({ allerConnexion }: { allerConnexi
     // pendant que ce poste était hors-ligne (voir api/auth.ts::verifierRevocationAdmin).
     // Sans effet si hors-ligne — retentera à la prochaine ouverture d'Espace Admin.
     api.auth.verifierRevocationAdmin();
+    // Laissez-passer utilisés sans internet : signalés au serveur, retirés s'ils ne valent plus.
+    void signalerLaissezPasser();
   }, []);
 
   async function verifier(evenement: React.FormEvent) {
@@ -86,7 +94,10 @@ export default function AccesCreationBoutique({ allerConnexion }: { allerConnexi
     setErreur(null);
     setEnCours(true);
     try {
-      const resultat = await api.auth.connexionAdmin(username.trim(), password);
+      const resultat =
+        avecLaissezPasser && laissezPasser.trim()
+          ? await api.auth.connexionAdminParLaissezPasser(laissezPasser, username.trim(), password)
+          : await api.auth.connexionAdmin(username.trim(), password);
       if (resultat.succes) {
         setValide(true);
       } else {
@@ -120,6 +131,8 @@ export default function AccesCreationBoutique({ allerConnexion }: { allerConnexi
           <ReinitialiserMotDePasseAdmin onFermer={fermer} username={username} password={password} />
         )}
         {modaleOuverte === "reseau" && <ModaleReseauAdmin onFermer={fermer} username={username} password={password} />}
+        {modaleOuverte === "sauvegarde" && <ModaleSauvegardeAdmin onFermer={fermer} username={username} password={password} />}
+        {modaleOuverte === "laissezPasser" && <ModaleLaissezPasserAdmin onFermer={fermer} username={username} password={password} />}
         {modaleOuverte === "abonnement" && <GererAbonnement onFermer={fermer} username={username} password={password} />}
       </>
     );
@@ -151,7 +164,9 @@ export default function AccesCreationBoutique({ allerConnexion }: { allerConnexi
                     {etatConnexion.adminsDuPoste.length > 1 ? "s" : ""} déjà vérifié{etatConnexion.adminsDuPoste.length > 1 ? "s" : ""} ici.
                   </span>
                 ) : (
-                  <span className="sous-info">Aucun pour l'instant : une première connexion avec internet est nécessaire.</span>
+                  <span className="sous-info">
+                    Aucun pour l'instant : une première connexion avec internet est nécessaire, ou un 🎫 laissez-passer.
+                  </span>
                 )}
               </div>
             ))}
@@ -195,6 +210,28 @@ export default function AccesCreationBoutique({ allerConnexion }: { allerConnexi
             </div>
             {majuscules && <span className="alerte-majuscules">⇪ Majuscules activées</span>}
           </label>
+          <label className="case-laissez-passer">
+            <span>
+              <input type="checkbox" checked={avecLaissezPasser} onChange={(e) => setAvecLaissezPasser(e.target.checked)} /> 🎫
+              J'ai un laissez-passer (appareil sans internet)
+            </span>
+          </label>
+          {avecLaissezPasser && (
+            <label>
+              Laissez-passer
+              <textarea
+                rows={4}
+                className="champ-code-activation"
+                placeholder="LP-XXXXX-XXXXX-…"
+                value={laissezPasser}
+                onChange={(e) => setLaissezPasser(e.target.value)}
+              />
+              <span className="sous-info">
+                Généré avant de partir sur le site d'administration (🎫 Laissez-passer). Il faut aussi votre identifiant et
+                votre mot de passe.
+              </span>
+            </label>
+          )}
           <button type="submit" className="bouton-primaire" disabled={enCours || attente > 0}>
             {enCours ? "Vérification…" : attente > 0 ? `Patientez ${minutesSecondes(attente)}` : "🔓 Entrer"}
           </button>

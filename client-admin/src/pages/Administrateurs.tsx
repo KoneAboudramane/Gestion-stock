@@ -15,6 +15,7 @@ const COURT: Record<string, string> = {
   demandes_reseau: "Réseau",
   signalements: "Signalements",
   comptes: "Comptes",
+  laissez_passer: "Laissez-passer",
 };
 
 interface Liste {

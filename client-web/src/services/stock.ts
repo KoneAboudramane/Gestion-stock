@@ -778,6 +778,27 @@ export async function listerStock(boutiqueId: string, depotId?: string, terme = 
   return resultat.sort((a, b) => a.produitNom.localeCompare(b.produitNom));
 }
 
+/**
+ * Ligne de stock par son id (celui que porte une alerte de rupture), pour
+ * préparer une commande fournisseur — miroir de obtenirLigneStock du bureau.
+ */
+export async function obtenirLigneStock(id: string): Promise<LigneAchatInitiale | undefined> {
+  const stock = await obtenirLigne("stocks", id);
+  if (!stock) return undefined;
+  const variante = await obtenirLigne("variantes", stock.variante_id);
+  const depot = await obtenirLigne("depots", stock.depot_id);
+  const produit = variante ? await obtenirLigne("produits", variante.produit_id) : undefined;
+  if (!variante || !depot || !produit || variante.supprime || depot.supprime || produit.supprime) return undefined;
+  return {
+    varianteId: variante.id,
+    produitNom: produit.nom,
+    prixAchat: variante.prix_achat,
+    prixVente: variante.prix_vente,
+    depotId: depot.id,
+    depotNom: depot.nom,
+  };
+}
+
 // --- Mouvements ---
 
 export interface MouvementResume {

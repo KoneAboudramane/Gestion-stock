@@ -1,3 +1,5 @@
+import { scryptAsync } from "@noble/hashes/scrypt";
+
 import type { Session } from "./auth";
 
 /**
@@ -7,15 +9,26 @@ import type { Session } from "./auth";
  * de passe (Web Crypto PBKDF2 — scrypt n'existe pas en SubtleCrypto) et la
  * session obtenue, dans localStorage, pour permettre les connexions
  * suivantes hors-ligne. Le serveur reste la référence dès qu'il est joignable.
+ *
+ * Réseau de la boutique (docs/plan_mobile_complet.md §4.4) : un compte reçu
+ * d'un poste principal ordinateur est protégé en scrypt (`algo`) — vérifié ici
+ * avec @noble/hashes, mêmes réglages que Node (N=16384, r=8, p=1, 64 octets,
+ * sel = texte hexadécimal tel quel).
  */
 
 const CLE_IDENTIFIANTS = "gestion-stock:identifiants-locaux";
 const ITERATIONS_PBKDF2 = 100_000;
 
+export type AlgoMotDePasse = "scrypt" | "pbkdf2";
+
 interface IdentifiantLocal {
   sel: string; // hex
   hash: string; // hex
+  /** Absent : pbkdf2 (protégé sur cet appareil). */
+  algo?: AlgoMotDePasse;
   session: Session;
+  /** Compte supprimé par le patron (réseau de la boutique) : refusé ici. */
+  desactive?: boolean;
 }
 
 function octetsVersHex(octets: Uint8Array): string {
@@ -33,7 +46,12 @@ function genererSel(): string {
   return octetsVersHex(crypto.getRandomValues(new Uint8Array(16)));
 }
 
-async function hacherMotDePasse(motDePasse: string, selHex: string): Promise<string> {
+async function hacherMotDePasse(motDePasse: string, selHex: string, algo: AlgoMotDePasse = "pbkdf2"): Promise<string> {
+  if (algo === "scrypt") {
+    const encodeur = new TextEncoder();
+    const octets = await scryptAsync(encodeur.encode(motDePasse), encodeur.encode(selHex), { N: 16384, r: 8, p: 1, dkLen: 64 });
+    return octetsVersHex(octets);
+  }
   const cleBase = await crypto.subtle.importKey("raw", new TextEncoder().encode(motDePasse), "PBKDF2", false, [
     "deriveBits",
   ]);
@@ -89,9 +107,102 @@ export type ResultatVerificationLocale =
 /** Vérifie les identifiants saisis contre le cache local (utilisé quand le serveur est injoignable). */
 export async function verifierIdentifiantLocal(username: string, motDePasse: string): Promise<ResultatVerificationLocale> {
   const entree = chargerIdentifiants()[username];
-  if (!entree) return { statut: "absent" };
-  const hashObtenu = await hacherMotDePasse(motDePasse, entree.sel);
+  if (!entree || entree.desactive) return { statut: "absent" };
+  const hashObtenu = await hacherMotDePasse(motDePasse, entree.sel, entree.algo);
   return hashObtenu === entree.hash ? { statut: "ok", session: entree.session } : { statut: "motDePasseInvalide" };
+}
+
+// --- Réseau de la boutique : comptes transmis par le poste principal ---
+
+/** Même forme que CompteDiffuse du bureau (electron/services/auth.ts) : jamais de jeton de session. */
+export interface CompteDiffuse {
+  username: string;
+  sel: string;
+  hash: string;
+  /** Absent : scrypt (compte venu d'un ordinateur). */
+  algo?: AlgoMotDePasse;
+  session: Session;
+  desactive?: boolean;
+}
+
+/** Comptes de cette boutique connus de cet appareil, sans jetons (poste principal → caisses). */
+export function exporterComptesLocaux(boutiqueId: string): CompteDiffuse[] {
+  return Object.entries(chargerIdentifiants())
+    .filter(([, entree]) => entree.session?.boutiqueId === boutiqueId)
+    .map(([username, entree]) => ({
+      username,
+      sel: entree.sel,
+      hash: entree.hash,
+      algo: entree.algo ?? "pbkdf2",
+      session: { ...entree.session, accessToken: "", refreshToken: "" },
+      desactive: entree.desactive,
+    }));
+}
+
+/**
+ * Caisse : ajoute ou met à jour les comptes reçus du poste principal, pour
+ * qu'un vendeur puisse se connecter ici sans internet. Un compte déjà connu
+ * avec un jeton de session (connexion en ligne sur cet appareil) garde son jeton.
+ */
+export function importerComptesDiffuses(comptes: CompteDiffuse[]): void {
+  if (comptes.length === 0) return;
+  const identifiants = chargerIdentifiants();
+  for (const compte of comptes) {
+    if (compte.desactive) {
+      delete identifiants[compte.username];
+      continue;
+    }
+    const actuel = identifiants[compte.username];
+    identifiants[compte.username] = {
+      sel: compte.sel,
+      hash: compte.hash,
+      algo: compte.algo ?? "scrypt",
+      session: {
+        ...compte.session,
+        accessToken: actuel?.session.accessToken ?? "",
+        refreshToken: actuel?.session.refreshToken ?? "",
+      },
+    };
+  }
+  localStorage.setItem(CLE_IDENTIFIANTS, JSON.stringify(identifiants));
+}
+
+/**
+ * Compte créé ou modifié par le patron depuis l'appli : mémorisé tout de suite
+ * sur cet appareil (mot de passe protégé), pour que le vendeur puisse se
+ * connecter sans internet — et, sur le poste principal, sur toutes les caisses
+ * branchées. Sans mot de passe (rôle, dépôt…), on ne met à jour que les droits
+ * d'un compte déjà connu. Port de memoriserCompteVendeur du bureau.
+ */
+export async function memoriserCompteVendeur(
+  username: string,
+  motDePasse: string | null,
+  session: Omit<Session, "accessToken" | "refreshToken">,
+): Promise<void> {
+  const identifiants = chargerIdentifiants();
+  const actuel = identifiants[username];
+  const complete: Session = {
+    ...session,
+    accessToken: actuel?.session.accessToken ?? "",
+    refreshToken: actuel?.session.refreshToken ?? "",
+  };
+  if (motDePasse) {
+    const sel = genererSel();
+    identifiants[username] = { sel, hash: await hacherMotDePasse(motDePasse, sel), session: complete };
+  } else if (actuel) {
+    identifiants[username] = { ...actuel, session: complete, desactive: false };
+  } else {
+    return;
+  }
+  localStorage.setItem(CLE_IDENTIFIANTS, JSON.stringify(identifiants));
+}
+
+/** Compte supprimé ou désactivé : refusé sur cet appareil, et retiré des caisses à leur prochain échange. */
+export function desactiverCompteLocal(username: string): void {
+  const identifiants = chargerIdentifiants();
+  if (!identifiants[username]) return;
+  identifiants[username] = { ...identifiants[username], desactive: true };
+  localStorage.setItem(CLE_IDENTIFIANTS, JSON.stringify(identifiants));
 }
 
 /** fetch() lève un TypeError générique (pas de statut HTTP) quand le réseau est indisponible. */

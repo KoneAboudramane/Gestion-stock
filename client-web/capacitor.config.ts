@@ -16,6 +16,10 @@ const config: CapacitorConfig = {
   android: {
     // Pas de contenu http dans une page https : l'API doit être en HTTPS valide.
     allowMixedContent: false,
+    // Android 15+ dessine l'appli SOUS la barre d'état et les boutons du bas : sans
+    // marges, le bas de l'écran (⚙ Espace Admin, barre d'onglets) était caché
+    // (constaté sur Galaxy Tab A11, Android 16, le 07/11/2026).
+    adjustMarginsForEdgeToEdge: "auto",
   },
   server: {
     // Origine des pages dans l'appli : https://localhost (à autoriser dans CORS_ALLOWED_ORIGINS du serveur).

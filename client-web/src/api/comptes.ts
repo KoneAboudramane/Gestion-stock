@@ -1,4 +1,35 @@
+import { listerTout, obtenirLigne } from "../db/helpers";
+import { desactiverCompteLocal, memoriserCompteVendeur } from "./authHorsLigne";
 import { ErreurApi, apiFetch, executerEnSecurite, extraireMessageErreur, type ResultatEcriture } from "./transport";
+
+/**
+ * Mémorise sur cet appareil un compte que le patron vient de créer ou de
+ * modifier (réseau de la boutique : le poste principal le transmet aux caisses).
+ * Jamais bloquant : l'opération en ligne a déjà réussi.
+ */
+async function memoriserCompteDepuisServeur(utilisateur: UtilisateurResume, motDePasse: string | null): Promise<void> {
+  try {
+    const boutique = (await listerTout("boutiques"))[0];
+    if (!boutique) return;
+    const roles = utilisateur.role ? await listerRoles() : null;
+    const role = roles?.succes ? roles.resultat.find((r) => String(r.id) === String(utilisateur.role)) : undefined;
+    const depot = utilisateur.depot ? await obtenirLigne("depots", utilisateur.depot) : undefined;
+    await memoriserCompteVendeur(utilisateur.username, motDePasse, {
+      utilisateurId: String(utilisateur.id),
+      username: utilisateur.username,
+      boutiqueId: boutique.id,
+      boutiqueNom: boutique.nom,
+      role: role?.nom ?? "",
+      permissions: role?.permissions ?? {},
+      depotId: utilisateur.depot,
+      depotNom: depot?.nom ?? null,
+      synchroAutorisee: Boolean(boutique.synchro_autorisee),
+      codeVendeur: utilisateur.code_vendeur || undefined,
+    });
+  } catch {
+    // cache illisible ou base pas prête : le vendeur se connectera une fois en ligne
+  }
+}
 
 // --- Rôles ---
 
@@ -181,7 +212,9 @@ export function creerUtilisateur(
       }),
     });
     if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
-    return reponse.json();
+    const utilisateur = (await reponse.json()) as UtilisateurResume;
+    await memoriserCompteDepuisServeur(utilisateur, params.password);
+    return utilisateur;
   });
 }
 
@@ -218,13 +251,19 @@ export function modifierUtilisateur(
       body: JSON.stringify(corps),
     });
     if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
-    return reponse.json();
+    const utilisateur = (await reponse.json()) as UtilisateurResume;
+    if (utilisateur && utilisateur.is_active === false) desactiverCompteLocal(utilisateur.username);
+    else if (utilisateur) await memoriserCompteDepuisServeur(utilisateur, champs.password ?? null);
+    return utilisateur;
   });
 }
 
 export function supprimerUtilisateur(id: number): Promise<ResultatEcriture<void>> {
   return executerEnSecurite(async () => {
+    const liste = await listerUtilisateurs();
+    const username = liste.succes ? liste.resultat.find((u) => u.id === id)?.username : undefined;
     const reponse = await apiFetch(`/utilisateurs/${id}/`, { method: "DELETE" });
     if (!reponse.ok) throw new ErreurApi(await extraireMessageErreur(reponse));
+    if (username) desactiverCompteLocal(username);
   });
 }

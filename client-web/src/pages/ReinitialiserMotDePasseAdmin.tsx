@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { listerComptesAdmin, lireReinitialisationsARefaire, reinitialiserMotDePasseAdmin, type CompteAdmin } from "../api/auth";
 import ChampNouveauMotDePasse from "../components/ChampNouveauMotDePasse";
 import { soliditeMotDePasse } from "../lib/motDePasse";
+import { imprimer } from "../lib/impression";
 
 /**
  * Port navigateur de client-electron/src/pages/ReinitialiserMotDePasseAdmin.tsx.
@@ -187,9 +188,7 @@ export default function ReinitialiserMotDePasseAdmin({
                 <button
                   type="button"
                   onClick={() => {
-                    document.body.classList.add("impression-fiche");
-                    window.print();
-                    document.body.classList.remove("impression-fiche");
+                    void imprimer("Fiche-de-connexion", "impression-fiche");
                   }}
                 >
                   🖨️ Imprimer

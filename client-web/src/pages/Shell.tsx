@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 
 import type { Session } from "../api";
+import { useLogoBoutique } from "../contexts/LogoContext";
+import { useNomBoutique } from "../contexts/NomBoutiqueContext";
 import { listerFournisseurs } from "../services/achats";
 import { enregistrerReleveDormants, type Periode } from "../services/rapports";
 import {
@@ -30,6 +32,7 @@ import Ventes from "./Ventes";
 import { fabricationPropreActive } from "../services/stock";
 import { zoneAccessible } from "../lib/acces";
 import BandeauAbonnement from "../components/BandeauAbonnement";
+import { BandeauSauvegarde, ModaleEtatSauvegarde } from "../components/EtatSauvegarde";
 import IndicateurSynchro from "../components/IndicateurSynchro";
 import ModaleAbonnement from "../components/ModaleAbonnement";
 
@@ -74,6 +77,9 @@ export default function Shell({
   onDeconnexion: () => void;
   onVerrouiller: () => void;
 }) {
+  const logo = useLogoBoutique();
+  const [sauvegardeOuverte, setSauvegardeOuverte] = useState(false);
+  const nomBoutique = useNomBoutique();
   const [zone, setZone] = useState<Zone>(zoneDepuisAdresse);
   // Page changée → nouvelle entrée d'historique (seulement si l'adresse diffère déjà).
   useEffect(() => {
@@ -99,9 +105,7 @@ export default function Shell({
 
   // État de navigation croisée (ex. "voir les ruptures dans le Stock" depuis
   // le Tableau de bord ou une notification) : porté de Shell.tsx Electron,
-  // limité aux cibles qui ont un point d'entrée réel côté web pour l'instant
-  // (pas de "clients:credits" — la section "Crédits en attente" du tableau
-  // de bord n'est pas encore portée ici).
+  // mêmes cibles que le bureau.
   const [filtreRuptureInitial, setFiltreRuptureInitial] = useState(false);
   const [lignesEntreeInitiales, setLignesEntreeInitiales] = useState<LigneAchatInitiale[]>([]);
   const [ouvrirNouvelleCommande, setOuvrirNouvelleCommande] = useState(false);
@@ -231,9 +235,11 @@ export default function Shell({
       <aside className={`barre-laterale ${barreReduite ? "reduite" : ""}`}>
         <div className="logo">
           <button type="button" className="bouton-logo-accueil" onClick={() => setZone("accueil")} title="Accueil">
-            <span className="logo-boutique-entete logo-boutique-nav-vide">
-              {session.boutiqueNom.charAt(0).toUpperCase()}
-            </span>
+            {logo ? (
+              <img src={logo} alt="" className="logo-boutique-entete" />
+            ) : (
+              <span className="logo-boutique-entete logo-boutique-nav-vide">{nomBoutique.charAt(0).toUpperCase()}</span>
+            )}
             <span className="texte-logo">Gestion Stock</span>
           </button>
           <button
@@ -246,6 +252,13 @@ export default function Shell({
           </button>
         </div>
         <nav>
+          {/* Affichage mobile : le logo (retour à l'Accueil) est masqué, la barre du bas le remplace. */}
+          <button type="button" className="item-nav item-nav-accueil-mobile" onClick={() => setZone("accueil")}>
+            <span className="item-nav-libelle">
+              <span className="icone-nav">🏠</span>
+              <span className="texte-nav">Accueil</span>
+            </span>
+          </button>
           {zonesAccessibles.map((z) => (
             <button
               key={z.cle}
@@ -272,7 +285,7 @@ export default function Shell({
       <div className="contenu-principal">
         <header className="entete">
           <div>
-            <strong>{session.boutiqueNom}</strong>
+            <strong>{nomBoutique}</strong>
             <span className="sous-info"> · {session.username} ({session.role})</span>
           </div>
           <div className="entete-droite">
@@ -294,6 +307,8 @@ export default function Shell({
         </header>
         <main className="zone-contenu">
           <BandeauAbonnement session={session} onVoirAbonnement={() => setAbonnementOuvert(true)} />
+          <BandeauSauvegarde session={session} onVoir={() => setSauvegardeOuverte(true)} />
+          {sauvegardeOuverte && <ModaleEtatSauvegarde onFermer={() => setSauvegardeOuverte(false)} />}
           {abonnementOuvert && <ModaleAbonnement session={session} onFermer={() => setAbonnementOuvert(false)} />}
           {zoneAffichee === "interdite" && (
             <div className="detail-produit acces-reserve">
@@ -337,7 +352,12 @@ export default function Shell({
             />
           )}
           {zoneAffichee === "notifications" && (
-            <Notifications session={session} onNaviguer={naviguer} onLues={rafraichirNonLues} />
+            <Notifications
+              session={session}
+              onNaviguer={naviguer}
+              onLues={rafraichirNonLues}
+              onCommander={commanderProduit}
+            />
           )}
           {zoneAffichee === "messages" && <Messages session={session} onNaviguer={naviguer} />}
           {zoneAffichee === "reglages" && <Reglages session={session} />}

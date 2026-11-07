@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../api/client";
 import type { AbonnementBoutique, EtatAbonnement, EtatReseau, EtatSauvegarde } from "../api/types";
 
-export type CarteAdmin = "inscription" | "reinitialiserMotDePasse" | "abonnement" | "sauvegarde" | "reseau";
+export type CarteAdmin = "inscription" | "reinitialiserMotDePasse" | "abonnement" | "sauvegarde" | "reseau" | "laissezPasser";
 
 interface EtatPoste {
   boutique: AbonnementBoutique | null;
@@ -306,6 +306,13 @@ export default function AccueilAdmin({
                 "Créer une boutique",
                 "Assistant en 4 étapes : boutique, patron, options, récapitulatif.",
                 boutique ? "cet ordinateur en a déjà une" : "sur cet ordinateur",
+              )}
+              {carte(
+                "laissezPasser",
+                "🎫",
+                "Laissez-passer",
+                "Générer (avec internet) le code qui ouvrira l'Espace Admin d'un appareil sans internet.",
+                enLigne === false ? "internet nécessaire" : undefined,
               )}
             </div>
           </section>

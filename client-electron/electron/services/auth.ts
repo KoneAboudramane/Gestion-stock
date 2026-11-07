@@ -50,9 +50,17 @@ export interface Session {
   doitChangerMotDePasse?: boolean;
 }
 
+/**
+ * Méthode de protection du mot de passe : « scrypt » (bureau, valeur par défaut
+ * quand absente) ou « pbkdf2 » (compte reçu d'un poste principal téléphone /
+ * tablette — docs/plan_mobile_complet.md §4.4).
+ */
+type AlgoMotDePasse = "scrypt" | "pbkdf2";
+
 interface IdentifiantLocal {
   sel: string;
   hash: string;
+  algo?: AlgoMotDePasse;
   session: Session;
   /** Compte supprimé par le patron : refusé ici, et retiré des caisses du réseau de la boutique. */
   desactive?: boolean;
@@ -80,7 +88,11 @@ function chargerIdentifiantsLocaux(): Record<string, IdentifiantLocal> {
   }
 }
 
-function hacherMotDePasse(motDePasse: string, sel: string): string {
+function hacherMotDePasse(motDePasse: string, sel: string, algo: AlgoMotDePasse = "scrypt"): string {
+  if (algo === "pbkdf2") {
+    // Mêmes réglages que client-web/src/api/authHorsLigne.ts (sel en hexadécimal décodé).
+    return crypto.pbkdf2Sync(motDePasse, Buffer.from(sel, "hex"), 100_000, 64, "sha256").toString("hex");
+  }
   return crypto.scryptSync(motDePasse, sel, 64).toString("hex");
 }
 
@@ -96,6 +108,8 @@ export interface CompteDiffuse {
   username: string;
   sel: string;
   hash: string;
+  /** Absent : scrypt (bureau). */
+  algo?: AlgoMotDePasse;
   session: Session;
   desactive?: boolean;
 }
@@ -108,6 +122,7 @@ export function exporterComptesLocaux(boutiqueId: string): CompteDiffuse[] {
       username,
       sel: entree.sel,
       hash: entree.hash,
+      algo: entree.algo ?? "scrypt",
       session: { ...entree.session, accessToken: "", refreshToken: "" },
       desactive: entree.desactive,
     }));
@@ -169,6 +184,7 @@ export function importerComptesDiffuses(comptes: CompteDiffuse[]): void {
     identifiants[compte.username] = {
       sel: compte.sel,
       hash: compte.hash,
+      algo: compte.algo ?? "scrypt",
       session: {
         ...compte.session,
         accessToken: actuel?.session.accessToken ?? "",
@@ -187,7 +203,7 @@ function verifierIdentifiantLocal(
   const entree = chargerIdentifiantsLocaux()[username];
   if (!entree || entree.desactive) return { statut: "absent" };
   const hashAttendu = Buffer.from(entree.hash, "hex");
-  const hashObtenu = Buffer.from(hacherMotDePasse(motDePasse, entree.sel), "hex");
+  const hashObtenu = Buffer.from(hacherMotDePasse(motDePasse, entree.sel, entree.algo), "hex");
   const correspond = hashAttendu.length === hashObtenu.length && crypto.timingSafeEqual(hashAttendu, hashObtenu);
   return correspond ? { statut: "ok", session: entree.session } : { statut: "motDePasseInvalide" };
 }
@@ -530,6 +546,34 @@ export async function etatConnexionAdmin(): Promise<EtatConnexionAdmin> {
  * seulement à l'écran) et messages clairs — sans jamais dire si c'est le mot
  * de passe ou le compte qui ne va pas (le serveur ne le dit pas non plus).
  */
+/**
+ * Espace Admin sur un ordinateur qui n'a jamais vu internet : laissez-passer +
+ * identifiant + mot de passe (docs/plan_laissez_passer_admin.md). Accepté,
+ * l'accès est mémorisé comme après une vérification en ligne. Même protection
+ * contre les essais répétés que la connexion admin.
+ */
+export async function connexionAdminParLaissezPasser(code: string, username: string, password: string): Promise<void> {
+  const attente = attenteRestante("espace-admin");
+  if (attente > 0) throw new Error(`Trop d'essais : réessayez dans ${attente} s.`);
+  const { noterUtilisation, verifierLaissezPasser } = await import("./laissezPasser");
+  let lu;
+  try {
+    lu = verifierLaissezPasser(code, username, password);
+  } catch (erreur) {
+    const nouvelleAttente = noterEchec("espace-admin");
+    throw new Error((erreur instanceof Error ? erreur.message : "Laissez-passer refusé.") + suiteEchec("espace-admin", nouvelleAttente));
+  }
+  ecrireEssais("espace-admin", { echecs: 0, bloqueJusqua: 0 });
+  enregistrerIdentifiantAdminLocal(lu.identifiant, password);
+  noterUtilisation(lu);
+}
+
+/** Retour d'internet : laissez-passer signalés ; ceux qui ne valent plus perdent leur accès mémorisé. */
+export async function signalerLaissezPasser(): Promise<void> {
+  const { signalerLaissezPasser: signaler } = await import("./laissezPasser");
+  for (const identifiant of await signaler()) supprimerIdentifiantAdminLocal(identifiant);
+}
+
 export async function connexionAdmin(username: string, password: string): Promise<{ source: "serveur" | "poste" }> {
   const attente = attenteRestante("espace-admin");
   if (attente > 0) throw new Error(`Trop d'essais : réessayez dans ${attente} s.`);

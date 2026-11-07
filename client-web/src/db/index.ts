@@ -1,12 +1,15 @@
 import { openDB, type IDBPDatabase } from "idb";
 
+import { REGISTRE_CLIENT } from "./registre";
 import { GestionStockDB, NOM_BASE, VERSION_BASE } from "./schema";
+import { INDEX_SEQ_RESEAU, INDEX_SYNCHRO_RESEAU, installerSuiviReseau } from "./suiviReseau";
 
 let promesseBase: Promise<IDBPDatabase<GestionStockDB>> | null = null;
 
 /** Ouvre (ou crée) la base IndexedDB locale. Un seul appel réel — les suivants réutilisent la même promesse. */
 export function ouvrirBaseDeDonnees(): Promise<IDBPDatabase<GestionStockDB>> {
   if (!promesseBase) {
+    installerSuiviReseau();
     promesseBase = openDB<GestionStockDB>(NOM_BASE, VERSION_BASE, {
       upgrade(db, oldVersion, _nouvelleVersion, transaction) {
         // v1 : périmètre Caisse (voir plan PWA Caisse hors-ligne).
@@ -248,6 +251,18 @@ export function ouvrirBaseDeDonnees(): Promise<IDBPDatabase<GestionStockDB>> {
           const recettes = db.createObjectStore("lignes_recette", { keyPath: "id" });
           recettes.createIndex("variante_id", "variante_id");
           recettes.createIndex("synchronise", "synchronise");
+        }
+
+        // v16 : réseau de la boutique (docs/plan_mobile_complet.md §4.2) — ce qui
+        // reste à envoyer au poste principal, et le numéro d'écriture que sert
+        // un poste principal. Les lignes existantes n'ont pas ces champs : elles
+        // sont marquées « à envoyer » au branchement (services/reseau.ts).
+        if (oldVersion < 16) {
+          for (const entree of REGISTRE_CLIENT) {
+            const magasin = transaction.objectStore(entree.store as never) as unknown as IDBObjectStore;
+            if (!magasin.indexNames.contains(INDEX_SYNCHRO_RESEAU)) magasin.createIndex(INDEX_SYNCHRO_RESEAU, INDEX_SYNCHRO_RESEAU);
+            if (!magasin.indexNames.contains(INDEX_SEQ_RESEAU)) magasin.createIndex(INDEX_SEQ_RESEAU, INDEX_SEQ_RESEAU);
+          }
         }
       },
     });

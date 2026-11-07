@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Réseau de la boutique (docs/plan_mobile_complet.md §4.1) : le poste principal
+  répond en http:// sur le réseau local (pas de certificat possible sur une
+  adresse 192.168.x.x). Android refuse le http:// par défaut : on l'autorise,
+  et le module ReseauBoutique n'appelle QUE des adresses privées (RFC 1918).
+  Le serveur en ligne reste en https://.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

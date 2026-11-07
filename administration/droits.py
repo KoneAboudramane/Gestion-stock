@@ -14,6 +14,7 @@ DROITS = {
     "demandes_reseau": "Traiter les demandes de réseau",
     "signalements": "Traiter les signalements",
     "comptes": "Gérer les comptes et mots de passe des boutiques",
+    "laissez_passer": "Générer des laissez-passer (Espace Admin d'un appareil sans internet)",
 }
 
 # Réservé au superuser, jamais attribuable à un autre administrateur.

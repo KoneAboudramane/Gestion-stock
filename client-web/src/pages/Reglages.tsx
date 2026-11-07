@@ -13,7 +13,17 @@ import {
   soumettreAbonnement,
   type AbonnementEnAttente,
 } from "../services/abonnementAdmin";
-import { ErreurBoutique, modifierBoutique, obtenirBoutique, type BoutiqueDetail } from "../services/boutique";
+import {
+  definirLogoBoutique,
+  ErreurBoutique,
+  modifierBoutique,
+  obtenirBoutique,
+  obtenirLogoBoutique,
+  preparerLogo,
+  type BoutiqueDetail,
+} from "../services/boutique";
+import { useRafraichirLogoBoutique } from "../contexts/LogoContext";
+import { useRafraichirNomBoutique } from "../contexts/NomBoutiqueContext";
 import { definirParametre, ErreurConfiguration, listerParametres } from "../services/configuration";
 import {
   CLE_PARAMETRE_DELAI_VERROUILLAGE,
@@ -61,6 +71,11 @@ import { CLE_PARAMETRE_FABRICATION_PROPRE } from "../hooks/useFabricationPropre"
 import { fabricationPropreActive } from "../services/stock";
 import ModaleAbonnement from "../components/ModaleAbonnement";
 import ModaleAppliMobile from "../components/ModaleAppliMobile";
+import ModaleReseauBoutique from "../components/ModaleReseauBoutique";
+import { ModaleEtatSauvegarde } from "../components/EtatSauvegarde";
+import { etatSauvegarde } from "../services/sauvegarde";
+import { api as apiReseau } from "../api/reseauBoutique";
+import { estAppliMobile } from "../lib/appliAndroid";
 
 /**
  * Port simplifié de client-electron/src/pages/Reglages.tsx. Non repris ici :
@@ -157,6 +172,8 @@ const SECTIONS = [
   { cle: "parametres", label: "Paramètres", icone: "⚙️" },
   { cle: "synchronisation", label: "Synchronisation", icone: "🔄" },
   { cle: "appli", label: "Appli mobile", icone: "📱" },
+  { cle: "reseau", label: "Réseau de la boutique", icone: "📶" },
+  { cle: "sauvegarde", label: "Sauvegarde", icone: "💾" },
 ] as const;
 
 type Section = (typeof SECTIONS)[number]["cle"];
@@ -177,6 +194,7 @@ function EnteteModale({ titre, onFermer }: { titre: string; onFermer: () => void
 function OngletProfilBoutique({ session, onFermer }: { session: Session; onFermer: () => void }) {
   const peutGerer = !!session.permissions.gerer_utilisateurs_reglages;
   const [boutique, setBoutique] = useState<BoutiqueDetail | null>(null);
+  const [logo, setLogo] = useState("");
   const [moi, setMoi] = useState<UtilisateurResume | null>(null);
   const [emailCompte, setEmailCompte] = useState("");
   const [telephoneCompte, setTelephoneCompte] = useState("");
@@ -205,6 +223,17 @@ function OngletProfilBoutique({ session, onFermer }: { session: Session; onFerme
   }, [session.boutiqueId]);
   const rafraichirDevise = useRafraichirDevise();
   const { definirSession } = useSession();
+  const rafraichirLogo = useRafraichirLogoBoutique();
+  const rafraichirNomBoutique = useRafraichirNomBoutique();
+
+  async function choisirLogo(fichier: File | undefined) {
+    if (!fichier) return;
+    try {
+      setLogo(await preparerLogo(fichier));
+    } catch (e) {
+      setErreur(e instanceof ErreurBoutique ? e.message : "Image illisible.");
+    }
+  }
 
   async function charger() {
     const [boutiqueLocale, resultatUtilisateurs, listeDepots, parametres] = await Promise.all([
@@ -214,6 +243,7 @@ function OngletProfilBoutique({ session, onFermer }: { session: Session; onFerme
       listerParametres(session.boutiqueId),
     ]);
     if (boutiqueLocale) setBoutique(boutiqueLocale);
+    setLogo(obtenirLogoBoutique(session.boutiqueId));
     setDepots(listeDepots);
     setTauxTva(parametres.find((p) => p.cle === "taux_tva")?.valeur ?? "");
     setFormatTicket(parametres.find((p) => p.cle === "format_ticket")?.valeur || "a4");
@@ -282,8 +312,16 @@ function OngletProfilBoutique({ session, onFermer }: { session: Session; onFerme
         // que Trésorerie/Caisse le reflètent immédiatement, sans rechargement.
         api.auth.rafraichirPermissions(session).then((s) => s && definirSession(s));
       }
+      try {
+        definirLogoBoutique(session.boutiqueId, logo);
+      } catch {
+        setErreur("Logo trop lourd pour cet appareil : choisissez une image plus simple.");
+        return;
+      }
       setMessage("Informations enregistrées.");
       rafraichirDevise();
+      rafraichirLogo();
+      rafraichirNomBoutique();
       setModeEdition(false);
       charger();
     } finally {
@@ -323,7 +361,11 @@ function OngletProfilBoutique({ session, onFermer }: { session: Session; onFerme
         <div className="modale-corps">
           {message && <div className="message-succes">{message}</div>}
           <div className="entete-profil-boutique">
-            <div className="apercu-logo-boutique apercu-logo-vide">{boutique.nom.charAt(0).toUpperCase()}</div>
+            {logo ? (
+              <img src={logo} alt="Logo de la boutique" className="apercu-logo-boutique" />
+            ) : (
+              <div className="apercu-logo-boutique apercu-logo-vide">{boutique.nom.charAt(0).toUpperCase()}</div>
+            )}
             <div>
               <h2>{boutique.nom}</h2>
               <span className="sous-info">
@@ -447,6 +489,27 @@ function OngletProfilBoutique({ session, onFermer }: { session: Session; onFerme
       <div className="modale-corps">
       <form id="form-profil-boutique" onSubmit={enregistrer} className="formulaire-catalogue formulaire-profil-boutique">
       {erreur && <div className="message-erreur">{erreur}</div>}
+      <div className="champ-logo-boutique">
+        {logo ? (
+          <img src={logo} alt="Logo de la boutique" className="apercu-logo-boutique" />
+        ) : (
+          <div className="apercu-logo-boutique apercu-logo-vide">{boutique.nom.charAt(0).toUpperCase()}</div>
+        )}
+        <label className="lien">
+          Choisir un logo
+          <input
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={(e) => choisirLogo(e.target.files?.[0])}
+          />
+        </label>
+        {logo && (
+          <button type="button" className="lien" onClick={() => setLogo("")}>
+            Retirer
+          </button>
+        )}
+      </div>
       <div className="colonnes-profil-boutique">
         <div>
           <h4>Boutique</h4>
@@ -2549,11 +2612,47 @@ export default function Reglages({ session }: { session: Session }) {
   const [sectionOuverte, setSectionOuverte] = useState<Section | null>(null);
   // Carte « 📱 Appli mobile » : grisée tant que l'administrateur ne l'a pas activée pour la boutique.
   const [appliMobileAutorisee, setAppliMobileAutorisee] = useState(false);
+  // Réseau de la boutique : option activée par l'administrateur ; tant qu'elle ne l'est pas,
+  // sa carte est grisée (comme au bureau). Dans un navigateur, impossible de joindre un
+  // appareil du réseau local : seulement dans l'appli mobile et sur ordinateur.
+  const [reseauAutorise, setReseauAutorise] = useState<boolean | null>(null);
+  const [demandeReseau, setDemandeReseau] = useState<string | null>(null);
+  const [sauvegardeConfiguree, setSauvegardeConfiguree] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (sectionOuverte) return;
     obtenirBoutique(session.boutiqueId).then((b) => setAppliMobileAutorisee(Boolean(b?.appliMobileAutorisee)));
+    apiReseau.reseau
+      .etat()
+      .then((r) => setReseauAutorise(r.reseauAutorise))
+      .catch(() => setReseauAutorise(false));
+    etatSauvegarde()
+      .then((e) => setSauvegardeConfiguree(e.configuree))
+      .catch(() => setSauvegardeConfiguree(false));
   }, [sectionOuverte, session.boutiqueId]);
+
+  async function demanderActivationReseau() {
+    setDemandeReseau("Envoi…");
+    const r = await apiReseau.comptes.demanderActivationReseau(session, "");
+    setDemandeReseau(
+      r.succes
+        ? r.resultat.demande_en_attente
+          ? "📨 Demande envoyée : en attente de votre administrateur."
+          : "✅ Activé."
+        : "Pas d'internet : prévenez votre administrateur.",
+    );
+    if (r.succes && r.resultat.reseau_autorise) setReseauAutorise(true);
+  }
+
+  /** null : carte normale ; sinon la raison pour laquelle elle est grisée. */
+  function raisonDesactivee(cle: Section): string | null {
+    if (cle === "reseau" && !estAppliMobile) return "Dans l'appli mobile et sur ordinateur";
+    if (cle === "reseau" && reseauAutorise === false) return "Non activé par votre administrateur";
+    if (cle === "sauvegarde" && !estAppliMobile) return "Dans l'appli mobile et sur ordinateur";
+    if (cle === "sauvegarde" && sauvegardeConfiguree === false) return "Non paramétrée par votre administrateur";
+    if (cle === "appli" && !appliMobileAutorisee) return "Non activé par votre administrateur";
+    return null;
+  }
 
   return (
     <div className="page-produits page-accueil">
@@ -2578,30 +2677,34 @@ export default function Reglages({ session }: { session: Session }) {
         />
       ))}
       <div className="grille-documents-comptables">
-        {SECTIONS.map((s) =>
-          s.cle === "appli" && !appliMobileAutorisee ? (
-            <div
-              key={s.cle}
-              className="carte-document-comptable carte-document-desactivee"
-              title="Non activé par votre administrateur"
-              aria-disabled="true"
-            >
-              <span className="icone-document-comptable">{s.icone}</span>
-              {s.label}
-              <span className="mention-carte-desactivee">🔒 Non activé par votre administrateur</span>
-            </div>
-          ) : (
-            <button
-              key={s.cle}
-              type="button"
-              className="carte-document-comptable"
-              onClick={() => setSectionOuverte(s.cle)}
-            >
+        {SECTIONS.map((s) => {
+          const raison = raisonDesactivee(s.cle);
+          if (raison) {
+            return (
+              <div key={s.cle} className="carte-document-comptable carte-document-desactivee" title={raison} aria-disabled="true">
+                <span className="icone-document-comptable">{s.icone}</span>
+                {s.label}
+                <span className="mention-carte-desactivee">🔒 {raison}</span>
+                {s.cle === "reseau" &&
+                  estAppliMobile &&
+                  session.permissions.gerer_utilisateurs_reglages &&
+                  (demandeReseau ? (
+                    <span className="mention-carte-desactivee">{demandeReseau}</span>
+                  ) : (
+                    <button type="button" className="lien" onClick={demanderActivationReseau}>
+                      📨 Demander l'activation
+                    </button>
+                  ))}
+              </div>
+            );
+          }
+          return (
+            <button key={s.cle} type="button" className="carte-document-comptable" onClick={() => setSectionOuverte(s.cle)}>
               <span className="icone-document-comptable">{s.icone}</span>
               {s.label}
             </button>
-          ),
-        )}
+          );
+        })}
       </div>
       {sectionOuverte === "profil" && (
         <ModaleProfilBoutique session={session} onFermer={() => setSectionOuverte(null)} />
@@ -2618,6 +2721,8 @@ export default function Reglages({ session }: { session: Session }) {
       {sectionOuverte === "appli" && appliMobileAutorisee && (
         <ModaleAppliMobile nomBoutique={session.boutiqueNom} onFermer={() => setSectionOuverte(null)} />
       )}
+      {sectionOuverte === "reseau" && <ModaleReseauBoutique session={session} onFermer={() => setSectionOuverte(null)} />}
+      {sectionOuverte === "sauvegarde" && <ModaleEtatSauvegarde onFermer={() => setSectionOuverte(null)} />}
     </div>
   );
 }

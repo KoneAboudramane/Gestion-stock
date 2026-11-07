@@ -2,16 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 import { api } from "../api";
-import type { LigneStock, LigneTopClient, LigneVentesParJour, Session, SyntheseVentes } from "../api";
+import type { LigneTopClient, LigneVentesParJour, Session, SyntheseVentes } from "../api";
 import { useDevise } from "../contexts/DeviseContext";
-import { produitsDormants, type LigneProduitDormant } from "../services/rapports";
-import { listerDestockages, type DestockageResume } from "../services/stock";
+import { produitsDormants, syntheseVentes, topClients, ventesParJour, type LigneProduitDormant } from "../services/rapports";
+import { listerDestockages, listerStock, type DestockageResume, type LigneStock } from "../services/stock";
+import { listerCredits, type CreditResume } from "../services/clients";
 import { formaterMontant } from "../lib/formatage";
 
 /**
- * Adapté de client-electron/src/pages/TableauDeBord.tsx : mêmes cartes/graphique,
- * mais sans la carte "Crédits en attente" (app clients non portée sur le web) ni
- * les raccourcis de navigation vers Caisse/Produits/Achats (zones absentes ici).
+ * Port de client-electron/src/pages/TableauDeBord.tsx : mêmes cartes, graphique
+ * et listes (dont « Crédits en attente »). Tout est calculé sur l'appareil
+ * (services/rapports.ts, services/stock.ts), comme au bureau : le tableau de bord
+ * marche sans internet et montre aussi les ventes reçues du poste principal.
  */
 
 /**
@@ -314,6 +316,7 @@ export default function TableauDeBord({
   const [synthese, setSynthese] = useState<SyntheseVentes | null>(null);
   const [totalNetVeille, setTotalNetVeille] = useState<number | null>(null);
   const [ruptures, setRuptures] = useState<LigneStock[]>([]);
+  const [creditsEnCours, setCreditsEnCours] = useState<CreditResume[]>([]);
   const [serieVentes, setSerieVentes] = useState<LigneVentesParJour[]>([]);
   const [meilleursClients, setMeilleursClients] = useState<LigneTopClient[]>([]);
   const [periodeGraphique, setPeriodeGraphique] = useState<PeriodeGraphique>("14");
@@ -329,16 +332,17 @@ export default function TableauDeBord({
       listerDestockages(session.boutiqueId).then((d) => setDestockagesEnCours(d.filter((l) => l.statut === "en_cours")));
     }
     api.rapports.plageDates("jour").then((plage) => {
-      api.rapports.syntheseVentes(plage.debut, plage.fin).then((r) => r.succes && setSynthese(r.resultat));
+      syntheseVentes(session.boutiqueId, plage.debut, plage.fin).then(setSynthese);
     });
-    api.stock.lister().then((r) => r.succes && setRuptures(r.resultat.filter((l) => l.enRupture)));
+    listerStock(session.boutiqueId).then((lignes) => setRuptures(lignes.filter((l) => l.enRupture)));
+    listerCredits(session.boutiqueId, undefined, "en_cours").then(setCreditsEnCours);
 
     const hier = new Date();
     hier.setDate(hier.getDate() - 1);
     const jourHier = formatJour(hier);
-    api.rapports
-      .syntheseVentes(`${jourHier}T00:00:00.000Z`, `${jourHier}T23:59:59.999Z`)
-      .then((r) => r.succes && setTotalNetVeille(r.resultat.totalNet));
+    syntheseVentes(session.boutiqueId, `${jourHier}T00:00:00.000Z`, `${jourHier}T23:59:59.999Z`).then((s) =>
+      setTotalNetVeille(s.totalNet),
+    );
   }, []);
 
   useEffect(() => {
@@ -346,9 +350,9 @@ export default function TableauDeBord({
       periodeGraphique === "personnalise"
         ? { debut: `${debutPerso}T00:00:00.000Z`, fin: `${finPerso}T23:59:59.999Z` }
         : plageDerniersJours(Number(periodeGraphique));
-    api.rapports.ventesParJour(plage.debut, plage.fin).then((r) => {
-      if (r.succes) setSerieVentes(construireSerieJours(plage.debut, plage.fin, r.resultat));
-    });
+    ventesParJour(session.boutiqueId, plage.debut, plage.fin).then((donnees) =>
+      setSerieVentes(construireSerieJours(plage.debut, plage.fin, donnees)),
+    );
   }, [periodeGraphique, debutPerso, finPerso]);
 
   useEffect(() => {
@@ -356,13 +360,15 @@ export default function TableauDeBord({
       periodeClients === "personnalise"
         ? { debut: `${debutClientsPerso}T00:00:00.000Z`, fin: `${finClientsPerso}T23:59:59.999Z` }
         : plageDerniersJours(Number(periodeClients));
-    api.rapports.topClients(plage.debut, plage.fin, 5).then((r) => r.succes && setMeilleursClients(r.resultat));
+    topClients(session.boutiqueId, plage.debut, plage.fin, 5).then(setMeilleursClients);
   }, [periodeClients, debutClientsPerso, finClientsPerso]);
 
   const nombreVentesAnime = useCompteurAnime(synthese?.nombreVentes ?? null);
   const totalNetAnime = useCompteurAnime(synthese?.totalNet ?? null);
   const beneficeAnime = useCompteurAnime(synthese?.beneficeTotal ?? null);
   const ruptureAnimee = useCompteurAnime(ruptures.length);
+  const soldeTotalDu = creditsEnCours.reduce((somme, c) => somme + Number(c.solde), 0);
+  const soldeAnime = useCompteurAnime(soldeTotalDu);
   const variationCA = calculerVariation(synthese?.totalNet ?? null, totalNetVeille);
 
   return (
@@ -408,7 +414,7 @@ export default function TableauDeBord({
           <span className="carte-stat-corps">
             <span className="carte-stat-label">CA du jour</span>
             <span className="carte-stat-valeur-ligne">
-              <span className="carte-stat-valeur">{synthese ? `${totalNetAnime} ${devise}` : ""}</span>
+              <span className="carte-stat-valeur">{synthese ? `${formaterMontant(totalNetAnime)} ${devise}` : ""}</span>
               {variationCA && (
                 <span className={`badge-variation badge-variation--${variationCA.sens}`}>
                   {variationCA.sens === "hausse" && "▲ "}
@@ -424,7 +430,7 @@ export default function TableauDeBord({
             <span className="carte-stat-icone" aria-hidden="true">📈</span>
             <span className="carte-stat-corps">
               <span className="carte-stat-label">Bénéfice du jour</span>
-              <span className="carte-stat-valeur">{synthese ? `${beneficeAnime} ${devise}` : ""}</span>
+              <span className="carte-stat-valeur">{synthese ? `${formaterMontant(beneficeAnime)} ${devise}` : ""}</span>
             </span>
           </div>
         )}
@@ -434,6 +440,15 @@ export default function TableauDeBord({
             <span className="carte-stat-label">Alertes de rupture</span>
             <span className={`carte-stat-valeur ${ruptures.length > 0 ? "carte-stat-alerte" : ""}`}>
               {ruptureAnimee}
+            </span>
+          </span>
+        </div>
+        <div className={`carte-stat carte-stat--indigo ${soldeTotalDu > 0 ? "carte-stat--alerte" : ""}`}>
+          <span className="carte-stat-icone" aria-hidden="true">👥</span>
+          <span className="carte-stat-corps">
+            <span className="carte-stat-label">Crédits en attente</span>
+            <span className={`carte-stat-valeur ${soldeTotalDu > 0 ? "carte-stat-alerte" : ""}`}>
+              {formaterMontant(soldeAnime)} {devise}
             </span>
           </span>
         </div>
@@ -633,7 +648,7 @@ export default function TableauDeBord({
                     <td data-label="Client">{c.clientNom}</td>
                     <td data-label="Ventes">{c.nombreVentes}</td>
                     <td data-label="CA généré">
-                      {c.totalNet} {devise}
+                      {formaterMontant(c.totalNet)} {devise}
                     </td>
                   </tr>
                 ))}
@@ -656,6 +671,56 @@ export default function TableauDeBord({
             </table>
           </div>
         </div>
+      </div>
+
+      <div className="detail-produit">
+        <h3>
+          <button type="button" className="lien-titre-carte" onClick={() => onNaviguer("clients:credits")}>
+            👥 Crédits en attente <span aria-hidden="true">→</span>
+          </button>
+        </h3>
+        <div className="zone-tableau-scroll">
+          <table className="tableau-catalogue carte-mobile">
+            <thead>
+              <tr>
+                <th>N°</th>
+                <th>Client</th>
+                <th>Vente</th>
+                <th>Solde</th>
+              </tr>
+            </thead>
+            <tbody>
+              {creditsEnCours.slice(0, 5).map((c, index) => (
+                <tr key={c.id} onClick={() => onNaviguer("clients:credits")}>
+                  <td data-label="N°">{index + 1}</td>
+                  <td data-label="Client">{c.clientNom}</td>
+                  <td data-label="Vente">{c.venteNumero ?? ""}</td>
+                  <td data-label="Solde">
+                    {formaterMontant(c.solde)} {devise}
+                  </td>
+                </tr>
+              ))}
+              {creditsEnCours.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="liste-vide">
+                    Aucun crédit en attente.
+                  </td>
+                </tr>
+              )}
+              {Array.from({ length: Math.max(0, 5 - Math.max(1, Math.min(creditsEnCours.length, 5))) }).map((_, i) => (
+                <tr key={`vide-${i}`} className="ligne-groupe-vide">
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {creditsEnCours.length > 5 && (
+          <p className="note-aide">{creditsEnCours.length - 5} autre(s). Voir l'écran Clients & crédit.</p>
+        )}
       </div>
     </div>
   );

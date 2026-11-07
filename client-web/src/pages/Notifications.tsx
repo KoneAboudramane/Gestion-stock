@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 
 import type { Session } from "../api";
+import { obtenirLigneStock, type LigneAchatInitiale } from "../services/stock";
 import FiltrePeriodeHistorique from "../components/FiltrePeriodeHistorique";
 import { bornesPeriode, dansPeriode, jourLocal, type PeriodeHistorique } from "../lib/periode";
 import {
@@ -85,12 +86,23 @@ function DetailNotification({
   notification,
   onFermer,
   onNaviguer,
+  onCommander,
 }: {
   notification: NotificationResume;
   onFermer: () => void;
   onNaviguer?: (cible: string) => void;
+  onCommander?: (lignes: LigneAchatInitiale[]) => void;
 }) {
   const infos = infosType(notification.type);
+  const [ligneStock, setLigneStock] = useState<LigneAchatInitiale | null>(null);
+
+  useEffect(() => {
+    setLigneStock(null);
+    if (notification.referenceType === "stock.Stock" && notification.referenceId) {
+      obtenirLigneStock(notification.referenceId).then((ligne) => setLigneStock(ligne ?? null));
+    }
+  }, [notification.referenceType, notification.referenceId]);
+
   return (
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-confirmation modale-detail-notification" onClick={(e) => e.stopPropagation()}>
@@ -111,6 +123,11 @@ function DetailNotification({
                 {a.libelle} →
               </button>
             ))}
+          {onCommander && ligneStock && (
+            <button type="button" className="bouton-primaire" onClick={() => onCommander([ligneStock])}>
+              🛒 Commander
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -261,10 +278,12 @@ export default function Notifications({
   session,
   onLues,
   onNaviguer,
+  onCommander,
 }: {
   session: Session;
   onLues?: () => void;
   onNaviguer?: (cible: string) => void;
+  onCommander?: (lignes: LigneAchatInitiale[]) => void;
 }) {
   const [notificationsListe, setNotificationsListe] = useState<NotificationResume[]>([]);
   const [categorieOuverte, setCategorieOuverte] = useState<string | null>(null);
@@ -343,6 +362,7 @@ export default function Notifications({
           notification={notificationOuverte}
           onFermer={() => setNotificationOuverte(null)}
           onNaviguer={onNaviguer}
+          onCommander={onCommander}
         />
       )}
     </div>
