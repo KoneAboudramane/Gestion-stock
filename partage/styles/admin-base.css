@@ -783,3 +783,40 @@
   flex-direction: column;
   gap: 0.9rem;
 }
+
+/* Même mise en page dans une PAGE du site (pas une modale) : la page défile
+   normalement, la barre de rubriques reste visible en haut. */
+.page-admin-commun {
+  align-items: flex-start;
+}
+
+.page-admin-commun > .barre-laterale-parametres {
+  position: sticky;
+  top: 1rem;
+}
+
+.page-admin-commun > .contenu-parametres {
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+@media (max-width: 760px) {
+  .page-admin-commun {
+    flex-direction: column;
+  }
+
+  .page-admin-commun > .barre-laterale-parametres {
+    position: static;
+    width: 100%;
+  }
+}
+
+/* Impression du laissez-passer sur le site : seule la fiche sort (le bureau et
+   le web cachent déjà #root à l'impression). */
+@media print {
+  body.impression-laissez-passer #root {
+    display: none !important;
+  }
+}

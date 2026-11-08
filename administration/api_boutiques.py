@@ -431,6 +431,10 @@ class CreationBoutiqueSerializer(serializers.Serializer):
     boutique_devise = serializers.CharField(max_length=10, required=False, default="FCFA")
     formule = serializers.ChoiceField(choices=["essentiel", "pro"], default="essentiel")
     synchro_autorisee = serializers.BooleanField(default=False)
+    reseau_autorise = serializers.BooleanField(default=False)
+    appli_mobile_autorisee = serializers.BooleanField(default=False)
+    # Essai gratuit de départ, dans la formule choisie (15 jours par défaut, comme l'inscription).
+    essai_jours = serializers.IntegerField(required=False, min_value=1, max_value=365)
 
     username = serializers.CharField(max_length=150)
     password = serializers.CharField(max_length=128)
@@ -479,6 +483,8 @@ class CreerBoutiqueView(APIView):
                     "devise": d["boutique_devise"] or "FCFA",
                     "formule": d["formule"],
                     "synchro_autorisee": d["synchro_autorisee"],
+                    "reseau_autorise": d["reseau_autorise"],
+                    "appli_mobile_autorisee": d["appli_mobile_autorisee"],
                 },
                 {
                     "username": d["username"],
@@ -490,7 +496,16 @@ class CreerBoutiqueView(APIView):
                     "doit_changer_mot_de_passe": d["doit_changer_mot_de_passe"],
                 },
             )
-            services.demarrer_essai(boutique, par=request.user)
+            if d.get("essai_jours"):
+                fin = timezone.localtime(timezone.now() + timedelta(days=d["essai_jours"])).replace(
+                    hour=23, minute=59, second=59, microsecond=0
+                )
+                services.enregistrer_periode_abonnement(
+                    boutique, fin, d["formule"], nature="essai",
+                    note=f"Essai gratuit de {d['essai_jours']} jours à la création", par=request.user,
+                )
+            else:
+                services.demarrer_essai(boutique, par=request.user)
         journaliser(request, request.user, "boutique_creee", boutique=boutique, detail=f"patron {patron.username}")
         boutique = _boutiques_annotees().get(pk=boutique.pk)
         return Response(resume_boutique(boutique), status=status.HTTP_201_CREATED)

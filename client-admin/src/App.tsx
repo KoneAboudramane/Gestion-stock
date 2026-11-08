@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { aDesJetons, chargerMoi, deconnexion, ErreurApi, type Moi, quandSessionTerminee } from "./api";
 import Coquille from "./composants/Coquille";
 import Connexion from "./pages/Connexion";
+import { appliquerThemeDuCompte } from "./theme";
 
 type Etat = { phase: "chargement" } | { phase: "deconnecte"; message?: string } | { phase: "connecte"; moi: Moi };
 
@@ -11,7 +12,9 @@ export default function App() {
 
   const chargerProfil = useCallback(async () => {
     try {
-      setEtat({ phase: "connecte", moi: await chargerMoi() });
+      const moi = await chargerMoi();
+      appliquerThemeDuCompte(moi.theme);
+      setEtat({ phase: "connecte", moi });
     } catch (erreur) {
       // Une fin de session passe déjà par quandSessionTerminee ; le reste (serveur injoignable…) est affiché ici.
       if (!(erreur instanceof ErreurApi && erreur.statut === 401)) {

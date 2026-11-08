@@ -117,3 +117,35 @@ class LaissezPasser(ModeleBase):
         if self.date_fin is not None and self.date_fin < (aujourdhui or date.today()):
             return "expire"
         return "actif"
+
+
+class PreferencesAdmin(ModeleBase):
+    """
+    Préférences d'affichage d'un administrateur sur le site d'administration
+    (client-admin), attachées à son compte pour les retrouver sur tous ses
+    appareils. À part de ProfilAdmin exprès : créer un ProfilAdmin vide pour y
+    ranger le thème retirerait ses droits à un admin qui n'en a pas (sans profil
+    = tous les droits non réservés).
+    """
+
+    class Theme(models.TextChoices):
+        # Mêmes thèmes que l'appli (client-electron/src/lib/theme.ts).
+        CLAIR = "clair", "Clair"
+        SOMBRE = "sombre", "Sombre"
+        NUIT = "nuit", "Nuit"
+        ORANGE = "orange", "Orange"
+        VERT = "vert", "Vert"
+        BLEU = "bleu", "Bleu"
+        GRIS = "gris", "Gris"
+
+    utilisateur = models.OneToOneField(
+        "comptes.Utilisateur", on_delete=models.CASCADE, related_name="preferences_admin"
+    )
+    theme = models.CharField(max_length=10, choices=Theme.choices, default=Theme.CLAIR)
+
+    class Meta:
+        verbose_name = "préférences d'administrateur"
+        verbose_name_plural = "préférences d'administrateurs"
+
+    def __str__(self):
+        return f"Préférences de {self.utilisateur}"

@@ -1,0 +1,227 @@
+/*
+ * Couleurs des thèmes pour le site d'administration (client-admin) : mêmes
+ * valeurs que l'appli (client-electron/src/index.css, :root[data-theme=…]),
+ * reprises telles quelles. Le thème « clair » est celui de client-admin/src/index.css.
+ * Le thème est attaché au compte de l'admin (administration.PreferencesAdmin).
+ * Le bureau et le web gardent leurs propres blocs et n'importent PAS ce fichier.
+ */
+
+:root[data-theme="sombre"] {
+  --surface: #131c2e;
+  --surface-entete: color-mix(in srgb, var(--surface), var(--gris-300) 35%);
+  --bordure-tableau: var(--gris-200);
+  --bordure-tableau-forte: var(--gris-300);
+  --surface-caisse: var(--barre-fond);
+
+  --couleur-primaire: #3b82f6;
+  --couleur-primaire-fonce: #60a5fa;
+  --couleur-primaire-clair: #1e2b45;
+  --couleur-accent: #2f6390;
+
+  --gris-50: #0f172a;
+  --gris-100: #1e293b;
+  --gris-200: #334155;
+  --gris-300: #475569;
+  --gris-400: #64748b;
+  --gris-500: #94a3b8;
+  --gris-600: #cbd5e1;
+  --gris-700: #e2e8f0;
+  --gris-800: #f1f5f9;
+  --gris-900: #f8fafc;
+
+  --succes: #22c55e;
+  --succes-fonce: #4ade80;
+  --succes-clair: #123321;
+  --danger: #ef4444;
+  --danger-fonce: #f87171;
+  --danger-clair: #3a1414;
+  --avertissement: #f59e0b;
+  --avertissement-fonce: #fbbf24;
+  --avertissement-clair: #3a2a0a;
+  --violet: #a78bfa;
+  --violet-fonce: #c4b5fd;
+  --violet-clair: #2a1a45;
+  --indigo: #818cf8;
+  --indigo-fonce: #a5b4fc;
+  --indigo-clair: #221f45;
+
+  --ombre-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --ombre-md: 0 6px 20px -6px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.25);
+  --ombre-lg: 0 24px 56px -20px rgba(0, 0, 0, 0.6);
+
+  --barre-fond: #16213e;
+  --barre-texte: #cbd5e1;
+  --barre-texte-fort: #ffffff;
+  --barre-texte-desactive: #526074;
+  --barre-danger-texte: #fecaca;
+}
+
+:root[data-theme="nuit"] {
+  --surface: #090702;
+  --surface-entete: color-mix(in srgb, var(--surface), var(--gris-300) 35%);
+  --bordure-tableau: var(--gris-200);
+  --bordure-tableau-forte: var(--gris-300);
+  --surface-caisse: var(--barre-fond);
+
+  --couleur-primaire: #e0a248;
+  --couleur-primaire-fonce: #f4c476;
+  --couleur-primaire-clair: #1a1207;
+  --couleur-accent: #8a5a1f;
+  --couleur-primaire-tres-fonce: #3d2408;
+
+  --gris-50: #000000;
+  --gris-100: #000000;
+  --gris-200: #201808;
+  --gris-300: #362912;
+  --gris-400: #61502c;
+  --gris-500: #9a8354;
+  --gris-600: #c2ac7c;
+  --gris-700: #ddcca6;
+  --gris-800: #f1e6cc;
+  --gris-900: #fbf6ea;
+
+  --succes: #4ade80;
+  --succes-fonce: #86efac;
+  --succes-clair: #0f1f0f;
+  --danger: #f87171;
+  --danger-fonce: #fca5a5;
+  --danger-clair: #240d0a;
+  --avertissement: #f59e0b;
+  --avertissement-fonce: #fbbf24;
+  --avertissement-clair: #241a05;
+  --violet: #c4b5fd;
+  --violet-fonce: #ddd6fe;
+  --violet-clair: #1a1530;
+  --indigo: #a5b4fc;
+  --indigo-fonce: #c7d2fe;
+  --indigo-clair: #171325;
+
+  --ombre-sm: 0 1px 2px rgba(0, 0, 0, 0.6);
+  --ombre-md: 0 6px 20px -6px rgba(0, 0, 0, 0.75), 0 2px 6px rgba(0, 0, 0, 0.5);
+  --ombre-lg: 0 24px 56px -20px rgba(0, 0, 0, 0.85);
+
+  --barre-fond: linear-gradient(190deg, #0a0704 0%, #000000 75%);
+  --barre-texte: #c2ac7c;
+  --barre-texte-fort: #fbf6ea;
+  --barre-texte-desactive: #61502c;
+  --barre-danger-texte: #fca5a5;
+}
+
+:root[data-theme="orange"] {
+  --couleur-primaire: #ff8200;
+  --couleur-primaire-fonce: #db6e00;
+  --couleur-primaire-clair: #fef0dc;
+  --couleur-accent: #ff8200;
+  --couleur-primaire-tres-fonce: #7a3d00;
+  --degrade-primaire: #ff8200;
+
+  --barre-fond: #c2410c;
+  --barre-texte: #ffe2ca;
+  --barre-texte-fort: #ffffff;
+  --barre-texte-desactive: #e3a37a;
+  --barre-danger-texte: #ffd7d7;
+
+  /* Comme les autres thèmes : fond de la Caisse identique à la barre latérale. */
+  --surface-caisse: var(--barre-fond);
+
+  /* Identité du thème (orange/crème/brique) plutôt que le cycle générique des
+     couleurs sémantiques — voir --cercle-1..6 dans :root. */
+  --cercle-1: #ff8200;
+  --cercle-2: #ffffff;
+  --cercle-3: #c2410c;
+  --cercle-4: #ff8200;
+  --cercle-5: #ffffff;
+  --cercle-6: #c2410c;
+}
+
+:root[data-theme="vert"] {
+  --couleur-primaire: #059669;
+  --couleur-primaire-fonce: #047857;
+  --couleur-primaire-clair: #d1fae5;
+  --couleur-accent: #047857;
+  --couleur-primaire-tres-fonce: #022c22;
+
+  --barre-fond: #064e3b;
+  --barre-texte: #a7f3d0;
+  --barre-texte-fort: #ffffff;
+  --barre-texte-desactive: #4d8b6f;
+  --barre-danger-texte: #fecaca;
+
+  /* Comme les autres thèmes : fond de la Caisse identique à la barre latérale. */
+  --surface-caisse: var(--barre-fond);
+}
+
+:root[data-theme="bleu"] {
+  --couleur-primaire: #1d4ed8;
+  --couleur-primaire-fonce: #1e3a8a;
+  --couleur-primaire-clair: #dbeafe;
+  --couleur-accent: #1d4ed8;
+  --couleur-primaire-tres-fonce: #172554;
+  --degrade-primaire: #1d4ed8;
+
+  --barre-fond: #1e40af;
+  --barre-texte: #cfe0fb;
+  --barre-texte-fort: #ffffff;
+  --barre-texte-desactive: #93b4e0;
+  --barre-danger-texte: #fecaca;
+
+  /* Comme les autres thèmes : fond de la Caisse identique à la barre latérale. */
+  --surface-caisse: var(--barre-fond);
+
+  /* Identité du thème (bleu/blanc) plutôt que le cycle générique des
+     couleurs sémantiques — voir --cercle-1..6 dans :root. */
+  --cercle-1: #1d4ed8;
+  --cercle-2: #ffffff;
+  --cercle-3: #1e40af;
+  --cercle-4: #1d4ed8;
+  --cercle-5: #ffffff;
+  --cercle-6: #1e40af;
+}
+
+:root[data-theme="gris"] {
+  --couleur-primaire: #52525b;
+  --couleur-primaire-fonce: #3f3f46;
+  --couleur-primaire-clair: #f4f4f5;
+  --couleur-accent: #52525b;
+  --couleur-primaire-tres-fonce: #18181b;
+
+  --barre-fond: #a1a1aa;
+  --barre-texte: #27272a;
+  --barre-texte-fort: #09090b;
+  --barre-texte-desactive: #52525b;
+  --barre-danger-texte: var(--danger-fonce);
+
+  /* Comme les autres thèmes : fond de la Caisse identique à la barre latérale. */
+  --surface-caisse: var(--barre-fond);
+
+  /* Identité du thème (gris/blanc) plutôt que le cycle générique des
+     couleurs sémantiques — voir --cercle-1..6 dans :root. */
+  --cercle-1: #52525b;
+  --cercle-2: #ffffff;
+  --cercle-3: #18181b;
+  --cercle-4: #52525b;
+  --cercle-5: #ffffff;
+  --cercle-6: #18181b;
+}
+
+/* --- Accents du site dans les thèmes (même idée que l'appli : les pages et
+   modales montrent la couleur du thème, pas seulement le menu). --- */
+:root[data-theme]:not([data-theme="clair"]) .tableau th {
+  background: var(--couleur-primaire-clair);
+  color: var(--couleur-primaire-fonce);
+  border-bottom-color: var(--couleur-primaire);
+}
+
+:root[data-theme]:not([data-theme="clair"]) .entete-modale {
+  background: var(--couleur-primaire-clair);
+  border-bottom: 2px solid var(--couleur-primaire);
+}
+
+:root[data-theme]:not([data-theme="clair"]) .carte {
+  border-color: color-mix(in srgb, var(--couleur-primaire), transparent 65%);
+}
+
+:root[data-theme]:not([data-theme="clair"]) .entete-page {
+  border-bottom: 2px solid var(--couleur-accent);
+  padding-bottom: 0.7rem;
+}

@@ -616,32 +616,34 @@ export default function FicheBoutique({ id, surFermer, surModifiee }: Props) {
         />
         <h4>Demandes de la boutique</h4>
         {fiche!.demandes_reseau && fiche!.demandes_reseau.length > 0 ? (
-          <table className="tableau">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Demandé par</th>
-                <th>Note</th>
-                <th>Statut</th>
-                <th>Traitée le</th>
-              </tr>
-            </thead>
-            <tbody>
-              {fiche!.demandes_reseau.map((d) => (
-                <tr key={d.id}>
-                  <td>{date(d.date)}</td>
-                  <td>{d.demandeur || "—"}</td>
-                  <td>{d.note || "—"}</td>
-                  <td>
-                    <span className={`pastille-etat-reseau${d.statut === "acceptee" ? " pastille-etat-reseau--relie" : ""}`}>
-                      {d.statut_libelle}
-                    </span>
-                  </td>
-                  <td>{date(d.date_traitement)}</td>
+          <div className="defilement-tableau">
+            <table className="tableau">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Demandé par</th>
+                  <th>Note</th>
+                  <th>Statut</th>
+                  <th>Traitée le</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {fiche!.demandes_reseau.map((d) => (
+                  <tr key={d.id}>
+                    <td>{date(d.date)}</td>
+                    <td>{d.demandeur || "—"}</td>
+                    <td>{d.note || "—"}</td>
+                    <td>
+                      <span className={`pastille-etat-reseau${d.statut === "acceptee" ? " pastille-etat-reseau--relie" : ""}`}>
+                        {d.statut_libelle}
+                      </span>
+                    </td>
+                    <td>{date(d.date_traitement)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <p className="vide">Aucune demande.</p>
         )}
@@ -653,28 +655,30 @@ export default function FicheBoutique({ id, surFermer, surModifiee }: Props) {
     return (
       <>
         <h4 className="titre-rubrique-reseau">👥 Utilisateurs ({fiche!.utilisateurs.length})</h4>
-        <table className="tableau">
-          <thead>
-            <tr>
-              <th>Nom</th>
-              <th>Identifiant</th>
-              <th>Rôle</th>
-              <th>Téléphone</th>
-              <th>Dernière connexion en ligne</th>
-            </tr>
-          </thead>
-          <tbody>
-            {fiche!.utilisateurs.map((u) => (
-              <tr key={u.username} className={u.actif ? "" : "ligne-inactive"}>
-                <td>{u.nom || "—"}</td>
-                <td>{u.username}</td>
-                <td>{u.role || "—"}</td>
-                <td>{u.telephone || "—"}</td>
-                <td>{u.actif ? dateHeure(u.derniere_connexion) : "Compte désactivé"}</td>
+        <div className="defilement-tableau">
+          <table className="tableau">
+            <thead>
+              <tr>
+                <th>Nom</th>
+                <th>Identifiant</th>
+                <th>Rôle</th>
+                <th>Téléphone</th>
+                <th>Dernière connexion en ligne</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {fiche!.utilisateurs.map((u) => (
+                <tr key={u.username} className={u.actif ? "" : "ligne-inactive"}>
+                  <td>{u.nom || "—"}</td>
+                  <td>{u.username}</td>
+                  <td>{u.role || "—"}</td>
+                  <td>{u.telephone || "—"}</td>
+                  <td>{u.actif ? dateHeure(u.derniere_connexion) : "Compte désactivé"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         {fiche!.peut.comptes && (
           <p className="note-aide">Pour réinitialiser un mot de passe : menu 🔑 Comptes et mots de passe.</p>
         )}
@@ -704,32 +708,34 @@ export default function FicheBoutique({ id, surFermer, surModifiee }: Props) {
         {registre.length === 0 ? (
           <p className="vide">Aucune ligne.</p>
         ) : (
-          <table className="tableau">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Nature</th>
-                <th>Formule</th>
-                <th>Période</th>
-                <th className="nombre">Montant</th>
-                <th>Paiement</th>
-              </tr>
-            </thead>
-            <tbody>
-              {registre.map((p, i) => (
-                <tr key={i}>
-                  <td>{date(p.date)}</td>
-                  <td>{p.nature_libelle}</td>
-                  <td>{p.formule_libelle}</td>
-                  <td>
-                    {date(p.date_debut)} → {p.date_fin ? date(p.date_fin) : "sans limite"}
-                  </td>
-                  <td className="nombre">{Number(p.montant) ? montant(p.montant) : "—"}</td>
-                  <td>{[p.mode_libelle, p.reference].filter(Boolean).join(" · ") || "—"}</td>
+          <div className="defilement-tableau">
+            <table className="tableau">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Nature</th>
+                  <th>Formule</th>
+                  <th>Période</th>
+                  <th className="nombre">Montant</th>
+                  <th>Paiement</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {registre.map((p, i) => (
+                  <tr key={i}>
+                    <td>{date(p.date)}</td>
+                    <td>{p.nature_libelle}</td>
+                    <td>{p.formule_libelle}</td>
+                    <td>
+                      {date(p.date_debut)} → {p.date_fin ? date(p.date_fin) : "sans limite"}
+                    </td>
+                    <td className="nombre">{Number(p.montant) ? montant(p.montant) : "—"}</td>
+                    <td>{[p.mode_libelle, p.reference].filter(Boolean).join(" · ") || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </>
     );

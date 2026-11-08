@@ -188,6 +188,23 @@ class InscriptionsEtCreationTests(BaseAdmin):
         self.assertEqual(awa.role.nom, "Patron")
         self.assertIsNotNone(Boutique.objects.get(nom="Chez Awa").date_expiration_abonnement)
 
+    def test_creer_avec_essai_choisi_reseau_et_appli(self):
+        self.connecter()
+        r = self.client.post(
+            reverse("admin-creer-boutique"),
+            {
+                "boutique_nom": "Chez Fanta", "username": "fanta", "password": MDP, "email": "fanta@x.com",
+                "formule": "pro", "essai_jours": 7, "reseau_autorise": True, "appli_mobile_autorisee": True,
+            },
+            format="json",
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+        b = Boutique.objects.get(nom="Chez Fanta")
+        self.assertTrue(b.reseau_autorise and b.appli_mobile_autorisee)
+        self.assertEqual(b.formule, "pro")
+        self.assertEqual((timezone.localdate(b.date_expiration_abonnement) - timezone.localdate()).days, 7)
+        self.assertEqual(b.paiements_abonnement.get().nature, "essai")
+
     def test_creer_refuse_mot_de_passe_faible_et_doublon(self):
         self.connecter()
         r = self.client.post(
@@ -198,3 +215,18 @@ class InscriptionsEtCreationTests(BaseAdmin):
         self.assertEqual(r.status_code, 400)
         self.assertIn("username", r.data)
         self.assertIn("email", r.data)
+
+
+class ThemeAdminTests(BaseAdmin):
+    def test_theme_attache_au_compte_sans_toucher_aux_droits(self):
+        from .services import droits_de
+
+        droits_avant = droits_de(self.admin)
+        self.connecter()
+        self.assertEqual(self.client.get(reverse("admin-moi")).data["theme"], "clair")
+        self.assertEqual(self.client.post(reverse("admin-theme"), {"theme": "violet"}, format="json").status_code, 400)
+        self.assertEqual(self.client.post(reverse("admin-theme"), {"theme": "nuit"}, format="json").data["theme"], "nuit")
+        self.assertEqual(self.client.get(reverse("admin-moi")).data["theme"], "nuit")
+        # Un admin sans profil garde tous ses droits : le thème n'a pas créé de ProfilAdmin.
+        self.assertFalse(ProfilAdmin.objects.filter(utilisateur=self.admin).exists())
+        self.assertEqual(droits_de(self.admin), droits_avant)

@@ -30,6 +30,8 @@ export interface Moi {
   double_verification_exigee: boolean;
   double_verification_active: boolean;
   doit_changer_mot_de_passe: boolean;
+  /** Thème du site, attaché au compte (voir theme.ts). */
+  theme: string;
 }
 
 export type ReponseConnexion =

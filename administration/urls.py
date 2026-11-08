@@ -9,6 +9,7 @@ urlpatterns = [
     path("admin/connexion/code/", views.CodeAdminView.as_view(), name="admin-connexion-code"),
     path("admin/rafraichir/", TokenRefreshView.as_view(), name="admin-rafraichir"),
     path("admin/moi/", views.MoiAdminView.as_view(), name="admin-moi"),
+    path("admin/moi/theme/", views.ThemeAdminView.as_view(), name="admin-theme"),
     path("admin/deconnexion/", views.DeconnexionAdminView.as_view(), name="admin-deconnexion"),
     # Tableau de bord, boutiques, inscriptions (lot 3)
     path("admin/tableau-de-bord/", api_boutiques.TableauDeBordView.as_view(), name="admin-tableau-de-bord"),

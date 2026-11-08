@@ -421,3 +421,28 @@
   background: var(--succes);
   color: #ffffff;
 }
+
+/* Case à cocher en carte (ex. « Mot de passe provisoire » dans Créer une
+   boutique et Mots de passe). */
+.carte-option-boutique {
+  display: flex;
+  gap: 0.8rem;
+  align-items: flex-start;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--bordure-tableau);
+  border-radius: var(--rayon-md);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.carte-option-boutique input {
+  margin-top: 0.2rem;
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.carte-option-boutique > span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}

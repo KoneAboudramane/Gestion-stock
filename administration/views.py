@@ -95,7 +95,31 @@ class MoiAdminView(APIView):
             "double_verification_active": bool(profil and profil.totp_actif),
             # Mot de passe provisoire donné par le superuser : à remplacer avant tout le reste.
             "doit_changer_mot_de_passe": bool(user.doit_changer_mot_de_passe),
+            # Thème du site, attaché au compte (le même sur tous ses appareils).
+            "theme": _theme_de(user),
         })
+
+
+def _theme_de(user):
+    from .models import PreferencesAdmin
+
+    preferences = PreferencesAdmin.objects.filter(utilisateur=user).first()
+    return preferences.theme if preferences else PreferencesAdmin.Theme.CLAIR
+
+
+class ThemeAdminView(APIView):
+    """POST {theme} : thème du site d'administration pour ce compte."""
+
+    permission_classes = [EstAdmin]
+
+    def post(self, request):
+        from .models import PreferencesAdmin
+
+        theme = request.data.get("theme")
+        if theme not in PreferencesAdmin.Theme.values:
+            return Response({"theme": ["Thème inconnu."]}, status=status.HTTP_400_BAD_REQUEST)
+        PreferencesAdmin.objects.update_or_create(utilisateur=request.user, defaults={"theme": theme})
+        return Response({"theme": theme})
 
 
 class DeconnexionAdminView(APIView):

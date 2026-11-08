@@ -1,6 +1,7 @@
 import { type FormEvent, useState } from "react";
 
 import { api, ErreurApi } from "../api";
+import OngletsRubriques from "../composants/OngletsRubriques";
 import CodeActivation from "../composants/CodeActivation";
 import { BadgeAbonnement, Chargement, Erreur, Info, Modale } from "../composants/Commun";
 import { date, dateHeure, montant } from "../format";
@@ -19,33 +20,33 @@ const MODES = [
   { valeur: "autre", libelle: "Autre" },
 ];
 
+/**
+ * Paiements des abonnements, au même design que l'Espace Admin du bureau :
+ * rubriques dans la barre de gauche (à vérifier, registre, enregistrer).
+ */
 export default function Paiements() {
   const [onglet, setOnglet] = useState<Onglet>("declares");
+  const aVerifier = useChargement(() => api<PaiementDeclare[]>("/admin/paiements/declares/?statut=en_attente"), [onglet]);
+  const nombre = aVerifier.donnees?.length ?? null;
   return (
-    <div className="pile">
-      <div className="onglets" role="tablist">
-        {(
-          [
-            ["declares", "📥 Déclarés dans l'appli"],
-            ["registre", "📒 Registre"],
-            ["enregistrer", "➕ Enregistrer un paiement"],
-          ] as [Onglet, string][]
-        ).map(([id, libelle]) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={onglet === id}
-            className={`onglet${onglet === id ? " actif" : ""}`}
-            onClick={() => setOnglet(id)}
-          >
-            {libelle}
-          </button>
-        ))}
+    <div className="ecran-admin-commun page-onglets">
+      <OngletsRubriques
+        etiquette="Paiements"
+        etat={nombre === null ? "…" : nombre ? `${nombre} à vérifier` : "rien à vérifier"}
+        ton={nombre ? "alerte" : "ok"}
+        rubriques={[
+          { cle: "declares" as const, label: "📥 Déclarés dans l'appli", compteur: nombre ?? undefined },
+          { cle: "registre" as const, label: "📒 Registre" },
+          { cle: "enregistrer" as const, label: "➕ Enregistrer un paiement" },
+        ]}
+        active={onglet}
+        onChoisir={setOnglet}
+      />
+      <div className="contenu-onglet contenu-reseau">
+        {onglet === "declares" && <Declares />}
+        {onglet === "registre" && <RegistreAbonnements />}
+        {onglet === "enregistrer" && <Enregistrer />}
       </div>
-      {onglet === "declares" && <Declares />}
-      {onglet === "registre" && <RegistreAbonnements />}
-      {onglet === "enregistrer" && <Enregistrer />}
     </div>
   );
 }
@@ -62,18 +63,19 @@ function Declares() {
 
   return (
     <>
-      <p className="aide">
+      <h4 className="titre-rubrique-reseau">📥 Paiements déclarés dans l'appli</h4>
+      <p className="note-aide">
         Le commerçant a envoyé l'argent par Mobile Money et saisi la référence dans l'appli. Vérifiez la transaction sur
         votre téléphone avant de valider : la période s'ajoute alors à la fin de son abonnement en cours.
       </p>
-      <div className="pilules">
+      <div className="puces-filtres-comptes">
         {[
-          ["en_attente", "À vérifier"],
-          ["validee", "Validés"],
-          ["rejetee", "Rejetés"],
+          ["en_attente", "⏳ À vérifier"],
+          ["validee", "✅ Validés"],
+          ["rejetee", "⛔ Rejetés"],
           ["tous", "Tous"],
         ].map(([v, l]) => (
-          <button key={v} type="button" className={`pilule${statut === v ? " active" : ""}`} onClick={() => setStatut(v)}>
+          <button key={v} type="button" className={`puce-nom-poste${statut === v ? " choisi" : ""}`} onClick={() => setStatut(v)}>
             {l}
           </button>
         ))}
@@ -268,6 +270,7 @@ function RegistreAbonnements() {
 
   return (
     <>
+      <h4 className="titre-rubrique-reseau">📒 Registre des abonnements</h4>
       <div className="barre-filtres ligne-champs">
         <label>
           Du
@@ -452,76 +455,118 @@ function Enregistrer() {
 
   const erreurDe = (cle: string) => erreurs[cle] && <small className="erreur-champ">{erreurs[cle]}</small>;
   const parDate = f.par_date || f.nature === "ajustement";
+  const boutiqueChoisie = boutiques.donnees?.find((b) => b.id === f.boutique_id);
 
   return (
-    <form className="pile formulaire" onSubmit={soumettre}>
-      <p className="aide">
-        Pour un paiement reçu en dehors de l'appli (espèces, virement…), des mois offerts, ou pour corriger une date de
-        fin. Un paiement ou des mois offerts s'ajoutent à la fin de l'abonnement en cours ; un ajustement fixe la date.
+    <>
+      <h4 className="titre-rubrique-reseau">➕ Enregistrer un paiement</h4>
+      <p className="note-aide">
+        Pour un paiement reçu en dehors de l'appli (espèces, virement…), des mois offerts, ou pour corriger une date de fin.
+        Un paiement ou des mois offerts s'ajoutent à la fin de l'abonnement en cours ; un ajustement fixe la date.
       </p>
-      <section className="carte">
-        <div className="grille-champs">
-          <label>
-            Boutique<span className="requis"> *</span>
-            <select
-              value={f.boutique_id}
-              required
-              onChange={(e) => {
-                const b = boutiques.donnees?.find((x) => x.id === e.target.value);
-                setF((x) => ({ ...x, boutique_id: e.target.value, formule: b?.formule ?? x.formule }));
-              }}
-            >
-              <option value="">— Choisir —</option>
-              {boutiques.donnees?.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.nom}
-                </option>
-              ))}
-            </select>
-            {erreurDe("boutique_id")}
-          </label>
-          <label>
-            Nature
-            <select value={f.nature} onChange={(e) => maj("nature", e.target.value)}>
-              <option value="paiement">Paiement reçu</option>
-              <option value="offert">Mois offerts</option>
-              <option value="ajustement">Correction de la date de fin</option>
-            </select>
-          </label>
-          <label>
-            Formule
-            <select value={f.formule} onChange={(e) => maj("formule", e.target.value)}>
-              <option value="essentiel">Essentiel</option>
-              <option value="pro">Pro</option>
-            </select>
-          </label>
+      <div className="etape-reseau">
+        <span className="numero-etape-reseau">1</span>
+        <div className="champ-etape-reseau champs-sauvegarde">
+          <strong>Boutique</strong>
+          <select
+            value={f.boutique_id}
+            onChange={(e) => {
+              const b = boutiques.donnees?.find((x) => x.id === e.target.value);
+              setF((x) => ({ ...x, boutique_id: e.target.value, formule: b?.formule ?? x.formule }));
+            }}
+          >
+            <option value="">— Choisir —</option>
+            {boutiques.donnees?.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.nom}
+              </option>
+            ))}
+          </select>
+          {erreurDe("boutique_id")}
         </div>
-
-        <div className="grille-champs">
+      </div>
+      <div className="etape-reseau">
+        <span className="numero-etape-reseau">2</span>
+        <div className="champ-etape-reseau champs-sauvegarde">
+          <strong>Nature</strong>
+          <div className="choix-methode-restauration">
+            {(
+              [
+                ["paiement", "💵 Paiement reçu"],
+                ["offert", "🎁 Mois offerts"],
+                ["ajustement", "✏️ Correction de date"],
+              ] as const
+            ).map(([cle, libelle]) => (
+              <label key={cle}>
+                <input type="radio" checked={f.nature === cle} onChange={() => maj("nature", cle)} /> {libelle}
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="etape-reseau">
+        <span className="numero-etape-reseau">3</span>
+        <div className="champ-etape-reseau champs-sauvegarde">
+          <strong>Formule et durée</strong>
+          <div className="choix-formule-abonnement">
+            {(["essentiel", "pro"] as const).map((cle) => (
+              <button
+                key={cle}
+                type="button"
+                className={`puce-nom-poste${f.formule === cle ? " choisi" : ""}`}
+                onClick={() => maj("formule", cle)}
+              >
+                {cle === "pro" ? "Pro" : "Essentiel"}
+              </button>
+            ))}
+          </div>
           {!f.sans_limite &&
             (parDate ? (
               <label>
-                Nouvelle date de fin<span className="requis"> *</span>
-                <input type="date" value={f.date_fin} required onChange={(e) => maj("date_fin", e.target.value)} />
+                Nouvelle date de fin
+                <input type="date" value={f.date_fin} onChange={(e) => maj("date_fin", e.target.value)} />
                 {erreurDe("date_fin")}
               </label>
             ) : (
-              <label>
-                Durée
-                <select value={f.duree_mois} onChange={(e) => maj("duree_mois", e.target.value)}>
-                  <option value="1">1 mois</option>
-                  <option value="3">3 mois</option>
-                  <option value="6">6 mois</option>
-                  <option value="12">12 mois</option>
-                </select>
-                {erreurDe("duree_mois")}
-              </label>
+              <div className="grille-durees-abonnement">
+                {["1", "3", "6", "12"].map((mois) => (
+                  <button
+                    key={mois}
+                    type="button"
+                    className={`carte-duree-abonnement${f.duree_mois === mois ? " choisi" : ""}`}
+                    onClick={() => maj("duree_mois", mois)}
+                  >
+                    <strong>+{mois} mois</strong>
+                  </button>
+                ))}
+              </div>
             ))}
-          {f.nature === "paiement" && (
-            <>
+          {erreurDe("duree_mois")}
+          <div className="ligne-options">
+            {f.nature !== "ajustement" && !f.sans_limite && (
+              <label className="interrupteur">
+                <input type="checkbox" checked={f.par_date} onChange={(e) => maj("par_date", e.target.checked)} />
+                Choisir une date de fin précise plutôt qu'une durée
+              </label>
+            )}
+            {f.nature !== "paiement" && (
+              <label className="interrupteur">
+                <input type="checkbox" checked={f.sans_limite} onChange={(e) => maj("sans_limite", e.target.checked)} />
+                Sans limite de durée
+              </label>
+            )}
+          </div>
+        </div>
+      </div>
+      {f.nature === "paiement" && (
+        <div className="etape-reseau">
+          <span className="numero-etape-reseau">4</span>
+          <div className="champ-etape-reseau champs-sauvegarde">
+            <strong>Paiement</strong>
+            <div className="grille-paiement-abonnement">
               <label>
-                Montant reçu (FCFA)<span className="requis"> *</span>
-                <input inputMode="numeric" value={f.montant} required onChange={(e) => maj("montant", e.target.value.replace(/[^0-9]/g, ""))} />
+                Montant reçu (FCFA)
+                <input inputMode="numeric" value={f.montant} onChange={(e) => maj("montant", e.target.value.replace(/[^0-9]/g, ""))} />
                 {erreurDe("montant")}
               </label>
               <label>
@@ -540,34 +585,29 @@ function Enregistrer() {
                 <input value={f.reference} onChange={(e) => maj("reference", e.target.value)} maxLength={100} />
                 {erreurDe("reference")}
               </label>
-            </>
-          )}
+            </div>
+          </div>
         </div>
-        <div className="ligne-options">
-          {f.nature !== "ajustement" && !f.sans_limite && (
-            <label className="interrupteur">
-              <input type="checkbox" checked={f.par_date} onChange={(e) => maj("par_date", e.target.checked)} />
-              Choisir une date de fin précise plutôt qu'une durée
-            </label>
-          )}
-          {f.nature !== "paiement" && (
-            <label className="interrupteur">
-              <input type="checkbox" checked={f.sans_limite} onChange={(e) => maj("sans_limite", e.target.checked)} />
-              Sans limite de durée
-            </label>
-          )}
-        </div>
-        <label className="champ-plein">
-          Note (facultative)
-          <input value={f.note} onChange={(e) => maj("note", e.target.value)} maxLength={255} />
-        </label>
-      </section>
+      )}
+      <label className="champ-plein">
+        Note (facultative)
+        <input value={f.note} onChange={(e) => maj("note", e.target.value)} maxLength={255} />
+      </label>
       {erreur && <Erreur message={erreur} />}
-      <div className="actions">
-        <button type="submit" className="bouton-principal" disabled={enCours || !f.boutique_id}>
-          {enCours ? "Enregistrement…" : "Enregistrer"}
+      <div className="prochaine-etape prochaine-etape--neutre">
+        <div>
+          <span className="libelle-prochaine-etape">Récapitulatif</span>
+          <p>
+            {boutiqueChoisie ? `« ${boutiqueChoisie.nom} » · ` : "Choisissez la boutique · "}
+            {f.formule === "pro" ? "Pro" : "Essentiel"} ·{" "}
+            {f.sans_limite ? "sans limite" : parDate ? (f.date_fin ? `jusqu'au ${date(f.date_fin)}` : "date à choisir") : `+${f.duree_mois} mois`}
+            {f.nature === "paiement" ? ` · ${f.montant ? montant(f.montant) : "montant à saisir"}` : f.nature === "offert" ? " · offert" : " · correction"}
+          </p>
+        </div>
+        <button type="button" className="bouton-primaire" disabled={enCours || !f.boutique_id} onClick={(e) => soumettre(e as unknown as FormEvent)}>
+          {enCours ? "Enregistrement…" : "💳 Enregistrer"}
         </button>
       </div>
-    </form>
+    </>
   );
 }

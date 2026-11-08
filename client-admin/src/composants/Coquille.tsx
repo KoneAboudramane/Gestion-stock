@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { Moi } from "../api";
 import { GROUPES, type Rubrique, rubriquesVisibles } from "../menu";
+import { choisirTheme, THEMES, type Theme } from "../theme";
+
+const CLE_MENU = "gs_admin_menu";
 import Administrateurs from "../pages/Administrateurs";
 import Boutiques from "../pages/Boutiques";
 import Comptes from "../pages/Comptes";
@@ -71,13 +74,32 @@ export default function Coquille({ moi, surDeconnexion, surProfilChange }: Props
     .map((g) => ({ groupe: g, rubriques: visibles.filter((r) => r.groupe === g) }))
     .filter((g) => g.rubriques.length > 0);
 
+  // Menu principal masquable (plus de place pour les tableaux) ; retenu dans ce navigateur.
+  const [menuVisible, setMenuVisible] = useState(() => {
+    try {
+      return localStorage.getItem(CLE_MENU) !== "masque";
+    } catch {
+      return true;
+    }
+  });
+  function basculerMenu() {
+    setMenuVisible((visible) => {
+      try {
+        localStorage.setItem(CLE_MENU, visible ? "masque" : "visible");
+      } catch {
+        // stockage indisponible : le choix vaut pour cette page seulement
+      }
+      return !visible;
+    });
+  }
+
   // Mot de passe provisoire : il faut d'abord choisir le sien, rien d'autre n'est accessible.
   const impose = moi.doit_changer_mot_de_passe;
   const affichee = impose ? MON_MOT_DE_PASSE : active;
 
   return (
-    <div className="coquille">
-      <nav className="barre-laterale" aria-label="Menu">
+    <div className={`coquille${menuVisible ? "" : " menu-masque"}`}>
+      <nav className="barre-laterale" aria-label="Menu" hidden={!menuVisible}>
         <div className="barre-marque">
           <span className="barre-pastille">GS</span>
           <span>
@@ -107,6 +129,7 @@ export default function Coquille({ moi, surDeconnexion, surProfilChange }: Props
             <small>{moi.superuser ? "Administrateur principal" : "Administrateur"}</small>
             {moi.double_verification_active && <small className="pastille-2fa">🔒 Double vérification</small>}
           </div>
+          <ChoixTheme initial={moi.theme} />
           {!impose && (
             <a href="#/mon-mot-de-passe" className={`lien-menu${active.id === MON_MOT_DE_PASSE.id ? " actif" : ""}`}>
               <span className="icone-menu" aria-hidden>
@@ -123,6 +146,16 @@ export default function Coquille({ moi, surDeconnexion, surProfilChange }: Props
 
       <main className="contenu">
         <header className="entete-page">
+          <button
+            type="button"
+            className="bouton-menu"
+            onClick={basculerMenu}
+            aria-expanded={menuVisible}
+            title={menuVisible ? "Masquer le menu" : "Afficher le menu"}
+          >
+            {menuVisible ? "⟨" : "☰"}
+            <span className="libelle-bouton-menu">{menuVisible ? "Masquer le menu" : "Menu"}</span>
+          </button>
           <h1>
             <span aria-hidden>{affichee.icone}</span> {affichee.libelle}
           </h1>
@@ -136,5 +169,36 @@ export default function Coquille({ moi, surDeconnexion, surProfilChange }: Props
         )}
       </main>
     </div>
+  );
+}
+
+/** Thème du site, attaché au compte : appliqué tout de suite, enregistré sur le serveur. */
+function ChoixTheme({ initial }: { initial: string }) {
+  const [theme, setTheme] = useState<Theme>(() => (THEMES.some((t) => t.valeur === initial) ? (initial as Theme) : "clair"));
+  const [erreur, setErreur] = useState(false);
+  return (
+    <label className="choix-theme">
+      <span>🎨 Thème</span>
+      <select
+        value={theme}
+        onChange={async (e) => {
+          const valeur = e.target.value as Theme;
+          setTheme(valeur);
+          setErreur(false);
+          try {
+            await choisirTheme(valeur);
+          } catch {
+            setErreur(true);
+          }
+        }}
+      >
+        {THEMES.map((t) => (
+          <option key={t.valeur} value={t.valeur}>
+            {t.icone} {t.libelle}
+          </option>
+        ))}
+      </select>
+      {erreur && <small className="erreur-champ">Non enregistré sur votre compte (réessayez).</small>}
+    </label>
   );
 }
