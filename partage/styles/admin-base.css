@@ -85,6 +85,14 @@
   background: var(--surface);
 }
 
+.role-reseau--ok {
+  border-left-color: var(--succes);
+}
+
+.role-reseau--alerte {
+  border-left-color: var(--avertissement);
+}
+
 .barre-laterale-reseau .item-nav-parametres {
   display: flex;
   align-items: center;
@@ -132,8 +140,24 @@
   background: var(--surface);
 }
 
+.carte-etat-serveur--marche {
+  border-left-color: var(--succes);
+}
+
+.carte-etat-serveur--arrete {
+  border-left-color: var(--avertissement);
+}
+
+.carte-etat-serveur--panne {
+  border-left-color: var(--danger);
+}
+
 .etat-serveur-titre {
   font-size: 1.25rem;
+}
+
+.carte-etat-serveur--neutre {
+  border-left-color: var(--gris-400, #9ca3af);
 }
 
 .entete-vue-ensemble {
@@ -168,6 +192,21 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--gris-500);
+}
+
+.prochaine-etape--ok {
+  border-color: color-mix(in srgb, var(--succes), transparent 60%);
+  background: color-mix(in srgb, var(--succes), transparent 93%);
+}
+
+.prochaine-etape--attention {
+  border-color: color-mix(in srgb, var(--avertissement), transparent 55%);
+  background: color-mix(in srgb, var(--avertissement), transparent 92%);
+}
+
+.prochaine-etape--alerte {
+  border-color: color-mix(in srgb, var(--danger), transparent 60%);
+  background: color-mix(in srgb, var(--danger), transparent 94%);
 }
 
 .ligne-etat-reseau > .carte-etat-serveur {
@@ -440,6 +479,25 @@
   font-weight: 600;
 }
 
+.pastille-etat-reseau--relie {
+  background: color-mix(in srgb, var(--succes), transparent 88%);
+  color: var(--succes);
+}
+
+.champs-sauvegarde {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.champs-sauvegarde label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
 .fiche-recuperation {
   padding: 1rem 1.2rem;
   border: 2px dashed var(--gris-300);
@@ -555,6 +613,12 @@
   background: color-mix(in srgb, var(--couleur-primaire), transparent 93%);
 }
 
+.prix-duree-abonnement {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--couleur-primaire);
+}
+
 .grille-paiement-abonnement {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -637,4 +701,85 @@
   margin-top: auto;
   padding-top: 0.8rem;
   border-top: 1px solid var(--gris-200);
+}
+
+/* ---------------------------------------------------------------------------
+ * Socle pour le site d'administration : ce que le bureau a dans sa base
+ * (boutons, notes, messages) et que le site n'a pas. Limité aux écrans au
+ * design commun (classe .ecran-admin-commun) pour ne rien changer ailleurs.
+ * :where() = spécificité nulle : toute classe des composants l'emporte.
+ * ------------------------------------------------------------------------- */
+:where(.ecran-admin-commun) button {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.5rem 0.95rem;
+  border-radius: var(--rayon-md);
+  border: 1px solid var(--gris-300);
+  background: var(--surface);
+  color: var(--gris-700);
+  box-shadow: var(--ombre-sm);
+}
+
+:where(.ecran-admin-commun) button:disabled {
+  opacity: 0.55;
+}
+
+:where(.ecran-admin-commun) input,
+:where(.ecran-admin-commun) select {
+  font: inherit;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--gris-300);
+  border-radius: var(--rayon-sm);
+  background: var(--surface);
+}
+
+.corps-modale > .ecran-admin-commun {
+  height: 100%;
+}
+
+.ecran-admin-commun .bouton-primaire {
+  background: linear-gradient(135deg, var(--couleur-primaire), var(--couleur-accent));
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.ecran-admin-commun .lien {
+  box-shadow: none;
+  border: none;
+  padding: 0;
+  background: none;
+}
+
+.ecran-admin-commun .note-aide {
+  font-size: 0.85rem;
+  color: var(--gris-500);
+}
+
+.ecran-admin-commun .sous-info {
+  color: var(--gris-500);
+  font-size: 0.85rem;
+}
+
+.ecran-admin-commun .message-succes {
+  background: var(--succes-clair);
+  color: var(--succes-fonce);
+  border-radius: var(--rayon-sm);
+  padding: 0.6rem 0.8rem;
+  font-weight: 600;
+}
+
+.ecran-admin-commun .actions-formulaire {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+
+.ecran-admin-commun .bloc-fiche-site {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
 }

@@ -87,6 +87,44 @@ class BoutiquesTests(BaseAdmin):
         self.assertTrue(self.boutique.appli_mobile_autorisee)
         self.assertTrue(JournalAdmin.objects.filter(action="appli_mobile_activee", boutique=self.boutique).exists())
 
+    def test_fiche_essai_et_reseau(self):
+        from comptes.models import DemandeReseau
+
+        DemandeReseau.objects.create(boutique=self.boutique, demandeur=self.patron, note="2 caisses")
+        self.connecter()
+        url = reverse("admin-fiche-boutique", args=[self.boutique.id])
+        fiche = self.client.get(url).data
+        self.assertTrue(fiche["peut"]["paiements"] and fiche["peut"]["demandes_reseau"])
+        self.assertEqual(len(fiche["demandes_reseau"]), 1)
+        self.assertIn("tarifs", fiche)
+        # Essai Pro de 15 jours, à part de l'abonnement payé.
+        fin = timezone.now() + timedelta(days=15)
+        r = self.client.patch(url, {"essai_fin": fin.isoformat(), "essai_formule": "pro"}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertTrue(r.data["essai_en_cours"])
+        self.assertEqual(r.data["formule_effective"], "pro")
+        self.assertTrue(JournalAdmin.objects.filter(action="essai_accorde", boutique=self.boutique).exists())
+        self.assertEqual(self.client.patch(url, {"essai_fin": fin.isoformat()}, format="json").status_code, 400)
+        r = self.client.patch(url, {"essai_fin": None}, format="json")
+        self.assertFalse(r.data["essai_en_cours"])
+        # Réseau : activer accepte la demande en attente.
+        r = self.client.patch(url, {"reseau_autorise": True}, format="json")
+        self.assertTrue(r.data["reseau_autorise"])
+        self.assertEqual(r.data["demandes_reseau"][0]["statut"], "acceptee")
+        self.assertTrue(JournalAdmin.objects.filter(action="reseau_active", boutique=self.boutique).exists())
+
+    def test_fiche_essai_refuse_sans_le_droit_paiements(self):
+        limite = Utilisateur.objects.create_user(username="limite2", password=MDP, is_staff=True)
+        ProfilAdmin.objects.create(utilisateur=limite, droits=["boutiques"])
+        self.connecter(limite)
+        url = reverse("admin-fiche-boutique", args=[self.boutique.id])
+        fiche = self.client.get(url).data
+        self.assertFalse(fiche["peut"]["paiements"])
+        self.assertNotIn("tarifs", fiche)
+        fin = (timezone.now() + timedelta(days=7)).isoformat()
+        self.assertEqual(self.client.patch(url, {"essai_fin": fin, "essai_formule": "pro"}, format="json").status_code, 403)
+        self.assertEqual(self.client.patch(url, {"reseau_autorise": True}, format="json").status_code, 403)
+
     def test_sans_le_droit_boutiques(self):
         limite = Utilisateur.objects.create_user(username="limite", password=MDP, is_staff=True)
         ProfilAdmin.objects.create(utilisateur=limite, droits=["paiements"])

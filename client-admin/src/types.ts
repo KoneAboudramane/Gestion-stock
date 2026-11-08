@@ -43,6 +43,24 @@ export interface FicheBoutique extends ResumeBoutique {
   }[];
   postes: { appareil: string; derniere_synchro: string }[];
   demandes_reseau_en_attente: number;
+  /** Essai gratuit en cours (sa formule s'applique, l'abonnement payé reprend ensuite). */
+  essai_en_cours: boolean;
+  formule_effective: "essentiel" | "pro";
+  /** Ce que cet administrateur peut faire depuis la fiche (le serveur revérifie). */
+  peut: { paiements: boolean; demandes_reseau: boolean; comptes: boolean };
+  /** Droit « demandes_reseau » seulement. */
+  demandes_reseau?: {
+    id: string;
+    date: string;
+    demandeur: string;
+    note: string;
+    statut: "en_attente" | "acceptee" | "refusee";
+    statut_libelle: string;
+    date_traitement: string | null;
+  }[];
+  /** Droit « paiements » seulement. */
+  tarifs?: { formule: string; duree_mois: number; prix: string; remise: string }[];
+  paiements_declares_en_attente?: number;
   registre_abonnement?: {
     date: string;
     nature_libelle: string;

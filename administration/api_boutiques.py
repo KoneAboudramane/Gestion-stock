@@ -199,6 +199,34 @@ class ModificationBoutiqueSerializer(serializers.Serializer):
     # synchro), le proposer laisserait croire qu'on peut couper une boutique.
     synchro_autorisee = serializers.BooleanField(required=False)
     appli_mobile_autorisee = serializers.BooleanField(required=False)
+    # Droit « demandes_reseau ».
+    reseau_autorise = serializers.BooleanField(required=False)
+    # Droit « paiements » : essai gratuit à part de l'abonnement payé (voir
+    # comptes.Boutique.essai_fin) ; essai_fin null = arrêter l'essai.
+    essai_fin = serializers.DateTimeField(required=False, allow_null=True)
+    essai_formule = serializers.ChoiceField(choices=["essentiel", "pro"], required=False)
+
+    def validate(self, d):
+        if d.get("essai_fin") and not d.get("essai_formule"):
+            raise serializers.ValidationError({"essai_formule": "Choisissez la formule de l'essai."})
+        if d.get("essai_fin") and d["essai_fin"] <= timezone.now():
+            raise serializers.ValidationError({"essai_fin": "La fin de l'essai doit être dans le futur."})
+        return d
+
+# Droit nécessaire pour chaque champ (en plus du droit « boutiques » de la fiche).
+DROIT_CHAMP = {"reseau_autorise": "demandes_reseau", "essai_fin": "paiements", "essai_formule": "paiements"}
+
+
+def _demande_reseau_courte(d):
+    return {
+        "id": str(d.id),
+        "date": d.date_creation,
+        "demandeur": (d.demandeur.get_full_name() or d.demandeur.username) if d.demandeur else "",
+        "note": d.note,
+        "statut": d.statut,
+        "statut_libelle": d.get_statut_display(),
+        "date_traitement": d.date_traitement,
+    }
 
 
 class FicheBoutiqueView(APIView):
@@ -233,8 +261,22 @@ class FicheBoutiqueView(APIView):
             ],
             "postes": [{"appareil": p["appareil"], "derniere_synchro": p["dernier"]} for p in postes[:20]],
             "demandes_reseau_en_attente": b.demandes_reseau.filter(statut="en_attente").count(),
+            "essai_en_cours": b.essai_en_cours(),
+            "formule_effective": b.formule_effective(),
+            # Ce que cet administrateur peut faire depuis la fiche (le serveur revérifie à chaque action).
+            "peut": {
+                droit: a_le_droit(request.user, droit) for droit in ("paiements", "demandes_reseau", "comptes")
+            },
         }
+        if a_le_droit(request.user, "demandes_reseau"):
+            fiche["demandes_reseau"] = [
+                _demande_reseau_courte(d) for d in b.demandes_reseau.select_related("demandeur").order_by("-date_creation")[:10]
+            ]
         if a_le_droit(request.user, "paiements"):
+            fiche["tarifs"] = _services().grille_tarifs()
+            fiche["paiements_declares_en_attente"] = b.demandes_renouvellement.filter(
+                statut="en_attente", supprime=False
+            ).count()
             fiche["registre_abonnement"] = [
                 {
                     "date": p.date_creation,
@@ -256,17 +298,37 @@ class FicheBoutiqueView(APIView):
             return Response({"detail": "Boutique introuvable."}, status=status.HTTP_404_NOT_FOUND)
         serializer = ModificationBoutiqueSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        donnees = dict(serializer.validated_data)
+        # Tout est vérifié avant d'écrire : pas de modification à moitié faite.
+        for champ in donnees:
+            droit = DROIT_CHAMP.get(champ)
+            if droit and not a_le_droit(request.user, droit):
+                return Response({"detail": "Vous n'avez pas le droit de faire cette modification."}, status=status.HTTP_403_FORBIDDEN)
+        if "essai_fin" in donnees:
+            essai_fin = donnees.pop("essai_fin")
+            essai_formule = donnees.pop("essai_formule", "")
+            if essai_fin != b.essai_fin or (essai_fin and essai_formule != b.essai_formule):
+                _services().accorder_essai(b, essai_fin, essai_formule, par=request.user)
+                journaliser(
+                    request, request.user, "essai_accorde" if essai_fin else "essai_arrete", boutique=b,
+                    detail=f"{b.get_essai_formule_display()} jusqu'au {timezone.localtime(essai_fin):%d/%m/%Y}" if essai_fin else "",
+                )
+        donnees.pop("essai_formule", None)
         champs = []
-        for champ, valeur in serializer.validated_data.items():
+        for champ, valeur in donnees.items():
             if getattr(b, champ) != valeur:
                 setattr(b, champ, valeur)
                 champs.append(champ)
         if champs:
             b.save(update_fields=[*champs, "date_modification"])
+            if "reseau_autorise" in champs and b.reseau_autorise:
+                # Comme les autres écrans : les demandes en attente de la boutique sont acceptées.
+                _services().accepter_demandes_reseau(b, request.user)
             for champ in champs:
                 action = {
                     "synchro_autorisee": "synchro_activee" if b.synchro_autorisee else "synchro_desactivee",
                     "appli_mobile_autorisee": "appli_mobile_activee" if b.appli_mobile_autorisee else "appli_mobile_desactivee",
+                    "reseau_autorise": "reseau_active" if b.reseau_autorise else "reseau_desactive",
                 }[champ]
                 journaliser(request, request.user, action, boutique=b)
         return self.get(request, pk)
