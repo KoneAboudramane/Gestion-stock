@@ -120,6 +120,7 @@ export default function GererAbonnement({
   const [motif, setMotif] = useState("");
   // Options
   const [synchroAutorisee, setSynchroAutorisee] = useState(false);
+  const [appliMobileAutorisee, setAppliMobileAutorisee] = useState(false);
   // Code d'activation
   const [code, setCode] = useState<string | null>(null);
 
@@ -129,6 +130,7 @@ export default function GererAbonnement({
     if (!b) return;
     setFormule(b.formule || "essentiel");
     setSynchroAutorisee(b.synchroAutorisee);
+    setAppliMobileAutorisee(b.appliMobileAutorisee);
     setEtat(await api.abonnement.etat(b.boutiqueId).catch(() => null));
     const r = await api.admin.detailAbonnement(username, password, b.boutiqueId);
     if (r.succes) {
@@ -789,12 +791,41 @@ export default function GererAbonnement({
                 l'abonnement sont en ligne). Pensez alors à la sauvegarde.
               </span>
             </label>
+            <label className="case-secours-sauvegarde">
+              <span>
+                <input
+                  type="checkbox"
+                  checked={appliMobileAutorisee}
+                  onChange={(e) => setAppliMobileAutorisee(e.target.checked)}
+                />{" "}
+                📱 Appli mobile
+              </span>
+              <span className="note-aide">
+                Coché : la carte « 📱 Appli mobile » (QR code de téléchargement Android) apparaît dans les Réglages de la
+                boutique.
+              </span>
+            </label>
             <div className="actions-formulaire">
               <button
                 type="button"
                 className="bouton-primaire"
-                disabled={enCours || synchroAutorisee === boutique.synchroAutorisee}
-                onClick={() => soumettre({ synchroAutorisee }, synchroAutorisee ? "Envoi en ligne autorisé" : "Boutique passée en 100 % local")}
+                disabled={
+                  enCours ||
+                  (synchroAutorisee === boutique.synchroAutorisee && appliMobileAutorisee === boutique.appliMobileAutorisee)
+                }
+                onClick={() => {
+                  const champs: ChampsAbonnement = {};
+                  const messages: string[] = [];
+                  if (synchroAutorisee !== boutique.synchroAutorisee) {
+                    champs.synchroAutorisee = synchroAutorisee;
+                    messages.push(synchroAutorisee ? "Envoi en ligne autorisé" : "Boutique passée en 100 % local");
+                  }
+                  if (appliMobileAutorisee !== boutique.appliMobileAutorisee) {
+                    champs.appliMobileAutorisee = appliMobileAutorisee;
+                    messages.push(appliMobileAutorisee ? "Appli mobile activée" : "Appli mobile désactivée");
+                  }
+                  soumettre(champs, messages.join(" · "));
+                }}
               >
                 Enregistrer
               </button>

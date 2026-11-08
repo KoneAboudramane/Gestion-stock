@@ -65,7 +65,13 @@ contextBridge.exposeInMainWorld("api", {
       password: string,
       boutiqueId: string,
       boutiqueNom: string,
-      champs: { formule?: string; dateExpirationAbonnement?: string | null; synchroAutorisee?: boolean },
+      champs: {
+        formule?: string;
+        dateExpirationAbonnement?: string | null;
+        synchroAutorisee?: boolean;
+        reseauAutorise?: boolean;
+        appliMobileAutorisee?: boolean;
+      },
     ) => ipcRenderer.invoke("admin:soumettreAbonnement", username, password, boutiqueId, boutiqueNom, champs),
     creerBoutiqueLocale: (params: unknown) => ipcRenderer.invoke("admin:creerBoutiqueLocale", params),
     creerBoutiqueEnLigne: (usernameAdmin: string, passwordAdmin: string, params: unknown) =>

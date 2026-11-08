@@ -86,6 +86,8 @@ class AppliquerAbonnementSerializer(serializers.Serializer):
     date_expiration_abonnement = serializers.DateTimeField(required=False, allow_null=True)
     synchro_autorisee = serializers.BooleanField(required=False)
     reseau_autorise = serializers.BooleanField(required=False)
+    # Carte « 📱 Appli mobile » dans les Réglages de la boutique.
+    appli_mobile_autorisee = serializers.BooleanField(required=False)
     # Inscrits au registre des abonnements (comptes.PaiementAbonnement) avec la nouvelle période.
     nature = serializers.ChoiceField(choices=PaiementAbonnement.Nature.choices, required=False)
     montant = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, min_value=0)

@@ -95,6 +95,26 @@ class RegistreAbonnementTests(APITestCase):
         self.assertEqual(PaiementAbonnement.objects.filter(boutique=self.boutique).count(), 1)
         self.assertEqual(PaiementAbonnement.objects.get().nature, "paiement")
 
+    def test_espace_admin_de_l_appli_active_l_appli_mobile_et_l_ecrit_au_journal(self):
+        from administration.models import JournalAdmin
+
+        corps = {
+            "username": "adminStaff", "password": "UnMotDePasseSolide123", "boutique_id": str(self.boutique.pk),
+            "appli_mobile_autorisee": True,
+        }
+        reponse = self.client.post(reverse("appliquer-abonnement"), corps, format="json")
+        self.assertEqual(reponse.status_code, 200, reponse.data)
+        self.boutique.refresh_from_db()
+        self.assertTrue(self.boutique.appli_mobile_autorisee)
+        self.assertTrue(JournalAdmin.objects.filter(action="appli_mobile_activee", boutique=self.boutique).exists())
+        # Rejeu identique : rien de nouveau au journal.
+        self.client.post(reverse("appliquer-abonnement"), corps, format="json")
+        self.assertEqual(JournalAdmin.objects.filter(action="appli_mobile_activee").count(), 1)
+        corps["appli_mobile_autorisee"] = False
+        self.client.post(reverse("appliquer-abonnement"), corps, format="json")
+        self.boutique.refresh_from_db()
+        self.assertFalse(self.boutique.appli_mobile_autorisee)
+
     def test_le_commercant_voit_son_historique_et_ou_payer(self):
         enregistrer_periode_abonnement(self.boutique, timezone.now() + timedelta(days=30), "essentiel", nature="essai")
         reglages = ReglagesPlateforme.obtenir()

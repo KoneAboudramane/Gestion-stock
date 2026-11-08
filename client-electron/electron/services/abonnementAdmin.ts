@@ -21,6 +21,7 @@ export interface AbonnementBoutique {
   dateExpirationAbonnement: string | null;
   synchroAutorisee: boolean;
   reseauAutorise: boolean;
+  appliMobileAutorisee: boolean;
 }
 
 export function obtenirBoutiqueLocale(): AbonnementBoutique | null {
@@ -31,7 +32,11 @@ export function obtenirBoutiqueLocale(): AbonnementBoutique | null {
     date_expiration_abonnement: string | null;
     synchro_autorisee: number;
     reseau_autorise: number;
-  }>("SELECT id, nom, formule, date_expiration_abonnement, synchro_autorisee, reseau_autorise FROM boutiques LIMIT 1");
+    appli_mobile_autorisee: number | null;
+  }>(
+    `SELECT id, nom, formule, date_expiration_abonnement, synchro_autorisee, reseau_autorise, appli_mobile_autorisee
+     FROM boutiques LIMIT 1`,
+  );
   if (!ligne) return null;
   return {
     boutiqueId: ligne.id,
@@ -40,6 +45,7 @@ export function obtenirBoutiqueLocale(): AbonnementBoutique | null {
     dateExpirationAbonnement: ligne.date_expiration_abonnement,
     synchroAutorisee: Boolean(ligne.synchro_autorisee),
     reseauAutorise: Boolean(ligne.reseau_autorise),
+    appliMobileAutorisee: Boolean(ligne.appli_mobile_autorisee),
   };
 }
 
@@ -49,6 +55,8 @@ export interface ChampsAbonnement {
   synchroAutorisee?: boolean;
   /** Réseau de la boutique (ordinateurs reliés sans internet). */
   reseauAutorise?: boolean;
+  /** Carte « 📱 Appli mobile » dans les Réglages de la boutique. */
+  appliMobileAutorisee?: boolean;
   /** Inscrits au registre des abonnements avec la nouvelle période (voir comptes/views.py::AppliquerAbonnementView). */
   nature?: "paiement" | "offert" | "ajustement";
   montant?: number;
@@ -81,6 +89,10 @@ function appliquerLocalement(boutiqueId: string, champs: ChampsAbonnement): void
   if (champs.reseauAutorise !== undefined) {
     colonnes.push("reseau_autorise");
     valeurs.push(champs.reseauAutorise ? 1 : 0);
+  }
+  if (champs.appliMobileAutorisee !== undefined) {
+    colonnes.push("appli_mobile_autorisee");
+    valeurs.push(champs.appliMobileAutorisee ? 1 : 0);
   }
   if (colonnes.length === 0) return;
   executer(`UPDATE boutiques SET ${colonnes.map((c) => `${c} = ?`).join(", ")} WHERE id = ?`, [
@@ -193,6 +205,7 @@ export async function soumettreAbonnement(
         : {}),
       ...(champs.synchroAutorisee !== undefined ? { synchro_autorisee: champs.synchroAutorisee } : {}),
       ...(champs.reseauAutorise !== undefined ? { reseau_autorise: champs.reseauAutorise } : {}),
+      ...(champs.appliMobileAutorisee !== undefined ? { appli_mobile_autorisee: champs.appliMobileAutorisee } : {}),
       ...(champs.nature ? { nature: champs.nature } : {}),
       ...(champs.montant ? { montant: champs.montant } : {}),
       ...(champs.mode ? { mode: champs.mode } : {}),

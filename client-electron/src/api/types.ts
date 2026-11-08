@@ -76,6 +76,7 @@ export interface AbonnementBoutique {
   dateExpirationAbonnement: string | null;
   synchroAutorisee: boolean;
   reseauAutorise: boolean;
+  appliMobileAutorisee: boolean;
 }
 
 /** Espace Admin → Réseau de la boutique (comptes/views.py::AdminReseauBoutiqueView). */
@@ -104,6 +105,8 @@ export interface ChampsAbonnement {
   synchroAutorisee?: boolean;
   /** Réseau de la boutique (ordinateurs reliés sans internet). */
   reseauAutorise?: boolean;
+  /** Carte « 📱 Appli mobile » dans les Réglages de la boutique. */
+  appliMobileAutorisee?: boolean;
   /** Inscrits au registre des abonnements avec la nouvelle période (voir comptes/views.py::AppliquerAbonnementView). */
   nature?: "paiement" | "offert" | "ajustement";
   montant?: number;

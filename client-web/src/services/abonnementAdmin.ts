@@ -20,6 +20,7 @@ export interface AbonnementBoutique {
   dateExpirationAbonnement: string | null;
   synchroAutorisee: boolean;
   reseauAutorise: boolean;
+  appliMobileAutorisee: boolean;
 }
 
 export async function obtenirBoutiqueInstallee(): Promise<AbonnementBoutique | null> {
@@ -33,6 +34,7 @@ export async function obtenirBoutiqueInstallee(): Promise<AbonnementBoutique | n
     dateExpirationAbonnement: boutique.date_expiration_abonnement,
     synchroAutorisee: Boolean(boutique.synchro_autorisee),
     reseauAutorise: Boolean(boutique.reseau_autorise),
+    appliMobileAutorisee: Boolean(boutique.appli_mobile_autorisee),
   };
 }
 
@@ -42,6 +44,8 @@ export interface ChampsAbonnement {
   synchroAutorisee?: boolean;
   /** Réseau de la boutique (ordinateurs reliés sans internet, application de bureau). */
   reseauAutorise?: boolean;
+  /** Carte « 📱 Appli mobile » dans les Réglages de la boutique. */
+  appliMobileAutorisee?: boolean;
   /** Inscrits au registre des abonnements avec la nouvelle période (voir comptes/views.py::AppliquerAbonnementView). */
   nature?: "paiement" | "offert" | "ajustement";
   montant?: number;
@@ -70,6 +74,8 @@ async function appliquerLocalement(boutiqueId: string, champs: ChampsAbonnement)
       champs.synchroAutorisee !== undefined ? (champs.synchroAutorisee ? 1 : 0) : boutique.synchro_autorisee,
     reseau_autorise:
       champs.reseauAutorise !== undefined ? (champs.reseauAutorise ? 1 : 0) : boutique.reseau_autorise,
+    appli_mobile_autorisee:
+      champs.appliMobileAutorisee !== undefined ? (champs.appliMobileAutorisee ? 1 : 0) : boutique.appli_mobile_autorisee,
   });
 }
 
@@ -200,6 +206,7 @@ export async function soumettreAbonnement(
           : {}),
         ...(champs.synchroAutorisee !== undefined ? { synchro_autorisee: champs.synchroAutorisee } : {}),
         ...(champs.reseauAutorise !== undefined ? { reseau_autorise: champs.reseauAutorise } : {}),
+        ...(champs.appliMobileAutorisee !== undefined ? { appli_mobile_autorisee: champs.appliMobileAutorisee } : {}),
         ...(champs.nature ? { nature: champs.nature } : {}),
         ...(champs.montant ? { montant: champs.montant } : {}),
         ...(champs.mode ? { mode: champs.mode } : {}),

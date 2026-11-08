@@ -311,9 +311,12 @@ class AppliquerAbonnementView(APIView):
         ) or ("formule" in donnees and donnees["formule"] != boutique.formule)
         synchro_modifiee = "synchro_autorisee" in donnees and donnees["synchro_autorisee"] != boutique.synchro_autorisee
         reseau_modifie = "reseau_autorise" in donnees and donnees["reseau_autorise"] != boutique.reseau_autorise
+        appli_mobile_modifiee = (
+            "appli_mobile_autorisee" in donnees and donnees["appli_mobile_autorisee"] != boutique.appli_mobile_autorisee
+        )
         # Tout est vérifié avant d'écrire : pas de modification à moitié faite.
         for besoin, droit in ((periode_modifiee or montant, "paiements"), (synchro_modifiee, "boutiques"),
-                              (reseau_modifie, "demandes_reseau")):
+                              (reseau_modifie, "demandes_reseau"), (appli_mobile_modifiee, "boutiques")):
             if besoin and (refus := _refus_droit(utilisateur, droit)):
                 return refus
         # Une modification rejouée depuis un poste (déjà appliquée) n'ajoute pas de ligne au registre.
@@ -338,6 +341,9 @@ class AppliquerAbonnementView(APIView):
             boutique.save(update_fields=["reseau_autorise"])
             if boutique.reseau_autorise:
                 accepter_demandes_reseau(boutique, utilisateur)
+        if "appli_mobile_autorisee" in donnees:
+            boutique.appli_mobile_autorisee = donnees["appli_mobile_autorisee"]
+            boutique.save(update_fields=["appli_mobile_autorisee"])
 
         if periode_modifiee or montant:
             boutique.refresh_from_db()
@@ -350,6 +356,11 @@ class AppliquerAbonnementView(APIView):
             _journal_bureau(request, utilisateur, "synchro_activee" if boutique.synchro_autorisee else "synchro_desactivee", boutique)
         if reseau_modifie:
             _journal_bureau(request, utilisateur, "reseau_active" if boutique.reseau_autorise else "reseau_desactive", boutique)
+        if appli_mobile_modifiee:
+            _journal_bureau(
+                request, utilisateur,
+                "appli_mobile_activee" if boutique.appli_mobile_autorisee else "appli_mobile_desactivee", boutique,
+            )
         return Response(BoutiqueSerializer(boutique).data)
 
 
