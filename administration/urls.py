@@ -16,6 +16,7 @@ urlpatterns = [
     path("admin/boutiques/", api_boutiques.ListeBoutiquesView.as_view(), name="admin-boutiques"),
     path("admin/boutiques/creer/", api_boutiques.CreerBoutiqueView.as_view(), name="admin-creer-boutique"),
     path("admin/boutiques/<uuid:pk>/", api_boutiques.FicheBoutiqueView.as_view(), name="admin-fiche-boutique"),
+    path("admin/boutiques/<uuid:pk>/option/", api_boutiques.OptionBoutiqueView.as_view(), name="admin-option-boutique"),
     path(
         "admin/identifiant-disponible/",
         api_boutiques.IdentifiantDisponibleAdminView.as_view(),

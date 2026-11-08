@@ -44,6 +44,8 @@ REGISTRE = [
                 "actif", "date_expiration_abonnement", "formule", "synchro_autorisee",
                 "date_derniere_sauvegarde", "reseau_autorise", "appli_mobile_autorisee",
                 "essai_formule", "essai_fin",
+                "option_en_ligne_fin", "option_en_ligne_suit", "option_en_ligne_offerte",
+                "option_reseau_fin", "option_reseau_suit", "option_mobile_fin", "option_mobile_suit",
             }
         ),
     ),

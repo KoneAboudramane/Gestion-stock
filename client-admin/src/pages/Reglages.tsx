@@ -6,7 +6,15 @@ import { montant } from "../format";
 import type { Reglages as Donnees } from "../types";
 import { useChargement } from "../useChargement";
 
-type Champs = Omit<Donnees, "grille_tarifs">;
+type Champs = Omit<Donnees, "grille_tarifs" | "grille_tarifs_options">;
+
+const PRIX = [
+  "prix_mensuel_essentiel",
+  "prix_mensuel_pro",
+  "prix_mensuel_option_en_ligne",
+  "prix_mensuel_option_reseau",
+  "prix_mensuel_option_mobile",
+] as const;
 
 const NUMEROS: [keyof Champs, string][] = [
   ["numero_wave", "Numéro Wave"],
@@ -27,7 +35,7 @@ export default function Reglages() {
 
   useEffect(() => {
     if (donnees) {
-      const { grille_tarifs: _grille, ...champs } = donnees;
+      const { grille_tarifs: _grille, grille_tarifs_options: _options, ...champs } = donnees;
       setF(Object.fromEntries(Object.entries(champs).map(([k, v]) => [k, v ?? ""])) as Champs);
     }
   }, [donnees]);
@@ -49,7 +57,7 @@ export default function Reglages() {
     setErreurs({});
     try {
       // Champ prix vide = pas de tarif affiché (null côté serveur).
-      const corps = { ...f, prix_mensuel_essentiel: f!.prix_mensuel_essentiel || null, prix_mensuel_pro: f!.prix_mensuel_pro || null };
+      const corps = { ...f, ...Object.fromEntries(PRIX.map((cle) => [cle, f![cle] || null])) };
       setDonnees(await api<Donnees>("/admin/reglages/", { method: "PATCH", body: JSON.stringify(corps) }));
       setEnregistre(true);
     } catch (err) {
@@ -95,11 +103,14 @@ export default function Reglages() {
         <div className="grille-champs">
           {champ("prix_mensuel_essentiel", "Prix mensuel Essentiel (FCFA)", "Vide : tarif non affiché.", true)}
           {champ("prix_mensuel_pro", "Prix mensuel Pro (FCFA)", "Vide : tarif non affiché.", true)}
+          {champ("prix_mensuel_option_en_ligne", "🌐 Option En ligne, par mois (FCFA)", "Pour Essentiel ; comprise dans Pro.", true)}
+          {champ("prix_mensuel_option_reseau", "📶 Option Réseau, par mois (FCFA)", "Pour Essentiel ; comprise dans Pro.", true)}
+          {champ("prix_mensuel_option_mobile", "📱 Option Mobile, par mois (FCFA)", "Pour Essentiel ; comprise dans Pro.", true)}
           {champ("remise_3_mois", "Remise sur 3 mois (%)", undefined, true)}
           {champ("remise_6_mois", "Remise sur 6 mois (%)", undefined, true)}
           {champ("remise_12_mois", "Remise sur 12 mois (%)", undefined, true)}
         </div>
-        {donnees.grille_tarifs.length > 0 && (
+        {(donnees.grille_tarifs.length > 0 || (donnees.grille_tarifs_options ?? []).length > 0) && (
           <>
             <h3>Grille enregistrée</h3>
             <table className="tableau tableau-compact">
@@ -113,11 +124,20 @@ export default function Reglages() {
                 </tr>
               </thead>
               <tbody>
-                {[...new Set(donnees.grille_tarifs.map((t) => t.formule_libelle))].map((formule) => (
+                {[
+                  ...[...new Set(donnees.grille_tarifs.map((t) => t.formule_libelle))].map((libelle) => ({
+                    libelle,
+                    lignes: donnees.grille_tarifs.filter((x) => x.formule_libelle === libelle),
+                  })),
+                  ...[...new Set((donnees.grille_tarifs_options ?? []).map((t) => t.option_libelle))].map((libelle) => ({
+                    libelle: `${libelle} (option)`,
+                    lignes: donnees.grille_tarifs_options.filter((x) => x.option_libelle === libelle),
+                  })),
+                ].map(({ libelle: formule, lignes }) => (
                   <tr key={formule}>
                     <td>{formule}</td>
                     {[1, 3, 6, 12].map((m) => {
-                      const t = donnees.grille_tarifs.find((x) => x.formule_libelle === formule && x.duree_mois === m);
+                      const t = lignes.find((x) => x.duree_mois === m);
                       return (
                         <td key={m} className="nombre">
                           {t ? montant(t.prix) : "—"}

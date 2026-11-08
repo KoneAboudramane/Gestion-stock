@@ -723,6 +723,7 @@ class SuppressionDonneesEnLigneTests(APITestCase):
         from .services import supprimer_donnees_en_ligne
 
         self.boutique.synchro_autorisee = True
+        self.boutique.option_en_ligne_offerte = True  # droit à l'option En ligne
         self.boutique.save()
         with self.assertRaises(ValueError):
             supprimer_donnees_en_ligne(self.boutique)

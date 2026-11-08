@@ -68,7 +68,9 @@ class BoutiquesTests(BaseAdmin):
     def test_activer_la_synchro_est_journalise(self):
         self.connecter()
         url = reverse("admin-fiche-boutique", args=[self.boutique.id])
-        r = self.client.patch(url, {"synchro_autorisee": True}, format="json")
+        # Boutique Essentiel sans l'option En ligne : refusé, puis accepté avec l'option accordée.
+        self.assertEqual(self.client.patch(url, {"synchro_autorisee": True}, format="json").status_code, 400)
+        r = self.client.patch(url, {"synchro_autorisee": True, "option_en_ligne_offerte": True}, format="json")
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.data["synchro_autorisee"])
         self.assertTrue(JournalAdmin.objects.filter(action="synchro_activee", boutique=self.boutique).exists())

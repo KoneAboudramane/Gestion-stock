@@ -204,6 +204,7 @@ class SignalementSynchroTests(APITestCase):
             {"nom": "Boutique S"}, {"username": "patronS", "password": "UnMotDePasseSolide123"}
         )
         self.boutique.synchro_autorisee = True
+        self.boutique.option_en_ligne_offerte = True  # droit à l'option En ligne
         self.boutique.date_expiration_abonnement = timezone.now() - timedelta(days=10)
         self.boutique.save()
         self.depot = Depot.objects.create(boutique=self.boutique, nom="Magasin")

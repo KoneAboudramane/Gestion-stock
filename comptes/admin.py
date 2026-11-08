@@ -629,7 +629,11 @@ class ReglagesPlateformeAdmin(admin.ModelAdmin):
             "fields": ("numero_wave", "numero_orange_money", "numero_mtn", "numero_moov", "whatsapp", "instructions"),
         }),
         ("Tarifs (laisser vide pour ne pas les afficher dans l'appli)", {
-            "fields": ("prix_mensuel_essentiel", "prix_mensuel_pro", "remise_3_mois", "remise_6_mois", "remise_12_mois"),
+            "fields": (
+                "prix_mensuel_essentiel", "prix_mensuel_pro",
+                "prix_mensuel_option_en_ligne", "prix_mensuel_option_reseau", "prix_mensuel_option_mobile",
+                "remise_3_mois", "remise_6_mois", "remise_12_mois",
+            ),
             "description": "Prix d'une durée = prix mensuel × nombre de mois, moins la remise.",
         }),
     )

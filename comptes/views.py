@@ -25,8 +25,13 @@ from .serializers import (
     UtilisateurSerializer,
 )
 from .services import (
+    LIBELLES_OPTIONS,
     accepter_demandes_reseau,
     accorder_essai,
+    enregistrer_option,
+    etat_options,
+    grille_tarifs_options,
+    retirer_option,
     demander_renouvellement,
     demarrer_essai,
     enregistrer_periode_abonnement,
@@ -322,8 +327,39 @@ class AppliquerAbonnementView(APIView):
         )
         if essai_modifie and donnees["essai_fin"] is not None and not donnees.get("essai_formule"):
             return Response({"essai_formule": ["Choisissez la formule de l'essai."]}, status=status.HTTP_400_BAD_REQUEST)
+        # Option payante : date de fin absolue (ou liée à l'abonnement), un rejeu identique ne change rien.
+        option = donnees.get("option_cle")
+        option_modifiee = False
+        if option:
+            suit, fin = getattr(boutique, f"option_{option}_suit"), getattr(boutique, f"option_{option}_fin")
+            if donnees["option_retirer"]:
+                option_modifiee = bool(suit or fin)
+            elif donnees["option_suit"]:
+                option_modifiee = not suit
+            elif donnees.get("option_fin"):
+                option_modifiee = suit or donnees["option_fin"] != fin
+            else:
+                return Response({"option_fin": ["Choisissez la fin de l'option, ou liez-la à l'abonnement."]},
+                                status=status.HTTP_400_BAD_REQUEST)
+        offerte_modifiee = (
+            "option_en_ligne_offerte" in donnees and donnees["option_en_ligne_offerte"] != boutique.option_en_ligne_offerte
+        )
+        # Allumer l'envoi en ligne demande le droit à l'option En ligne (Pro, payée, liée ou exception).
+        if synchro_modifiee and donnees["synchro_autorisee"]:
+            droit_en_ligne = (
+                boutique.formule_effective() == Boutique.Formule.PRO
+                or donnees.get("option_en_ligne_offerte", boutique.option_en_ligne_offerte)
+                or (option == "en_ligne" and not donnees["option_retirer"])
+                or (boutique.option_payee("en_ligne") and not (option == "en_ligne" and donnees["option_retirer"]))
+            )
+            if not droit_en_ligne:
+                return Response(
+                    {"detail": "L'option En ligne n'est pas prise par cette boutique : enregistrez-la (payée ou offerte) avant d'allumer l'envoi en ligne."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         # Tout est vérifié avant d'écrire : pas de modification à moitié faite.
-        for besoin, droit in ((periode_modifiee or montant or essai_modifie, "paiements"), (synchro_modifiee, "boutiques"),
+        for besoin, droit in ((periode_modifiee or montant or essai_modifie or option_modifiee, "paiements"),
+                              (synchro_modifiee or offerte_modifiee, "boutiques"),
                               (reseau_modifie, "demandes_reseau"), (appli_mobile_modifiee, "boutiques")):
             if besoin and (refus := _refus_droit(utilisateur, droit)):
                 return refus
@@ -354,6 +390,28 @@ class AppliquerAbonnementView(APIView):
             boutique.save(update_fields=["appli_mobile_autorisee"])
         if essai_modifie:
             accorder_essai(boutique, donnees["essai_fin"], donnees.get("essai_formule", ""), par=utilisateur)
+        if option_modifiee:
+            if donnees["option_retirer"]:
+                retirer_option(boutique, option)
+            else:
+                enregistrer_option(
+                    boutique, option, donnees["option_nature"], fin=donnees.get("option_fin"), suit=donnees["option_suit"],
+                    montant=donnees.get("option_montant") or 0, mode=donnees.get("option_mode", ""),
+                    reference=donnees.get("option_reference", ""), par=utilisateur,
+                )
+            _journal_bureau(
+                request, utilisateur, "option_retiree" if donnees["option_retirer"] else "option_enregistree", boutique,
+                LIBELLES_OPTIONS[option]
+                + ("" if donnees["option_retirer"] else " · liée à l'abonnement" if donnees["option_suit"]
+                   else f" · jusqu'au {timezone.localtime(donnees['option_fin']):%d/%m/%Y}"),
+            )
+        if offerte_modifiee:
+            boutique.option_en_ligne_offerte = donnees["option_en_ligne_offerte"]
+            boutique.save(update_fields=["option_en_ligne_offerte"])
+            _journal_bureau(
+                request, utilisateur, "option_exception_accordee" if boutique.option_en_ligne_offerte else "option_exception_retiree",
+                boutique, LIBELLES_OPTIONS["en_ligne"],
+            )
 
         if periode_modifiee or montant:
             boutique.refresh_from_db()
@@ -558,6 +616,8 @@ class EnregistrerBoutiqueLocaleView(APIView):
                 "synchro_autorisee": donnees["synchro_autorisee"],
                 "reseau_autorise": donnees["reseau_autorise"],
                 "appli_mobile_autorisee": donnees["appli_mobile_autorisee"],
+                # Choisi par l'administrateur à la création : accordé en exception (comme réseau / mobile).
+                "option_en_ligne_offerte": donnees["synchro_autorisee"],
             },
             {
                 "username": donnees["patron_username"],
@@ -659,6 +719,8 @@ def detail_abonnement(boutique):
                 "date": p.date_creation,
                 "nature": p.nature,
                 "nature_libelle": p.get_nature_display(),
+                "option": p.option,
+                "option_libelle": p.get_option_display() if p.option else "",
                 "formule": p.formule,
                 "date_debut": p.date_debut,
                 "date_fin": p.date_fin,
@@ -684,6 +746,8 @@ def detail_abonnement(boutique):
             for d in boutique.demandes_renouvellement.filter(supprime=False)[:10]
         ],
         "tarifs": grille_tarifs(),
+        "tarifs_options": grille_tarifs_options(),
+        "options": etat_options(boutique),
         "renouvellement": {
             "numeros": [
                 {"operateur": libelle, "numero": numero}

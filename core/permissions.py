@@ -26,14 +26,15 @@ class SynchroAutorisee(BasePermission):
     (SQLite local = source de vérité).
     """
 
-    message = "La synchronisation n'est pas encore activée pour cette boutique."
+    message = "La synchronisation n'est pas activée pour cette boutique (ou l'option En ligne n'est plus valable)."
 
     def has_permission(self, request, view):
+        # Allumée par l'admin ET droit à l'option En ligne (Pro, payée, liée ou exception).
         return bool(
             request.user
             and request.user.is_authenticated
             and request.user.boutique_id
-            and request.user.boutique.synchro_autorisee
+            and request.user.boutique.en_ligne_actif()
         )
 
 

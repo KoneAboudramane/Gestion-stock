@@ -217,10 +217,15 @@ export interface Reglages {
   instructions: string;
   prix_mensuel_essentiel: string | null;
   prix_mensuel_pro: string | null;
+  /** Options payantes de la formule Essentiel (comprises dans Pro). */
+  prix_mensuel_option_en_ligne: string | null;
+  prix_mensuel_option_reseau: string | null;
+  prix_mensuel_option_mobile: string | null;
   remise_3_mois: string;
   remise_6_mois: string;
   remise_12_mois: string;
   grille_tarifs: { formule: string; formule_libelle: string; duree_mois: number; prix: string; remise: string }[];
+  grille_tarifs_options: { option: string; option_libelle: string; duree_mois: number; prix: string; remise: string }[];
 }
 
 export interface LigneJournal {

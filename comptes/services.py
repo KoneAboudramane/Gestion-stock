@@ -585,6 +585,103 @@ def grille_tarifs():
     return tarifs
 
 
+LIBELLES_OPTIONS = {"en_ligne": "🌐 En ligne", "reseau": "📶 Réseau", "mobile": "📱 Mobile"}
+
+
+def grille_tarifs_options():
+    """Prix de chaque option payante pour 1, 3, 6 et 12 mois (mêmes remises que les formules)."""
+    from decimal import ROUND_HALF_UP, Decimal
+
+    from .models import ReglagesPlateforme
+
+    reglages = ReglagesPlateforme.obtenir()
+    remises = {1: Decimal(0), 3: reglages.remise_3_mois, 6: reglages.remise_6_mois, 12: reglages.remise_12_mois}
+    tarifs = []
+    for cle in Boutique.OPTIONS:
+        mensuel = getattr(reglages, f"prix_mensuel_option_{cle}")
+        if not mensuel:
+            continue
+        for mois, remise in remises.items():
+            tarifs.append({
+                "option": cle,
+                "option_libelle": LIBELLES_OPTIONS[cle],
+                "duree_mois": mois,
+                "prix": (mensuel * mois * (100 - remise) / 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP),
+                "remise": remise,
+            })
+    return tarifs
+
+
+def etat_options(boutique, maintenant=None):
+    """
+    Pour chaque option : a-t-elle droit, et pourquoi (« pro », « exception »,
+    « suit » l'abonnement, « payee » jusqu'à une date, ou rien). Affiché dans les
+    écrans admin et chez le commerçant.
+    """
+    maintenant = maintenant or timezone.now()
+    etat = {}
+    for cle in Boutique.OPTIONS:
+        exception = getattr(boutique, Boutique.EXCEPTION_OPTION[cle])
+        suit = getattr(boutique, f"option_{cle}_suit")
+        fin = getattr(boutique, f"option_{cle}_fin")
+        if boutique.formule_effective(maintenant) == Boutique.Formule.PRO:
+            source = "pro"
+        elif boutique.option_payee(cle, maintenant):
+            source = "suit" if suit else "payee"
+        elif exception:
+            source = "exception"
+        else:
+            source = None
+        etat[cle] = {
+            "libelle": LIBELLES_OPTIONS[cle],
+            "droit": source is not None,
+            "source": source,
+            "fin": boutique.date_expiration_abonnement if suit else fin,
+            "suit": suit,
+            "exception": exception,
+        }
+    return etat
+
+
+def point_depart_option(boutique, cle):
+    """Une option prolongée repart de sa fin si elle est encore valable, sinon d'aujourd'hui."""
+    fin = getattr(boutique, f"option_{cle}_fin")
+    maintenant = timezone.now()
+    return fin if fin and fin > maintenant else maintenant
+
+
+@transaction.atomic
+def enregistrer_option(boutique, cle, nature, fin=None, suit=False, montant=0, mode="", reference="", note="", par=None):
+    """
+    Option payante payée ou offerte : jusqu'à `fin`, ou liée à l'abonnement
+    (`suit` : valable tant que l'abonnement payé l'est, prolongée avec lui).
+    Inscrite au registre des abonnements (PaiementAbonnement.option).
+    """
+    PaiementAbonnement.objects.create(
+        boutique=boutique,
+        nature=nature,
+        formule=boutique.formule,
+        option=cle,
+        date_debut=timezone.now() if suit else point_depart_option(boutique, cle),
+        date_fin=boutique.date_expiration_abonnement if suit else fin,
+        montant=montant or 0,
+        mode=mode or "",
+        reference=reference or "",
+        note=note or ("Option liée à l'abonnement" if suit else ""),
+        enregistre_par=par if par is not None and par.pk else None,
+    )
+    setattr(boutique, f"option_{cle}_suit", bool(suit))
+    setattr(boutique, f"option_{cle}_fin", None if suit else fin)
+    boutique.save(update_fields=[f"option_{cle}_suit", f"option_{cle}_fin", "date_modification"])
+
+
+def retirer_option(boutique, cle):
+    """Fin immédiate d'une option payée ou liée (l'exception de l'admin se règle à part)."""
+    setattr(boutique, f"option_{cle}_suit", False)
+    setattr(boutique, f"option_{cle}_fin", None)
+    boutique.save(update_fields=[f"option_{cle}_suit", f"option_{cle}_fin", "date_modification"])
+
+
 def accepter_demandes_reseau(boutique, par=None):
     """Réseau activé (admin Django ou Espace Admin) : les demandes en attente sont marquées acceptées."""
     from .models import DemandeReseau

@@ -68,6 +68,24 @@ class Boutique(ModeleBase):
     essai_formule = models.CharField(max_length=20, choices=Formule.choices, blank=True, default="")
     essai_fin = models.DateTimeField(null=True, blank=True)
 
+    # --- Options payantes (formule Essentiel ; comprises dans Pro) ---------------
+    # Une option est accessible (droit_option) si : la formule en vigueur est Pro
+    # (essai Pro compris), OU elle est payée/offerte jusqu'à option_*_fin, OU elle
+    # suit l'abonnement payé (option_*_suit : valable tant que
+    # date_expiration_abonnement), OU l'administrateur l'accorde en exception sans
+    # date (reseau_autorise, appli_mobile_autorisee, option_en_ligne_offerte —
+    # c'est ainsi que les boutiques qui l'avaient avant les options la gardent).
+    # L'envoi en ligne demande EN PLUS synchro_autorisee : le droit ne l'allume pas,
+    # l'administrateur l'active sur demande du commerçant (certains refusent le cloud).
+    # Même calcul sur les appareils, hors ligne (services/abonnement.ts). Protégés de la synchro.
+    option_en_ligne_fin = models.DateTimeField(null=True, blank=True)
+    option_en_ligne_suit = models.BooleanField(default=False)
+    option_en_ligne_offerte = models.BooleanField(default=False)
+    option_reseau_fin = models.DateTimeField(null=True, blank=True)
+    option_reseau_suit = models.BooleanField(default=False)
+    option_mobile_fin = models.DateTimeField(null=True, blank=True)
+    option_mobile_suit = models.BooleanField(default=False)
+
     def __str__(self):
         return self.nom
 
@@ -90,6 +108,34 @@ class Boutique(ModeleBase):
         if fin is None or self.essai_fin is None:
             return fin
         return max(fin, self.essai_fin)
+
+    OPTIONS = ("en_ligne", "reseau", "mobile")
+    # Exception sans date accordée par l'administrateur, pour chaque option.
+    EXCEPTION_OPTION = {"en_ligne": "option_en_ligne_offerte", "reseau": "reseau_autorise", "mobile": "appli_mobile_autorisee"}
+
+    def option_payee(self, cle, maintenant=None):
+        """Option payée ou offerte encore valable (sa date, ou celle de l'abonnement si elle le suit)."""
+        maintenant = maintenant or timezone.now()
+        if getattr(self, f"option_{cle}_suit"):
+            fin = self.date_expiration_abonnement
+            return fin is None or fin > maintenant
+        fin = getattr(self, f"option_{cle}_fin")
+        return bool(fin and fin > maintenant)
+
+    def droit_option(self, cle, maintenant=None):
+        """La boutique a-t-elle droit à l'option ? (Pro, payée, liée à l'abonnement ou exception de l'admin)"""
+        return (
+            self.formule_effective(maintenant) == self.Formule.PRO
+            or getattr(self, self.EXCEPTION_OPTION[cle])
+            or self.option_payee(cle, maintenant)
+        )
+
+    def droits_options(self, maintenant=None):
+        return {cle: self.droit_option(cle, maintenant) for cle in self.OPTIONS}
+
+    def en_ligne_actif(self, maintenant=None):
+        """Synchronisation réellement ouverte : allumée par l'admin ET droit à l'option En ligne."""
+        return bool(self.synchro_autorisee and self.droit_option("en_ligne", maintenant))
 
 
 class Role(ModeleBase):
@@ -206,8 +252,15 @@ class PaiementAbonnement(ModeleBase):
         AUTRE = "autre", "Autre"
 
     boutique = models.ForeignKey(Boutique, on_delete=models.CASCADE, related_name="paiements_abonnement")
+    class Option(models.TextChoices):
+        EN_LIGNE = "en_ligne", "Option En ligne"
+        RESEAU = "reseau", "Option Réseau"
+        MOBILE = "mobile", "Option Mobile"
+
     nature = models.CharField(max_length=20, choices=Nature.choices, default=Nature.PAIEMENT)
     formule = models.CharField(max_length=20, choices=Boutique.Formule.choices)
+    # Vide : la ligne porte sur la formule ; sinon, sur une option payante.
+    option = models.CharField(max_length=20, choices=Option.choices, blank=True, default="")
     date_debut = models.DateTimeField()
     # NULL : sans limite (abonnement illimité).
     date_fin = models.DateTimeField(null=True, blank=True)
@@ -273,6 +326,10 @@ class ReglagesPlateforme(ModeleBase):
     # Tarifs (vides : pas affichés dans l'appli). Prix d'une durée = prix mensuel × mois − remise.
     prix_mensuel_essentiel = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     prix_mensuel_pro = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    # Options payantes de la formule Essentiel (comprises dans Pro), mêmes remises par durée.
+    prix_mensuel_option_en_ligne = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    prix_mensuel_option_reseau = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    prix_mensuel_option_mobile = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     remise_3_mois = models.DecimalField(
         "remise sur 3 mois (%)", max_digits=5, decimal_places=2, default=0,
         validators=[MinValueValidator(0), MaxValueValidator(100)],

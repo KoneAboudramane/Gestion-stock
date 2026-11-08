@@ -55,20 +55,38 @@ class EnregistrementBoutiqueLocaleSerializer(serializers.Serializer):
     appli_mobile_autorisee = serializers.BooleanField(required=False, default=False)
 
 
+OPTIONS_BOUTIQUE = (
+    "option_en_ligne_fin", "option_en_ligne_suit", "option_en_ligne_offerte",
+    "option_reseau_fin", "option_reseau_suit", "option_mobile_fin", "option_mobile_suit",
+)
+
+
 class BoutiqueSerializer(serializers.ModelSerializer):
+    # Calculés : à quoi la boutique a droit maintenant (Pro, options payées, exceptions).
+    droits_options = serializers.SerializerMethodField()
+    en_ligne_actif = serializers.SerializerMethodField()
+
     class Meta:
         model = Boutique
         fields = [
             "id", "nom", "adresse", "telephone", "email", "logo",
             "devise", "actif", "date_expiration_abonnement", "formule",
             "synchro_autorisee", "reseau_autorise", "appli_mobile_autorisee", "essai_formule", "essai_fin",
+            *OPTIONS_BOUTIQUE, "droits_options", "en_ligne_actif",
             "date_creation",
         ]
         read_only_fields = [
             "id", "actif", "date_expiration_abonnement", "formule",
             "synchro_autorisee", "reseau_autorise", "appli_mobile_autorisee", "essai_formule", "essai_fin",
+            *OPTIONS_BOUTIQUE,
             "date_creation",
         ]
+
+    def get_droits_options(self, obj):
+        return obj.droits_options()
+
+    def get_en_ligne_actif(self, obj):
+        return obj.en_ligne_actif()
 
 
 class AppliquerAbonnementSerializer(serializers.Serializer):
@@ -95,6 +113,18 @@ class AppliquerAbonnementSerializer(serializers.Serializer):
     # ABSOLUE, pour qu'un rejeu hors ligne ne prolonge pas l'essai. essai_fin null = arrêter l'essai.
     essai_formule = serializers.ChoiceField(choices=Boutique.Formule.choices, required=False)
     essai_fin = serializers.DateTimeField(required=False, allow_null=True)
+    # Option payante (une par appel) : jusqu'à option_fin (date ABSOLUE, rejeu sans
+    # doublon), ou liée à l'abonnement (option_suit), ou retirée (option_retirer).
+    option_cle = serializers.ChoiceField(choices=PaiementAbonnement.Option.choices, required=False)
+    option_fin = serializers.DateTimeField(required=False, allow_null=True)
+    option_suit = serializers.BooleanField(required=False, default=False)
+    option_retirer = serializers.BooleanField(required=False, default=False)
+    option_nature = serializers.ChoiceField(choices=["paiement", "offert"], required=False, default="offert")
+    option_montant = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, min_value=0)
+    option_mode = serializers.ChoiceField(choices=PaiementAbonnement.Mode.choices, required=False, allow_blank=True)
+    option_reference = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    # Exception sans date pour l'option En ligne (réseau et mobile : reseau_autorise / appli_mobile_autorisee).
+    option_en_ligne_offerte = serializers.BooleanField(required=False)
     # Inscrits au registre des abonnements (comptes.PaiementAbonnement) avec la nouvelle période.
     nature = serializers.ChoiceField(choices=PaiementAbonnement.Nature.choices, required=False)
     montant = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, min_value=0)
@@ -349,7 +379,8 @@ class ConnexionSerializer(TokenObtainPairSerializer):
         token["depot_id"] = str(user.depot_id) if user.depot_id else None
         token["depot_nom"] = user.depot.nom if user.depot_id else None
         token["code_vendeur"] = user.code_vendeur
-        token["synchro_autorisee"] = bool(user.boutique.synchro_autorisee) if user.boutique_id else False
-        token["reseau_autorise"] = bool(user.boutique.reseau_autorise) if user.boutique_id else False
+        # Valeurs EN VIGUEUR (options payantes comprises), pas seulement les interrupteurs de l'admin.
+        token["synchro_autorisee"] = bool(user.boutique.en_ligne_actif()) if user.boutique_id else False
+        token["reseau_autorise"] = bool(user.boutique.droit_option("reseau")) if user.boutique_id else False
         token["doit_changer_mot_de_passe"] = bool(user.doit_changer_mot_de_passe)
         return token

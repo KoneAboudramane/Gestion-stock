@@ -17,7 +17,8 @@ class PushCreationTests(APITestCase):
             {"nom": "Boutique A"}, {"username": "patronA", "password": "UnMotDePasseSolide123"}
         )
         self.boutique.synchro_autorisee = True
-        self.boutique.save(update_fields=["synchro_autorisee"])
+        self.boutique.option_en_ligne_offerte = True  # droit à l'option En ligne
+        self.boutique.save(update_fields=["synchro_autorisee", "option_en_ligne_offerte"])
         self.client.force_authenticate(user=self.patron)
 
     def test_push_creation_simple(self):
@@ -56,7 +57,8 @@ class PushOrdreTests(APITestCase):
             {"nom": "Boutique B"}, {"username": "patronB", "password": "UnMotDePasseSolide123"}
         )
         self.boutique.synchro_autorisee = True
-        self.boutique.save(update_fields=["synchro_autorisee"])
+        self.boutique.option_en_ligne_offerte = True  # droit à l'option En ligne
+        self.boutique.save(update_fields=["synchro_autorisee", "option_en_ligne_offerte"])
         self.client.force_authenticate(user=self.patron)
 
     def test_variante_avant_son_produit_dans_le_payload_fonctionne_quand_meme(self):
@@ -96,7 +98,8 @@ class PushConflitTests(APITestCase):
             {"nom": "Boutique C"}, {"username": "patronC", "password": "UnMotDePasseSolide123"}
         )
         self.boutique.synchro_autorisee = True
-        self.boutique.save(update_fields=["synchro_autorisee"])
+        self.boutique.option_en_ligne_offerte = True  # droit à l'option En ligne
+        self.boutique.save(update_fields=["synchro_autorisee", "option_en_ligne_offerte"])
         self.categorie = Categorie.objects.create(boutique=self.boutique, nom="Ancien nom")
         self.client.force_authenticate(user=self.patron)
 
@@ -125,7 +128,8 @@ class PushStockTests(APITestCase):
             {"nom": "Boutique D"}, {"username": "patronD", "password": "UnMotDePasseSolide123"}
         )
         self.boutique.synchro_autorisee = True
-        self.boutique.save(update_fields=["synchro_autorisee"])
+        self.boutique.option_en_ligne_offerte = True  # droit à l'option En ligne
+        self.boutique.save(update_fields=["synchro_autorisee", "option_en_ligne_offerte"])
         self.depot = Depot.objects.create(boutique=self.boutique, nom="Magasin")
         produit = Produit.objects.create(boutique=self.boutique, nom="Riz")
         self.variante = Variante.objects.create(produit=produit, prix_vente=1000)
@@ -182,7 +186,8 @@ class PushSuppressionTests(APITestCase):
             {"nom": "Boutique E"}, {"username": "patronE", "password": "UnMotDePasseSolide123"}
         )
         self.boutique.synchro_autorisee = True
-        self.boutique.save(update_fields=["synchro_autorisee"])
+        self.boutique.option_en_ligne_offerte = True  # droit à l'option En ligne
+        self.boutique.save(update_fields=["synchro_autorisee", "option_en_ligne_offerte"])
         self.client_boutique = Client.objects.create(boutique=self.boutique, nom="M. Kader")
         self.client.force_authenticate(user=self.patron)
 
@@ -208,7 +213,8 @@ class PushIsolationTests(APITestCase):
             {"nom": "Boutique F"}, {"username": "patronF", "password": "UnMotDePasseSolide123"}
         )
         self.boutique_a.synchro_autorisee = True
-        self.boutique_a.save(update_fields=["synchro_autorisee"])
+        self.boutique_a.option_en_ligne_offerte = True  # droit à l'option En ligne
+        self.boutique_a.save(update_fields=["synchro_autorisee", "option_en_ligne_offerte"])
         self.boutique_b, self.patron_b = inscrire_boutique(
             {"nom": "Boutique G"}, {"username": "patronG", "password": "UnMotDePasseSolide123"}
         )
@@ -251,7 +257,8 @@ class PullTests(APITestCase):
             {"nom": "Boutique H"}, {"username": "patronH", "password": "UnMotDePasseSolide123"}
         )
         self.boutique.synchro_autorisee = True
-        self.boutique.save(update_fields=["synchro_autorisee"])
+        self.boutique.option_en_ligne_offerte = True  # droit à l'option En ligne
+        self.boutique.save(update_fields=["synchro_autorisee", "option_en_ligne_offerte"])
         self.client.force_authenticate(user=self.patron)
 
     def test_pull_depuis_absent_renvoie_tout_puis_incremental(self):
@@ -287,7 +294,8 @@ class PushCommandeClientTests(APITestCase):
             {"nom": "Boutique Commandes"}, {"username": "patronCmd", "password": "UnMotDePasseSolide123"}
         )
         self.boutique.synchro_autorisee = True
-        self.boutique.save(update_fields=["synchro_autorisee"])
+        self.boutique.option_en_ligne_offerte = True  # droit à l'option En ligne
+        self.boutique.save(update_fields=["synchro_autorisee", "option_en_ligne_offerte"])
         self.depot = Depot.objects.create(boutique=self.boutique, nom="Magasin")
         produit = Produit.objects.create(boutique=self.boutique, nom="Ciment")
         self.variante = Variante.objects.create(produit=produit, prix_vente=5000)
@@ -346,7 +354,8 @@ class PushDoublonCatalogueTests(APITestCase):
             {"nom": "Boutique D"}, {"username": "patronDoublon", "password": "UnMotDePasseSolide123"}
         )
         self.boutique.synchro_autorisee = True
-        self.boutique.save(update_fields=["synchro_autorisee"])
+        self.boutique.option_en_ligne_offerte = True  # droit à l'option En ligne
+        self.boutique.save(update_fields=["synchro_autorisee", "option_en_ligne_offerte"])
         self.client.force_authenticate(user=self.patron)
         cafe = Produit.objects.create(boutique=self.boutique, nom="Café")
         Variante.objects.create(produit=cafe, code_barres="6111")

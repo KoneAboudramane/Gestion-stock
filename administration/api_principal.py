@@ -228,7 +228,9 @@ class ReglagesSerializer(serializers.ModelSerializer):
         model = apps.get_model("comptes", "ReglagesPlateforme")
         fields = [
             "numero_wave", "numero_orange_money", "numero_mtn", "numero_moov", "whatsapp", "instructions",
-            "prix_mensuel_essentiel", "prix_mensuel_pro", "remise_3_mois", "remise_6_mois", "remise_12_mois",
+            "prix_mensuel_essentiel", "prix_mensuel_pro",
+            "prix_mensuel_option_en_ligne", "prix_mensuel_option_reseau", "prix_mensuel_option_mobile",
+            "remise_3_mois", "remise_6_mois", "remise_12_mois",
         ]
 
     def validate_whatsapp(self, valeur):
@@ -245,7 +247,10 @@ class ReglagesView(APIView):
         from comptes.services import grille_tarifs
 
         reglages = apps.get_model("comptes", "ReglagesPlateforme").obtenir()
-        return Response({**ReglagesSerializer(reglages).data, "grille_tarifs": grille_tarifs()})
+        from comptes.services import grille_tarifs_options
+
+        return Response({**ReglagesSerializer(reglages).data, "grille_tarifs": grille_tarifs(),
+                         "grille_tarifs_options": grille_tarifs_options()})
 
     def patch(self, request):
         from comptes.services import grille_tarifs
@@ -259,7 +264,9 @@ class ReglagesView(APIView):
         modifies = {cle: {"avant": avant[cle], "apres": apres[cle]} for cle in apres if avant[cle] != apres[cle]}
         if modifies:
             journaliser(request, request.user, "reglages_modifies", detail=", ".join(modifies), donnees=modifies)
-        return Response({**apres, "grille_tarifs": grille_tarifs()})
+        from comptes.services import grille_tarifs_options
+
+        return Response({**apres, "grille_tarifs": grille_tarifs(), "grille_tarifs_options": grille_tarifs_options()})
 
 
 # --- Journal ----------------------------------------------------------------------

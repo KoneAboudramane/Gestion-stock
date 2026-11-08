@@ -205,6 +205,8 @@ class ModificationBoutiqueSerializer(serializers.Serializer):
     # comptes.Boutique.essai_fin) ; essai_fin null = arrêter l'essai.
     essai_fin = serializers.DateTimeField(required=False, allow_null=True)
     essai_formule = serializers.ChoiceField(choices=["essentiel", "pro"], required=False)
+    # Exception sans date pour l'option En ligne (réseau / mobile : reseau_autorise / appli_mobile_autorisee).
+    option_en_ligne_offerte = serializers.BooleanField(required=False)
 
     def validate(self, d):
         if d.get("essai_fin") and not d.get("essai_formule"):
@@ -263,6 +265,9 @@ class FicheBoutiqueView(APIView):
             "demandes_reseau_en_attente": b.demandes_reseau.filter(statut="en_attente").count(),
             "essai_en_cours": b.essai_en_cours(),
             "formule_effective": b.formule_effective(),
+            # Options payantes : droit et origine (Pro, payée, liée à l'abonnement, exception).
+            "options": _services().etat_options(b),
+            "en_ligne_actif": b.en_ligne_actif(),
             # Ce que cet administrateur peut faire depuis la fiche (le serveur revérifie à chaque action).
             "peut": {
                 droit: a_le_droit(request.user, droit) for droit in ("paiements", "demandes_reseau", "comptes")
@@ -274,6 +279,7 @@ class FicheBoutiqueView(APIView):
             ]
         if a_le_droit(request.user, "paiements"):
             fiche["tarifs"] = _services().grille_tarifs()
+            fiche["tarifs_options"] = _services().grille_tarifs_options()
             fiche["paiements_declares_en_attente"] = b.demandes_renouvellement.filter(
                 statut="en_attente", supprime=False
             ).count()
@@ -314,6 +320,13 @@ class FicheBoutiqueView(APIView):
                     detail=f"{b.get_essai_formule_display()} jusqu'au {timezone.localtime(essai_fin):%d/%m/%Y}" if essai_fin else "",
                 )
         donnees.pop("essai_formule", None)
+        # Allumer l'envoi en ligne demande le droit à l'option En ligne (Pro, payée, liée ou exception).
+        if donnees.get("synchro_autorisee") and not b.synchro_autorisee:
+            if not (donnees.get("option_en_ligne_offerte", b.option_en_ligne_offerte) or b.droit_option("en_ligne")):
+                return Response(
+                    {"detail": "L'option En ligne n'est pas prise par cette boutique : enregistrez-la (payée ou offerte) avant d'allumer l'envoi en ligne."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         champs = []
         for champ, valeur in donnees.items():
             if getattr(b, champ) != valeur:
@@ -329,9 +342,78 @@ class FicheBoutiqueView(APIView):
                     "synchro_autorisee": "synchro_activee" if b.synchro_autorisee else "synchro_desactivee",
                     "appli_mobile_autorisee": "appli_mobile_activee" if b.appli_mobile_autorisee else "appli_mobile_desactivee",
                     "reseau_autorise": "reseau_active" if b.reseau_autorise else "reseau_desactive",
+                    "option_en_ligne_offerte": "option_exception_accordee" if b.option_en_ligne_offerte else "option_exception_retiree",
                 }[champ]
-                journaliser(request, request.user, action, boutique=b)
+                journaliser(request, request.user, action, boutique=b,
+                            detail="🌐 En ligne" if champ == "option_en_ligne_offerte" else "")
         return self.get(request, pk)
+
+
+class OptionBoutiqueSerializer(serializers.Serializer):
+    cle = serializers.ChoiceField(choices=["en_ligne", "reseau", "mobile"])
+    action = serializers.ChoiceField(choices=["enregistrer", "retirer"], default="enregistrer")
+    nature = serializers.ChoiceField(choices=["paiement", "offert"], default="paiement")
+    # Durée en mois à partir de la fin en cours de l'option, OU date de fin, OU liée à l'abonnement.
+    duree_mois = serializers.IntegerField(required=False, min_value=1, max_value=36)
+    date_fin = serializers.DateField(required=False)
+    suit_abonnement = serializers.BooleanField(default=False)
+    montant = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0, default=0)
+    mode = serializers.ChoiceField(
+        choices=["wave", "orange_money", "mtn", "moov", "especes", "banque", "autre"], required=False, allow_blank=True
+    )
+    reference = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+
+    def validate(self, d):
+        if d["action"] == "retirer":
+            return d
+        if not d["suit_abonnement"] and not d.get("duree_mois") and not d.get("date_fin"):
+            raise serializers.ValidationError({"duree_mois": "Choisissez une durée, une date de fin, ou liez l'option à l'abonnement."})
+        if d["nature"] == "paiement" and not d.get("montant"):
+            raise serializers.ValidationError({"montant": "Indiquez le montant reçu."})
+        if d["nature"] == "paiement" and not d.get("mode"):
+            raise serializers.ValidationError({"mode": "Indiquez comment le paiement a été reçu."})
+        return d
+
+
+class OptionBoutiqueView(APIView):
+    """Option payante d'une boutique : enregistrer (payée ou offerte) ou retirer. Droit « paiements »."""
+
+    permission_classes = [a_le_droit_admin("paiements")]
+
+    def post(self, request, pk):
+        services = _services()
+        b = _modele("Boutique").objects.filter(pk=pk, supprime=False).first()
+        if b is None:
+            return Response({"detail": "Boutique introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = OptionBoutiqueSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        cle = d["cle"]
+        libelle = services.LIBELLES_OPTIONS[cle]
+        if d["action"] == "retirer":
+            services.retirer_option(b, cle)
+            journaliser(request, request.user, "option_retiree", boutique=b, detail=libelle)
+        else:
+            fin = None
+            if not d["suit_abonnement"]:
+                if d.get("date_fin"):
+                    from datetime import datetime, time
+
+                    fin = timezone.make_aware(datetime.combine(d["date_fin"], time(23, 59, 59)))
+                    if fin <= timezone.now():
+                        return Response({"date_fin": ["La date de fin doit être dans le futur."]}, status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    fin = services.ajouter_mois(services.point_depart_option(b, cle), d["duree_mois"])
+            services.enregistrer_option(
+                b, cle, d["nature"], fin=fin, suit=d["suit_abonnement"], montant=d["montant"],
+                mode=d.get("mode", ""), reference=d.get("reference", "").strip(), par=request.user,
+            )
+            journaliser(
+                request, request.user, "option_enregistree", boutique=b,
+                detail=f"{libelle} · " + ("liée à l'abonnement" if d["suit_abonnement"] else f"jusqu'au {timezone.localtime(fin):%d/%m/%Y}"),
+                donnees={"montant": str(d["montant"]), "mode": d.get("mode", ""), "reference": d.get("reference", "")},
+            )
+        return FicheBoutiqueView().get(request, pk)
 
 
 # --- Inscriptions ----------------------------------------------------------------
@@ -485,6 +567,7 @@ class CreerBoutiqueView(APIView):
                     "synchro_autorisee": d["synchro_autorisee"],
                     "reseau_autorise": d["reseau_autorise"],
                     "appli_mobile_autorisee": d["appli_mobile_autorisee"],
+                    "option_en_ligne_offerte": d["synchro_autorisee"],
                 },
                 {
                     "username": d["username"],
