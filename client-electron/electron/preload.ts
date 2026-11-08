@@ -77,6 +77,15 @@ contextBridge.exposeInMainWorld("api", {
         appliMobileAutorisee?: boolean;
         essaiFin?: string | null;
         essaiFormule?: string;
+        optionCle?: "en_ligne" | "reseau" | "mobile";
+        optionFin?: string | null;
+        optionSuit?: boolean;
+        optionRetirer?: boolean;
+        optionNature?: "paiement" | "offert";
+        optionMontant?: number;
+        optionMode?: string;
+        optionReference?: string;
+        optionEnLigneOfferte?: boolean;
       },
     ) => ipcRenderer.invoke("admin:soumettreAbonnement", username, password, boutiqueId, boutiqueNom, champs),
     creerBoutiqueLocale: (params: unknown) => ipcRenderer.invoke("admin:creerBoutiqueLocale", params),

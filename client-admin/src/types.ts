@@ -58,8 +58,22 @@ export interface FicheBoutique extends ResumeBoutique {
     statut_libelle: string;
     date_traitement: string | null;
   }[];
+  /** Options payantes : droit et origine pour chacune (Pro, payée, liée à l'abonnement, exception). */
+  options?: Record<
+    string,
+    {
+      libelle: string;
+      droit: boolean;
+      source: "pro" | "payee" | "suit" | "exception" | null;
+      fin: string | null;
+      suit: boolean;
+      exception: boolean;
+    }
+  >;
+  en_ligne_actif?: boolean;
   /** Droit « paiements » seulement. */
   tarifs?: { formule: string; duree_mois: number; prix: string; remise: string }[];
+  tarifs_options?: { option: string; option_libelle: string; duree_mois: number; prix: string; remise: string }[];
   paiements_declares_en_attente?: number;
   registre_abonnement?: {
     date: string;

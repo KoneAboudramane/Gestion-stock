@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { api } from "../api/client";
 import { texteEssai } from "../components/BandeauAbonnement";
+import PanneauOptions, { type CleOption, type EnregistrementOption } from "../components/PanneauOptions";
 import type { AbonnementBoutique, AbonnementDetailAdmin, ChampsAbonnement, EtatAbonnement } from "../api/types";
 
 const LIBELLES_FORMULE: Record<string, string> = {
@@ -53,7 +54,7 @@ function finEssaiDans(jours: number): Date {
   return fin;
 }
 
-type Rubrique = "apercu" | "renouveler" | "essai" | "paiements" | "historique" | "code";
+type Rubrique = "apercu" | "renouveler" | "essai" | "options" | "paiements" | "historique" | "code";
 type Ton = "ok" | "attention" | "alerte" | "neutre";
 const CLASSE_TON: Record<Ton, string> = { ok: "marche", attention: "arrete", alerte: "panne", neutre: "neutre" };
 
@@ -297,6 +298,43 @@ export default function GererAbonnement({
     await soumettre({ essaiFin: null }, "Essai gratuit arrêté : l'abonnement payé s'applique de nouveau");
   }
 
+  // --- Options payantes (formule Essentiel ; comprises dans Pro) ---
+  async function enregistrerOption(e: EnregistrementOption) {
+    if (!boutique) return;
+    const etatOption = detail?.options?.[e.cle];
+    let fin: string | null = null;
+    if (!e.suitAbonnement) {
+      if (e.dateFin) {
+        fin = new Date(`${e.dateFin}T23:59:59`).toISOString();
+      } else {
+        // Une option encore valable se prolonge à partir de sa fin, sinon d'aujourd'hui.
+        const finActuelleOption = etatOption?.source === "payee" && etatOption.fin ? new Date(etatOption.fin) : null;
+        const departOption = finActuelleOption && finActuelleOption > new Date() ? finActuelleOption : new Date();
+        fin = ajouterMois(departOption, e.dureeMois ?? 1).toISOString();
+      }
+    }
+    await soumettre(
+      {
+        optionCle: e.cle,
+        optionFin: fin,
+        optionSuit: e.suitAbonnement,
+        optionNature: e.nature,
+        ...(e.nature === "paiement" ? { optionMontant: e.montant, optionMode: e.mode, optionReference: e.reference } : {}),
+      },
+      `${etatOption?.libelle ?? "Option"} ${e.suitAbonnement ? "liée à l'abonnement" : `jusqu'au ${dateLongue(fin)}`}`,
+    );
+  }
+
+  async function retirerOption(cle: CleOption) {
+    await soumettre({ optionCle: cle, optionRetirer: true }, `${detail?.options?.[cle]?.libelle ?? "Option"} retirée`);
+  }
+
+  async function exceptionOption(cle: CleOption, valeur: boolean) {
+    const champs: ChampsAbonnement =
+      cle === "en_ligne" ? { optionEnLigneOfferte: valeur } : cle === "reseau" ? { reseauAutorise: valeur } : { appliMobileAutorisee: valeur };
+    await soumettre(champs, `${detail?.options?.[cle]?.libelle ?? "Option"} ${valeur ? "accordée sans paiement" : ": exception retirée"}`);
+  }
+
   // --- Code d'activation ---
   async function genererCode() {
     if (!boutique) return;
@@ -316,6 +354,7 @@ export default function GererAbonnement({
     { cle: "apercu", label: "💳 Vue d'ensemble" },
     { cle: "renouveler", label: "🔄 Renouveler" },
     { cle: "essai", label: "🧪 Essai gratuit" },
+    { cle: "options", label: "🧩 Options" },
     { cle: "paiements", label: "📨 Paiements déclarés", compteur: enAttente.length ? String(enAttente.length) : undefined },
     { cle: "historique", label: "🧾 Historique" },
     { cle: "code", label: "🔑 Code d'activation" },
@@ -434,7 +473,7 @@ export default function GererAbonnement({
               titre: "🌐 Envoi en ligne",
               lignes: [
                 <strong key="s">{boutique.synchroAutorisee ? "Autorisé" : "🔒 100 % local"}</strong>,
-                <span key="d" className="sous-info">réglable dans ⚙️ Options de la boutique</span>,
+                <span key="d" className="sous-info">réglable dans 🌐 Envoi en ligne</span>,
               ],
             },
           ]),
@@ -828,6 +867,28 @@ export default function GererAbonnement({
                   </button>
                 </div>
               </div>
+            )}
+          </>
+        );
+      case "options":
+        return (
+          <>
+            <h4 className="titre-rubrique-reseau">🧩 Options payantes</h4>
+            <p className="note-aide">
+              Pour la formule Essentiel : chaque option se prend à part (payée ou offerte), pour une durée, jusqu'à une date ou
+              liée à l'abonnement. Toutes sont comprises dans Pro. L'envoi en ligne reste à allumer dans « 🌐 Envoi en ligne ».
+            </p>
+            {horsLigne || !detail?.options ? (
+              blocHorsLigne("L'état des options est sur le serveur : reconnectez-vous pour le voir et le modifier.")
+            ) : (
+              <PanneauOptions
+                options={detail.options}
+                tarifs={detail.tarifs_options ?? []}
+                enCours={enCours}
+                onEnregistrer={enregistrerOption}
+                onRetirer={retirerOption}
+                onException={exceptionOption}
+              />
             )}
           </>
         );

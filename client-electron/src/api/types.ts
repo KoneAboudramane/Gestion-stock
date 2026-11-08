@@ -104,6 +104,10 @@ export interface AbonnementBoutique {
 /** Espace Admin → Réseau de la boutique (comptes/views.py::AdminReseauBoutiqueView). */
 export interface EtatReseauAdmin {
   reseau_autorise: boolean;
+  /** Droit au réseau en vigueur (Pro, option payée ou liée, exception) et son origine. */
+  droit_reseau?: boolean;
+  source_reseau?: "pro" | "payee" | "suit" | "exception" | null;
+  fin_reseau?: string | null;
   demandes: {
     date: string;
     demandeur: string;
@@ -132,6 +136,17 @@ export interface ChampsAbonnement {
   /** Essai gratuit : date de fin absolue (null = arrêter l'essai) et sa formule. */
   essaiFin?: string | null;
   essaiFormule?: string;
+  /** Option payante (une par envoi) : jusqu'à optionFin (date absolue), liée à l'abonnement, ou retirée. */
+  optionCle?: "en_ligne" | "reseau" | "mobile";
+  optionFin?: string | null;
+  optionSuit?: boolean;
+  optionRetirer?: boolean;
+  optionNature?: "paiement" | "offert";
+  optionMontant?: number;
+  optionMode?: string;
+  optionReference?: string;
+  /** Option En ligne accordée sans paiement (exception) ; réseau / mobile : reseauAutorise / appliMobileAutorisee. */
+  optionEnLigneOfferte?: boolean;
   /** Inscrits au registre des abonnements avec la nouvelle période (voir comptes/views.py::AppliquerAbonnementView). */
   nature?: "paiement" | "offert" | "ajustement";
   montant?: number;
@@ -1743,7 +1758,14 @@ export interface AbonnementDetail {
   tarifs_options?: { option: string; option_libelle: string; duree_mois: number; prix: string; remise: string }[];
   options?: Record<
     string,
-    { libelle: string; droit: boolean; source: "pro" | "payee" | "suit" | "exception" | null; fin: string | null; suit: boolean }
+    {
+      libelle: string;
+      droit: boolean;
+      source: "pro" | "payee" | "suit" | "exception" | null;
+      fin: string | null;
+      suit: boolean;
+      exception: boolean;
+    }
   >;
   renouvellement: { numeros: { operateur: string; numero: string }[]; whatsapp: string; instructions: string };
 }

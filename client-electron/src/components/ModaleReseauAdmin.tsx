@@ -134,7 +134,21 @@ export default function ModaleReseauAdmin({
   }
 
   // Le serveur fait foi s'il répond ; sinon, le réglage du poste.
+  // « active » : réseau accordé sans paiement (exception de l'admin, l'interrupteur) ;
+  // « droit » : droit en vigueur (Pro, option payée ou liée, ou cette exception).
   const active = serveur ? serveur.reseau_autorise : !!boutique?.reseauAutorise;
+  const droit = serveur?.droit_reseau ?? active;
+  const sourceDroit = serveur?.source_reseau ?? (active ? "exception" : null);
+  const texteDroit =
+    sourceDroit === "pro"
+      ? "✅ compris dans la formule Pro"
+      : sourceDroit === "suit"
+        ? "✅ option Réseau liée à l'abonnement"
+        : sourceDroit === "payee"
+          ? `✅ option Réseau prise jusqu'au ${dateCourte(serveur?.fin_reseau ?? null)}`
+          : sourceDroit === "exception"
+            ? "✅ accordé sans paiement"
+            : "🔒 option Réseau non prise";
   const demande = serveur?.demandes.find((d) => d.statut === "en_attente") ?? null;
   const ecartPoste = !!(serveur && boutique && serveur.reseau_autorise !== boutique.reseauAutorise);
   const changementEnAttente = enAttente?.champs.reseauAutorise !== undefined;
@@ -159,7 +173,7 @@ export default function ModaleReseauAdmin({
           }
         : { ton: "ok", titre: "Serveur et poste", texte: "✅ Le serveur et ce poste sont d'accord." };
 
-  const blocDemande = demande && !active && (
+  const blocDemande = demande && !droit && (
     <div className="prochaine-etape prochaine-etape--attention">
       <div>
         <span className="libelle-prochaine-etape">📨 Demande de la boutique</span>
@@ -183,15 +197,17 @@ export default function ModaleReseauAdmin({
   function carteInterrupteur() {
     return (
       <CarteOption
-        icone="📶"
-        titre="Réseau de la boutique"
+        icone="🎁"
+        titre="Réseau accordé sans paiement (exception)"
         actif={active}
-        libelleOui="Activé"
-        libelleNon="Non activé"
+        libelleOui="Accordé"
+        libelleNon="Non accordé"
         detail={
-          active
-            ? "Les ordinateurs et téléphones de la boutique peuvent se relier sans internet : un poste principal, des caisses."
-            : "La boutique ne peut pas relier ses appareils : chacun travaille seul."
+          sourceDroit === "pro" || sourceDroit === "payee" || sourceDroit === "suit"
+            ? "Inutile ici : la boutique a déjà droit au réseau. Pour une option payante : « 💳 Abonnement → 🧩 Options »."
+            : active
+              ? "Accordé par l'administrateur, sans paiement : les appareils de la boutique peuvent se relier sans internet."
+              : "Pour vendre l'option : « 💳 Abonnement → 🧩 Options ». Ou accordez-la ici sans paiement (geste commercial)."
         }
         confirmation={(valeur) =>
           valeur
@@ -421,6 +437,12 @@ export default function ModaleReseauAdmin({
               )}
             </div>
             {blocDemande}
+            <div className={`prochaine-etape prochaine-etape--${droit ? "ok" : "neutre"}`}>
+              <div>
+                <span className="libelle-prochaine-etape">Droit au réseau</span>
+                <p>{texteDroit}</p>
+              </div>
+            </div>
             {carteInterrupteur()}
             <div className="grille-cartes-reseau">
               <button type="button" className="carte-info-reseau carte-info-reseau--lien" onClick={() => aller("appareil")}>
@@ -477,9 +499,9 @@ export default function ModaleReseauAdmin({
             <div className="disposition-parametres">
               <BarreRubriques
                 etiquette="Réseau"
-                etat={active ? "✅ activé" : "🔒 non activé"}
+                etat={droit ? "✅ activé" : "🔒 non activé"}
                 details={[roleCourt]}
-                ton={active ? "ok" : "alerte"}
+                ton={droit ? "ok" : "alerte"}
                 rubriques={rubriques}
                 active={rubrique}
                 onChoisir={aller}

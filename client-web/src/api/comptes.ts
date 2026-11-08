@@ -119,7 +119,14 @@ export interface AbonnementDetail {
   tarifs_options?: { option: string; option_libelle: string; duree_mois: number; prix: string; remise: string }[];
   options?: Record<
     string,
-    { libelle: string; droit: boolean; source: "pro" | "payee" | "suit" | "exception" | null; fin: string | null; suit: boolean }
+    {
+      libelle: string;
+      droit: boolean;
+      source: "pro" | "payee" | "suit" | "exception" | null;
+      fin: string | null;
+      suit: boolean;
+      exception: boolean;
+    }
   >;
   renouvellement: { numeros: { operateur: string; numero: string }[]; whatsapp: string; instructions: string };
 }

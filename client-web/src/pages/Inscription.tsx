@@ -566,6 +566,10 @@ export default function Inscription({
                     </div>
                   )}
                   <strong>Accès de la boutique</strong>
+                  <p className="note-aide">
+                    Accès accordés sans paiement. Pour les vendre comme options payantes : après la création, « 💳 Abonnement →
+                    🧩 Options ». En Pro (essai compris), le réseau et l'appli mobile sont compris.
+                  </p>
                   <div className="grille-options-admin">
                     <CarteOption
                       icone="🌐"

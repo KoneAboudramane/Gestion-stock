@@ -475,3 +475,46 @@
 .liste-options-abonnement li.option-non-prise {
   color: var(--gris-600, #475569);
 }
+
+/* Panneau des options payantes (Gérer abonnement, fiche boutique du site). */
+.panneau-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.prix-option-admin {
+  font-weight: 800;
+  color: var(--couleur-primaire);
+  white-space: nowrap;
+}
+
+.actions-option-admin {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+}
+
+.case-exception-option {
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: var(--gris-600, #475569);
+}
+
+.formulaire-option-admin {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.8rem;
+  border-radius: var(--rayon-sm);
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 94%);
+}
+
+.champ-date-option {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-width: 16rem;
+  font-size: 0.85rem;
+}

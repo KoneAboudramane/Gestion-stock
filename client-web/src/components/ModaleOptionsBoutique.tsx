@@ -13,20 +13,16 @@ import {
   type ChampsAbonnement,
 } from "../services/abonnementAdmin";
 import CarteOption from "./CarteOption";
-import BarreRubriques from "./BarreRubriques";
 
-/**
- * Espace Admin → « ⚙️ Options de la boutique » : envoi des données en ligne et
- * carte « 📱 Appli mobile ».
- * Copie conforme : client-electron/src/components/ModaleOptionsBoutique.tsx (seul `appels` diffère).
- */
+// Espace Admin → « 🌐 Envoi en ligne » (voir le commentaire du composant plus bas).
+// Copie conforme bureau / web : seul `appels` diffère.
 
 /** Accès aux données (seule partie qui diffère entre le bureau et le web). */
 const appels = {
   boutique: (): Promise<AbonnementBoutique | null> => obtenirBoutiqueInstallee(),
-  serveur: async (username: string, password: string, boutiqueId: string): Promise<AbonnementDetailAdmin["boutique"] | null> => {
+  detail: async (username: string, password: string, boutiqueId: string): Promise<AbonnementDetailAdmin | null> => {
     const r = await detailAbonnementAdmin(username, password, boutiqueId);
-    return r.succes ? r.resultat.boutique : null;
+    return r.succes ? r.resultat : null;
   },
   enAttente: async (): Promise<boolean> => !!lireAbonnementEnAttente(),
   soumettre: async (
@@ -43,10 +39,6 @@ const appels = {
   },
 };
 
-
-type Rubrique = "apercu" | "synchro" | "appli";
-type CleOption = "synchroAutorisee" | "appliMobileAutorisee";
-
 interface Infos {
   derniereSynchro: string | null;
   sauvegarde: { configuree: boolean; derniereSauvegarde: string | null } | null;
@@ -57,41 +49,34 @@ function dateHeure(iso: string | null | undefined): string {
   return iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "jamais";
 }
 
-const OPTIONS: Record<
-  CleOption,
-  {
-    icone: string;
-    titre: string;
-    oui: string;
-    non: string;
-    activer: (nom: string) => string;
-    desactiver: (nom: string) => string;
-    succesOui: string;
-    succesNon: string;
-  }
-> = {
-  synchroAutorisee: {
-    icone: "🌐",
-    titre: "Envoi des données en ligne",
-    oui: "Autorisé",
-    non: "100 % local",
-    activer: (nom) => `Autoriser l'envoi en ligne pour « ${nom} » ? Ses ventes, son stock et ses fiches seront envoyés au serveur.`,
-    desactiver: (nom) => `Passer « ${nom} » en 100 % local ? Les données restent sur ses ordinateurs ; pensez à la sauvegarde.`,
-    succesOui: "Envoi en ligne autorisé",
-    succesNon: "Boutique passée en 100 % local",
-  },
-  appliMobileAutorisee: {
-    icone: "📱",
-    titre: "Appli mobile",
-    oui: "Activée",
-    non: "Non activée",
-    activer: (nom) => `Afficher la carte « 📱 Appli mobile » (QR code de téléchargement Android) dans les Réglages de « ${nom} » ?`,
-    desactiver: (nom) => `Cacher la carte « 📱 Appli mobile » des Réglages de « ${nom} » ?`,
-    succesOui: "Appli mobile activée",
-    succesNon: "Appli mobile désactivée",
-  },
-};
+function dateCourte(iso: string | null | undefined): string {
+  return iso ? new Date(iso).toLocaleDateString("fr-FR") : "";
+}
 
+type EtatOptions = NonNullable<AbonnementDetailAdmin["options"]>;
+
+function libelleOption(o: EtatOptions[string]): string {
+  switch (o.source) {
+    case "pro":
+      return "✅ comprise dans Pro";
+    case "suit":
+      return "✅ liée à l'abonnement";
+    case "payee":
+      return `✅ prise jusqu'au ${dateCourte(o.fin)}`;
+    case "exception":
+      return "✅ accordée sans paiement";
+    default:
+      return "🔒 non prise";
+  }
+}
+
+/**
+ * Espace Admin → « 🌐 Envoi en ligne » : allumer ou couper l'envoi des données de la
+ * boutique vers le serveur. Il faut le droit à l'option En ligne (Pro, payée, liée
+ * à l'abonnement ou accordée sans paiement) : les options se prennent dans
+ * « 💳 Abonnement → 🧩 Options ». Même en Pro, l'envoi reste éteint tant qu'on ne
+ * l'allume pas (certains commerçants refusent le cloud).
+ */
 export default function ModaleOptionsBoutique({
   onFermer,
   username,
@@ -102,35 +87,28 @@ export default function ModaleOptionsBoutique({
   password: string;
 }) {
   const [boutique, setBoutique] = useState<AbonnementBoutique | null | undefined>(undefined);
-  const [rubrique, setRubrique] = useState<Rubrique>("apercu");
+  const [options, setOptions] = useState<EtatOptions | null>(null);
   const [horsLigne, setHorsLigne] = useState(false);
   const [enAttente, setEnAttente] = useState(false);
   const [infos, setInfos] = useState<Infos | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
-  const [lienCopie, setLienCopie] = useState(false);
 
   async function charger() {
     const b = await appels.boutique();
     setBoutique(b);
     appels.infos().then(setInfos).catch(() => {});
     if (!b) return;
-    const serveur = await appels.serveur(username, password, b.boutiqueId).catch(() => null);
+    const detail = await appels.detail(username, password, b.boutiqueId).catch(() => null);
     const attente = await appels.enAttente();
-    setHorsLigne(!serveur);
+    setHorsLigne(!detail);
     setEnAttente(attente);
-    // Options réglées ailleurs (site admin, autre poste) : ce poste s'aligne sur le serveur,
-    // sauf si une modification faite ici hors ligne attend d'y être envoyée.
-    if (!serveur || attente) return;
-    const ecart: ChampsAbonnement = {};
-    if (serveur.synchro_autorisee !== b.synchroAutorisee) ecart.synchroAutorisee = serveur.synchro_autorisee;
-    if (serveur.appli_mobile_autorisee !== undefined && serveur.appli_mobile_autorisee !== b.appliMobileAutorisee) {
-      ecart.appliMobileAutorisee = serveur.appli_mobile_autorisee;
-    }
-    if (Object.keys(ecart).length === 0) return;
+    setOptions(detail?.options ?? null);
+    // Réglé ailleurs (site admin, autre poste) : ce poste s'aligne, sauf modification en attente d'envoi.
+    if (!detail || attente || detail.boutique.synchro_autorisee === b.synchroAutorisee) return;
     try {
-      await appels.soumettre(username, password, b.boutiqueId, b.boutiqueNom, ecart);
+      await appels.soumettre(username, password, b.boutiqueId, b.boutiqueNom, { synchroAutorisee: detail.boutique.synchro_autorisee });
       setBoutique(await appels.boutique());
     } catch {
       // l'affichage garde l'état du poste
@@ -141,21 +119,14 @@ export default function ModaleOptionsBoutique({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function aller(r: Rubrique) {
-    setErreur(null);
-    setMessage(null);
-    setRubrique(r);
-  }
-
-  async function basculer(cle: CleOption) {
+  async function basculer(valeur: boolean) {
     if (!boutique) return;
-    const valeur = !boutique[cle];
     setErreur(null);
     setMessage(null);
     setEnCours(true);
     try {
-      const statut = await appels.soumettre(username, password, boutique.boutiqueId, boutique.boutiqueNom, { [cle]: valeur });
-      const texte = valeur ? OPTIONS[cle].succesOui : OPTIONS[cle].succesNon;
+      const statut = await appels.soumettre(username, password, boutique.boutiqueId, boutique.boutiqueNom, { synchroAutorisee: valeur });
+      const texte = valeur ? "Envoi en ligne allumé" : "Boutique passée en 100 % local";
       setMessage(
         statut === "synchronise"
           ? `✅ ${texte} (sur ce poste et sur le serveur).`
@@ -170,165 +141,92 @@ export default function ModaleOptionsBoutique({
     }
   }
 
-  async function copierLien() {
-    if (!infos?.urlApk) return;
-    try {
-      await navigator.clipboard.writeText(infos.urlApk);
-      setLienCopie(true);
-      setTimeout(() => setLienCopie(false), 2000);
-    } catch {
-      setErreur("Copie impossible : sélectionnez le lien à la main.");
-    }
-  }
-
-  /** Carte d'une option : grand interrupteur, badge d'état, confirmation avant d'enregistrer. */
-  function carteOption(cle: CleOption, detail: string, onDetail?: () => void) {
-    if (!boutique) return null;
-    const o = OPTIONS[cle];
-    return (
-      <CarteOption
-        icone={o.icone}
-        titre={o.titre}
-        actif={boutique[cle]}
-        libelleOui={o.oui}
-        libelleNon={o.non}
-        detail={detail}
-        confirmation={(valeur) => (valeur ? o.activer(boutique.boutiqueNom) : o.desactiver(boutique.boutiqueNom))}
-        enCours={enCours}
-        onBasculer={() => basculer(cle)}
-        onDetail={onDetail}
-      />
-    );
-  }
-
-  const accord = horsLigne
-    ? { ton: "neutre", texte: "🌐 Sans connexion au serveur : un changement s'applique sur ce poste et part au serveur au retour d'internet." }
-    : enAttente
-      ? { ton: "attention", texte: "⏳ Une modification faite sans internet attend d'être envoyée au serveur (Réglages → Synchronisation)." }
-      : { ton: "ok", texte: "✅ Le serveur et ce poste sont d'accord." };
-
-  function contenu() {
-    if (!boutique) return null;
-    switch (rubrique) {
-      case "synchro":
-        return (
-          <>
-            <h4 className="titre-rubrique-reseau">🌐 Envoi des données en ligne</h4>
-            {carteOption(
-              "synchroAutorisee",
-              boutique.synchroAutorisee
-                ? "Les ventes, le stock et les fiches de la boutique sont envoyés au serveur : sauvegarde en ligne, appli web et mobile à jour."
-                : "Tout reste sur les ordinateurs de la boutique ; seuls le nom et l'abonnement sont en ligne.",
-            )}
-            <dl className="infos-option-admin">
-              <dt>Dernière synchronisation de ce poste</dt>
-              <dd>{boutique.synchroAutorisee ? dateHeure(infos?.derniereSynchro) : "— (100 % local)"}</dd>
-              <dt>Dernière sauvegarde</dt>
-              <dd>
-                {infos?.sauvegarde?.configuree ? dateHeure(infos.sauvegarde.derniereSauvegarde) : "non paramétrée"}
-              </dd>
-            </dl>
-            {!boutique.synchroAutorisee && !infos?.sauvegarde?.configuree && (
-              <p className="message-erreur">
-                ⚠️ 100 % local et sans sauvegarde : si l'ordinateur tombe en panne, les données sont perdues. Paramétrez la
-                sauvegarde (carte 💾 Sauvegarde).
-              </p>
-            )}
-          </>
-        );
-      case "appli":
-        return (
-          <>
-            <h4 className="titre-rubrique-reseau">📱 Appli mobile</h4>
-            {carteOption(
-              "appliMobileAutorisee",
-              boutique.appliMobileAutorisee
-                ? "La carte « 📱 Appli mobile » est visible dans les Réglages : la boutique peut télécharger l'appli Android (QR code, WhatsApp, affiche)."
-                : "La carte « 📱 Appli mobile » reste grisée dans les Réglages de la boutique (« Non activé par votre administrateur »).",
-            )}
-            <dl className="infos-option-admin">
-              <dt>Lien de téléchargement Android</dt>
-              <dd className="lien-apk-option">
-                <code>{infos?.urlApk || "…"}</code>
-                <button type="button" className="lien" disabled={!infos?.urlApk} onClick={copierLien}>
-                  {lienCopie ? "✓ Copié" : "📋 Copier"}
-                </button>
-              </dd>
-            </dl>
-            <p className="note-aide">
-              Le lien sert le fichier déposé sur le serveur (dossier telechargements/). Remplacez ce fichier à chaque nouvelle
-              version de l'appli.
-            </p>
-          </>
-        );
-      default:
-        return (
-          <>
-            <h4 className="titre-rubrique-reseau">🧭 Vue d'ensemble</h4>
-            <div className={`prochaine-etape prochaine-etape--${accord.ton}`}>
-              <div>
-                <span className="libelle-prochaine-etape">Serveur et poste</span>
-                <p>{accord.texte}</p>
-              </div>
-              {horsLigne && (
-                <button type="button" disabled={enCours} onClick={() => charger()}>
-                  ⟳ Réessayer
-                </button>
-              )}
-            </div>
-            <div className="grille-options-admin">
-              {carteOption(
-                "synchroAutorisee",
-                boutique.synchroAutorisee ? "Ventes et stock envoyés au serveur." : "Tout reste sur les ordinateurs de la boutique.",
-                () => aller("synchro"),
-              )}
-              {carteOption(
-                "appliMobileAutorisee",
-                boutique.appliMobileAutorisee ? "Carte de téléchargement visible dans Réglages." : "Carte de téléchargement cachée.",
-                () => aller("appli"),
-              )}
-            </div>
-            <p className="note-aide">Le réseau de la boutique se règle dans sa propre carte : 📶 Réseau de la boutique.</p>
-          </>
-        );
-    }
-  }
-
-  const rubriques: { cle: Rubrique; label: string }[] = [
-    { cle: "apercu", label: "🧭 Vue d'ensemble" },
-    { cle: "synchro", label: "🌐 Envoi en ligne" },
-    { cle: "appli", label: "📱 Appli mobile" },
-  ];
+  // Sans connexion, on ne sait pas : on laisse faire (le serveur revérifie à l'envoi).
+  const droitEnLigne = options ? options.en_ligne?.droit ?? false : true;
 
   return (
     <div className="fond-modale" onClick={onFermer}>
       <div className="modale-selection-produits modale-abonnement-admin" onClick={(e) => e.stopPropagation()}>
         <div className="modale-entete">
-          <h3>⚙️ Options de la boutique{boutique ? ` — ${boutique.boutiqueNom}` : ""}</h3>
+          <h3>🌐 Envoi en ligne{boutique ? ` — ${boutique.boutiqueNom}` : ""}</h3>
           <button type="button" className="lien bouton-retour" onClick={onFermer}>
             ← Retour
           </button>
         </div>
-        <div className="modale-corps">
+        <div className="modale-corps contenu-reseau">
           {boutique === undefined || boutique === null ? (
             <p className="sous-titre">{boutique === undefined ? "Chargement…" : "Aucune boutique n'est encore installée sur ce poste."}</p>
           ) : (
-            <div className="disposition-parametres">
-              <BarreRubriques
-                etiquette="Boutique"
-                etat={boutique.synchroAutorisee ? "🌐 en ligne" : "🔒 100 % local"}
-                details={[`📱 appli ${boutique.appliMobileAutorisee ? "activée" : "non activée"}`]}
-                ton={enAttente ? "alerte" : "ok"}
-                rubriques={rubriques}
-                active={rubrique}
-                onChoisir={aller}
-              />
-              <div className="contenu-parametres contenu-reseau">
-                {erreur && <div className="message-erreur">{erreur}</div>}
-                {message && <div className="message-succes">{message}</div>}
-                {contenu()}
+            <>
+              {erreur && <div className="message-erreur">{erreur}</div>}
+              {message && <div className="message-succes">{message}</div>}
+              <div className={`prochaine-etape prochaine-etape--${horsLigne ? "neutre" : enAttente ? "attention" : "ok"}`}>
+                <div>
+                  <span className="libelle-prochaine-etape">Serveur et poste</span>
+                  <p>
+                    {horsLigne
+                      ? "🌐 Sans connexion au serveur : un changement s'applique sur ce poste et part au serveur au retour d'internet."
+                      : enAttente
+                        ? "⏳ Une modification faite sans internet attend d'être envoyée au serveur (Réglages → Synchronisation)."
+                        : "✅ Le serveur et ce poste sont d'accord."}
+                  </p>
+                </div>
+                {horsLigne && (
+                  <button type="button" disabled={enCours} onClick={() => charger()}>
+                    ⟳ Réessayer
+                  </button>
+                )}
               </div>
-            </div>
+              <CarteOption
+                icone="🌐"
+                titre="Envoi des données en ligne"
+                actif={boutique.synchroAutorisee}
+                libelleOui="Allumé"
+                libelleNon="100 % local"
+                detail={
+                  !droitEnLigne && !boutique.synchroAutorisee
+                    ? "🔒 L'option En ligne n'est pas prise : prenez-la ou offrez-la dans « 💳 Abonnement → 🧩 Options » avant de l'allumer."
+                    : boutique.synchroAutorisee
+                      ? "Les ventes, le stock et les fiches de la boutique sont envoyés au serveur : sauvegarde en ligne, appli web et mobile à jour."
+                      : "Tout reste sur les appareils de la boutique ; seuls le nom et l'abonnement sont en ligne."
+                }
+                confirmation={(v) =>
+                  v
+                    ? `Allumer l'envoi en ligne pour « ${boutique.boutiqueNom} » ? Ses ventes, son stock et ses fiches seront envoyés au serveur.`
+                    : `Passer « ${boutique.boutiqueNom} » en 100 % local ? Les données restent sur ses appareils ; pensez à la sauvegarde.`
+                }
+                enCours={enCours || (!droitEnLigne && !boutique.synchroAutorisee)}
+                onBasculer={basculer}
+              />
+              <dl className="infos-option-admin">
+                <dt>Dernière synchronisation de ce poste</dt>
+                <dd>{boutique.synchroAutorisee ? dateHeure(infos?.derniereSynchro) : "— (100 % local)"}</dd>
+                <dt>Dernière sauvegarde</dt>
+                <dd>{infos?.sauvegarde?.configuree ? dateHeure(infos.sauvegarde.derniereSauvegarde) : "non paramétrée"}</dd>
+              </dl>
+              {!boutique.synchroAutorisee && !infos?.sauvegarde?.configuree && (
+                <p className="message-erreur">
+                  ⚠️ 100 % local et sans sauvegarde : si l'appareil tombe en panne, les données sont perdues. Paramétrez la
+                  sauvegarde (carte 💾 Sauvegarde).
+                </p>
+              )}
+              {options && (
+                <section className="carte-profil">
+                  <h4>🧩 Options de la boutique</h4>
+                  <ul className="liste-options-abonnement">
+                    {(["en_ligne", "reseau", "mobile"] as const)
+                      .filter((cle) => options[cle])
+                      .map((cle) => (
+                        <li key={cle} className={options[cle].droit ? "option-prise" : "option-non-prise"}>
+                          <strong>{options[cle].libelle}</strong>
+                          <span>{libelleOption(options[cle])}</span>
+                        </li>
+                      ))}
+                  </ul>
+                  <p className="note-aide">Prendre, offrir ou retirer une option : « 💳 Abonnement → 🧩 Options ».</p>
+                </section>
+              )}
+            </>
           )}
         </div>
       </div>

@@ -330,6 +330,10 @@ export default function CreerBoutique() {
               </div>
             </div>
             <strong>Accès de la boutique</strong>
+            <p className="note-aide">
+              Accès accordés sans paiement. Pour les vendre comme options payantes : après la création, fiche de la boutique →
+              « 🧩 Options ». En Pro (essai compris), le réseau et l'appli mobile sont compris.
+            </p>
             <div className="grille-options-admin">
               <CarteOption
                 icone="🌐"

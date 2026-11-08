@@ -299,18 +299,16 @@ export default function AccueilAdmin({
                 "abonnement",
                 "💳",
                 "Abonnement",
-                "Renouveler, essai gratuit, paiements déclarés, historique, code d'activation.",
+                "Renouveler, essai gratuit, options payantes, paiements déclarés, historique, code d'activation.",
                 boutique ? (boutique.dateExpirationAbonnement ? `jusqu'au ${dateCourte(boutique.dateExpirationAbonnement)}` : "sans limite") : undefined,
                 boutique ? undefined : "Aucune boutique sur cet ordinateur",
               )}
               {carte(
                 "options",
-                "⚙️",
-                "Options de la boutique",
-                "Envoi des données en ligne (synchronisation) et appli mobile.",
-                boutique
-                  ? `${boutique.synchroAutorisee ? "en ligne" : "100 % local"} · appli mobile ${boutique.appliMobileAutorisee ? "activée" : "non activée"}`
-                  : undefined,
+                "🌐",
+                "Envoi en ligne",
+                "Allumer ou couper l'envoi des données au serveur (option En ligne).",
+                boutique ? (boutique.synchroAutorisee ? "allumé" : "100 % local") : undefined,
                 boutique ? undefined : "Aucune boutique sur cet ordinateur",
               )}
               {carte(

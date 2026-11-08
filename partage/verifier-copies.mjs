@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const racine = join(dirname(fileURLToPath(import.meta.url)), "..");
-const COMPOSANTS = ["CarteOption.tsx", "BarreRubriques.tsx", "FicheAcces.tsx"];
+const COMPOSANTS = ["CarteOption.tsx", "BarreRubriques.tsx", "FicheAcces.tsx", "PanneauOptions.tsx"];
 const DESTINATIONS = ["client-electron/src/components", "client-web/src/components", "client-admin/src/composants"];
 const lire = (chemin) => readFileSync(chemin, "utf-8").replace(/\r\n/g, "\n");
 

@@ -54,6 +54,17 @@ export interface ChampsAbonnement {
   /** Essai gratuit : date de fin absolue (null = arrêter l'essai) et sa formule. */
   essaiFin?: string | null;
   essaiFormule?: string;
+  /** Option payante (une par envoi) : jusqu'à optionFin (date absolue), liée à l'abonnement, ou retirée. */
+  optionCle?: "en_ligne" | "reseau" | "mobile";
+  optionFin?: string | null;
+  optionSuit?: boolean;
+  optionRetirer?: boolean;
+  optionNature?: "paiement" | "offert";
+  optionMontant?: number;
+  optionMode?: string;
+  optionReference?: string;
+  /** Option En ligne accordée sans paiement (exception) ; réseau / mobile : reseauAutorise / appliMobileAutorisee. */
+  optionEnLigneOfferte?: boolean;
   /** Inscrits au registre des abonnements avec la nouvelle période (voir comptes/views.py::AppliquerAbonnementView). */
   nature?: "paiement" | "offert" | "ajustement";
   montant?: number;
@@ -87,6 +98,13 @@ async function appliquerLocalement(boutiqueId: string, champs: ChampsAbonnement)
     ...(champs.essaiFin !== undefined
       ? { essai_fin: champs.essaiFin, essai_formule: champs.essaiFin ? champs.essaiFormule ?? "" : "" }
       : {}),
+    ...(champs.optionCle
+      ? {
+          [`option_${champs.optionCle}_fin`]: champs.optionRetirer || champs.optionSuit ? null : champs.optionFin ?? null,
+          [`option_${champs.optionCle}_suit`]: champs.optionSuit && !champs.optionRetirer ? 1 : 0,
+        }
+      : {}),
+    ...(champs.optionEnLigneOfferte !== undefined ? { option_en_ligne_offerte: champs.optionEnLigneOfferte ? 1 : 0 } : {}),
   });
 }
 
@@ -168,6 +186,10 @@ export async function detailAbonnementAdmin(
 /** Espace Admin → Réseau de la boutique (comptes/views.py::AdminReseauBoutiqueView). */
 export interface EtatReseauAdmin {
   reseau_autorise: boolean;
+  /** Droit au réseau en vigueur (Pro, option payée ou liée, exception) et son origine. */
+  droit_reseau?: boolean;
+  source_reseau?: "pro" | "payee" | "suit" | "exception" | null;
+  fin_reseau?: string | null;
   demandes: {
     date: string;
     demandeur: string;
@@ -224,6 +246,21 @@ export async function soumettreAbonnement(
         ...(champs.essaiFin !== undefined
           ? { essai_fin: champs.essaiFin, ...(champs.essaiFin ? { essai_formule: champs.essaiFormule } : {}) }
           : {}),
+        ...(champs.optionCle
+          ? {
+              option_cle: champs.optionCle,
+              ...(champs.optionRetirer
+                ? { option_retirer: true }
+                : champs.optionSuit
+                  ? { option_suit: true }
+                  : { option_fin: champs.optionFin }),
+              option_nature: champs.optionNature ?? "offert",
+              ...(champs.optionMontant ? { option_montant: champs.optionMontant } : {}),
+              ...(champs.optionMode ? { option_mode: champs.optionMode } : {}),
+              ...(champs.optionReference ? { option_reference: champs.optionReference } : {}),
+            }
+          : {}),
+        ...(champs.optionEnLigneOfferte !== undefined ? { option_en_ligne_offerte: champs.optionEnLigneOfferte } : {}),
         ...(champs.nature ? { nature: champs.nature } : {}),
         ...(champs.montant ? { montant: champs.montant } : {}),
         ...(champs.mode ? { mode: champs.mode } : {}),

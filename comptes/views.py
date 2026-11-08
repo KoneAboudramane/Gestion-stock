@@ -228,8 +228,13 @@ class AdminReseauBoutiqueView(APIView):
                 statut=DemandeReseau.Statut.REFUSEE, traitee_par=utilisateur, date_traitement=timezone.now()
             )
             _journal_bureau(request, utilisateur, "reseau_refuse", boutique)
+        etat_reseau = etat_options(boutique)["reseau"]
         return Response({
+            # Exception de l'admin (interrupteur) ; le droit en vigueur et son origine à côté.
             "reseau_autorise": boutique.reseau_autorise,
+            "droit_reseau": etat_reseau["droit"],
+            "source_reseau": etat_reseau["source"],
+            "fin_reseau": etat_reseau["fin"],
             "demandes": [
                 {
                     "date": d.date_creation,

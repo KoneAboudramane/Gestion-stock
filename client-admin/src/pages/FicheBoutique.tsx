@@ -3,6 +3,7 @@ import { type ReactNode, useState } from "react";
 import { api } from "../api";
 import BarreRubriques from "../composants/BarreRubriques";
 import CarteOption from "../composants/CarteOption";
+import PanneauOptions, { type CleOption, type EnregistrementOption } from "../composants/PanneauOptions";
 import CodeActivation from "../composants/CodeActivation";
 import { BadgeAbonnement, Chargement, Erreur, Info, Modale } from "../composants/Commun";
 import { date, dateHeure, depuis, montant } from "../format";
@@ -26,7 +27,7 @@ interface Props {
   surModifiee: (b: ResumeBoutique) => void;
 }
 
-type Rubrique = "apercu" | "abonnement" | "essai" | "options" | "reseau" | "utilisateurs" | "historique";
+type Rubrique = "apercu" | "abonnement" | "essai" | "optionsPayantes" | "options" | "reseau" | "utilisateurs" | "historique";
 type Ton = "ok" | "attention" | "alerte" | "neutre";
 
 const LIBELLES_FORMULE: Record<string, string> = { essentiel: "Essentiel", pro: "Pro" };
@@ -225,7 +226,7 @@ export default function FicheBoutique({ id, surFermer, surModifiee }: Props) {
         )}
         <div className="grille-cartes-reseau">
           <button type="button" className="carte-info-reseau carte-info-reseau--lien" onClick={() => aller("options")}>
-            <span className="titre-carte-reseau">⚙️ Options</span>
+            <span className="titre-carte-reseau">🌐 Envoi en ligne</span>
             <strong>{fiche!.synchro_autorisee ? "🌐 en ligne" : "🔒 100 % local"}</strong>
             <span className="sous-info">📱 appli {fiche!.appli_mobile_autorisee ? "activée" : "non activée"}</span>
           </button>
@@ -514,49 +515,35 @@ export default function FicheBoutique({ id, surFermer, surModifiee }: Props) {
   }
 
   function options() {
+    const droitEnLigne = fiche!.options?.en_ligne?.droit ?? true;
     return (
       <>
-        <h4 className="titre-rubrique-reseau">⚙️ Options de la boutique</h4>
-        <div className="grille-options-admin">
-          <CarteOption
-            icone="🌐"
-            titre="Envoi des données en ligne"
-            actif={fiche!.synchro_autorisee}
-            libelleOui="Autorisé"
-            libelleNon="100 % local"
-            detail={
-              fiche!.synchro_autorisee
+        <h4 className="titre-rubrique-reseau">🌐 Envoi en ligne</h4>
+        <p className="note-aide">
+          Même avec l'option En ligne (ou en Pro), l'envoi reste éteint tant qu'on ne l'allume pas : certains commerçants
+          refusent que leurs données partent sur le serveur.
+        </p>
+        <CarteOption
+          icone="🌐"
+          titre="Envoi des données en ligne"
+          actif={fiche!.synchro_autorisee}
+          libelleOui="Allumé"
+          libelleNon="100 % local"
+          detail={
+            !droitEnLigne && !fiche!.synchro_autorisee
+              ? "🔒 L'option En ligne n'est pas prise : prenez-la ou offrez-la dans « 🧩 Options » avant de l'allumer."
+              : fiche!.synchro_autorisee
                 ? "Ventes, stock et fiches envoyés au serveur : sauvegarde en ligne, appli web et mobile à jour."
-                : "Tout reste sur les ordinateurs de la boutique ; seuls le nom et l'abonnement sont en ligne."
-            }
-            confirmation={(v) =>
-              v
-                ? `Activer la synchronisation en ligne pour « ${fiche!.nom} » ? Ses données seront envoyées au serveur.`
-                : `Désactiver la synchronisation en ligne pour « ${fiche!.nom} » ? L'appli continue de fonctionner sur ses postes.`
-            }
-            enCours={enregistrement}
-            onBasculer={(v) => modifier({ synchro_autorisee: v }, v ? "✅ Envoi en ligne autorisé." : "Boutique passée en 100 % local.")}
-          />
-          <CarteOption
-            icone="📱"
-            titre="Appli mobile"
-            actif={fiche!.appli_mobile_autorisee}
-            libelleOui="Activée"
-            libelleNon="Non activée"
-            detail={
-              fiche!.appli_mobile_autorisee
-                ? "La carte « 📱 Appli mobile » (QR code Android) est visible dans les Réglages de la boutique."
-                : "La carte « 📱 Appli mobile » reste grisée dans les Réglages de la boutique."
-            }
-            confirmation={(v) =>
-              v
-                ? `Afficher la carte « 📱 Appli mobile » dans les Réglages de « ${fiche!.nom} » ?`
-                : `Cacher la carte « 📱 Appli mobile » des Réglages de « ${fiche!.nom} » ?`
-            }
-            enCours={enregistrement}
-            onBasculer={(v) => modifier({ appli_mobile_autorisee: v }, v ? "✅ Appli mobile activée." : "Appli mobile désactivée.")}
-          />
-        </div>
+                : "Tout reste sur les appareils de la boutique ; seuls le nom et l'abonnement sont en ligne."
+          }
+          confirmation={(v) =>
+            v
+              ? `Allumer l'envoi en ligne pour « ${fiche!.nom} » ? Ses données seront envoyées au serveur.`
+              : `Passer « ${fiche!.nom} » en 100 % local ? L'appli continue de fonctionner sur ses appareils.`
+          }
+          enCours={enregistrement || (!droitEnLigne && !fiche!.synchro_autorisee)}
+          onBasculer={(v) => modifier({ synchro_autorisee: v }, v ? "✅ Envoi en ligne allumé." : "Boutique passée en 100 % local.")}
+        />
         <dl className="infos infos-ligne">
           <Info libelle="Dernière synchro">{dateHeure(fiche!.derniere_synchro)}</Info>
           <Info libelle="Dernière sauvegarde">{depuis(fiche!.date_derniere_sauvegarde)}</Info>
@@ -565,11 +552,81 @@ export default function FicheBoutique({ id, surFermer, surModifiee }: Props) {
     );
   }
 
+  function optionsPayantes() {
+    return (
+      <>
+        <h4 className="titre-rubrique-reseau">🧩 Options payantes</h4>
+        <p className="note-aide">
+          Pour la formule Essentiel : chaque option se prend à part (payée ou offerte), pour une durée, jusqu'à une date ou
+          liée à l'abonnement. Toutes sont comprises dans Pro.
+        </p>
+        {fiche!.options ? (
+          <PanneauOptions
+            options={fiche!.options}
+            tarifs={fiche!.tarifs_options ?? []}
+            enCours={enregistrement}
+            onEnregistrer={(e: EnregistrementOption) =>
+              action(async () =>
+                appliquer(
+                  await api<Fiche>(`${url}option/`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                      cle: e.cle,
+                      nature: e.nature,
+                      ...(e.suitAbonnement ? { suit_abonnement: true } : e.dateFin ? { date_fin: e.dateFin } : { duree_mois: e.dureeMois }),
+                      ...(e.nature === "paiement" ? { montant: e.montant, mode: e.mode, reference: e.reference } : {}),
+                    }),
+                  }),
+                  `✅ ${fiche!.options?.[e.cle]?.libelle ?? "Option"} enregistrée.`,
+                ),
+              )
+            }
+            onRetirer={(cle: CleOption) =>
+              action(async () =>
+                appliquer(
+                  await api<Fiche>(`${url}option/`, { method: "POST", body: JSON.stringify({ cle, action: "retirer" }) }),
+                  `${fiche!.options?.[cle]?.libelle ?? "Option"} retirée.`,
+                ),
+              )
+            }
+            onException={(cle: CleOption, valeur: boolean) =>
+              modifier(
+                cle === "en_ligne"
+                  ? { option_en_ligne_offerte: valeur }
+                  : cle === "reseau"
+                    ? { reseau_autorise: valeur }
+                    : { appli_mobile_autorisee: valeur },
+                `${fiche!.options?.[cle]?.libelle ?? "Option"} ${valeur ? "accordée sans paiement" : ": exception retirée"}.`,
+              )
+            }
+          />
+        ) : (
+          <p className="vide">État des options indisponible.</p>
+        )}
+      </>
+    );
+  }
+
   function reseau() {
     return (
       <>
         <h4 className="titre-rubrique-reseau">📶 Réseau de la boutique</h4>
-        {demandeReseau && !fiche!.reseau_autorise && (
+        <div className={`prochaine-etape prochaine-etape--${fiche!.options?.reseau?.droit ? "ok" : "neutre"}`}>
+          <div>
+            <span className="libelle-prochaine-etape">Droit au réseau</span>
+            <p>
+              {(
+                {
+                  pro: "✅ compris dans la formule Pro",
+                  suit: "✅ option Réseau liée à l'abonnement",
+                  payee: `✅ option Réseau prise jusqu'au ${date(fiche!.options?.reseau?.fin ?? null)}`,
+                  exception: "✅ accordé sans paiement",
+                } as Record<string, string>
+              )[fiche!.options?.reseau?.source ?? ""] ?? "🔒 option Réseau non prise"}
+            </p>
+          </div>
+        </div>
+        {demandeReseau && !fiche!.options?.reseau?.droit && (
           <div className="prochaine-etape prochaine-etape--attention">
             <div>
               <span className="libelle-prochaine-etape">📨 Demande de la boutique</span>
@@ -595,15 +652,17 @@ export default function FicheBoutique({ id, surFermer, surModifiee }: Props) {
           </div>
         )}
         <CarteOption
-          icone="📶"
-          titre="Réseau de la boutique"
+          icone="🎁"
+          titre="Réseau accordé sans paiement (exception)"
           actif={fiche!.reseau_autorise}
-          libelleOui="Activé"
-          libelleNon="Non activé"
+          libelleOui="Accordé"
+          libelleNon="Non accordé"
           detail={
-            fiche!.reseau_autorise
-              ? "Les appareils de la boutique peuvent se relier sans internet : un poste principal, des caisses."
-              : "La boutique ne peut pas relier ses appareils : chacun travaille seul."
+            ["pro", "payee", "suit"].includes(fiche!.options?.reseau?.source ?? "")
+              ? "Inutile ici : la boutique a déjà droit au réseau."
+              : fiche!.reseau_autorise
+                ? "Accordé sans paiement : les appareils de la boutique peuvent se relier sans internet."
+                : "Pour vendre l'option : « 🧩 Options ». Ou accordez-la ici sans paiement (geste commercial)."
           }
           confirmation={(v) =>
             v
@@ -746,6 +805,7 @@ export default function FicheBoutique({ id, surFermer, surModifiee }: Props) {
     abonnement,
     essai,
     options,
+    optionsPayantes,
     reseau,
     utilisateurs,
     historique,
@@ -756,9 +816,10 @@ export default function FicheBoutique({ id, surFermer, surModifiee }: Props) {
       ? [
           { cle: "abonnement" as const, label: "💳 Abonnement", compteur: fiche.paiements_declares_en_attente || undefined },
           { cle: "essai" as const, label: "🧪 Essai gratuit" },
+          { cle: "optionsPayantes" as const, label: "🧩 Options" },
         ]
       : []),
-    { cle: "options" as const, label: "⚙️ Options" },
+    { cle: "options" as const, label: "🌐 Envoi en ligne" },
     ...(fiche.peut.demandes_reseau
       ? [{ cle: "reseau" as const, label: "📶 Réseau", compteur: fiche.demandes_reseau_en_attente || undefined }]
       : []),
