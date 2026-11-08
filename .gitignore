@@ -25,6 +25,8 @@ npm-debug.log*
 # build pré-compilé directement — un `git pull` doit suffire à déployer, voir
 # config/settings.py::WHITENOISE_ROOT et deploy/README.md.
 !client-web/dist/
+# client-admin/dist/ aussi : publié par le sous-domaine admin.gestion.stock.digi-ba.com (git pull).
+!client-admin/dist/
 
 # --- Scripts de vérification locaux (chemins machine spécifiques, non versionnés) ---
 client-electron/_*_tmp*.mjs

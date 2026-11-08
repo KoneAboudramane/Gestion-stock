@@ -1,5 +1,6 @@
 node_modules/
-dist/
 .env
 .env.local
 *.tsbuildinfo
+# dist/ est VERSIONNÉ : le serveur publie admin.gestion.stock.digi-ba.com directement
+# depuis client-admin/dist (récupéré par git pull, comme client-web/dist).
