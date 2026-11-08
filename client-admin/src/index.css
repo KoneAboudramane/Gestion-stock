@@ -34,6 +34,16 @@
   --police-affichage: "Bitter", Georgia, "Times New Roman", serif;
   --surface: #ffffff;
   --barre-fond: linear-gradient(190deg, #eef2fb 0%, #dfe6f5 75%);
+
+  /* Pour les styles communs (partage/styles/admin.css et admin-base.css). */
+  --succes-fonce: #15803d;
+  --avertissement-clair: #fef3c7;
+  --avertissement-fonce: #92400e;
+  --violet: #7c3aed;
+  --violet-clair: #f3e8ff;
+  --violet-fonce: #6d28d9;
+  --bordure-tableau: var(--gris-300);
+  --ombre-lg: 0 24px 56px -20px rgba(15, 23, 42, 0.28);
 }
 
 * {

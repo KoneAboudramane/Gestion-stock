@@ -5,6 +5,8 @@ import type { AbonnementBoutique, ParametresCreationBoutique } from "../api/type
 import ChampNouveauMotDePasse from "../components/ChampNouveauMotDePasse";
 import FicheAcces from "../components/FicheAcces";
 import { soliditeMotDePasse } from "../lib/motDePasse";
+import CarteOption from "../components/CarteOption";
+import BarreRubriques from "../components/BarreRubriques";
 
 /** Accès aux données (seule partie qui diffère avec client-web/src/pages/Inscription.tsx). */
 const appels = {
@@ -246,37 +248,6 @@ export default function Inscription({
     </div>
   );
 
-  function interrupteur(
-    icone: string,
-    titre: string,
-    actif: boolean,
-    changer: (v: boolean) => void,
-    detailOui: string,
-    detailNon: string,
-  ) {
-    return (
-      <div className={`carte-option-admin${actif ? " carte-option-admin--active" : ""}`}>
-        <div className="entete-option-admin">
-          <span className="icone-option-admin">{icone}</span>
-          <div className="textes-option-admin">
-            <strong>{titre}</strong>
-            <span className="sous-info">{actif ? detailOui : detailNon}</span>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={actif}
-            aria-label={titre}
-            className={`interrupteur-option${actif ? " interrupteur-option--actif" : ""}`}
-            onClick={() => changer(!actif)}
-          >
-            <span className="curseur-interrupteur-option" />
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   if (dejaInstallee) {
     return (
       <div className="fond-modale" onClick={onFermer}>
@@ -395,27 +366,25 @@ export default function Inscription({
         {entete}
         <div className="modale-corps">
           <div className="disposition-parametres">
-            <nav className="barre-laterale-parametres barre-laterale-reseau">
-              <div className="role-reseau role-reseau--ok">
-                <span className="sous-info">Nouvelle boutique</span>
-                <strong>{boutiqueNom.trim() || "sans nom"}</strong>
-                {identifiant.trim() && <span className="sous-info">👤 {identifiant.trim()}</span>}
-                <span className="sous-info">
-                  {essai ? `🎁 essai ${essaiJours} j` : `💳 ${LIBELLES_FORMULE[formule]} ${duree} mois`}
-                </span>
-              </div>
-              {ETAPES.map((e) => (
-                <button
-                  key={e.numero}
-                  type="button"
-                  className={`item-nav-parametres${e.numero === etape ? " actif" : ""}`}
-                  onClick={() => aller(e.numero)}
-                >
-                  <span className={`numero-etape-nav${e.numero < etape ? " fait" : ""}`}>{e.numero < etape ? "✓" : e.numero}</span>
-                  {e.icone} {e.libelle}
-                </button>
-              ))}
-            </nav>
+            <BarreRubriques
+              etiquette="Nouvelle boutique"
+              etat={boutiqueNom.trim() || "sans nom"}
+              details={[
+                identifiant.trim() ? `👤 ${identifiant.trim()}` : null,
+                essai ? `🎁 essai ${LIBELLES_FORMULE[formule]} ${essaiJours} j` : `💳 ${LIBELLES_FORMULE[formule]} ${duree} mois`,
+              ]}
+              rubriques={ETAPES.map((e) => ({
+                cle: String(e.numero),
+                label: (
+                  <>
+                    <span className={`numero-etape-nav${e.numero < etape ? " fait" : ""}`}>{e.numero < etape ? "✓" : e.numero}</span>
+                    {e.icone} {e.libelle}
+                  </>
+                ),
+              }))}
+              active={String(etape)}
+              onChoisir={(cle) => aller(Number(cle) as Etape)}
+            />
             <div className="contenu-parametres contenu-reseau">
               {erreur && <div className="message-erreur">{erreur}</div>}
 
@@ -597,9 +566,33 @@ export default function Inscription({
                   )}
                   <strong>Accès de la boutique</strong>
                   <div className="grille-options-admin">
-                    {interrupteur("🌐", "Envoi des données en ligne", synchroAutorisee, setSynchroAutorisee, "Ventes et stock envoyés au serveur.", "100 % local : pensez à la sauvegarde.")}
-                    {interrupteur("📶", "Réseau de la boutique", reseauAutorise, setReseauAutorise, "Appareils reliés sans internet.", "Chaque appareil travaille seul.")}
-                    {interrupteur("📱", "Appli mobile", appliMobileAutorisee, setAppliMobileAutorisee, "Carte de téléchargement dans Réglages.", "Carte de téléchargement cachée.")}
+                    <CarteOption
+                      icone="🌐"
+                      titre="Envoi des données en ligne"
+                      actif={synchroAutorisee}
+                      libelleOui="Autorisé"
+                      libelleNon="100 % local"
+                      detail={synchroAutorisee ? "Ventes et stock envoyés au serveur." : "100 % local : pensez à la sauvegarde."}
+                      onBasculer={setSynchroAutorisee}
+                    />
+                    <CarteOption
+                      icone="📶"
+                      titre="Réseau de la boutique"
+                      actif={reseauAutorise}
+                      libelleOui="Activé"
+                      libelleNon="Non activé"
+                      detail={reseauAutorise ? "Appareils reliés sans internet." : "Chaque appareil travaille seul."}
+                      onBasculer={setReseauAutorise}
+                    />
+                    <CarteOption
+                      icone="📱"
+                      titre="Appli mobile"
+                      actif={appliMobileAutorisee}
+                      libelleOui="Activée"
+                      libelleNon="Non activée"
+                      detail={appliMobileAutorisee ? "Carte de téléchargement dans Réglages." : "Carte de téléchargement cachée."}
+                      onBasculer={setAppliMobileAutorisee}
+                    />
                   </div>
                 </div>
               )}

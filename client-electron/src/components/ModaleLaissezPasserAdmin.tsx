@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 
 import { api } from "../api/client";
 import type { LaissezPasserResume } from "../api/types";
+import BarreRubriques from "./BarreRubriques";
 
 interface LaissezPasserGenere {
   code: string;
@@ -354,23 +355,13 @@ export default function ModaleLaissezPasserAdmin({
         </div>
         <div className="modale-corps">
           <div className="disposition-parametres">
-            <nav className="barre-laterale-parametres barre-laterale-reseau">
-              <div className="role-reseau role-reseau--ok">
-                <span className="sous-info">Laissez-passer</span>
-                <strong>{actifs === null ? "—" : `${actifs} actif(s)`}</strong>
-              </div>
-              {rubriques.map((r) => (
-                <button
-                  key={r.cle}
-                  type="button"
-                  className={`item-nav-parametres${rubrique === r.cle ? " actif" : ""}`}
-                  onClick={() => aller(r.cle)}
-                >
-                  {r.label}
-                  {r.compteur && <span className="compteur-nav-reseau">{r.compteur}</span>}
-                </button>
-              ))}
-            </nav>
+            <BarreRubriques
+              etiquette="Laissez-passer"
+              etat={actifs === null ? "—" : `${actifs} actif(s)`}
+              rubriques={rubriques}
+              active={rubrique}
+              onChoisir={aller}
+            />
             <div className="contenu-parametres contenu-reseau">
               {erreur && <div className="message-erreur">{erreur}</div>}
               {message && <div className="message-succes">{message}</div>}

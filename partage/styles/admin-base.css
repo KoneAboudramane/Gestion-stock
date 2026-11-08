@@ -1,0 +1,640 @@
+/*
+ * Base de mise en page des écrans d'administration (barre de rubriques, étapes,
+ * cartes d'état, cartes de durée, bandeaux « prochaine étape »…), reprise de
+ * client-electron/src/index.css pour le site d'administration (client-admin),
+ * qui n'a pas ces règles. Le bureau et le web gardent les leurs (identiques)
+ * dans leur index.css et n'importent PAS ce fichier.
+ * Les nouveaux composants communs vont dans partage/styles/admin.css.
+ */
+
+.disposition-parametres {
+  display: flex;
+  gap: 1.5rem;
+  flex: 1;
+  min-height: 0;
+}
+
+.barre-laterale-parametres {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  width: 190px;
+  padding: 0.75rem;
+  background: color-mix(in srgb, var(--gris-500), transparent 93%);
+  border: 1px solid color-mix(in srgb, var(--gris-500), transparent 82%);
+  border-radius: var(--rayon-md);
+  overflow-y: auto;
+}
+
+.item-nav-parametres {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  padding: 0.62rem 0.85rem;
+  color: var(--gris-500);
+  font-weight: 600;
+  font-size: 0.85rem;
+  transition: background var(--transition), color var(--transition);
+}
+
+.item-nav-parametres:hover:not(:disabled) {
+  background: var(--gris-100);
+  color: var(--gris-900);
+}
+
+.item-nav-parametres.actif {
+  background: color-mix(in srgb, var(--couleur-accent), transparent 90%);
+  color: var(--couleur-accent);
+  font-weight: 700;
+}
+
+.contenu-parametres {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.ligne-detail-article {
+  display: block;
+  margin-top: 0.15rem;
+}
+
+.tableau-historique-deballages td .ligne-detail-article {
+  display: block;
+  font-size: 0.8rem;
+}
+
+.barre-laterale-reseau {
+  width: 230px;
+  gap: 0.3rem;
+}
+
+.role-reseau {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin-bottom: 0.6rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 8px;
+  border-left: 4px solid var(--gris-300);
+  background: var(--surface);
+}
+
+.barre-laterale-reseau .item-nav-parametres {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.compteur-nav-reseau {
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--gris-200);
+  color: var(--gris-700);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.contenu-reseau {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding-right: 0.3rem;
+}
+
+.contenu-reseau > p {
+  margin: 0;
+}
+
+.titre-rubrique-reseau {
+  margin: 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--gris-200);
+  font-size: 1.05rem;
+}
+
+.carte-etat-serveur {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 1rem 1.2rem;
+  border: 1px solid var(--gris-200);
+  border-left: 5px solid var(--gris-300);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--surface);
+}
+
+.etat-serveur-titre {
+  font-size: 1.25rem;
+}
+
+.entete-vue-ensemble {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.icone-vue-ensemble {
+  font-size: 2rem;
+}
+
+.prochaine-etape {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.8rem 1rem;
+  padding: 0.8rem 1rem;
+  border-radius: var(--rayon-md, 8px);
+  border: 1px solid var(--gris-200);
+  background: var(--gris-50);
+}
+
+.prochaine-etape p {
+  margin: 0.15rem 0 0;
+}
+
+.libelle-prochaine-etape {
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--gris-500);
+}
+
+.ligne-etat-reseau > .carte-etat-serveur {
+  flex: 1 1 280px;
+}
+
+.grille-cartes-reseau {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.7rem;
+}
+
+.carte-info-reseau {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  padding: 0.75rem 0.9rem;
+  text-align: left;
+  border: 1px solid var(--gris-200);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--surface);
+  font-size: 0.85rem;
+}
+
+.carte-info-reseau.cliquable {
+  cursor: pointer;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.carte-info-reseau.cliquable:hover {
+  border-color: var(--couleur-accent);
+  box-shadow: var(--ombre-lg);
+}
+
+.titre-carte-reseau {
+  margin-bottom: 0.2rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--gris-500);
+}
+
+.actions-code-reseau {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.etape-reseau {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+}
+
+.numero-etape-reseau {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 85%);
+  color: var(--couleur-primaire);
+  font-weight: 800;
+}
+
+.champ-etape-reseau {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.carte-poste-trouve .ligne-detail-article {
+  display: block;
+}
+
+.verifications-reseau {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.verifications-reseau li {
+  position: relative;
+  padding-left: 1.6rem;
+}
+
+.verifications-reseau li::before {
+  position: absolute;
+  left: 0;
+  font-weight: 800;
+}
+
+.verifications-reseau .verif-ok::before {
+  content: "✓";
+  color: var(--succes);
+}
+
+.verifications-reseau .verif-ko {
+  color: var(--danger);
+}
+
+.verifications-reseau .verif-ko::before {
+  content: "✕";
+}
+
+.verifications-reseau .verif-info::before {
+  content: "•";
+  color: var(--gris-500);
+}
+
+.puce-nom-poste {
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--gris-300);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.puce-nom-poste.choisi {
+  border-color: var(--couleur-primaire);
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 90%);
+  color: var(--couleur-primaire);
+  font-weight: 700;
+}
+
+.grille-choix-reseau,
+.grille-moyens-reseau {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.8rem;
+}
+
+.carte-choix-reseau {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: 1rem 1.1rem;
+  text-align: left;
+  border: 1px solid var(--gris-200);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.carte-choix-reseau:hover {
+  border-color: var(--couleur-accent);
+  box-shadow: var(--ombre-lg);
+}
+
+.icone-choix-reseau {
+  font-size: 1.6rem;
+}
+
+@media (max-width: 700px) {
+  .modale-reseau-boutique .disposition-parametres {
+    flex-direction: column;
+    gap: 0.8rem;
+  }
+}
+
+@media (max-width: 700px) {
+  .barre-laterale-reseau {
+    width: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 700px) {
+  .barre-laterale-reseau .role-reseau {
+    width: 100%;
+  }
+}
+
+.bloc-reseau {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--gris-200);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--surface);
+}
+
+.bloc-reseau h4 {
+  margin: 0;
+}
+
+.zone-tableau-scroll.zone-appareils-reseau {
+  flex: 1;
+  min-height: 120px;
+  max-height: none;
+}
+
+.zone-appareils-reseau {
+  border: 1px solid var(--gris-300);
+  border-radius: var(--rayon-md, 8px);
+}
+
+.tableau-appareils-reseau {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+}
+
+.tableau-appareils-reseau th,
+.tableau-appareils-reseau td {
+  padding: 0.55rem 0.8rem;
+  border-right: 1px solid var(--gris-200);
+  border-bottom: 1px solid var(--gris-200);
+  vertical-align: middle;
+}
+
+.tableau-appareils-reseau th:last-child,
+.tableau-appareils-reseau td:last-child {
+  border-right: none;
+}
+
+.tableau-appareils-reseau thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--gris-100);
+  border-bottom: 2px solid var(--gris-300);
+  text-align: left;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.tableau-appareils-reseau tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--gris-500), transparent 96%);
+}
+
+.tableau-appareils-reseau tbody tr:not(.ligne-groupe-vide):hover td {
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 93%);
+}
+
+.tableau-appareils-reseau .colonne-numero-groupe {
+  width: 3rem;
+  text-align: center;
+  color: var(--gris-500);
+}
+
+.tableau-appareils-reseau .colonne-action-reseau {
+  width: 1%;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.pastille-etat-reseau {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: var(--gris-100);
+  color: var(--gris-600);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.fiche-recuperation {
+  padding: 1rem 1.2rem;
+  border: 2px dashed var(--gris-300);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--surface);
+}
+
+.fiche-recuperation h3 {
+  margin-top: 0;
+}
+
+.fiche-recuperation-mot-de-passe {
+  font-size: 1.15rem;
+  padding: 0.5rem 0.8rem;
+  border-radius: var(--rayon-sm);
+  background: var(--gris-50);
+}
+
+@media print {
+  body.impression-fiche .fiches-recuperation,
+  body.impression-fiche .fiches-recuperation * {
+    visibility: visible;
+  }
+}
+
+@media print {
+  body.impression-fiche .fiches-recuperation {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+  }
+}
+
+@media print {
+  body.impression-fiche .fiche-recuperation {
+    break-inside: avoid;
+    border: 2px dashed #999;
+    margin-bottom: 1.5cm;
+  }
+}
+
+.tableau-appareils-reseau tbody tr.ligne-copie-choisie td {
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 88%);
+}
+
+.fiches-recuperation {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.case-secours-sauvegarde {
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--gris-200);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--gris-50);
+  font-weight: 600;
+}
+
+.choix-methode-restauration {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.2rem;
+}
+
+.choix-methode-restauration label {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+}
+
+.modale-reseau-admin .modale-corps {
+  overflow-y: auto;
+}
+
+.choix-formule-abonnement {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.choix-formule-abonnement .puce-nom-poste {
+  padding: 0.4rem 1.1rem;
+  font-size: 0.92rem;
+}
+
+.grille-durees-abonnement {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.6rem;
+}
+
+.carte-duree-abonnement {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  padding: 0.7rem 0.85rem;
+  text-align: left;
+  border: 2px solid var(--gris-200);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.carte-duree-abonnement:hover {
+  border-color: color-mix(in srgb, var(--couleur-primaire), transparent 50%);
+}
+
+.carte-duree-abonnement.choisi {
+  border-color: var(--couleur-primaire);
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 93%);
+}
+
+.grille-paiement-abonnement {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.6rem;
+}
+
+.details-abonnement {
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--gris-200);
+  border-radius: var(--rayon-md, 8px);
+  background: var(--gris-50);
+  font-size: 0.88rem;
+}
+
+.details-abonnement summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.details-abonnement[open] summary {
+  margin-bottom: 0.5rem;
+}
+
+.champ-nouveau-mot-de-passe {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.solidite-mot-de-passe {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.barre-filtres-comptes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.champ-recherche-comptes {
+  flex: 1;
+  min-width: 240px;
+  height: 38px;
+  padding: 0 0.8rem;
+  border: 2px solid color-mix(in srgb, var(--couleur-primaire), transparent 50%);
+  border-radius: var(--rayon-md, 8px);
+  font-size: 0.95rem;
+}
+
+.zone-tableau-scroll.zone-comptes-admin {
+  max-height: 300px;
+  border: 1px solid var(--gris-300);
+  border-radius: var(--rayon-md, 8px);
+}
+
+.tableau-appareils-reseau tbody tr.ligne-cliquable {
+  cursor: pointer;
+}
+
+.progression-assistant li.fait .numero-etape-reseau {
+  background: color-mix(in srgb, var(--succes), transparent 82%);
+  color: var(--succes);
+}
+
+.formulaire-assistant {
+  max-width: 760px;
+}
+
+.carte-choix-reseau.choisi {
+  border: 2px solid var(--couleur-primaire);
+  background: color-mix(in srgb, var(--couleur-primaire), transparent 94%);
+}
+
+.actions-assistant {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: auto;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--gris-200);
+}

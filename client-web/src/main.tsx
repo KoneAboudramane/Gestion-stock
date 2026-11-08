@@ -10,6 +10,7 @@ import { demarrerBoucleCaisse } from "./services/reseau";
 import { lancerPostePrincipal } from "./services/reseauPrincipal";
 import { lancerSauvegardePlanifiee } from "./services/sauvegarde";
 import "./index.css";
+import "../../partage/styles/admin.css";
 
 initialiserTheme();
 activerBoutonRetourAndroid();

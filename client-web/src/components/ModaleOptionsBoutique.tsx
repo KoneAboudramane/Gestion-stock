@@ -12,6 +12,8 @@ import {
   type AbonnementDetailAdmin,
   type ChampsAbonnement,
 } from "../services/abonnementAdmin";
+import CarteOption from "./CarteOption";
+import BarreRubriques from "./BarreRubriques";
 
 /**
  * Espace Admin → « ⚙️ Options de la boutique » : envoi des données en ligne et
@@ -104,7 +106,6 @@ export default function ModaleOptionsBoutique({
   const [horsLigne, setHorsLigne] = useState(false);
   const [enAttente, setEnAttente] = useState(false);
   const [infos, setInfos] = useState<Infos | null>(null);
-  const [aConfirmer, setAConfirmer] = useState<CleOption | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
@@ -143,7 +144,6 @@ export default function ModaleOptionsBoutique({
   function aller(r: Rubrique) {
     setErreur(null);
     setMessage(null);
-    setAConfirmer(null);
     setRubrique(r);
   }
 
@@ -163,7 +163,6 @@ export default function ModaleOptionsBoutique({
       );
       setEnAttente(statut !== "synchronise");
       setBoutique(await appels.boutique());
-      setAConfirmer(null);
     } catch (e) {
       setErreur(e instanceof Error ? e.message : "Échec de la modification.");
     } finally {
@@ -186,47 +185,19 @@ export default function ModaleOptionsBoutique({
   function carteOption(cle: CleOption, detail: string, onDetail?: () => void) {
     if (!boutique) return null;
     const o = OPTIONS[cle];
-    const actif = boutique[cle];
     return (
-      <div className={`carte-option-admin${actif ? " carte-option-admin--active" : ""}`}>
-        <div className="entete-option-admin">
-          <span className="icone-option-admin">{o.icone}</span>
-          <div className="textes-option-admin">
-            <strong>{o.titre}</strong>
-            <span className={`badge-lp ${actif ? "badge-lp--actif" : ""}`}>{actif ? `✅ ${o.oui}` : `🔒 ${o.non}`}</span>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={actif}
-            aria-label={o.titre}
-            className={`interrupteur-option${actif ? " interrupteur-option--actif" : ""}`}
-            disabled={enCours}
-            onClick={() => setAConfirmer(aConfirmer === cle ? null : cle)}
-          >
-            <span className="curseur-interrupteur-option" />
-          </button>
-        </div>
-        <p className="note-aide">{detail}</p>
-        {aConfirmer === cle && (
-          <div className="confirmation-option-admin">
-            <p>{actif ? o.desactiver(boutique.boutiqueNom) : o.activer(boutique.boutiqueNom)}</p>
-            <div className="actions-formulaire">
-              <button type="button" className="bouton-primaire" disabled={enCours} onClick={() => basculer(cle)}>
-                {enCours ? "Enregistrement…" : "Confirmer"}
-              </button>
-              <button type="button" className="lien" onClick={() => setAConfirmer(null)}>
-                Annuler
-              </button>
-            </div>
-          </div>
-        )}
-        {onDetail && (
-          <button type="button" className="lien lien-option-admin" onClick={onDetail}>
-            Détails →
-          </button>
-        )}
-      </div>
+      <CarteOption
+        icone={o.icone}
+        titre={o.titre}
+        actif={boutique[cle]}
+        libelleOui={o.oui}
+        libelleNon={o.non}
+        detail={detail}
+        confirmation={(valeur) => (valeur ? o.activer(boutique.boutiqueNom) : o.desactiver(boutique.boutiqueNom))}
+        enCours={enCours}
+        onBasculer={() => basculer(cle)}
+        onDetail={onDetail}
+      />
     );
   }
 
@@ -343,23 +314,15 @@ export default function ModaleOptionsBoutique({
             <p className="sous-titre">{boutique === undefined ? "Chargement…" : "Aucune boutique n'est encore installée sur ce poste."}</p>
           ) : (
             <div className="disposition-parametres">
-              <nav className="barre-laterale-parametres barre-laterale-reseau">
-                <div className={`role-reseau role-reseau--${enAttente ? "alerte" : "ok"}`}>
-                  <span className="sous-info">Boutique</span>
-                  <strong>{boutique.synchroAutorisee ? "🌐 en ligne" : "🔒 100 % local"}</strong>
-                  <span className="sous-info">📱 appli {boutique.appliMobileAutorisee ? "activée" : "non activée"}</span>
-                </div>
-                {rubriques.map((r) => (
-                  <button
-                    key={r.cle}
-                    type="button"
-                    className={`item-nav-parametres${rubrique === r.cle ? " actif" : ""}`}
-                    onClick={() => aller(r.cle)}
-                  >
-                    {r.label}
-                  </button>
-                ))}
-              </nav>
+              <BarreRubriques
+                etiquette="Boutique"
+                etat={boutique.synchroAutorisee ? "🌐 en ligne" : "🔒 100 % local"}
+                details={[`📱 appli ${boutique.appliMobileAutorisee ? "activée" : "non activée"}`]}
+                ton={enAttente ? "alerte" : "ok"}
+                rubriques={rubriques}
+                active={rubrique}
+                onChoisir={aller}
+              />
               <div className="contenu-parametres contenu-reseau">
                 {erreur && <div className="message-erreur">{erreur}</div>}
                 {message && <div className="message-succes">{message}</div>}

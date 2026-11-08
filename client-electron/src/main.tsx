@@ -5,6 +5,7 @@ import App from "./App";
 import BoutonAgrandirModales from "./components/BoutonAgrandirModales";
 import { initialiserTheme } from "./lib/theme";
 import "./index.css";
+import "../../partage/styles/admin.css";
 
 initialiserTheme();
 

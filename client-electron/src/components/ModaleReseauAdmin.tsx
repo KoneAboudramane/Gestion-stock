@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import type { AbonnementBoutique, AbonnementEnAttente, ChampsAbonnement, EtatReseau, EtatReseauAdmin } from "../api/client";
+import CarteOption from "./CarteOption";
+import BarreRubriques from "./BarreRubriques";
 
 /**
  * Espace Admin → « 📶 Réseau de la boutique » : activer ou désactiver le réseau
@@ -72,7 +74,6 @@ export default function ModaleReseauAdmin({
   const [reseau, setReseau] = useState<EtatReseau | null>(null);
   const [enAttente, setEnAttente] = useState<AbonnementEnAttente | null>(null);
   const [rubrique, setRubrique] = useState<Rubrique>("apercu");
-  const [aConfirmer, setAConfirmer] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
@@ -95,7 +96,6 @@ export default function ModaleReseauAdmin({
   function aller(r: Rubrique) {
     setErreur(null);
     setMessage(null);
-    setAConfirmer(false);
     setRubrique(r);
   }
 
@@ -113,7 +113,6 @@ export default function ModaleReseauAdmin({
           ? `${activer ? "✅ Réseau activé" : "Réseau désactivé"} (sur ce poste et sur le serveur).`
           : `${activer ? "✅ Réseau activé" : "Réseau désactivé"} sur ce poste. Pas de connexion : le serveur sera prévenu au retour d'internet (Réglages → Synchronisation).`,
       );
-      setAConfirmer(false);
       await charger();
     } catch (e) {
       setErreur(e instanceof Error ? e.message : "Échec de la modification.");
@@ -183,53 +182,26 @@ export default function ModaleReseauAdmin({
 
   function carteInterrupteur() {
     return (
-      <div className={`carte-option-admin${active ? " carte-option-admin--active" : ""}`}>
-        <div className="entete-option-admin">
-          <span className="icone-option-admin">📶</span>
-          <div className="textes-option-admin">
-            <strong>Réseau de la boutique</strong>
-            <span className={`badge-lp ${active ? "badge-lp--actif" : ""}`}>{active ? "✅ Activé" : "🔒 Non activé"}</span>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={active}
-            aria-label="Réseau de la boutique"
-            className={`interrupteur-option${active ? " interrupteur-option--actif" : ""}`}
-            disabled={enCours}
-            onClick={() => setAConfirmer(!aConfirmer)}
-          >
-            <span className="curseur-interrupteur-option" />
-          </button>
-        </div>
-        <p className="note-aide">
-          {active
+      <CarteOption
+        icone="📶"
+        titre="Réseau de la boutique"
+        actif={active}
+        libelleOui="Activé"
+        libelleNon="Non activé"
+        detail={
+          active
             ? "Les ordinateurs et téléphones de la boutique peuvent se relier sans internet : un poste principal, des caisses."
-            : "La boutique ne peut pas relier ses appareils : chacun travaille seul."}
-        </p>
-        {aConfirmer && (
-          <div className="confirmation-option-admin">
-            <p>
-              {active
-                ? "Désactiver le réseau ? Le poste principal arrête son serveur dans la minute : les caisses continuent de vendre seules, sans voir les ventes des autres postes. Rien n'est perdu ; réactivé, tout reprend."
-                : `Activer le réseau de « ${boutique?.boutiqueNom} » ? Elle pourra faire d'un appareil le poste principal et y brancher ses caisses.`}
-            </p>
-            <div className="actions-formulaire">
-              <button
-                type="button"
-                className={active ? "bouton-danger" : "bouton-primaire"}
-                disabled={enCours}
-                onClick={() => changer(!active)}
-              >
-                {enCours ? "Enregistrement…" : active ? "Désactiver" : "Activer"}
-              </button>
-              <button type="button" className="lien" onClick={() => setAConfirmer(false)}>
-                Annuler
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+            : "La boutique ne peut pas relier ses appareils : chacun travaille seul."
+        }
+        confirmation={(valeur) =>
+          valeur
+            ? `Activer le réseau de « ${boutique?.boutiqueNom} » ? Elle pourra faire d'un appareil le poste principal et y brancher ses caisses.`
+            : "Désactiver le réseau ? Le poste principal arrête son serveur dans la minute : les caisses continuent de vendre seules, sans voir les ventes des autres postes. Rien n'est perdu ; réactivé, tout reprend."
+        }
+        dangereuxSiActif
+        enCours={enCours}
+        onBasculer={changer}
+      />
     );
   }
 
@@ -503,24 +475,15 @@ export default function ModaleReseauAdmin({
             <div className="message-erreur">Aucune boutique sur {appels.cetAppareil} : connectez-vous d'abord une fois.</div>
           ) : (
             <div className="disposition-parametres">
-              <nav className="barre-laterale-parametres barre-laterale-reseau">
-                <div className={`role-reseau role-reseau--${active ? "ok" : "alerte"}`}>
-                  <span className="sous-info">Réseau</span>
-                  <strong>{active ? "✅ activé" : "🔒 non activé"}</strong>
-                  <span className="sous-info">{roleCourt}</span>
-                </div>
-                {rubriques.map((r) => (
-                  <button
-                    key={r.cle}
-                    type="button"
-                    className={`item-nav-parametres${rubrique === r.cle ? " actif" : ""}`}
-                    onClick={() => aller(r.cle)}
-                  >
-                    {r.label}
-                    {r.compteur && <span className="compteur-nav-reseau">{r.compteur}</span>}
-                  </button>
-                ))}
-              </nav>
+              <BarreRubriques
+                etiquette="Réseau"
+                etat={active ? "✅ activé" : "🔒 non activé"}
+                details={[roleCourt]}
+                ton={active ? "ok" : "alerte"}
+                rubriques={rubriques}
+                active={rubrique}
+                onChoisir={aller}
+              />
               <div className="contenu-parametres contenu-reseau">
                 {erreur && <div className="message-erreur">{erreur}</div>}
                 {message && <div className="message-succes">{message}</div>}

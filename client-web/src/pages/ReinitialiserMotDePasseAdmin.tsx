@@ -5,6 +5,7 @@ import ChampNouveauMotDePasse from "../components/ChampNouveauMotDePasse";
 import FicheAcces from "../components/FicheAcces";
 import { imprimer } from "../lib/impression";
 import { soliditeMotDePasse } from "../lib/motDePasse";
+import BarreRubriques from "../components/BarreRubriques";
 
 /** Accès aux données (seule partie qui diffère avec client-electron/src/pages/ReinitialiserMotDePasseAdmin.tsx). */
 const appels = {
@@ -445,28 +446,21 @@ export default function ReinitialiserMotDePasseAdmin({
         </div>
         <div className="modale-corps">
           <div className="disposition-parametres">
-            <nav className="barre-laterale-parametres barre-laterale-reseau">
-              <div className={`role-reseau role-reseau--${source === "poste" || aRefaire.length ? "alerte" : "ok"}`}>
-                <span className="sous-info">Comptes</span>
-                <strong>{comptes === null ? "…" : `${comptes.length} compte(s)`}</strong>
-                <span className="sous-info">{source === "serveur" ? "🌐 lus sur le serveur" : "📴 connus de cet appareil"}</span>
-                {cible && <span className="sous-info">Choisi : {cible.username}</span>}
-              </div>
-              {rubriques.map((r) => (
-                <button
-                  key={r.cle}
-                  type="button"
-                  className={`item-nav-parametres${rubrique === r.cle && !resultat ? " actif" : ""}`}
-                  onClick={() => {
-                    setResultat(null);
-                    aller(r.cle);
-                  }}
-                >
-                  {r.label}
-                  {r.compteur && <span className="compteur-nav-reseau">{r.compteur}</span>}
-                </button>
-              ))}
-            </nav>
+            <BarreRubriques
+              etiquette="Comptes"
+              etat={comptes === null ? "…" : `${comptes.length} compte(s)`}
+              details={[
+                source === "serveur" ? "🌐 lus sur le serveur" : "📴 connus de cet appareil",
+                cible ? `Choisi : ${cible.username}` : null,
+              ]}
+              ton={source === "poste" || aRefaire.length ? "alerte" : "ok"}
+              rubriques={rubriques}
+              active={resultat ? null : rubrique}
+              onChoisir={(cle) => {
+                setResultat(null);
+                aller(cle);
+              }}
+            />
             <div className="contenu-parametres contenu-reseau">
               {erreur && <div className="message-erreur">{erreur}</div>}
               {contenu()}

@@ -56,5 +56,7 @@ export default defineConfig(({ mode }) => ({
   build: mode === "capacitor" ? { outDir: "dist-android" } : {},
   server: {
     port: 5174,
+    // Styles communs aux trois applis : ../partage (voir partage/styles/admin.css).
+    fs: { allow: [".", "../partage"] },
   },
 }));

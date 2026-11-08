@@ -5,7 +5,7 @@ import { useState, type ReactNode } from "react";
  * mot de passe) : identifiant et mot de passe en grand, à copier un par un ou
  * ensemble, à envoyer par WhatsApp ou à imprimer. Garde la structure
  * `.fiches-recuperation .fiche-recuperation` : l'impression « impression-fiche »
- * ne sort qu'elle. Même fichier dans client-electron et client-web.
+ * ne sort qu'elle. COPIE de partage/composants/FicheAcces.tsx dans chaque appli (`node partage/verifier-copies.mjs`).
  */
 export default function FicheAcces({
   titre,

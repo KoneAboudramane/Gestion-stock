@@ -21,6 +21,8 @@ export default defineConfig({
     // Sur ce poste, la surveillance native rate des fichiers modifiés par des
     // scripts : la scrutation garantit le rechargement automatique de l'écran.
     watch: { usePolling: true, interval: 300, ignored: ["**/dist/**", "**/dist-electron/**", "**/release/**"] },
+    // Styles communs aux trois applis : ../partage (voir partage/styles/admin.css).
+    fs: { allow: [".", "../partage"] },
   },
   plugins: [
     react(),
