@@ -42,6 +42,9 @@ export interface BoutiqueLocale extends SuiviSync {
   reseau_autorise?: 0 | 1;
   /** Carte « 📱 Appli mobile » de Réglages activée par l'administrateur (comptes.Boutique.appli_mobile_autorisee) — champ protégé. */
   appli_mobile_autorisee?: 0 | 1;
+  /** Essai gratuit donné par l'administrateur, à part de l'abonnement payé (comptes.Boutique.essai_fin) — champs protégés. */
+  essai_formule?: string;
+  essai_fin?: string | null;
 }
 
 export interface CategorieLocale extends SuiviSync {

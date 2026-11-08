@@ -4,6 +4,7 @@ import { api } from "../api";
 import AccueilAdmin from "../components/AccueilAdmin";
 import ModaleReseauAdmin from "../components/ModaleReseauAdmin";
 import ModaleLaissezPasserAdmin from "../components/ModaleLaissezPasserAdmin";
+import ModaleOptionsBoutique from "../components/ModaleOptionsBoutique";
 import ModaleSauvegardeAdmin from "../components/ModaleSauvegardeAdmin";
 import { useInactivite } from "../hooks/useInactivite";
 import { signalerLaissezPasser } from "../services/laissezPasser";
@@ -11,7 +12,15 @@ import GererAbonnement from "./GererAbonnement";
 import Inscription from "./Inscription";
 import ReinitialiserMotDePasseAdmin from "./ReinitialiserMotDePasseAdmin";
 
-type Modale = "inscription" | "reinitialiserMotDePasse" | "abonnement" | "sauvegarde" | "reseau" | "laissezPasser" | null;
+type Modale =
+  | "inscription"
+  | "reinitialiserMotDePasse"
+  | "abonnement"
+  | "options"
+  | "sauvegarde"
+  | "reseau"
+  | "laissezPasser"
+  | null;
 
 /**
  * Port de client-electron/src/pages/AccesCreationBoutique.tsx : verrou devant
@@ -134,6 +143,7 @@ export default function AccesCreationBoutique({ allerConnexion }: { allerConnexi
         {modaleOuverte === "sauvegarde" && <ModaleSauvegardeAdmin onFermer={fermer} username={username} password={password} />}
         {modaleOuverte === "laissezPasser" && <ModaleLaissezPasserAdmin onFermer={fermer} username={username} password={password} />}
         {modaleOuverte === "abonnement" && <GererAbonnement onFermer={fermer} username={username} password={password} />}
+        {modaleOuverte === "options" && <ModaleOptionsBoutique onFermer={fermer} username={username} password={password} />}
       </>
     );
   }

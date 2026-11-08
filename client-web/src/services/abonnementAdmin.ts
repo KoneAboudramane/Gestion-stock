@@ -21,6 +21,9 @@ export interface AbonnementBoutique {
   synchroAutorisee: boolean;
   reseauAutorise: boolean;
   appliMobileAutorisee: boolean;
+  /** Essai gratuit enregistré sur l'appareil (à part de l'abonnement payé). */
+  essaiFormule: string;
+  essaiFin: string | null;
 }
 
 export async function obtenirBoutiqueInstallee(): Promise<AbonnementBoutique | null> {
@@ -35,6 +38,8 @@ export async function obtenirBoutiqueInstallee(): Promise<AbonnementBoutique | n
     synchroAutorisee: Boolean(boutique.synchro_autorisee),
     reseauAutorise: Boolean(boutique.reseau_autorise),
     appliMobileAutorisee: Boolean(boutique.appli_mobile_autorisee),
+    essaiFormule: boutique.essai_formule || "",
+    essaiFin: boutique.essai_fin || null,
   };
 }
 
@@ -46,6 +51,9 @@ export interface ChampsAbonnement {
   reseauAutorise?: boolean;
   /** Carte « 📱 Appli mobile » dans les Réglages de la boutique. */
   appliMobileAutorisee?: boolean;
+  /** Essai gratuit : date de fin absolue (null = arrêter l'essai) et sa formule. */
+  essaiFin?: string | null;
+  essaiFormule?: string;
   /** Inscrits au registre des abonnements avec la nouvelle période (voir comptes/views.py::AppliquerAbonnementView). */
   nature?: "paiement" | "offert" | "ajustement";
   montant?: number;
@@ -76,6 +84,9 @@ async function appliquerLocalement(boutiqueId: string, champs: ChampsAbonnement)
       champs.reseauAutorise !== undefined ? (champs.reseauAutorise ? 1 : 0) : boutique.reseau_autorise,
     appli_mobile_autorisee:
       champs.appliMobileAutorisee !== undefined ? (champs.appliMobileAutorisee ? 1 : 0) : boutique.appli_mobile_autorisee,
+    ...(champs.essaiFin !== undefined
+      ? { essai_fin: champs.essaiFin, essai_formule: champs.essaiFin ? champs.essaiFormule ?? "" : "" }
+      : {}),
   });
 }
 
@@ -118,6 +129,9 @@ export type AbonnementDetailAdmin = Omit<AbonnementDetail, "demandes"> & {
     date_expiration_abonnement: string | null;
     synchro_autorisee: boolean;
     reseau_autorise: boolean;
+    appli_mobile_autorisee?: boolean;
+    essai_formule?: string;
+    essai_fin?: string | null;
     actif: boolean;
   };
   paiements_en_attente: number;
@@ -207,6 +221,9 @@ export async function soumettreAbonnement(
         ...(champs.synchroAutorisee !== undefined ? { synchro_autorisee: champs.synchroAutorisee } : {}),
         ...(champs.reseauAutorise !== undefined ? { reseau_autorise: champs.reseauAutorise } : {}),
         ...(champs.appliMobileAutorisee !== undefined ? { appli_mobile_autorisee: champs.appliMobileAutorisee } : {}),
+        ...(champs.essaiFin !== undefined
+          ? { essai_fin: champs.essaiFin, ...(champs.essaiFin ? { essai_formule: champs.essaiFormule } : {}) }
+          : {}),
         ...(champs.nature ? { nature: champs.nature } : {}),
         ...(champs.montant ? { montant: champs.montant } : {}),
         ...(champs.mode ? { mode: champs.mode } : {}),

@@ -47,6 +47,8 @@ function migrerColonnesManquantes(base: Database): void {
     { table: "boutiques", colonne: "synchro_autorisee", definition: "INTEGER DEFAULT 0" },
     { table: "boutiques", colonne: "reseau_autorise", definition: "INTEGER DEFAULT 0" },
     { table: "boutiques", colonne: "appli_mobile_autorisee", definition: "INTEGER DEFAULT 0" },
+    { table: "boutiques", colonne: "essai_formule", definition: "TEXT DEFAULT ''" },
+    { table: "boutiques", colonne: "essai_fin", definition: "TEXT" },
     { table: "notifications", colonne: "depot_id", definition: "TEXT" },
     { table: "notifications", colonne: "utilisateur_id", definition: "TEXT" },
     { table: "paiements", colonne: "operateur", definition: "TEXT DEFAULT ''" },

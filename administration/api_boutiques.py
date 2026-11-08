@@ -40,10 +40,17 @@ def _services():
 
 def etat_abonnement(boutique, maintenant=None):
     maintenant = maintenant or timezone.now()
-    fin = boutique.date_expiration_abonnement
+    fin = boutique.fin_effective()
     grace = _services().DELAI_GRACE_ABONNEMENT
     if fin is None:
         return {"niveau": "illimite", "libelle": "Sans limite", "jours": None}
+    if boutique.essai_en_cours(maintenant):
+        jours = (boutique.essai_fin - maintenant).days
+        return {
+            "niveau": "bientot" if boutique.essai_fin - maintenant < BIENTOT else "ok",
+            "libelle": f"Essai gratuit {boutique.get_essai_formule_display()} · {jours} jour(s) restant(s)",
+            "jours": jours,
+        }
     if fin >= maintenant:
         jours = (fin - maintenant).days
         niveau = "bientot" if fin - maintenant < BIENTOT else "ok"
@@ -97,6 +104,8 @@ def resume_boutique(b, maintenant=None):
         "formule": b.formule,
         "formule_libelle": b.get_formule_display(),
         "date_expiration_abonnement": b.date_expiration_abonnement,
+        "essai_formule": b.essai_formule,
+        "essai_fin": b.essai_fin,
         "abonnement": etat_abonnement(b, maintenant),
         "synchro_autorisee": b.synchro_autorisee,
         "reseau_autorise": b.reseau_autorise,

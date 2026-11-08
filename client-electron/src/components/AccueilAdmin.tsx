@@ -3,7 +3,14 @@ import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../api/client";
 import type { AbonnementBoutique, EtatAbonnement, EtatReseau, EtatSauvegarde } from "../api/types";
 
-export type CarteAdmin = "inscription" | "reinitialiserMotDePasse" | "abonnement" | "sauvegarde" | "reseau" | "laissezPasser";
+export type CarteAdmin =
+  | "inscription"
+  | "reinitialiserMotDePasse"
+  | "abonnement"
+  | "options"
+  | "sauvegarde"
+  | "reseau"
+  | "laissezPasser";
 
 interface EtatPoste {
   boutique: AbonnementBoutique | null;
@@ -107,7 +114,7 @@ export default function AccueilAdmin({
                   ? "🟠 délai de grâce"
                   : `✅ actif ${etat.abonnement?.joursRestants ?? "?"} j`,
           },
-          { cle: "synchro", carte: "abonnement", ton: "neutre", texte: boutique.synchroAutorisee ? "🌐 en ligne" : "🔒 100 % local" },
+          { cle: "synchro", carte: "options", ton: "neutre", texte: boutique.synchroAutorisee ? "🌐 en ligne" : "🔒 100 % local" },
           {
             cle: "reseau",
             carte: "reseau",
@@ -269,8 +276,18 @@ export default function AccueilAdmin({
                 "abonnement",
                 "💳",
                 "Abonnement",
-                "Renouveler, paiements déclarés, historique, code d'activation, envoi en ligne.",
+                "Renouveler, essai gratuit, paiements déclarés, historique, code d'activation.",
                 boutique ? (boutique.dateExpirationAbonnement ? `jusqu'au ${dateCourte(boutique.dateExpirationAbonnement)}` : "sans limite") : undefined,
+                boutique ? undefined : "Aucune boutique sur cet ordinateur",
+              )}
+              {carte(
+                "options",
+                "⚙️",
+                "Options de la boutique",
+                "Envoi des données en ligne (synchronisation) et appli mobile.",
+                boutique
+                  ? `${boutique.synchroAutorisee ? "en ligne" : "100 % local"} · appli mobile ${boutique.appliMobileAutorisee ? "activée" : "non activée"}`
+                  : undefined,
                 boutique ? undefined : "Aucune boutique sur cet ordinateur",
               )}
               {carte(

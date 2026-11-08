@@ -89,6 +89,28 @@ def _generer(request, admin, mot_de_passe, duree, origine):
     return Response({**_json(lp), "code": code}, status=status.HTTP_201_CREATED)
 
 
+def _uuid(valeur):
+    import uuid
+
+    try:
+        uuid.UUID(str(valeur))
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _revoquer(request, lp, admin, origine):
+    if lp.revoque:
+        return
+    lp.revoque = True
+    lp.date_revocation = timezone.now()
+    lp.revoque_par = admin
+    lp.save(update_fields=["revoque", "date_revocation", "revoque_par", "date_modification"])
+    journaliser(
+        request, admin, "laissez_passer_revoque", detail=f"n° {lp.numero} de {lp.admin_identifiant}", origine=origine
+    )
+
+
 class LaissezPasserView(APIView):
     permission_classes = [a_le_droit_admin("laissez_passer")]
 
@@ -113,6 +135,8 @@ class LaissezPasserAppliView(APIView):
     Espace Admin de l'appli (bureau, mobile) avec internet : identifiants admin
     dans la requête, comme les autres actions de cet espace. Même droit, même
     journal (origine « Espace Admin de l'appli »). Réponse vague en cas de refus.
+    `action` : absente = générer ; « lister » = ses laissez-passer (tous pour le
+    superuser, comme sur le site) ; « revoquer » + `id`.
     """
 
     permission_classes = [permissions.AllowAny]
@@ -127,6 +151,17 @@ class LaissezPasserAppliView(APIView):
                 {"detail": "Votre compte administrateur n'a pas le droit de générer des laissez-passer."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        action = request.data.get("action")
+        if action in ("lister", "revoquer"):
+            qs = LaissezPasser.objects.select_related("admin")
+            if not admin.is_superuser:
+                qs = qs.filter(admin=admin)
+            if action == "revoquer":
+                lp = qs.filter(pk=str(request.data.get("id") or "")).first() if _uuid(request.data.get("id")) else None
+                if lp is None:
+                    return Response({"detail": "Laissez-passer introuvable."}, status=status.HTTP_404_NOT_FOUND)
+                _revoquer(request, lp, admin, "bureau")
+            return Response({"laissez_passer": [_json(lp) for lp in qs[:200]]})
         duree = _duree(request.data.get("duree_jours"))
         if duree == -1:
             return Response({"duree_jours": ["Durée non proposée."]}, status=status.HTTP_400_BAD_REQUEST)
@@ -143,12 +178,7 @@ class RevoquerLaissezPasserView(APIView):
         lp = qs.filter(pk=pk).first()
         if lp is None:
             return Response({"detail": "Laissez-passer introuvable."}, status=status.HTTP_404_NOT_FOUND)
-        if not lp.revoque:
-            lp.revoque = True
-            lp.date_revocation = timezone.now()
-            lp.revoque_par = request.user
-            lp.save(update_fields=["revoque", "date_revocation", "revoque_par", "date_modification"])
-            journaliser(request, request.user, "laissez_passer_revoque", detail=f"n° {lp.numero} de {lp.admin_identifiant}")
+        _revoquer(request, lp, request.user, "espace_admin")
         return Response(_json(lp))
 
 

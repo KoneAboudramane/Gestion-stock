@@ -26,6 +26,19 @@ function date(iso: string | null): string {
   return iso ? new Date(iso).toLocaleDateString("fr-FR") : "";
 }
 
+const LIBELLES_FORMULE: Record<string, string> = { essentiel: "Essentiel", pro: "Pro" };
+
+/** « Essai gratuit Pro jusqu'au … » puis ce qui reprend ensuite (l'abonnement payé). */
+export function texteEssai(essai: NonNullable<EtatAbonnement["essai"]>): string {
+  const formule = (f: string) => LIBELLES_FORMULE[f] ?? f;
+  const apres = !essai.finApres
+    ? `Ensuite : ${formule(essai.formuleApres)}, sans limite.`
+    : new Date(essai.finApres).getTime() > new Date(essai.fin).getTime()
+      ? `Ensuite : ${formule(essai.formuleApres)} jusqu'au ${date(essai.finApres)}.`
+      : "Ensuite, l'abonnement sera à renouveler.";
+  return `Essai gratuit ${formule(essai.formule)} jusqu'au ${date(essai.fin)}. ${apres}`;
+}
+
 export default function BandeauAbonnement({
   session,
   onVoirAbonnement,
@@ -55,22 +68,33 @@ export default function BandeauAbonnement({
     };
   }, [session]);
 
-  if (!etat || etat.niveau === "ok") return null;
-  if (etat.niveau === "bientot" && masque) return null;
+  if (!etat) return null;
+  // Essai gratuit en cours : bandeau d'information, masquable pour la journée comme « bientôt ».
+  const essai = etat.essai && (etat.niveau === "ok" || etat.niveau === "bientot") ? etat.essai : null;
+  if (!essai && etat.niveau === "ok") return null;
+  if ((essai || etat.niveau === "bientot") && masque) return null;
+  const niveau = essai ? "essai" : etat.niveau;
 
   const jours = etat.joursRestants ?? 0;
   const quand = jours <= 0 ? "aujourd'hui" : jours === 1 ? "demain" : `dans ${jours} jours`;
-  const texte =
-    etat.niveau === "bientot"
+  const texte = essai
+    ? texteEssai(essai)
+    : etat.niveau === "bientot"
       ? `Votre abonnement se termine le ${date(etat.dateExpiration)} (${quand}).`
       : etat.niveau === "grace"
         ? `Abonnement expiré le ${date(etat.dateExpiration)}. La vente reste possible jusqu'au ${date(etat.finGrace)}, ensuite elle sera bloquée.`
         : `Abonnement expiré : la vente est bloquée depuis le ${date(etat.finGrace)}. Vos données restent consultables.`;
-  const conseil = responsable ? "Renouvelez-le pour continuer à vendre." : "Prévenez le responsable de la boutique.";
+  const conseil = essai
+    ? ""
+    : responsable
+      ? "Renouvelez-le pour continuer à vendre."
+      : "Prévenez le responsable de la boutique.";
 
   return (
-    <div className={`bandeau-abonnement bandeau-abonnement--${etat.niveau}`} role="status">
-      <span className="bandeau-abonnement-icone">{etat.niveau === "bientot" ? "⏳" : etat.niveau === "grace" ? "⚠️" : "⛔"}</span>
+    <div className={`bandeau-abonnement bandeau-abonnement--${niveau}`} role="status">
+      <span className="bandeau-abonnement-icone">
+        {essai ? "🎁" : etat.niveau === "bientot" ? "⏳" : etat.niveau === "grace" ? "⚠️" : "⛔"}
+      </span>
       <span className="bandeau-abonnement-texte">
         {texte} <strong>{conseil}</strong>
       </span>
@@ -79,7 +103,7 @@ export default function BandeauAbonnement({
           Voir l'abonnement
         </button>
       )}
-      {etat.niveau === "bientot" && (
+      {(essai || etat.niveau === "bientot") && (
         <button
           type="button"
           className="lien-icone bandeau-abonnement-fermer"

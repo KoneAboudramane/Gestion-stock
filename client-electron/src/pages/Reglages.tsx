@@ -366,7 +366,10 @@ function OngletProfilBoutique({
               <h4>⭐ Abonnement</h4>
               <dl>
                 <dt>Formule</dt>
-                <dd>{boutique.formule === "pro" ? "Pro" : "Essentiel"}</dd>
+                <dd>
+                  {boutique.formule === "pro" ? "Pro" : "Essentiel"}
+                  {boutique.essaiFin && ` — essai gratuit jusqu'au ${new Date(boutique.essaiFin).toLocaleDateString("fr-FR")}`}
+                </dd>
                 <dt>Échéance</dt>
                 <dd
                   className={

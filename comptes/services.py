@@ -276,6 +276,32 @@ def enregistrer_periode_abonnement(
     return periode
 
 
+@transaction.atomic
+def accorder_essai(boutique, essai_fin, essai_formule="", par=None):
+    """
+    Essai gratuit donné par l'administrateur, à part de l'abonnement payé (voir
+    Boutique.essai_fin) : commence aujourd'hui, inscrit au registre (nature
+    « essai »), sans toucher formule ni date_expiration_abonnement — la boutique
+    les retrouve d'elle-même à la fin de l'essai. `essai_fin` None : arrête l'essai.
+    """
+    if essai_fin is None:
+        boutique.essai_fin = None
+        boutique.essai_formule = ""
+    else:
+        boutique.essai_fin = essai_fin
+        boutique.essai_formule = essai_formule
+        PaiementAbonnement.objects.create(
+            boutique=boutique,
+            nature=PaiementAbonnement.Nature.ESSAI,
+            formule=essai_formule,
+            date_debut=timezone.now(),
+            date_fin=essai_fin,
+            note="Essai gratuit accordé par l'administrateur (l'abonnement payé reprend à la fin)",
+            enregistre_par=par if par is not None and par.pk else None,
+        )
+    boutique.save(update_fields=["essai_fin", "essai_formule", "date_modification"])
+
+
 def renouveler_abonnement(boutique, date_expiration_abonnement, formule=None):
     """Prolonge/modifie l'abonnement d'une boutique déjà active (voir comptes/admin.py)."""
     boutique.date_expiration_abonnement = date_expiration_abonnement

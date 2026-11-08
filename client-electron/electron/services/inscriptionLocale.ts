@@ -49,14 +49,16 @@ export class ErreurInscriptionLocale extends Error {}
 /** Options choisies dans l'assistant « Créer une boutique » (sinon : essai gratuit, 100 % local, réseau non activé). */
 export interface OptionsCreationBoutique {
   formule: string;
-  /** Fin de l'abonnement choisi ; null = essai gratuit de 15 jours. */
+  /** Fin de la période choisie (payée, offerte ou essai) ; null = essai gratuit de 15 jours. */
   dateFin: string | null;
-  nature?: "paiement" | "offert";
+  nature?: "paiement" | "offert" | "essai";
   montant?: number;
   mode?: string;
   reference?: string;
   synchroAutorisee: boolean;
   reseauAutorise: boolean;
+  /** Carte « 📱 Appli mobile » dans les Réglages de la boutique. */
+  appliMobileAutorisee?: boolean;
 }
 
 /** Assistant « Créer une boutique » (Inscription.tsx). */
@@ -98,6 +100,7 @@ function corpsEnregistrement(boutiqueId: string, p: ParametresCreationBoutique):
           formule: o.formule,
           synchro_autorisee: o.synchroAutorisee,
           reseau_autorise: o.reseauAutorise,
+          appli_mobile_autorisee: !!o.appliMobileAutorisee,
           ...(o.dateFin
             ? {
                 date_fin: o.dateFin,
@@ -117,8 +120,8 @@ function insererBoutiqueLocale(boutiqueId: string, p: ParametresCreationBoutique
   executer(
     `INSERT INTO boutiques
        (id, nom, adresse, telephone, email, devise, actif, date_expiration_abonnement, formule,
-        synchro_autorisee, reseau_autorise, date_creation, date_modification, synchronise, supprime)
-     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        synchro_autorisee, reseau_autorise, appli_mobile_autorisee, date_creation, date_modification, synchronise, supprime)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
     [
       boutiqueId,
       p.boutiqueNom,
@@ -130,6 +133,7 @@ function insererBoutiqueLocale(boutiqueId: string, p: ParametresCreationBoutique
       o?.formule ?? "essentiel",
       o?.synchroAutorisee ? 1 : 0,
       o?.reseauAutorise ? 1 : 0,
+      o?.appliMobileAutorisee ? 1 : 0,
       maintenant,
       maintenant,
       synchronise,

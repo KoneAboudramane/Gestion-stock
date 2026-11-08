@@ -4,6 +4,7 @@ import { api } from "../api";
 import type { AbonnementDetail, DeclarationPaiementAbonnement } from "../api";
 import type { Session } from "../api/auth";
 import { formaterMontant } from "../lib/formatage";
+import { texteEssai } from "./BandeauAbonnement";
 import { activerParCode as activerAbonnementParCode, obtenirEtatAbonnement, type EtatAbonnement } from "../services/abonnement";
 import { obtenirBoutique, type BoutiqueDetail } from "../services/boutique";
 
@@ -60,6 +61,7 @@ function date(iso: string | null): string {
 }
 
 function texteEtat(etat: EtatAbonnement | null): { texte: string; classe?: string } {
+  if (etat?.essai && (etat.niveau === "ok" || etat.niveau === "bientot")) return { texte: texteEssai(etat.essai) };
   if (!etat || !etat.dateExpiration) return { texte: "Sans limite" };
   const jours = etat.joursRestants ?? 0;
   if (etat.niveau === "ok") return { texte: `Actif, jusqu'au ${date(etat.dateExpiration)}` };
@@ -159,7 +161,8 @@ export default function ModaleAbonnement({ session, onFermer }: { session: Sessi
     }
   }
 
-  const formule = LIBELLES_FORMULE[boutique?.formule ?? ""] ?? boutique?.formule ?? "";
+  const formule =
+    (LIBELLES_FORMULE[boutique?.formule ?? ""] ?? boutique?.formule ?? "") + (boutique?.essaiFin ? " (essai gratuit)" : "");
   const etatAffiche = texteEtat(etat);
   const renouvellement = detail?.renouvellement;
   const messageWhatsApp =

@@ -155,6 +155,12 @@ export function enregistrerLesHandlers(): void {
     (_evt, username: string, password: string, dureeJours: number | null) =>
       executerEnSecuriteAsync(async () => (await import("../services/laissezPasser")).genererLaissezPasser(username, password, dureeJours)),
   );
+  ipcMain.handle("auth:listerLaissezPasser", (_evt, username: string, password: string) =>
+    executerEnSecuriteAsync(async () => (await import("../services/laissezPasser")).listerLaissezPasser(username, password)),
+  );
+  ipcMain.handle("auth:revoquerLaissezPasser", (_evt, username: string, password: string, id: string) =>
+    executerEnSecuriteAsync(async () => (await import("../services/laissezPasser")).revoquerLaissezPasser(username, password, id)),
+  );
   ipcMain.handle("auth:signalerLaissezPasser", async () => {
     try {
       await auth.signalerLaissezPasser();

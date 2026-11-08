@@ -47,6 +47,46 @@ export interface EtatAbonnement {
   finGrace: string | null;
   /** Jours entiers restants avant l'expiration (0 le dernier jour, négatif une fois expiré). */
   joursRestants: number | null;
+  /** Essai gratuit en cours (donné par l'administrateur, à part de l'abonnement payé), sinon null. */
+  essai?: EssaiEnCours | null;
+}
+
+export interface EssaiEnCours {
+  formule: string;
+  fin: string;
+  /** Ce qui reprend à la fin de l'essai : la formule et la date payées (null = sans limite). */
+  formuleApres: string;
+  finApres: string | null;
+}
+
+/** Colonnes d'abonnement d'une boutique sur le poste. */
+interface LigneAbonnement {
+  date_expiration_abonnement: string | null;
+  formule: string | null;
+  essai_formule: string | null;
+  essai_fin: string | null;
+}
+
+/**
+ * Essai gratuit (comptes.Boutique.essai_fin côté serveur, même calcul) : gardé à
+ * part de l'abonnement payé. Pendant l'essai, sa formule s'applique ; ensuite la
+ * boutique retrouve d'elle-même sa formule et sa date payées — aucune écriture,
+ * donc valable hors ligne.
+ */
+export function essaiEnCours(essaiFin: string | null | undefined, dateEffective: string): boolean {
+  return !!essaiFin && new Date(essaiFin).getTime() > new Date(dateEffective).getTime();
+}
+
+export function formuleEffective(ligne: Partial<LigneAbonnement> | undefined, dateEffective: string): string {
+  if (ligne?.essai_formule && essaiEnCours(ligne.essai_fin, dateEffective)) return ligne.essai_formule;
+  return ligne?.formule || "essentiel";
+}
+
+/** La plus lointaine entre la fin payée et la fin de l'essai (null = sans limite). */
+export function finAvecEssai(finPayee: string | null | undefined, essaiFin: string | null | undefined): string | null {
+  if (!finPayee) return finPayee ?? null;
+  if (!essaiFin) return finPayee;
+  return new Date(essaiFin).getTime() > new Date(finPayee).getTime() ? essaiFin : finPayee;
 }
 
 /** `dateExpirationAbonnement` nulle/vide = illimité (fail-open, jamais bloquant faute de donnée). */
@@ -130,26 +170,42 @@ export function activerParCode(boutiqueId: string, code: string): { code: CodeAc
   return { code: lu, etat: obtenirEtatAbonnement(boutiqueId) };
 }
 
-/** Lève ErreurAbonnement si l'abonnement de cette boutique est expiré. */
-export function verifierAbonnementActif(boutiqueId: string): void {
-  const boutique = unResultat<{ date_expiration_abonnement: string | null }>(
-    "SELECT date_expiration_abonnement FROM boutiques WHERE id = ?",
+function lireAbonnement(boutiqueId: string): LigneAbonnement | undefined {
+  return unResultat<LigneAbonnement>(
+    "SELECT date_expiration_abonnement, formule, essai_formule, essai_fin FROM boutiques WHERE id = ?",
     [boutiqueId],
   );
+}
+
+function etatAvecEssai(boutiqueId: string, boutique: LigneAbonnement | undefined, dateEffective: string): EtatAbonnement {
+  const finPayee = dateExpirationEffective(boutiqueId, boutique?.date_expiration_abonnement);
+  const etat = etatAbonnement(finAvecEssai(finPayee, boutique?.essai_fin), dateEffective);
+  const essai =
+    boutique?.essai_fin && boutique.essai_formule && essaiEnCours(boutique.essai_fin, dateEffective)
+      ? { formule: boutique.essai_formule, fin: boutique.essai_fin, formuleApres: boutique.formule || "essentiel", finApres: finPayee }
+      : null;
+  return { ...etat, essai };
+}
+
+/** Lève ErreurAbonnement si l'abonnement de cette boutique est expiré. */
+export function verifierAbonnementActif(boutiqueId: string): void {
+  const boutique = lireAbonnement(boutiqueId);
   // Boutique pas encore synchronisée localement : on ne bloque jamais faute de donnée.
   if (!boutique) return;
 
-  const etat = etatAbonnement(dateExpirationEffective(boutiqueId, boutique.date_expiration_abonnement), rafraichirDatePlafond());
+  const etat = etatAvecEssai(boutiqueId, boutique, rafraichirDatePlafond());
   if (etat.niveau === "bloque") throw new ErreurAbonnement(messageBlocage(etat));
 }
 
 /** État de l'abonnement pour le bandeau de l'appli (voir components/BandeauAbonnement.tsx). */
 export function obtenirEtatAbonnement(boutiqueId: string): EtatAbonnement {
-  const boutique = unResultat<{ date_expiration_abonnement: string | null }>(
-    "SELECT date_expiration_abonnement FROM boutiques WHERE id = ?",
-    [boutiqueId],
-  );
-  return etatAbonnement(dateExpirationEffective(boutiqueId, boutique?.date_expiration_abonnement), rafraichirDatePlafond());
+  return etatAvecEssai(boutiqueId, lireAbonnement(boutiqueId), rafraichirDatePlafond());
+}
+
+/** Formule qui s'applique maintenant sur ce poste (celle de l'essai pendant un essai). */
+export function formuleEffectiveBoutique(boutiqueId: string): string | null {
+  const boutique = lireAbonnement(boutiqueId);
+  return boutique ? formuleEffective(boutique, rafraichirDatePlafond()) : null;
 }
 
 /** Boutique telle que renvoyée par /auth/moi/ (comptes.BoutiqueSerializer). */
@@ -164,6 +220,9 @@ export interface BoutiqueServeur {
   reseau_autorise?: boolean;
   /** Carte « 📱 Appli mobile » de Réglages, activée par l'administrateur. */
   appli_mobile_autorisee?: boolean;
+  /** Essai gratuit (absent d'un serveur pas encore à jour : l'essai du poste est gardé). */
+  essai_formule?: string;
+  essai_fin?: string | null;
 }
 
 /**
@@ -203,5 +262,12 @@ export function memoriserAbonnementBoutique(boutique: BoutiqueServeur): void {
       boutique.id,
     ],
   );
+  if (boutique.essai_fin !== undefined) {
+    executer("UPDATE boutiques SET essai_formule = ?, essai_fin = ? WHERE id = ?", [
+      boutique.essai_fin ? boutique.essai_formule || "" : "",
+      boutique.essai_fin,
+      boutique.id,
+    ]);
+  }
   sauvegarder();
 }

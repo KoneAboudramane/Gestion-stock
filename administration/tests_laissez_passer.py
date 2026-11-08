@@ -120,3 +120,17 @@ class AppliTests(ApiTests):
         r = self.client.post(url, {"username": "admin", "password": MDP, "duree_jours": 7}, format="json")
         self.assertEqual(r.status_code, 403)
         self.assertIn("droit", r.data["detail"])
+
+    def test_lister_et_revoquer_depuis_l_appli(self):
+        url = reverse("admin-laissez-passer-appli")
+        identifiants = {"username": "admin", "password": MDP}
+        lp_id = self.client.post(url, {**identifiants, "duree_jours": 7}, format="json").data["id"]
+        liste = self.client.post(url, {**identifiants, "action": "lister"}, format="json")
+        self.assertEqual(liste.status_code, 200, liste.data)
+        self.assertEqual(liste.data["laissez_passer"][0]["id"], lp_id)
+        self.assertNotIn("code", liste.data["laissez_passer"][0])
+        self.assertEqual(self.client.post(url, {**identifiants, "action": "revoquer", "id": "pas-un-uuid"}, format="json").status_code, 404)
+        r = self.client.post(url, {**identifiants, "action": "revoquer", "id": lp_id}, format="json")
+        self.assertEqual(r.data["laissez_passer"][0]["etat"], "revoque")
+        self.assertTrue(JournalAdmin.objects.filter(action="laissez_passer_revoque", origine="bureau").exists())
+        self.assertEqual(self.client.post(url, {"username": "admin", "password": "faux", "action": "lister"}, format="json").status_code, 403)

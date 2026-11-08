@@ -28,6 +28,8 @@ export const LIBELLES_ACTIONS: Record<string, string> = {
   reseau_refuse: "Demande de réseau refusée",
   appli_mobile_activee: "Appli mobile activée",
   appli_mobile_desactivee: "Appli mobile désactivée",
+  essai_accorde: "Essai gratuit accordé",
+  essai_arrete: "Essai gratuit arrêté",
   paiement_valide: "Paiement validé",
   paiement_rejete: "Paiement rejeté",
   abonnement_paiement: "Paiement enregistré",

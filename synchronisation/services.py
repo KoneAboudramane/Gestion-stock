@@ -185,22 +185,23 @@ def _signaler_hors_abonnement(boutique, table, obj, donnees):
     from comptes.services import DELAI_GRACE_ABONNEMENT
     from stock.models import Depot
 
-    boutique.refresh_from_db(fields=["date_expiration_abonnement", "formule"])
+    boutique.refresh_from_db(fields=["date_expiration_abonnement", "formule", "essai_formule", "essai_fin"])
+    fin = boutique.fin_effective()
     signalement = None
-    if table == "ventes.Vente" and boutique.date_expiration_abonnement:
+    if table == "ventes.Vente" and fin:
         # La date de la vente sur le poste, pas celle de sa réception : une vente
         # faite hors ligne pendant l'abonnement peut arriver bien plus tard.
         date_vente = parse_datetime(str(donnees.get("date_creation") or ""))
         if date_vente is not None and timezone.is_naive(date_vente):
             date_vente = timezone.make_aware(date_vente, dt_timezone.utc)
-        fin_grace = boutique.date_expiration_abonnement + DELAI_GRACE_ABONNEMENT
+        fin_grace = fin + DELAI_GRACE_ABONNEMENT
         if date_vente is not None and date_vente > fin_grace:
             signalement = (
                 SignalementAbonnement.Type.VENTE_HORS_ABONNEMENT,
                 f"Vente {obj.numero} du {date_vente:%d/%m/%Y}, abonnement expiré le "
-                f"{boutique.date_expiration_abonnement:%d/%m/%Y}",
+                f"{fin:%d/%m/%Y}",
             )
-    elif table == "stock.Depot" and boutique.formule == Boutique.Formule.ESSENTIEL:
+    elif table == "stock.Depot" and boutique.formule_effective() == Boutique.Formule.ESSENTIEL:
         nombre = Depot.objects.filter(boutique=boutique, supprime=False).count()
         if nombre > 1:
             signalement = (

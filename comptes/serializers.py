@@ -52,6 +52,7 @@ class EnregistrementBoutiqueLocaleSerializer(serializers.Serializer):
     reference = serializers.CharField(max_length=100, required=False, allow_blank=True)
     synchro_autorisee = serializers.BooleanField(required=False, default=False)
     reseau_autorise = serializers.BooleanField(required=False, default=False)
+    appli_mobile_autorisee = serializers.BooleanField(required=False, default=False)
 
 
 class BoutiqueSerializer(serializers.ModelSerializer):
@@ -60,11 +61,13 @@ class BoutiqueSerializer(serializers.ModelSerializer):
         fields = [
             "id", "nom", "adresse", "telephone", "email", "logo",
             "devise", "actif", "date_expiration_abonnement", "formule",
-            "synchro_autorisee", "reseau_autorise", "appli_mobile_autorisee", "date_creation",
+            "synchro_autorisee", "reseau_autorise", "appli_mobile_autorisee", "essai_formule", "essai_fin",
+            "date_creation",
         ]
         read_only_fields = [
             "id", "actif", "date_expiration_abonnement", "formule",
-            "synchro_autorisee", "reseau_autorise", "appli_mobile_autorisee", "date_creation",
+            "synchro_autorisee", "reseau_autorise", "appli_mobile_autorisee", "essai_formule", "essai_fin",
+            "date_creation",
         ]
 
 
@@ -88,6 +91,10 @@ class AppliquerAbonnementSerializer(serializers.Serializer):
     reseau_autorise = serializers.BooleanField(required=False)
     # Carte « 📱 Appli mobile » dans les Réglages de la boutique.
     appli_mobile_autorisee = serializers.BooleanField(required=False)
+    # Essai gratuit (à part de l'abonnement payé, voir Boutique.essai_fin) : date de fin
+    # ABSOLUE, pour qu'un rejeu hors ligne ne prolonge pas l'essai. essai_fin null = arrêter l'essai.
+    essai_formule = serializers.ChoiceField(choices=Boutique.Formule.choices, required=False)
+    essai_fin = serializers.DateTimeField(required=False, allow_null=True)
     # Inscrits au registre des abonnements (comptes.PaiementAbonnement) avec la nouvelle période.
     nature = serializers.ChoiceField(choices=PaiementAbonnement.Nature.choices, required=False)
     montant = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, min_value=0)

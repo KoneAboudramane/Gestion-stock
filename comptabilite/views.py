@@ -38,7 +38,7 @@ class _RapportComptableView(APIView):
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
-        if request.user.boutique.formule != Boutique.Formule.PRO:
+        if request.user.boutique.formule_effective() != Boutique.Formule.PRO:
             raise PermissionDenied("Le livre comptable officiel est réservé à la formule Pro.")
 
 

@@ -105,10 +105,15 @@ class BoutiqueAdmin(admin.ModelAdmin):
 
     @admin.display(description="État")
     def etat_abonnement(self, obj):
-        fin = obj.date_expiration_abonnement
+        fin = obj.fin_effective()
         if fin is None:
             return "Sans limite"
         maintenant = timezone.now()
+        if obj.essai_en_cours(maintenant):
+            return format_html(
+                '<span style="color:#1d4ed8">Essai gratuit {} · {} jour(s)</span>',
+                obj.get_essai_formule_display(), (obj.essai_fin - maintenant).days,
+            )
         if fin >= maintenant:
             jours = (fin - maintenant).days
             couleur = "#b45309" if jours < 7 else "#15803d"

@@ -46,14 +46,16 @@ export class ErreurInscriptionLocale extends Error {}
 /** Options choisies dans l'assistant « Créer une boutique » (sinon : essai gratuit, 100 % local, réseau non activé). */
 export interface OptionsCreationBoutique {
   formule: string;
-  /** Fin de l'abonnement choisi ; null = essai gratuit de 15 jours. */
+  /** Fin de la période choisie (payée, offerte ou essai) ; null = essai gratuit de 15 jours. */
   dateFin: string | null;
-  nature?: "paiement" | "offert";
+  nature?: "paiement" | "offert" | "essai";
   montant?: number;
   mode?: string;
   reference?: string;
   synchroAutorisee: boolean;
   reseauAutorise: boolean;
+  /** Carte « 📱 Appli mobile » dans les Réglages de la boutique. */
+  appliMobileAutorisee?: boolean;
 }
 
 /** Assistant « Créer une boutique » (Inscription.tsx). */
@@ -94,6 +96,7 @@ function corpsEnregistrement(boutiqueId: string, p: ParametresCreationBoutique):
           formule: o.formule,
           synchro_autorisee: o.synchroAutorisee,
           reseau_autorise: o.reseauAutorise,
+          appli_mobile_autorisee: !!o.appliMobileAutorisee,
           ...(o.dateFin
             ? {
                 date_fin: o.dateFin,
@@ -122,6 +125,7 @@ async function ecrireBoutiqueLocale(boutiqueId: string, p: ParametresCreationBou
     formule: o?.formule ?? "essentiel",
     synchro_autorisee: o?.synchroAutorisee ? 1 : 0,
     reseau_autorise: o?.reseauAutorise ? 1 : 0,
+    appli_mobile_autorisee: o?.appliMobileAutorisee ? 1 : 0,
     date_creation: maintenantIso,
     date_modification: maintenantIso,
     synchronise,

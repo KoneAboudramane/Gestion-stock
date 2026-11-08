@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS boutiques (
   synchro_autorisee INTEGER DEFAULT 0,
   reseau_autorise INTEGER DEFAULT 0,
   appli_mobile_autorisee INTEGER DEFAULT 0,
+  essai_formule TEXT DEFAULT '',
+  essai_fin TEXT,
   ${SUIVI_SYNC}
 );
 

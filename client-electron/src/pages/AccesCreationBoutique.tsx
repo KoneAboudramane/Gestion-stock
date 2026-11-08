@@ -6,11 +6,20 @@ import ModaleReseauAdmin from "../components/ModaleReseauAdmin";
 import { useInactivite } from "../hooks/useInactivite";
 import ModaleSauvegardeAdmin from "../components/ModaleSauvegardeAdmin";
 import ModaleLaissezPasserAdmin from "../components/ModaleLaissezPasserAdmin";
+import ModaleOptionsBoutique from "../components/ModaleOptionsBoutique";
 import GererAbonnement from "./GererAbonnement";
 import Inscription from "./Inscription";
 import ReinitialiserMotDePasseAdmin from "./ReinitialiserMotDePasseAdmin";
 
-type Modale = "inscription" | "reinitialiserMotDePasse" | "abonnement" | "sauvegarde" | "reseau" | "laissezPasser" | null;
+type Modale =
+  | "inscription"
+  | "reinitialiserMotDePasse"
+  | "abonnement"
+  | "options"
+  | "sauvegarde"
+  | "reseau"
+  | "laissezPasser"
+  | null;
 
 /**
  * Verrou devant "Créer une boutique" (voir Connexion.tsx, point d'accès
@@ -134,6 +143,7 @@ export default function AccesCreationBoutique({ allerConnexion }: { allerConnexi
         {modaleOuverte === "sauvegarde" && <ModaleSauvegardeAdmin onFermer={fermer} username={username} password={password} />}
         {modaleOuverte === "laissezPasser" && <ModaleLaissezPasserAdmin onFermer={fermer} username={username} password={password} />}
         {modaleOuverte === "abonnement" && <GererAbonnement onFermer={fermer} username={username} password={password} />}
+        {modaleOuverte === "options" && <ModaleOptionsBoutique onFermer={fermer} username={username} password={password} />}
       </>
     );
   }

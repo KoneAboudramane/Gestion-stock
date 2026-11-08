@@ -26,6 +26,7 @@ from .serializers import (
 )
 from .services import (
     accepter_demandes_reseau,
+    accorder_essai,
     demander_renouvellement,
     demarrer_essai,
     enregistrer_periode_abonnement,
@@ -314,8 +315,15 @@ class AppliquerAbonnementView(APIView):
         appli_mobile_modifiee = (
             "appli_mobile_autorisee" in donnees and donnees["appli_mobile_autorisee"] != boutique.appli_mobile_autorisee
         )
+        # Essai gratuit : date de fin absolue, donc un rejeu identique ne change rien.
+        essai_modifie = "essai_fin" in donnees and (
+            donnees["essai_fin"] != boutique.essai_fin
+            or (donnees["essai_fin"] is not None and donnees.get("essai_formule", boutique.essai_formule) != boutique.essai_formule)
+        )
+        if essai_modifie and donnees["essai_fin"] is not None and not donnees.get("essai_formule"):
+            return Response({"essai_formule": ["Choisissez la formule de l'essai."]}, status=status.HTTP_400_BAD_REQUEST)
         # Tout est vérifié avant d'écrire : pas de modification à moitié faite.
-        for besoin, droit in ((periode_modifiee or montant, "paiements"), (synchro_modifiee, "boutiques"),
+        for besoin, droit in ((periode_modifiee or montant or essai_modifie, "paiements"), (synchro_modifiee, "boutiques"),
                               (reseau_modifie, "demandes_reseau"), (appli_mobile_modifiee, "boutiques")):
             if besoin and (refus := _refus_droit(utilisateur, droit)):
                 return refus
@@ -333,17 +341,19 @@ class AppliquerAbonnementView(APIView):
                 note=donnees.get("note", ""),
                 par=utilisateur,
             )
-        if "synchro_autorisee" in donnees:
+        if synchro_modifiee:
             boutique.synchro_autorisee = donnees["synchro_autorisee"]
             boutique.save(update_fields=["synchro_autorisee"])
-        if "reseau_autorise" in donnees:
+        if reseau_modifie:
             boutique.reseau_autorise = donnees["reseau_autorise"]
             boutique.save(update_fields=["reseau_autorise"])
             if boutique.reseau_autorise:
                 accepter_demandes_reseau(boutique, utilisateur)
-        if "appli_mobile_autorisee" in donnees:
+        if appli_mobile_modifiee:
             boutique.appli_mobile_autorisee = donnees["appli_mobile_autorisee"]
             boutique.save(update_fields=["appli_mobile_autorisee"])
+        if essai_modifie:
+            accorder_essai(boutique, donnees["essai_fin"], donnees.get("essai_formule", ""), par=utilisateur)
 
         if periode_modifiee or montant:
             boutique.refresh_from_db()
@@ -356,6 +366,12 @@ class AppliquerAbonnementView(APIView):
             _journal_bureau(request, utilisateur, "synchro_activee" if boutique.synchro_autorisee else "synchro_desactivee", boutique)
         if reseau_modifie:
             _journal_bureau(request, utilisateur, "reseau_active" if boutique.reseau_autorise else "reseau_desactive", boutique)
+        if essai_modifie:
+            _journal_bureau(
+                request, utilisateur, "essai_accorde" if boutique.essai_fin else "essai_arrete", boutique,
+                f"{boutique.get_essai_formule_display()} jusqu'au {timezone.localtime(boutique.essai_fin):%d/%m/%Y}"
+                if boutique.essai_fin else "",
+            )
         if appli_mobile_modifiee:
             _journal_bureau(
                 request, utilisateur,
@@ -541,6 +557,7 @@ class EnregistrerBoutiqueLocaleView(APIView):
                 "formule": donnees.get("formule") or Boutique.Formule.ESSENTIEL,
                 "synchro_autorisee": donnees["synchro_autorisee"],
                 "reseau_autorise": donnees["reseau_autorise"],
+                "appli_mobile_autorisee": donnees["appli_mobile_autorisee"],
             },
             {
                 "username": donnees["patron_username"],
@@ -553,7 +570,7 @@ class EnregistrerBoutiqueLocaleView(APIView):
             },
         )
         if donnees.get("date_fin"):
-            # Abonnement choisi dans l'assistant (payé ou offert) au lieu de l'essai gratuit.
+            # Période choisie dans l'assistant : payée, offerte, ou essai d'une durée choisie.
             enregistrer_periode_abonnement(
                 boutique,
                 donnees["date_fin"],
@@ -835,7 +852,7 @@ class UtilisateurViewSet(FiltreBoutiqueMixin, viewsets.ModelViewSet):
     def perform_create(self, serializer):
         boutique = self.request.user.boutique
         if (
-            boutique.formule == Boutique.Formule.ESSENTIEL
+            boutique.formule_effective() == Boutique.Formule.ESSENTIEL
             and Utilisateur.objects.filter(boutique=boutique, is_active=True).count()
             >= self.LIMITE_UTILISATEURS_ESSENTIEL
         ):
@@ -856,7 +873,7 @@ class UtilisateurViewSet(FiltreBoutiqueMixin, viewsets.ModelViewSet):
         if (
             serializer.validated_data.get("is_active")
             and not serializer.instance.is_active
-            and boutique.formule == Boutique.Formule.ESSENTIEL
+            and boutique.formule_effective() == Boutique.Formule.ESSENTIEL
             and Utilisateur.objects.filter(boutique=boutique, is_active=True).count()
             >= self.LIMITE_UTILISATEURS_ESSENTIEL
         ):

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { executer, unResultat, tousLesResultats } from "../db/helpers";
 import { sauvegarder } from "../db/index";
+import { essaiEnCours, formuleEffective, rafraichirDatePlafond } from "./abonnement";
 
 /**
  * Profil boutique (comptes.Boutique) et paramètres (configuration.Parametre) :
@@ -20,21 +21,38 @@ export interface BoutiqueDetail {
   telephone: string;
   email: string;
   devise: string;
-  /** Abonnement (formule Essentiel/Pro et échéance), affiché dans Informations boutique. */
+  /** Abonnement (formule Essentiel/Pro et échéance), affiché dans Informations boutique.
+   *  `formule` : celle qui s'applique maintenant (celle de l'essai pendant un essai gratuit). */
   formule: string;
   dateExpirationAbonnement: string | null;
+  /** Fin de l'essai gratuit en cours, sinon null. */
+  essaiFin: string | null;
   /** Carte « 📱 Appli mobile » de Réglages, activée par l'administrateur. */
   appliMobileAutorisee: boolean;
 }
 
 export function obtenirBoutique(boutiqueId: string): BoutiqueDetail | undefined {
-  const ligne = unResultat<Omit<BoutiqueDetail, "appliMobileAutorisee"> & { appliMobileAutorisee: number | null }>(
+  const ligne = unResultat<
+    Omit<BoutiqueDetail, "appliMobileAutorisee" | "essaiFin"> & {
+      appliMobileAutorisee: number | null;
+      essai_formule: string | null;
+      essai_fin: string | null;
+    }
+  >(
     `SELECT id, nom, adresse, telephone, email, devise, COALESCE(formule, 'essentiel') as formule,
             date_expiration_abonnement as dateExpirationAbonnement,
-            appli_mobile_autorisee as appliMobileAutorisee FROM boutiques WHERE id = ?`,
+            appli_mobile_autorisee as appliMobileAutorisee, essai_formule, essai_fin FROM boutiques WHERE id = ?`,
     [boutiqueId],
   );
-  return ligne && { ...ligne, appliMobileAutorisee: Boolean(ligne.appliMobileAutorisee) };
+  if (!ligne) return undefined;
+  const { essai_formule, essai_fin, ...reste } = ligne;
+  const maintenant = rafraichirDatePlafond();
+  return {
+    ...reste,
+    formule: formuleEffective({ formule: ligne.formule, essai_formule, essai_fin }, maintenant),
+    essaiFin: essai_formule && essaiEnCours(essai_fin, maintenant) ? essai_fin : null,
+    appliMobileAutorisee: Boolean(ligne.appliMobileAutorisee),
+  };
 }
 
 export function modifierBoutique(

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import { api } from "../api/client";
+import { texteEssai } from "../components/BandeauAbonnement";
 import type { AbonnementBoutique, AbonnementDetailAdmin, ChampsAbonnement, EtatAbonnement } from "../api/types";
 
 const LIBELLES_FORMULE: Record<string, string> = {
@@ -41,8 +42,18 @@ const MODES_PAIEMENT: [string, string][] = [
 ];
 
 const DUREES = [1, 3, 6, 12];
+/** Durées proposées pour un essai gratuit, en jours. */
+const DUREES_ESSAI = [7, 15, 30];
 
-type Rubrique = "apercu" | "renouveler" | "paiements" | "historique" | "code" | "options";
+/** Fin d'un essai de `jours` jours qui commence aujourd'hui (fin de journée). */
+function finEssaiDans(jours: number): Date {
+  const fin = new Date();
+  fin.setDate(fin.getDate() + jours);
+  fin.setHours(23, 59, 59, 0);
+  return fin;
+}
+
+type Rubrique = "apercu" | "renouveler" | "essai" | "paiements" | "historique" | "code";
 type Ton = "ok" | "attention" | "alerte" | "neutre";
 const CLASSE_TON: Record<Ton, string> = { ok: "marche", attention: "arrete", alerte: "panne", neutre: "neutre" };
 
@@ -76,7 +87,10 @@ function ajouterMois(date: Date, mois: number): Date {
  * latérale : Vue d'ensemble, Renouveler (en 1 clic, prix selon vos tarifs),
  * Paiements déclarés (à valider), Historique, Code d'activation, Options.
  *
- * Sans internet, renouveler et les options s'appliquent tout de suite en local
+ * Les options (envoi en ligne, appli mobile) ont leur propre modale :
+ * components/ModaleOptionsBoutique.tsx.
+ *
+ * Sans internet, renouveler s'applique tout de suite en local
  * et partent au serveur au retour de la connexion (Réglages > Synchronisation) ;
  * le détail (historique, paiements déclarés, tarifs, code) demande le serveur.
  * Identifiants de l'Espace Admin réutilisés, jamais redemandés.
@@ -119,8 +133,10 @@ export default function GererAbonnement({
   const [aRejeter, setARejeter] = useState<string | null>(null);
   const [motif, setMotif] = useState("");
   // Options
-  const [synchroAutorisee, setSynchroAutorisee] = useState(false);
-  const [appliMobileAutorisee, setAppliMobileAutorisee] = useState(false);
+  // Essai gratuit
+  const [essaiFormule, setEssaiFormule] = useState("pro");
+  const [essaiJours, setEssaiJours] = useState<number | null>(15);
+  const [essaiJoursSaisis, setEssaiJoursSaisis] = useState("");
   // Code d'activation
   const [code, setCode] = useState<string | null>(null);
 
@@ -129,25 +145,43 @@ export default function GererAbonnement({
     setBoutique(b);
     if (!b) return;
     setFormule(b.formule || "essentiel");
-    setSynchroAutorisee(b.synchroAutorisee);
-    setAppliMobileAutorisee(b.appliMobileAutorisee);
     setEtat(await api.abonnement.etat(b.boutiqueId).catch(() => null));
     const r = await api.admin.detailAbonnement(username, password, b.boutiqueId);
     if (r.succes) {
       setDetail(r.resultat);
       setHorsLigne(false);
-      // Le serveur a une autre période (paiement validé, renouvellement fait dans l'admin Django) :
-      // ce poste s'aligne — sauf si une modification faite ici hors ligne attend d'y être envoyée.
+      // Le serveur a une autre période (paiement validé, renouvellement fait dans l'admin Django) ou
+      // d'autres options (synchronisation, réseau, appli mobile réglés sur le site admin ou un autre
+      // poste) : ce poste s'aligne — sauf si une modification faite ici hors ligne attend d'y être envoyée.
       const serveur = r.resultat.boutique;
       const dateServeur = serveur.date_expiration_abonnement ? Date.parse(serveur.date_expiration_abonnement) : null;
       const dateLocale = b.dateExpirationAbonnement ? Date.parse(b.dateExpirationAbonnement) : null;
-      if ((serveur.formule !== b.formule || dateServeur !== dateLocale) && !(await api.admin.abonnementEnAttente())) {
-        const alignement = await api.admin.soumettreAbonnement(username, password, b.boutiqueId, b.boutiqueNom, {
-          formule: serveur.formule,
-          dateExpirationAbonnement: serveur.date_expiration_abonnement,
-        });
+      const ecart: ChampsAbonnement = {};
+      if (serveur.formule !== b.formule || dateServeur !== dateLocale) {
+        ecart.formule = serveur.formule;
+        ecart.dateExpirationAbonnement = serveur.date_expiration_abonnement;
+      }
+      if (serveur.synchro_autorisee !== b.synchroAutorisee) ecart.synchroAutorisee = serveur.synchro_autorisee;
+      if (serveur.reseau_autorise !== b.reseauAutorise) ecart.reseauAutorise = serveur.reseau_autorise;
+      if (serveur.appli_mobile_autorisee !== undefined && serveur.appli_mobile_autorisee !== b.appliMobileAutorisee) {
+        ecart.appliMobileAutorisee = serveur.appli_mobile_autorisee;
+      }
+      if (serveur.essai_fin !== undefined) {
+        const essaiServeur = serveur.essai_fin ? Date.parse(serveur.essai_fin) : null;
+        const essaiLocal = b.essaiFin ? Date.parse(b.essaiFin) : null;
+        if (essaiServeur !== essaiLocal || (serveur.essai_fin && (serveur.essai_formule ?? "") !== b.essaiFormule)) {
+          ecart.essaiFin = serveur.essai_fin;
+          ecart.essaiFormule = serveur.essai_formule ?? "";
+        }
+      }
+      if (Object.keys(ecart).length > 0 && !(await api.admin.abonnementEnAttente())) {
+        const alignement = await api.admin.soumettreAbonnement(username, password, b.boutiqueId, b.boutiqueNom, ecart);
         if (alignement.succes) {
-          setBoutique(await api.admin.boutiqueLocale());
+          const alignee = await api.admin.boutiqueLocale();
+          setBoutique(alignee);
+          if (alignee) {
+            setFormule(alignee.formule || "essentiel");
+          }
           setEtat(await api.abonnement.etat(b.boutiqueId).catch(() => null));
         }
       }
@@ -247,6 +281,22 @@ export default function GererAbonnement({
     await charger(); // aligne aussi la nouvelle date sur ce poste
   }
 
+  // --- Essai gratuit (à part de l'abonnement payé, voir comptes.Boutique.essai_fin) ---
+  const joursEssai = essaiJours ?? (Number(essaiJoursSaisis) >= 1 ? Math.floor(Number(essaiJoursSaisis)) : null);
+  const finEssai = joursEssai ? finEssaiDans(joursEssai) : null;
+
+  async function accorderEssai() {
+    if (!finEssai) return setErreur("Choisissez la durée de l'essai.");
+    await soumettre(
+      { essaiFormule, essaiFin: finEssai.toISOString() },
+      `Essai gratuit ${LIBELLES_FORMULE[essaiFormule]} accordé jusqu'au ${dateLongue(finEssai.toISOString())}`,
+    );
+  }
+
+  async function arreterEssai() {
+    await soumettre({ essaiFin: null }, "Essai gratuit arrêté : l'abonnement payé s'applique de nouveau");
+  }
+
   // --- Code d'activation ---
   async function genererCode() {
     if (!boutique) return;
@@ -265,10 +315,10 @@ export default function GererAbonnement({
   const rubriques: { cle: Rubrique; label: string; compteur?: string }[] = [
     { cle: "apercu", label: "💳 Vue d'ensemble" },
     { cle: "renouveler", label: "🔄 Renouveler" },
+    { cle: "essai", label: "🧪 Essai gratuit" },
     { cle: "paiements", label: "📨 Paiements déclarés", compteur: enAttente.length ? String(enAttente.length) : undefined },
     { cle: "historique", label: "🧾 Historique" },
     { cle: "code", label: "🔑 Code d'activation" },
-    ...(masquerSynchro ? [] : [{ cle: "options" as Rubrique, label: "⚙️ Options" }]),
   ];
 
   const blocHorsLigne = (texte: string) => (
@@ -291,7 +341,12 @@ export default function GererAbonnement({
     let titre: string;
     let sousTitre: string;
     let ton: Ton;
-    if (sansLimite) {
+    if (etat?.essai && (niveau === "ok" || niveau === "bientot")) {
+      icone = "🧪";
+      titre = `Essai gratuit ${LIBELLES_FORMULE[etat.essai.formule] ?? etat.essai.formule}`;
+      sousTitre = texteEssai(etat.essai);
+      ton = niveau === "bientot" ? "attention" : "ok";
+    } else if (sansLimite) {
       icone = "♾️";
       titre = "Abonnement sans limite";
       sousTitre = `Formule ${LIBELLES_FORMULE[boutique.formule] ?? boutique.formule}`;
@@ -377,10 +432,9 @@ export default function GererAbonnement({
             {
               cle: "enligne",
               titre: "🌐 Envoi en ligne",
-              onClick: () => aller("options"),
               lignes: [
                 <strong key="s">{boutique.synchroAutorisee ? "Autorisé" : "🔒 100 % local"}</strong>,
-                <span key="d" className="sous-info">réglable dans Options</span>,
+                <span key="d" className="sous-info">réglable dans ⚙️ Options de la boutique</span>,
               ],
             },
           ]),
@@ -777,62 +831,102 @@ export default function GererAbonnement({
             )}
           </>
         );
-      case "options":
+      case "essai": {
+        const essai = etat?.essai ?? null;
+        const finPayee = boutique.dateExpirationAbonnement;
+        const apres = !finPayee
+          ? `${LIBELLES_FORMULE[boutique.formule] ?? boutique.formule}, sans limite`
+          : finEssai && Date.parse(finPayee) > finEssai.getTime()
+            ? `${LIBELLES_FORMULE[boutique.formule] ?? boutique.formule} jusqu'au ${dateLongue(finPayee)}`
+            : "abonnement à renouveler";
         return (
           <>
-            <h4 className="titre-rubrique-reseau">⚙️ Options de la boutique</h4>
-            <label className="case-secours-sauvegarde">
-              <span>
-                <input type="checkbox" checked={synchroAutorisee} onChange={(e) => setSynchroAutorisee(e.target.checked)} /> 🌐
-                Envoi des données en ligne (synchronisation)
-              </span>
-              <span className="note-aide">
-                Décoché : 100 % local, les ventes et le stock restent sur les ordinateurs de la boutique (seuls le nom et
-                l'abonnement sont en ligne). Pensez alors à la sauvegarde.
-              </span>
-            </label>
-            <label className="case-secours-sauvegarde">
-              <span>
-                <input
-                  type="checkbox"
-                  checked={appliMobileAutorisee}
-                  onChange={(e) => setAppliMobileAutorisee(e.target.checked)}
-                />{" "}
-                📱 Appli mobile
-              </span>
-              <span className="note-aide">
-                Coché : la carte « 📱 Appli mobile » (QR code de téléchargement Android) apparaît dans les Réglages de la
-                boutique.
-              </span>
-            </label>
-            <div className="actions-formulaire">
-              <button
-                type="button"
-                className="bouton-primaire"
-                disabled={
-                  enCours ||
-                  (synchroAutorisee === boutique.synchroAutorisee && appliMobileAutorisee === boutique.appliMobileAutorisee)
-                }
-                onClick={() => {
-                  const champs: ChampsAbonnement = {};
-                  const messages: string[] = [];
-                  if (synchroAutorisee !== boutique.synchroAutorisee) {
-                    champs.synchroAutorisee = synchroAutorisee;
-                    messages.push(synchroAutorisee ? "Envoi en ligne autorisé" : "Boutique passée en 100 % local");
-                  }
-                  if (appliMobileAutorisee !== boutique.appliMobileAutorisee) {
-                    champs.appliMobileAutorisee = appliMobileAutorisee;
-                    messages.push(appliMobileAutorisee ? "Appli mobile activée" : "Appli mobile désactivée");
-                  }
-                  soumettre(champs, messages.join(" · "));
-                }}
-              >
-                Enregistrer
+            <h4 className="titre-rubrique-reseau">🧪 Essai gratuit</h4>
+            <p className="note-aide">
+              L'essai commence aujourd'hui et passe devant l'abonnement payé, qui n'est pas touché : à la fin de l'essai,
+              la boutique retrouve d'elle-même sa formule et sa date. Inscrit à l'historique comme « Essai gratuit ».
+            </p>
+            {essai && (
+              <div className="prochaine-etape prochaine-etape--neutre">
+                <div>
+                  <span className="libelle-prochaine-etape">Essai en cours</span>
+                  <p>{texteEssai(essai)}</p>
+                </div>
+                <button type="button" disabled={enCours} onClick={arreterEssai}>
+                  ⏹ Arrêter l'essai
+                </button>
+              </div>
+            )}
+            <div className="etape-reseau">
+              <span className="numero-etape-reseau">1</span>
+              <div className="champ-etape-reseau">
+                <strong>Formule de l'essai</strong>
+                <div className="choix-formule-abonnement">
+                  {(["essentiel", "pro"] as const).map((cle) => (
+                    <button
+                      key={cle}
+                      type="button"
+                      className={`puce-nom-poste${essaiFormule === cle ? " choisi" : ""}`}
+                      onClick={() => setEssaiFormule(cle)}
+                    >
+                      {LIBELLES_FORMULE[cle]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="etape-reseau">
+              <span className="numero-etape-reseau">2</span>
+              <div className="champ-etape-reseau">
+                <strong>Durée</strong>
+                <div className="grille-durees-abonnement">
+                  {DUREES_ESSAI.map((jours) => (
+                    <button
+                      key={jours}
+                      type="button"
+                      className={`carte-duree-abonnement${essaiJours === jours ? " choisi" : ""}`}
+                      onClick={() => {
+                        setEssaiJours(jours);
+                        setEssaiJoursSaisis("");
+                      }}
+                    >
+                      <strong>{jours} jours</strong>
+                      <span className="sous-info">jusqu'au {dateCourte(finEssaiDans(jours).toISOString())}</span>
+                    </button>
+                  ))}
+                </div>
+                <label className="champs-sauvegarde">
+                  Autre durée (en jours)
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={essaiJoursSaisis}
+                    placeholder="ex. 45"
+                    onChange={(e) => {
+                      setEssaiJoursSaisis(e.target.value);
+                      setEssaiJours(null);
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+            <div className="prochaine-etape prochaine-etape--neutre">
+              <div>
+                <span className="libelle-prochaine-etape">Récapitulatif</span>
+                <p>
+                  {finEssai
+                    ? `Essai ${LIBELLES_FORMULE[essaiFormule]} du ${dateCourte(new Date().toISOString())} au ${dateLongue(finEssai.toISOString())}, puis ${apres}.`
+                    : "Choisissez la durée de l'essai."}
+                </p>
+              </div>
+              <button type="button" className="bouton-primaire" disabled={enCours || !finEssai} onClick={accorderEssai}>
+                {essai ? "🧪 Remplacer l'essai" : "🧪 Accorder l'essai"}
               </button>
             </div>
-            <p className="note-aide">Le réseau de la boutique se règle dans sa propre carte : Espace Admin → 📶 Réseau de la boutique.</p>
           </>
         );
+      }
       default:
         return vueEnsemble();
     }

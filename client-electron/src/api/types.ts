@@ -20,24 +20,43 @@ export interface Session {
 }
 
 /** Voir electron/services/abonnement.ts::etatAbonnement. */
+/** Un laissez-passer déjà généré (Espace Admin → 🎫 Laissez-passer), le code n'étant gardé nulle part. */
+export interface LaissezPasserResume {
+  id: string;
+  numero: string;
+  admin: string;
+  date_creation: string;
+  /** « AAAA-MM-JJ », ou null : illimité. */
+  date_fin: string | null;
+  illimite: boolean;
+  etat: "actif" | "expire" | "revoque" | "mot_de_passe_change" | "compte_desactive";
+  etat_libelle: string;
+  utilisations: number;
+  derniere_utilisation: string | null;
+}
+
 export interface EtatAbonnement {
   niveau: "ok" | "bientot" | "grace" | "bloque";
   dateExpiration: string | null;
   finGrace: string | null;
   joursRestants: number | null;
+  /** Essai gratuit en cours (à part de l'abonnement payé), sinon null. */
+  essai?: { formule: string; fin: string; formuleApres: string; finApres: string | null } | null;
 }
 
 /** Options choisies dans l'assistant « Créer une boutique ». */
 export interface OptionsCreationBoutique {
   formule: string;
-  /** Fin de l'abonnement choisi ; null = essai gratuit de 15 jours. */
+  /** Fin de la période choisie (payée, offerte ou essai) ; null = essai gratuit de 15 jours. */
   dateFin: string | null;
-  nature?: "paiement" | "offert";
+  nature?: "paiement" | "offert" | "essai";
   montant?: number;
   mode?: string;
   reference?: string;
   synchroAutorisee: boolean;
   reseauAutorise: boolean;
+  /** Carte « 📱 Appli mobile » dans les Réglages de la boutique. */
+  appliMobileAutorisee?: boolean;
 }
 
 /** Assistant « Créer une boutique ». */
@@ -77,6 +96,9 @@ export interface AbonnementBoutique {
   synchroAutorisee: boolean;
   reseauAutorise: boolean;
   appliMobileAutorisee: boolean;
+  /** Essai gratuit enregistré sur le poste (à part de l'abonnement payé). */
+  essaiFormule: string;
+  essaiFin: string | null;
 }
 
 /** Espace Admin → Réseau de la boutique (comptes/views.py::AdminReseauBoutiqueView). */
@@ -107,6 +129,9 @@ export interface ChampsAbonnement {
   reseauAutorise?: boolean;
   /** Carte « 📱 Appli mobile » dans les Réglages de la boutique. */
   appliMobileAutorisee?: boolean;
+  /** Essai gratuit : date de fin absolue (null = arrêter l'essai) et sa formule. */
+  essaiFin?: string | null;
+  essaiFormule?: string;
   /** Inscrits au registre des abonnements avec la nouvelle période (voir comptes/views.py::AppliquerAbonnementView). */
   nature?: "paiement" | "offert" | "ajustement";
   montant?: number;
@@ -1621,6 +1646,8 @@ export interface BoutiqueDetail {
   /** Abonnement (formule Essentiel/Pro et échéance), affiché dans Informations boutique. */
   formule: string;
   dateExpirationAbonnement: string | null;
+  /** Fin de l'essai gratuit en cours (`formule` est alors celle de l'essai), sinon null. */
+  essaiFin: string | null;
   /** Carte « 📱 Appli mobile » de Réglages, activée par l'administrateur. */
   appliMobileAutorisee: boolean;
 }
@@ -1675,6 +1702,9 @@ export interface AbonnementDetailAdmin extends AbonnementDetail {
     date_expiration_abonnement: string | null;
     synchro_autorisee: boolean;
     reseau_autorise: boolean;
+    appli_mobile_autorisee?: boolean;
+    essai_formule?: string;
+    essai_fin?: string | null;
     actif: boolean;
   };
   paiements_en_attente: number;
@@ -1969,6 +1999,8 @@ export interface WindowApi {
       password: string,
       dureeJours: number | null,
     ): Promise<ResultatEcriture<{ code: string; numero: string; date_fin: string | null; illimite: boolean }>>;
+    listerLaissezPasser(username: string, password: string): Promise<ResultatEcriture<LaissezPasserResume[]>>;
+    revoquerLaissezPasser(username: string, password: string, id: string): Promise<ResultatEcriture<LaissezPasserResume[]>>;
     /** Comptes réinitialisés sans internet sur ce poste, à refaire en ligne. */
     reinitialisationsARefaire(): Promise<string[]>;
     /** L'utilisateur choisit son mot de passe (obligatoire après un provisoire). */

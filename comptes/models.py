@@ -6,6 +6,7 @@ ce qui isole les commerçants entre eux.
 from django.contrib.auth.models import AbstractUser
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.utils import timezone
 
 from core.models import ModeleBase
 
@@ -57,9 +58,38 @@ class Boutique(ModeleBase):
     # Android) : cachée tant que l'administrateur ne l'active pas, boutique par
     # boutique (site d'administration, fiche boutique). Protégé de la synchro.
     appli_mobile_autorisee = models.BooleanField(default=False)
+    # Essai gratuit donné par l'administrateur (Espace Admin → Gérer abonnement →
+    # Essai gratuit), gardé À PART de l'abonnement payé (formule /
+    # date_expiration_abonnement, jamais touchés) : tant que `essai_fin` n'est pas
+    # passée, c'est `essai_formule` qui s'applique ; ensuite la boutique retrouve
+    # d'elle-même sa formule et sa date payées. Aucune tâche programmée : le même
+    # calcul est fait sur les postes, hors ligne (services/abonnement.ts). Protégés
+    # de la synchro (synchronisation/registre.py).
+    essai_formule = models.CharField(max_length=20, choices=Formule.choices, blank=True, default="")
+    essai_fin = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return self.nom
+
+    def essai_en_cours(self, maintenant=None):
+        return bool(self.essai_fin and self.essai_fin > (maintenant or timezone.now()))
+
+    def formule_effective(self, maintenant=None):
+        """Formule qui s'applique maintenant : celle de l'essai pendant l'essai, sinon la formule payée."""
+        if self.essai_en_cours(maintenant) and self.essai_formule:
+            return self.essai_formule
+        return self.formule
+
+    def fin_effective(self):
+        """
+        Fin d'accès qui compte pour le bandeau, le délai de grâce et le blocage :
+        la plus lointaine entre l'abonnement payé et l'essai (un essai fini laisse
+        ainsi ses 3 jours de grâce). None : sans limite.
+        """
+        fin = self.date_expiration_abonnement
+        if fin is None or self.essai_fin is None:
+            return fin
+        return max(fin, self.essai_fin)
 
 
 class Role(ModeleBase):

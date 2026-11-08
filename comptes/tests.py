@@ -1125,6 +1125,18 @@ class CreationBoutiqueAssistantTests(APITestCase):
         self.assertTrue(patron.doit_changer_mot_de_passe)
         self.assertEqual(patron.first_name, "Awa")
 
+    def test_essai_d_une_duree_choisie_et_appli_mobile(self):
+        from datetime import timedelta
+
+        fin = timezone.now() + timedelta(days=7)
+        reponse = self._creer(formule="pro", date_fin=fin.isoformat(), nature="essai", appli_mobile_autorisee=True)
+        self.assertEqual(reponse.status_code, 200, reponse.content)
+        boutique = Boutique.objects.get(id=reponse.json()["boutique_id"])
+        self.assertEqual(boutique.formule, "pro")
+        self.assertEqual(boutique.date_expiration_abonnement, fin)
+        self.assertTrue(boutique.appli_mobile_autorisee)
+        self.assertEqual(boutique.paiements_abonnement.get().nature, "essai")
+
     def test_par_defaut_essai_gratuit_100_pourcent_local(self):
         reponse = self._creer(patron_username="patronEssai")
         boutique = Boutique.objects.get(id=reponse.json()["boutique_id"])

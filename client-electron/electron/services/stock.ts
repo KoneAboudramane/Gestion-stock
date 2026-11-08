@@ -3,6 +3,7 @@ import type { SqlValue } from "sql.js";
 
 import { dansUneTransaction, executer, tousLesResultats, unResultat } from "../db/helpers";
 import { sauvegarder } from "../db/index";
+import { formuleEffectiveBoutique } from "./abonnement";
 import { besoinsRecette, coutUnitaireRecette, obtenirRecette } from "./recettes";
 
 /**
@@ -590,8 +591,8 @@ export function listerDepotsDetail(boutiqueId: string): DepotResume[] {
 const LIMITE_DEPOTS_ESSENTIEL = 1;
 
 function verifierLimiteDepots(boutiqueId: string): void {
-  const boutique = unResultat<{ formule: string }>("SELECT formule FROM boutiques WHERE id = ?", [boutiqueId]);
-  if (!boutique || boutique.formule !== "essentiel") return;
+  // Pendant un essai Pro, la formule de l'essai s'applique (services/abonnement.ts).
+  if (formuleEffectiveBoutique(boutiqueId) !== "essentiel") return;
   const { n } = unResultat<{ n: number }>(
     "SELECT COUNT(*) as n FROM depots WHERE boutique_id = ? AND supprime = 0",
     [boutiqueId],

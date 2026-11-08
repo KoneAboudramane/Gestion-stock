@@ -115,6 +115,67 @@ class RegistreAbonnementTests(APITestCase):
         self.boutique.refresh_from_db()
         self.assertFalse(self.boutique.appli_mobile_autorisee)
 
+    def test_essai_gratuit_a_part_de_l_abonnement_paye_puis_retour_automatique(self):
+        from administration.models import JournalAdmin
+
+        fin_payee = timezone.now() + timedelta(days=90)
+        self.boutique.formule = "essentiel"
+        self.boutique.date_expiration_abonnement = fin_payee
+        self.boutique.save()
+        fin_essai = timezone.now() + timedelta(days=15)
+        corps = {
+            "username": "adminStaff", "password": "UnMotDePasseSolide123", "boutique_id": str(self.boutique.pk),
+            "essai_formule": "pro", "essai_fin": fin_essai.isoformat(),
+        }
+        reponse = self.client.post(reverse("appliquer-abonnement"), corps, format="json")
+        self.assertEqual(reponse.status_code, 200, reponse.data)
+        self.boutique.refresh_from_db()
+        # L'abonnement payé n'est pas touché ; pendant l'essai c'est Pro qui s'applique.
+        self.assertEqual(self.boutique.formule, "essentiel")
+        self.assertEqual(self.boutique.date_expiration_abonnement, fin_payee)
+        self.assertEqual(self.boutique.formule_effective(), "pro")
+        self.assertEqual(self.boutique.fin_effective(), fin_payee)
+        essai = PaiementAbonnement.objects.get(boutique=self.boutique, nature="essai")
+        self.assertEqual(essai.formule, "pro")
+        self.assertTrue(JournalAdmin.objects.filter(action="essai_accorde", boutique=self.boutique).exists())
+        # Rejeu hors ligne identique : pas de deuxième essai au registre.
+        self.client.post(reverse("appliquer-abonnement"), corps, format="json")
+        self.assertEqual(PaiementAbonnement.objects.filter(nature="essai").count(), 1)
+        # Fin de l'essai : retour tout seul à Essentiel jusqu'à la date payée.
+        apres = fin_essai + timedelta(minutes=1)
+        self.assertEqual(self.boutique.formule_effective(apres), "essentiel")
+        self.assertEqual(self.boutique.fin_effective(), fin_payee)
+
+    def test_essai_sur_abonnement_expire_donne_l_acces_puis_la_grace(self):
+        self.boutique.date_expiration_abonnement = timezone.now() - timedelta(days=30)
+        self.boutique.essai_fin = timezone.now() + timedelta(days=7)
+        self.boutique.essai_formule = "essentiel"
+        self.boutique.save()
+        self.assertEqual(self.boutique.fin_effective(), self.boutique.essai_fin)
+
+    def test_arreter_l_essai(self):
+        self.boutique.essai_fin = timezone.now() + timedelta(days=7)
+        self.boutique.essai_formule = "pro"
+        self.boutique.save()
+        corps = {
+            "username": "adminStaff", "password": "UnMotDePasseSolide123", "boutique_id": str(self.boutique.pk),
+            "essai_fin": None,
+        }
+        self.assertEqual(self.client.post(reverse("appliquer-abonnement"), corps, format="json").status_code, 200)
+        self.boutique.refresh_from_db()
+        self.assertIsNone(self.boutique.essai_fin)
+        self.assertEqual(self.boutique.formule_effective(), self.boutique.formule)
+
+    def test_essai_pro_ouvre_les_depots_multiples(self):
+        self.boutique.formule = "essentiel"
+        self.boutique.essai_fin = timezone.now() + timedelta(days=7)
+        self.boutique.essai_formule = "pro"
+        self.boutique.save()
+        Depot.objects.get_or_create(boutique=self.boutique, nom="Principal")
+        self.client.force_authenticate(user=self.patron)
+        reponse = self.client.post(reverse("depot-list"), {"nom": "Second dépôt"}, format="json")
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+
     def test_le_commercant_voit_son_historique_et_ou_payer(self):
         enregistrer_periode_abonnement(self.boutique, timezone.now() + timedelta(days=30), "essentiel", nature="essai")
         reglages = ReglagesPlateforme.obtenir()

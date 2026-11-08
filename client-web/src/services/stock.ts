@@ -1,5 +1,6 @@
 import { ouvrirBaseDeDonnees } from "../db";
 import { listerParIndex, maintenant, obtenirLigne, ecrireLigne, suiviSyncNeuf } from "../db/helpers";
+import { formuleEffectiveBoutique } from "./abonnement";
 import { besoinsRecette, coutUnitaireRecette, obtenirRecette, type Recette } from "./recettes";
 import type {
   DetaillageLocal,
@@ -583,8 +584,8 @@ export async function listerDepotsDetail(boutiqueId: string): Promise<DepotResum
 const LIMITE_DEPOTS_ESSENTIEL = 1;
 
 async function verifierLimiteDepots(boutiqueId: string): Promise<void> {
-  const boutique = await obtenirLigne("boutiques", boutiqueId);
-  if (!boutique || boutique.formule !== "essentiel") return;
+  // Pendant un essai Pro, la formule de l'essai s'applique (services/abonnement.ts).
+  if ((await formuleEffectiveBoutique(boutiqueId)) !== "essentiel") return;
   const depots = await listerDepotsDetail(boutiqueId);
   if (depots.length >= LIMITE_DEPOTS_ESSENTIEL) {
     throw new ErreurStock(

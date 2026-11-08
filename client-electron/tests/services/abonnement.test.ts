@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { calculerDatePlafond, etatAbonnement, venteAutorisee } from "../../electron/services/abonnement";
+import {
+  calculerDatePlafond,
+  essaiEnCours,
+  etatAbonnement,
+  finAvecEssai,
+  formuleEffective,
+  venteAutorisee,
+} from "../../electron/services/abonnement";
 
 describe("abonnement.calculerDatePlafond", () => {
   it("adopte la nouvelle date quand il n'y a pas encore de plafond mémorisé", () => {
@@ -65,5 +72,32 @@ describe("abonnement.etatAbonnement (préavis de 7 jours, délai de grâce de 3 
       finGrace: null,
       joursRestants: null,
     });
+  });
+});
+
+describe("abonnement : essai gratuit à part de l'abonnement payé", () => {
+  const maintenant = "2026-11-08T12:00:00.000Z";
+  const ligne = { formule: "essentiel", essai_formule: "pro", essai_fin: "2026-11-23T23:59:59.000Z" };
+
+  it("applique la formule de l'essai pendant l'essai", () => {
+    expect(essaiEnCours(ligne.essai_fin, maintenant)).toBe(true);
+    expect(formuleEffective(ligne, maintenant)).toBe("pro");
+  });
+
+  it("retrouve tout seul la formule payée à la fin de l'essai", () => {
+    expect(formuleEffective(ligne, "2026-11-24T00:00:00.000Z")).toBe("essentiel");
+  });
+
+  it("garde la fin payée si elle est plus lointaine que l'essai", () => {
+    expect(finAvecEssai("2027-03-01T00:00:00.000Z", ligne.essai_fin)).toBe("2027-03-01T00:00:00.000Z");
+  });
+
+  it("donne l'accès jusqu'à la fin de l'essai sur un abonnement expiré", () => {
+    expect(finAvecEssai("2026-10-01T00:00:00.000Z", ligne.essai_fin)).toBe(ligne.essai_fin);
+    expect(etatAbonnement(finAvecEssai("2026-10-01T00:00:00.000Z", ligne.essai_fin), maintenant).niveau).not.toBe("bloque");
+  });
+
+  it("reste sans limite quand l'abonnement payé l'est", () => {
+    expect(finAvecEssai(null, ligne.essai_fin)).toBeNull();
   });
 });

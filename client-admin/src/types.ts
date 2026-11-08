@@ -21,6 +21,9 @@ export interface ResumeBoutique {
   reseau_autorise: boolean;
   /** Carte « 📱 Appli mobile » (QR de téléchargement) visible dans les Réglages de la boutique. */
   appli_mobile_autorisee: boolean;
+  /** Essai gratuit donné depuis l'Espace Admin du bureau, à part de l'abonnement payé. */
+  essai_formule: string;
+  essai_fin: string | null;
   nb_utilisateurs: number;
   derniere_synchro: string | null;
   date_derniere_sauvegarde: string | null;

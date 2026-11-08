@@ -51,7 +51,7 @@ class DepotViewSet(FiltreBoutiqueMixin, viewsets.ModelViewSet):
     def perform_create(self, serializer):
         boutique = self.request.user.boutique
         if (
-            boutique.formule == Boutique.Formule.ESSENTIEL
+            boutique.formule_effective() == Boutique.Formule.ESSENTIEL
             and Depot.objects.filter(boutique=boutique, supprime=False).count() >= self.LIMITE_DEPOTS_ESSENTIEL
         ):
             raise serializers.ValidationError(

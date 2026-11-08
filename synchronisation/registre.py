@@ -43,6 +43,7 @@ REGISTRE = [
             {
                 "actif", "date_expiration_abonnement", "formule", "synchro_autorisee",
                 "date_derniere_sauvegarde", "reseau_autorise", "appli_mobile_autorisee",
+                "essai_formule", "essai_fin",
             }
         ),
     ),

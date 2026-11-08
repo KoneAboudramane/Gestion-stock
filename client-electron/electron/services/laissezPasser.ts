@@ -211,3 +211,54 @@ export async function genererLaissezPasser(username: string, password: string, d
   }
   return corps as LaissezPasserGenere;
 }
+
+
+// --- Liste et révocation depuis l'Espace Admin de l'appli (avec internet) ---
+
+/** Un laissez-passer déjà généré, tel que le serveur le décrit (le code, lui, n'est gardé nulle part). */
+export interface LaissezPasserResume {
+  id: string;
+  numero: string;
+  admin: string;
+  date_creation: string;
+  /** « AAAA-MM-JJ », ou null : illimité. */
+  date_fin: string | null;
+  illimite: boolean;
+  etat: "actif" | "expire" | "revoque" | "mot_de_passe_change" | "compte_desactive";
+  etat_libelle: string;
+  utilisations: number;
+  derniere_utilisation: string | null;
+}
+
+async function actionLaissezPasser(
+  username: string,
+  password: string,
+  corpsAction: Record<string, unknown>,
+): Promise<LaissezPasserResume[]> {
+  let reponse: Response;
+  try {
+    reponse = await fetch(`${URL_BASE_API}/admin/laissez-passer/depuis-appli/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password, ...corpsAction }),
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch {
+    throw new ErreurLaissezPasser("Pas d'internet : la liste des laissez-passer se lit sur le serveur.");
+  }
+  const corps = (await reponse.json().catch(() => ({}))) as { laissez_passer?: LaissezPasserResume[]; detail?: string };
+  if (!reponse.ok || !corps.laissez_passer) {
+    throw new ErreurLaissezPasser(corps.detail ?? `Demande refusée (HTTP ${reponse.status}).`);
+  }
+  return corps.laissez_passer;
+}
+
+/** Ses laissez-passer (tous pour le superuser), les plus récents d'abord. */
+export function listerLaissezPasser(username: string, password: string): Promise<LaissezPasserResume[]> {
+  return actionLaissezPasser(username, password, { action: "lister" });
+}
+
+/** Révoque un laissez-passer : l'appareil qui l'utilise perd l'accès admin à son retour sur internet. */
+export function revoquerLaissezPasser(username: string, password: string, id: string): Promise<LaissezPasserResume[]> {
+  return actionLaissezPasser(username, password, { action: "revoquer", id });
+}

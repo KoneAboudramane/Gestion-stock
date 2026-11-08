@@ -43,6 +43,10 @@ contextBridge.exposeInMainWorld("api", {
     signalerLaissezPasser: () => ipcRenderer.invoke("auth:signalerLaissezPasser"),
     genererLaissezPasser: (username: string, password: string, dureeJours: number | null) =>
       ipcRenderer.invoke("auth:genererLaissezPasser", username, password, dureeJours),
+    listerLaissezPasser: (username: string, password: string) =>
+      ipcRenderer.invoke("auth:listerLaissezPasser", username, password),
+    revoquerLaissezPasser: (username: string, password: string, id: string) =>
+      ipcRenderer.invoke("auth:revoquerLaissezPasser", username, password, id),
     listerComptesAdmin: (usernameAdmin: string, passwordAdmin: string) =>
       ipcRenderer.invoke("auth:listerComptesAdmin", usernameAdmin, passwordAdmin),
     reinitialisationsARefaire: () => ipcRenderer.invoke("auth:reinitialisationsARefaire"),
@@ -71,6 +75,8 @@ contextBridge.exposeInMainWorld("api", {
         synchroAutorisee?: boolean;
         reseauAutorise?: boolean;
         appliMobileAutorisee?: boolean;
+        essaiFin?: string | null;
+        essaiFormule?: string;
       },
     ) => ipcRenderer.invoke("admin:soumettreAbonnement", username, password, boutiqueId, boutiqueNom, champs),
     creerBoutiqueLocale: (params: unknown) => ipcRenderer.invoke("admin:creerBoutiqueLocale", params),

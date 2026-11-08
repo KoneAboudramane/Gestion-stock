@@ -9,6 +9,7 @@ import type {
   Session,
 } from "../api/client";
 import { formaterMontant } from "../lib/formatage";
+import { texteEssai } from "./BandeauAbonnement";
 
 /** Accès aux données (seule partie qui diffère entre le bureau et le web). */
 const donnees = {
@@ -64,6 +65,7 @@ function date(iso: string | null): string {
 }
 
 function texteEtat(etat: EtatAbonnement | null): { texte: string; classe?: string } {
+  if (etat?.essai && (etat.niveau === "ok" || etat.niveau === "bientot")) return { texte: texteEssai(etat.essai) };
   if (!etat || !etat.dateExpiration) return { texte: "Sans limite" };
   const jours = etat.joursRestants ?? 0;
   if (etat.niveau === "ok") return { texte: `Actif, jusqu'au ${date(etat.dateExpiration)}` };
@@ -163,7 +165,8 @@ export default function ModaleAbonnement({ session, onFermer }: { session: Sessi
     }
   }
 
-  const formule = LIBELLES_FORMULE[boutique?.formule ?? ""] ?? boutique?.formule ?? "";
+  const formule =
+    (LIBELLES_FORMULE[boutique?.formule ?? ""] ?? boutique?.formule ?? "") + (boutique?.essaiFin ? " (essai gratuit)" : "");
   const etatAffiche = texteEtat(etat);
   const renouvellement = detail?.renouvellement;
   const messageWhatsApp =

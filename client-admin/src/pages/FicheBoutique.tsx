@@ -77,6 +77,11 @@ export default function FicheBoutique({ id, surFermer, surModifiee }: Props) {
             <dl className="infos infos-ligne">
               <Info libelle="Formule">{fiche.formule_libelle}</Info>
               <Info libelle="Fin">{date(fiche.date_expiration_abonnement)}</Info>
+              {fiche.essai_fin && new Date(fiche.essai_fin) > new Date() && (
+                <Info libelle="Essai gratuit">
+                  {fiche.essai_formule === "pro" ? "Pro" : "Essentiel"} jusqu'au {date(fiche.essai_fin)}
+                </Info>
+              )}
               <Info libelle="État">
                 <BadgeAbonnement etat={fiche.abonnement} actif={fiche.actif} />
               </Info>

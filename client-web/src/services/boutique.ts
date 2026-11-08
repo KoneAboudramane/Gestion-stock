@@ -1,6 +1,7 @@
 import { ouvrirBaseDeDonnees } from "../db";
 import { ecrireLigne, maintenant, obtenirLigne } from "../db/helpers";
 import type { BoutiqueLocale } from "../db/schema";
+import { dateDuJourSure, essaiEnCours, formuleEffective } from "./abonnement";
 
 /**
  * Port navigateur de client-electron/electron/services/reglages.ts (profil
@@ -28,6 +29,8 @@ export interface BoutiqueDetail {
   /** Abonnement (formule Essentiel/Pro et échéance), affiché dans Informations boutique. */
   formule: string;
   dateExpirationAbonnement: string | null;
+  /** Fin de l'essai gratuit en cours (`formule` est alors celle de l'essai), sinon null. */
+  essaiFin: string | null;
   /** Carte « 📱 Appli mobile » de Réglages, activée par l'administrateur. */
   appliMobileAutorisee: boolean;
 }
@@ -42,8 +45,9 @@ export async function obtenirBoutique(boutiqueId: string): Promise<BoutiqueDetai
     telephone: boutique.telephone,
     email: boutique.email,
     devise: boutique.devise,
-    formule: boutique.formule || "essentiel",
+    formule: formuleEffective(boutique, dateDuJourSure()),
     dateExpirationAbonnement: boutique.date_expiration_abonnement ?? null,
+    essaiFin: boutique.essai_formule && essaiEnCours(boutique.essai_fin, dateDuJourSure()) ? boutique.essai_fin ?? null : null,
     appliMobileAutorisee: boutique.appli_mobile_autorisee === 1,
   };
 }
