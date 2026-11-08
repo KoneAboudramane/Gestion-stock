@@ -875,7 +875,8 @@ export async function rafraichirPermissions(session: Session): Promise<Session> 
       permissions: donnees.role?.permissions ?? {},
       depotId: donnees.depot_id ?? null,
       depotNom: donnees.depot_nom ?? null,
-      synchroAutorisee: donnees.boutique?.synchro_autorisee ?? false,
+      // Réellement ouvert (allumé ET droit à l'option En ligne) ; serveur pas à jour : l'interrupteur.
+      synchroAutorisee: donnees.boutique?.en_ligne_actif ?? donnees.boutique?.synchro_autorisee ?? false,
       codeVendeur: donnees.code_vendeur || session.codeVendeur,
     };
     if (donnees.boutique) {

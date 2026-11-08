@@ -1,4 +1,4 @@
-import { ecrireLigne, obtenirLigne } from "../db/helpers";
+import { ecrireLigne, listerTout, obtenirLigne } from "../db/helpers";
 import type { BoutiqueLocale } from "../db/schema";
 import { appliquerCodeActivation, dateExpirationParCode, type CodeActivationLu } from "./activation";
 
@@ -74,6 +74,67 @@ export function formuleEffective(
 ): string {
   if (ligne?.essai_formule && essaiEnCours(ligne.essai_fin, dateEffective)) return ligne.essai_formule;
   return ligne?.formule || "essentiel";
+}
+
+// --- Options payantes (formule Essentiel ; comprises dans Pro) ----------------
+// Même calcul que le serveur (comptes.Boutique.droit_option) et que le bureau :
+// valable hors ligne, l'option se coupe seule à sa date.
+
+export type CleOption = "en_ligne" | "reseau" | "mobile";
+export const OPTIONS: CleOption[] = ["en_ligne", "reseau", "mobile"];
+
+type LigneOptions = Partial<
+  Pick<
+    BoutiqueLocale,
+    | "date_expiration_abonnement"
+    | "formule"
+    | "essai_formule"
+    | "essai_fin"
+    | "synchro_autorisee"
+    | "reseau_autorise"
+    | "appli_mobile_autorisee"
+    | "option_en_ligne_fin"
+    | "option_en_ligne_suit"
+    | "option_en_ligne_offerte"
+    | "option_reseau_fin"
+    | "option_reseau_suit"
+    | "option_mobile_fin"
+    | "option_mobile_suit"
+  >
+>;
+
+function exceptionOption(ligne: LigneOptions, cle: CleOption): boolean {
+  if (cle === "en_ligne") return !!ligne.option_en_ligne_offerte;
+  if (cle === "reseau") return !!ligne.reseau_autorise;
+  return !!ligne.appli_mobile_autorisee;
+}
+
+/** Option payée ou offerte encore valable (sa date, ou celle de l'abonnement si elle le suit). */
+export function optionPayee(ligne: LigneOptions, cle: CleOption, dateEffective: string): boolean {
+  const maintenant = new Date(dateEffective).getTime();
+  if (ligne[`option_${cle}_suit`]) {
+    const fin = ligne.date_expiration_abonnement;
+    return !fin || new Date(fin).getTime() > maintenant;
+  }
+  const fin = ligne[`option_${cle}_fin`];
+  return !!fin && new Date(fin).getTime() > maintenant;
+}
+
+/** La boutique a-t-elle droit à l'option ? (Pro / essai Pro, payée, liée à l'abonnement, ou exception de l'admin) */
+export function droitOption(ligne: LigneOptions | undefined, cle: CleOption, dateEffective: string): boolean {
+  if (!ligne) return false;
+  return formuleEffective(ligne, dateEffective) === "pro" || exceptionOption(ligne, cle) || optionPayee(ligne, cle, dateEffective);
+}
+
+/** Droits aux options d'une boutique de l'appareil (la première si aucun identifiant). */
+export async function droitsOptionsBoutique(boutiqueId?: string): Promise<Record<CleOption, boolean>> {
+  const ligne = boutiqueId ? await obtenirLigne("boutiques", boutiqueId) : (await listerTout("boutiques"))[0];
+  const date = rafraichirDatePlafond();
+  return {
+    en_ligne: droitOption(ligne, "en_ligne", date),
+    reseau: droitOption(ligne, "reseau", date),
+    mobile: droitOption(ligne, "mobile", date),
+  };
 }
 
 /** La plus lointaine entre la fin payée et la fin de l'essai (null = sans limite). */
@@ -208,6 +269,16 @@ export interface BoutiqueServeur {
   /** Essai gratuit (absent d'un serveur pas encore à jour : l'essai de l'appareil est gardé). */
   essai_formule?: string;
   essai_fin?: string | null;
+  /** Options payantes (absentes d'un serveur pas encore à jour : celles de l'appareil sont gardées). */
+  option_en_ligne_fin?: string | null;
+  option_en_ligne_suit?: boolean;
+  option_en_ligne_offerte?: boolean;
+  option_reseau_fin?: string | null;
+  option_reseau_suit?: boolean;
+  option_mobile_fin?: string | null;
+  option_mobile_suit?: boolean;
+  /** Synchronisation réellement ouverte (allumée ET droit à l'option En ligne). */
+  en_ligne_actif?: boolean;
 }
 
 /**
@@ -241,6 +312,17 @@ export async function memoriserAbonnementBoutique(boutique: BoutiqueServeur): Pr
       : {}),
     ...(boutique.essai_fin !== undefined
       ? { essai_fin: boutique.essai_fin, essai_formule: boutique.essai_fin ? boutique.essai_formule || "" : "" }
+      : {}),
+    ...(boutique.option_en_ligne_suit !== undefined
+      ? {
+          option_en_ligne_fin: boutique.option_en_ligne_fin ?? null,
+          option_en_ligne_suit: boutique.option_en_ligne_suit ? (1 as const) : (0 as const),
+          option_en_ligne_offerte: boutique.option_en_ligne_offerte ? (1 as const) : (0 as const),
+          option_reseau_fin: boutique.option_reseau_fin ?? null,
+          option_reseau_suit: boutique.option_reseau_suit ? (1 as const) : (0 as const),
+          option_mobile_fin: boutique.option_mobile_fin ?? null,
+          option_mobile_suit: boutique.option_mobile_suit ? (1 as const) : (0 as const),
+        }
       : {}),
   });
 }

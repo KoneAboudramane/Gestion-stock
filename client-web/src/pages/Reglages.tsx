@@ -2495,7 +2495,8 @@ function OngletSynchronisation({ session }: { session: Session }) {
         <BlocActivationBoutiqueLocale session={session} />
         <BlocAbonnementEnAttente />
         <p className="note-aide">
-          La synchronisation n'est pas encore activée pour votre boutique. Contactez l'administrateur pour l'activer.
+          L'envoi des données en ligne n'est pas activé pour votre boutique. C'est l'option « 🌐 En ligne » (comprise dans
+          la formule Pro) : demandez-la à votre administrateur, qui l'activera.
         </p>
         <div className="actions-formulaire">
           <button type="button" className="bouton-primaire" onClick={verifierActivation} disabled={enCours}>
@@ -2650,10 +2651,10 @@ export default function Reglages({ session }: { session: Session }) {
   /** null : carte normale ; sinon la raison pour laquelle elle est grisée. */
   function raisonDesactivee(cle: Section): string | null {
     if (cle === "reseau" && !estAppliMobile) return "Dans l'appli mobile et sur ordinateur";
-    if (cle === "reseau" && reseauAutorise === false) return "Non activé par votre administrateur";
+    if (cle === "reseau" && reseauAutorise === false) return "🔒 Option payante (comprise dans Pro)";
     if (cle === "sauvegarde" && !estAppliMobile) return "Dans l'appli mobile et sur ordinateur";
     if (cle === "sauvegarde" && sauvegardeConfiguree === false) return "Non paramétrée par votre administrateur";
-    if (cle === "appli" && !appliMobileAutorisee) return "Non activé par votre administrateur";
+    if (cle === "appli" && !appliMobileAutorisee) return "🔒 Option payante (comprise dans Pro)";
     return null;
   }
 

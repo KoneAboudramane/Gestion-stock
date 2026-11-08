@@ -792,7 +792,8 @@ class DemandeReseauView(APIView):
     def _etat(self, boutique):
         demande = boutique.demandes_reseau.filter(statut=DemandeReseau.Statut.EN_ATTENTE).first()
         return {
-            "reseau_autorise": boutique.reseau_autorise,
+            # Droit EN VIGUEUR : Pro (essai compris), option payée ou liée, ou exception de l'admin.
+            "reseau_autorise": boutique.droit_option("reseau"),
             "demande_en_attente": demande.date_creation if demande else None,
             "whatsapp": ReglagesPlateforme.obtenir().whatsapp,
         }
@@ -802,7 +803,7 @@ class DemandeReseauView(APIView):
 
     def post(self, request):
         boutique = request.user.boutique
-        if not boutique.reseau_autorise and not boutique.demandes_reseau.filter(
+        if not boutique.droit_option("reseau") and not boutique.demandes_reseau.filter(
             statut=DemandeReseau.Statut.EN_ATTENTE
         ).exists():
             DemandeReseau.objects.create(

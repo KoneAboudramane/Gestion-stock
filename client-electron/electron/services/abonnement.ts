@@ -67,6 +67,68 @@ interface LigneAbonnement {
   essai_fin: string | null;
 }
 
+// --- Options payantes (formule Essentiel ; comprises dans Pro) ----------------
+// Même calcul que le serveur (comptes.Boutique.droit_option), sur la ligne de la
+// boutique du poste : valable hors ligne, l'option se coupe seule à sa date.
+
+export type CleOption = "en_ligne" | "reseau" | "mobile";
+export const OPTIONS: CleOption[] = ["en_ligne", "reseau", "mobile"];
+
+/** Colonnes des options d'une boutique sur le poste. */
+export interface LigneOptions extends Partial<LigneAbonnement> {
+  synchro_autorisee?: number | null;
+  reseau_autorise?: number | null;
+  appli_mobile_autorisee?: number | null;
+  option_en_ligne_fin?: string | null;
+  option_en_ligne_suit?: number | null;
+  option_en_ligne_offerte?: number | null;
+  option_reseau_fin?: string | null;
+  option_reseau_suit?: number | null;
+  option_mobile_fin?: string | null;
+  option_mobile_suit?: number | null;
+}
+
+/** Exception sans date accordée par l'administrateur (boutiques qui l'avaient avant les options, gestes commerciaux). */
+function exceptionOption(ligne: LigneOptions, cle: CleOption): boolean {
+  if (cle === "en_ligne") return !!ligne.option_en_ligne_offerte;
+  if (cle === "reseau") return !!ligne.reseau_autorise;
+  return !!ligne.appli_mobile_autorisee;
+}
+
+/** Option payée ou offerte encore valable (sa date, ou celle de l'abonnement si elle le suit). */
+export function optionPayee(ligne: LigneOptions, cle: CleOption, dateEffective: string): boolean {
+  const maintenant = new Date(dateEffective).getTime();
+  if (ligne[`option_${cle}_suit`]) {
+    const fin = ligne.date_expiration_abonnement;
+    return !fin || new Date(fin).getTime() > maintenant;
+  }
+  const fin = ligne[`option_${cle}_fin`];
+  return !!fin && new Date(fin).getTime() > maintenant;
+}
+
+/** La boutique a-t-elle droit à l'option ? (Pro / essai Pro, payée, liée à l'abonnement, ou exception de l'admin) */
+export function droitOption(ligne: LigneOptions | undefined, cle: CleOption, dateEffective: string): boolean {
+  if (!ligne) return false;
+  return formuleEffective(ligne, dateEffective) === "pro" || exceptionOption(ligne, cle) || optionPayee(ligne, cle, dateEffective);
+}
+
+const COLONNES_OPTIONS = `date_expiration_abonnement, formule, essai_formule, essai_fin, synchro_autorisee, reseau_autorise,
+  appli_mobile_autorisee, option_en_ligne_fin, option_en_ligne_suit, option_en_ligne_offerte, option_reseau_fin,
+  option_reseau_suit, option_mobile_fin, option_mobile_suit`;
+
+/** Droits aux options de la boutique de ce poste (première boutique si aucun identifiant). */
+export function droitsOptionsBoutique(boutiqueId?: string): Record<CleOption, boolean> {
+  const ligne = boutiqueId
+    ? unResultat<LigneOptions>(`SELECT ${COLONNES_OPTIONS} FROM boutiques WHERE id = ?`, [boutiqueId])
+    : unResultat<LigneOptions>(`SELECT ${COLONNES_OPTIONS} FROM boutiques LIMIT 1`);
+  const date = rafraichirDatePlafond();
+  return {
+    en_ligne: droitOption(ligne, "en_ligne", date),
+    reseau: droitOption(ligne, "reseau", date),
+    mobile: droitOption(ligne, "mobile", date),
+  };
+}
+
 /**
  * Essai gratuit (comptes.Boutique.essai_fin côté serveur, même calcul) : gardé à
  * part de l'abonnement payé. Pendant l'essai, sa formule s'applique ; ensuite la
@@ -223,6 +285,16 @@ export interface BoutiqueServeur {
   /** Essai gratuit (absent d'un serveur pas encore à jour : l'essai du poste est gardé). */
   essai_formule?: string;
   essai_fin?: string | null;
+  /** Options payantes (absentes d'un serveur pas encore à jour : celles du poste sont gardées). */
+  option_en_ligne_fin?: string | null;
+  option_en_ligne_suit?: boolean;
+  option_en_ligne_offerte?: boolean;
+  option_reseau_fin?: string | null;
+  option_reseau_suit?: boolean;
+  option_mobile_fin?: string | null;
+  option_mobile_suit?: boolean;
+  /** Synchronisation réellement ouverte (allumée ET droit à l'option En ligne). */
+  en_ligne_actif?: boolean;
 }
 
 /**
@@ -262,6 +334,22 @@ export function memoriserAbonnementBoutique(boutique: BoutiqueServeur): void {
       boutique.id,
     ],
   );
+  if (boutique.option_en_ligne_suit !== undefined) {
+    executer(
+      `UPDATE boutiques SET option_en_ligne_fin = ?, option_en_ligne_suit = ?, option_en_ligne_offerte = ?,
+         option_reseau_fin = ?, option_reseau_suit = ?, option_mobile_fin = ?, option_mobile_suit = ? WHERE id = ?`,
+      [
+        boutique.option_en_ligne_fin ?? null,
+        boutique.option_en_ligne_suit ? 1 : 0,
+        boutique.option_en_ligne_offerte ? 1 : 0,
+        boutique.option_reseau_fin ?? null,
+        boutique.option_reseau_suit ? 1 : 0,
+        boutique.option_mobile_fin ?? null,
+        boutique.option_mobile_suit ? 1 : 0,
+        boutique.id,
+      ],
+    );
+  }
   if (boutique.essai_fin !== undefined) {
     executer("UPDATE boutiques SET essai_formule = ?, essai_fin = ? WHERE id = ?", [
       boutique.essai_fin ? boutique.essai_formule || "" : "",

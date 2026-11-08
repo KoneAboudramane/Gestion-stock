@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { executer, unResultat, tousLesResultats } from "../db/helpers";
 import { sauvegarder } from "../db/index";
-import { essaiEnCours, formuleEffective, rafraichirDatePlafond } from "./abonnement";
+import { droitsOptionsBoutique, essaiEnCours, formuleEffective, rafraichirDatePlafond } from "./abonnement";
 
 /**
  * Profil boutique (comptes.Boutique) et paramètres (configuration.Parametre) :
@@ -51,7 +51,8 @@ export function obtenirBoutique(boutiqueId: string): BoutiqueDetail | undefined 
     ...reste,
     formule: formuleEffective({ formule: ligne.formule, essai_formule, essai_fin }, maintenant),
     essaiFin: essai_formule && essaiEnCours(essai_fin, maintenant) ? essai_fin : null,
-    appliMobileAutorisee: Boolean(ligne.appliMobileAutorisee),
+    // Droit à l'option Mobile (Pro, payée, liée à l'abonnement ou exception de l'admin).
+    appliMobileAutorisee: droitsOptionsBoutique(boutiqueId).mobile,
   };
 }
 

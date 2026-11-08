@@ -1,6 +1,7 @@
 import { listerTout, obtenirLigne } from "../db/helpers";
 import { desactiverCompteLocal, memoriserCompteVendeur } from "./authHorsLigne";
 import { ErreurApi, apiFetch, executerEnSecurite, extraireMessageErreur, type ResultatEcriture } from "./transport";
+import { dateDuJourSure, droitOption } from "../services/abonnement";
 
 /**
  * Mémorise sur cet appareil un compte que le patron vient de créer ou de
@@ -23,7 +24,8 @@ async function memoriserCompteDepuisServeur(utilisateur: UtilisateurResume, motD
       permissions: role?.permissions ?? {},
       depotId: utilisateur.depot,
       depotNom: depot?.nom ?? null,
-      synchroAutorisee: Boolean(boutique.synchro_autorisee),
+      // Allumé ET droit à l'option En ligne (calcul hors ligne, voir services/abonnement.ts).
+      synchroAutorisee: Boolean(boutique.synchro_autorisee) && droitOption(boutique, "en_ligne", dateDuJourSure()),
       codeVendeur: utilisateur.code_vendeur || undefined,
     });
   } catch {
@@ -113,6 +115,12 @@ export interface AbonnementDetail {
   }[];
   /** Vide tant que l'administrateur n'a pas saisi ses prix. */
   tarifs: { formule: string; formule_libelle: string; duree_mois: number; prix: string; remise: string }[];
+  /** Options payantes (formule Essentiel ; comprises dans Pro) : prix et état pour cette boutique. */
+  tarifs_options?: { option: string; option_libelle: string; duree_mois: number; prix: string; remise: string }[];
+  options?: Record<
+    string,
+    { libelle: string; droit: boolean; source: "pro" | "payee" | "suit" | "exception" | null; fin: string | null; suit: boolean }
+  >;
   renouvellement: { numeros: { operateur: string; numero: string }[]; whatsapp: string; instructions: string };
 }
 

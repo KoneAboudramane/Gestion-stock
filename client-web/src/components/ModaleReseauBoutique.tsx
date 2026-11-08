@@ -108,7 +108,7 @@ function BlocActivationReseau({ session, peutGerer, onVerifie }: { session: Sess
     const r = await api.comptes.etatDemandeReseau(session);
     if (r.succes) {
       retenir(r.resultat);
-      setMessage(r.resultat.reseau_autorise ? "✅ Le réseau est activé." : "Pas encore activé par l'administrateur.");
+      setMessage(r.resultat.reseau_autorise ? "✅ Le réseau est activé." : "Pas encore activé : l'option Réseau n'est pas prise.");
     } else {
       setMessage("Pas d'internet : impossible de vérifier pour l'instant.");
     }
@@ -119,10 +119,11 @@ function BlocActivationReseau({ session, peutGerer, onVerifie }: { session: Sess
   return (
     <div className="bloc-activation-reseau">
       <div>
-        <strong>🔒 Réseau de la boutique non activé</strong>
+        <strong>🔒 Réseau de la boutique : option payante</strong>
         <p className="note-aide">
-          Relier les appareils de la boutique est une option activée par votre administrateur, à votre demande. Une fois
-          activée, vous pourrez faire de cet appareil le poste principal ou le brancher sur un autre.
+          Relier les appareils de la boutique sans internet, c'est l'option « 📶 Réseau » (comprise dans la formule Pro).
+          Demandez-la à votre administrateur : une fois activée, vous pourrez faire de cet appareil le poste principal ou
+          le brancher sur un autre.
         </p>
       </div>
       {demande?.demande_en_attente && (

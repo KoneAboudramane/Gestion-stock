@@ -194,6 +194,36 @@ export default function ModaleAbonnement({ session, onFermer }: { session: Sessi
             </section>
           </div>
 
+          {detail?.options && (
+            <section className="carte-profil options-abonnement">
+              <h4>🧩 Options</h4>
+              <ul className="liste-options-abonnement">
+                {Object.entries(detail.options).map(([cle, o]) => {
+                  const prix = detail.tarifs_options?.find((t) => t.option === cle && t.duree_mois === 1)?.prix;
+                  return (
+                    <li key={cle} className={o.droit ? "option-prise" : "option-non-prise"}>
+                      <strong>{o.libelle}</strong>
+                      <span>
+                        {o.source === "pro"
+                          ? "✅ comprise dans votre formule"
+                          : o.source === "suit"
+                            ? "✅ prise, avec votre abonnement"
+                            : o.source === "payee"
+                              ? `✅ prise jusqu'au ${date(o.fin)}`
+                              : o.source === "exception"
+                                ? "✅ offerte"
+                                : `🔒 non prise${prix ? ` · ${formaterMontant(Number(prix))} / mois` : ""} · comprise dans Pro`}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+              {Object.values(detail.options).some((o) => !o.droit) && (
+                <p className="note-aide">Pour prendre une option, demandez-la à votre administrateur.</p>
+              )}
+            </section>
+          )}
+
           {!responsable && (
             <p className="note-aide">Pour renouveler l'abonnement, prévenez le responsable de la boutique.</p>
           )}

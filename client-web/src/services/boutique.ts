@@ -1,7 +1,7 @@
 import { ouvrirBaseDeDonnees } from "../db";
 import { ecrireLigne, maintenant, obtenirLigne } from "../db/helpers";
 import type { BoutiqueLocale } from "../db/schema";
-import { dateDuJourSure, essaiEnCours, formuleEffective } from "./abonnement";
+import { dateDuJourSure, droitOption, essaiEnCours, formuleEffective } from "./abonnement";
 
 /**
  * Port navigateur de client-electron/electron/services/reglages.ts (profil
@@ -48,7 +48,8 @@ export async function obtenirBoutique(boutiqueId: string): Promise<BoutiqueDetai
     formule: formuleEffective(boutique, dateDuJourSure()),
     dateExpirationAbonnement: boutique.date_expiration_abonnement ?? null,
     essaiFin: boutique.essai_formule && essaiEnCours(boutique.essai_fin, dateDuJourSure()) ? boutique.essai_fin ?? null : null,
-    appliMobileAutorisee: boutique.appli_mobile_autorisee === 1,
+    // Droit à l'option Mobile (Pro, payée, liée à l'abonnement ou exception de l'admin).
+    appliMobileAutorisee: droitOption(boutique, "mobile", dateDuJourSure()),
   };
 }
 

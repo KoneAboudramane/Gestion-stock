@@ -446,3 +446,32 @@
   flex-direction: column;
   gap: 0.25rem;
 }
+
+/* Carte « ⭐ Abonnement » du commerçant : état des options payantes. */
+.liste-options-abonnement {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.liste-options-abonnement li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.3rem 1rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--rayon-sm);
+  border: 1px solid var(--bordure-tableau);
+}
+
+.liste-options-abonnement li.option-prise {
+  border-color: color-mix(in srgb, var(--succes), transparent 50%);
+  background: color-mix(in srgb, var(--succes), transparent 92%);
+}
+
+.liste-options-abonnement li.option-non-prise {
+  color: var(--gris-600, #475569);
+}

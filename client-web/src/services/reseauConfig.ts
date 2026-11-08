@@ -2,6 +2,7 @@ import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 
 import { listerTout } from "../db/helpers";
 import { estAppliMobile } from "../lib/appliAndroid";
+import { droitsOptionsBoutique } from "./abonnement";
 
 /**
  * Réseau de la boutique : ce que partagent la caisse (services/reseau.ts) et le
@@ -112,8 +113,9 @@ export function ecrireConfigReseau(config: ConfigReseau): void {
 
 /** Réseau de la boutique activé par l'administrateur (comptes.Boutique.reseau_autorise) ? Un appareil = une boutique. */
 export async function reseauAutorise(): Promise<boolean> {
+  // Droit à l'option Réseau : Pro (essai compris), payée, liée à l'abonnement ou exception de l'admin.
   try {
-    return Boolean((await listerTout("boutiques"))[0]?.reseau_autorise);
+    return (await droitsOptionsBoutique()).reseau;
   } catch {
     return false;
   }

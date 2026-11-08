@@ -45,6 +45,14 @@ export interface BoutiqueLocale extends SuiviSync {
   /** Essai gratuit donné par l'administrateur, à part de l'abonnement payé (comptes.Boutique.essai_fin) — champs protégés. */
   essai_formule?: string;
   essai_fin?: string | null;
+  /** Options payantes (comprises dans Pro) : payée jusqu'au / liée à l'abonnement / exception En ligne — champs protégés. */
+  option_en_ligne_fin?: string | null;
+  option_en_ligne_suit?: 0 | 1;
+  option_en_ligne_offerte?: 0 | 1;
+  option_reseau_fin?: string | null;
+  option_reseau_suit?: 0 | 1;
+  option_mobile_fin?: string | null;
+  option_mobile_suit?: 0 | 1;
 }
 
 export interface CategorieLocale extends SuiviSync {

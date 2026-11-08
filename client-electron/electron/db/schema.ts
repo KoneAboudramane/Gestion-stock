@@ -33,6 +33,13 @@ CREATE TABLE IF NOT EXISTS boutiques (
   appli_mobile_autorisee INTEGER DEFAULT 0,
   essai_formule TEXT DEFAULT '',
   essai_fin TEXT,
+  option_en_ligne_fin TEXT,
+  option_en_ligne_suit INTEGER DEFAULT 0,
+  option_en_ligne_offerte INTEGER DEFAULT 0,
+  option_reseau_fin TEXT,
+  option_reseau_suit INTEGER DEFAULT 0,
+  option_mobile_fin TEXT,
+  option_mobile_suit INTEGER DEFAULT 0,
   ${SUIVI_SYNC}
 );
 

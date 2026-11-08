@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   calculerDatePlafond,
+  droitOption,
   essaiEnCours,
   etatAbonnement,
   finAvecEssai,
@@ -99,5 +100,36 @@ describe("abonnement : essai gratuit à part de l'abonnement payé", () => {
 
   it("reste sans limite quand l'abonnement payé l'est", () => {
     expect(finAvecEssai(null, ligne.essai_fin)).toBeNull();
+  });
+});
+
+describe("abonnement : options payantes (comprises dans Pro), calcul hors ligne", () => {
+  const maintenant = "2026-11-08T12:00:00.000Z";
+  const essentiel = { formule: "essentiel", date_expiration_abonnement: "2026-12-31T23:59:59.000Z" };
+
+  it("Essentiel sans option : pas de droit", () => {
+    expect(droitOption(essentiel, "reseau", maintenant)).toBe(false);
+  });
+
+  it("Pro (ou essai Pro) : toutes les options", () => {
+    expect(droitOption({ ...essentiel, formule: "pro" }, "mobile", maintenant)).toBe(true);
+    expect(droitOption({ ...essentiel, essai_formule: "pro", essai_fin: "2026-11-20T00:00:00.000Z" }, "en_ligne", maintenant)).toBe(true);
+  });
+
+  it("option payée jusqu'à une date, puis coupée toute seule", () => {
+    const ligne = { ...essentiel, option_reseau_fin: "2026-11-30T23:59:59.000Z" };
+    expect(droitOption(ligne, "reseau", maintenant)).toBe(true);
+    expect(droitOption(ligne, "reseau", "2026-12-01T00:00:00.000Z")).toBe(false);
+  });
+
+  it("option liée à l'abonnement : valable tant qu'il l'est", () => {
+    const ligne = { ...essentiel, option_mobile_suit: 1 };
+    expect(droitOption(ligne, "mobile", maintenant)).toBe(true);
+    expect(droitOption(ligne, "mobile", "2027-01-01T00:00:00.000Z")).toBe(false);
+  });
+
+  it("exception de l'administrateur (boutiques qui l'avaient avant)", () => {
+    expect(droitOption({ ...essentiel, reseau_autorise: 1 }, "reseau", maintenant)).toBe(true);
+    expect(droitOption({ ...essentiel, option_en_ligne_offerte: 1 }, "en_ligne", maintenant)).toBe(true);
   });
 });

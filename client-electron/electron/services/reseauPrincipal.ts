@@ -10,6 +10,7 @@ import { unResultat } from "../db/helpers";
 import { sauvegarder } from "../db/index";
 import { exporterComptesLocaux } from "./auth";
 import { compterEnAttente, etatSynchro, extraireDepuis, recevoirChangements, type Changement } from "./sync";
+import { droitsOptionsBoutique } from "./abonnement";
 
 /**
  * Poste principal de la boutique (docs/plan_reseau_local.md, lot 2) : un petit
@@ -89,13 +90,14 @@ export function definirAutorisationReseauPourLesTests(valeur: boolean | null): v
 }
 
 /**
- * Réseau de la boutique activé par l'administrateur (comptes.Boutique.reseau_autorise,
- * reçu par /auth/moi/ ou réglé dans l'Espace Admin) ? Un poste = une boutique.
+ * Droit au réseau de la boutique : formule Pro (essai compris), option Réseau payée
+ * ou liée à l'abonnement, ou exception de l'administrateur (reseau_autorise) —
+ * services/abonnement.ts::droitOption, valable hors ligne. Un poste = une boutique.
  */
 export function reseauAutorise(): boolean {
   if (autorisationPourLesTests !== null) return autorisationPourLesTests;
   try {
-    return Boolean(unResultat<{ reseau_autorise: number }>("SELECT reseau_autorise FROM boutiques LIMIT 1")?.reseau_autorise);
+    return droitsOptionsBoutique().reseau;
   } catch {
     return false;
   }

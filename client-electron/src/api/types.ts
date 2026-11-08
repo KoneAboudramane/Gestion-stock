@@ -1739,6 +1739,12 @@ export interface AbonnementDetail {
   }[];
   /** Vide tant que l'administrateur n'a pas saisi ses prix. */
   tarifs: { formule: string; formule_libelle: string; duree_mois: number; prix: string; remise: string }[];
+  /** Options payantes (formule Essentiel ; comprises dans Pro) : prix et état pour cette boutique. */
+  tarifs_options?: { option: string; option_libelle: string; duree_mois: number; prix: string; remise: string }[];
+  options?: Record<
+    string,
+    { libelle: string; droit: boolean; source: "pro" | "payee" | "suit" | "exception" | null; fin: string | null; suit: boolean }
+  >;
   renouvellement: { numeros: { operateur: string; numero: string }[]; whatsapp: string; instructions: string };
 }
 
