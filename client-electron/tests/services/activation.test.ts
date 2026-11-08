@@ -25,6 +25,10 @@ const CODE_JANVIER_2027 =
 const CODE_DECEMBRE_2026 =
   "GS-AE7SK-BHAJ6-EUDU4-2BQBQ-L2BMG-MAQT7-AANMB-NPFBT-IEBCX-AOY4O-KD5SE-EXPFC-OZQB2-HEA34-A6IPD-UDN2G-KSGZQ-TCLWN-DIDBD-HUQ2T-S5CK6-CAAX2-WGV5G-44TY6-U43BK-ZCVT6-IITYK-OFUJA-Q";
 
+/** Jusqu'au 31/12/2026, formule Essentiel avec les options Réseau et Mobile. */
+const CODE_OPTIONS_DECEMBRE_2026 =
+  "GS-AE7SK-BHAJ6-EUDU4-2BQBQ-L2BMG-MAQT7-AMRAW-DMFOT-XP7FG-X34SQ-KVT2Q-SHYDW-652XZ-L22IU-3HHYZ-GHMQQ-6DUXH-P5HZP-4WHXK-5UBVH-BLVIF-HMAOP-W7LOG-UXYAR-7UWGB-APF2V-ZIVM2-O57NA-A";
+
 beforeEach(async () => {
   await creerBaseDeTest();
   definirClePubliqueActivationPourLesTests(CLE_PUBLIQUE_TEST);
@@ -34,12 +38,27 @@ afterEach(() => definirClePubliqueActivationPourLesTests(null));
 
 describe("lecture d'un code d'activation (sans internet)", () => {
   it("un code signé par le serveur est accepté et lu", () => {
-    expect(lireCodeActivation(CODE_JANVIER_2027)).toEqual({ boutiqueId: BOUTIQUE, dateFin: "2027-01-31", formule: "pro" });
+    expect(lireCodeActivation(CODE_JANVIER_2027)).toEqual({
+      boutiqueId: BOUTIQUE,
+      dateFin: "2027-01-31",
+      formule: "pro",
+      options: [],
+    });
     // Collé sans tirets, en minuscules, avec des espaces : accepté aussi.
     expect(lireCodeActivation(` ${CODE_DECEMBRE_2026.toLowerCase().replace(/-/g, " ")} `)).toEqual({
       boutiqueId: BOUTIQUE,
       dateFin: "2026-12-31",
       formule: "essentiel",
+      options: [],
+    });
+  });
+
+  it("un code Essentiel peut emporter des options payantes (bits de l'octet de formule)", () => {
+    expect(lireCodeActivation(CODE_OPTIONS_DECEMBRE_2026)).toEqual({
+      boutiqueId: BOUTIQUE,
+      dateFin: "2026-12-31",
+      formule: "essentiel",
+      options: ["reseau", "mobile"],
     });
   });
 

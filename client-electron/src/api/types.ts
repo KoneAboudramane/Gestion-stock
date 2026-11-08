@@ -1732,6 +1732,9 @@ export interface AbonnementDetail {
     date: string;
     nature: string;
     nature_libelle: string;
+    /** Option payante concernée (vide : la formule). */
+    option?: string;
+    option_libelle?: string;
     formule: string;
     date_debut: string;
     date_fin: string | null;
@@ -1744,6 +1747,8 @@ export interface AbonnementDetail {
     id?: string;
     date: string;
     formule: string;
+    option?: string;
+    option_libelle?: string;
     duree_libelle: string;
     montant: string;
     mode_libelle: string;
@@ -1773,6 +1778,8 @@ export interface AbonnementDetail {
 /** « J'ai payé » : paiement Mobile Money déclaré, à valider par l'administrateur. */
 export interface DeclarationPaiementAbonnement {
   formule: string;
+  /** Vide : l'abonnement ; sinon une option payante (en_ligne, reseau, mobile). */
+  option?: string;
   dureeMois: number;
   montant: number;
   mode: string;

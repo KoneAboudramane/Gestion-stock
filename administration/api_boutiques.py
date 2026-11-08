@@ -287,7 +287,7 @@ class FicheBoutiqueView(APIView):
                 {
                     "date": p.date_creation,
                     "nature_libelle": p.get_nature_display(),
-                    "formule_libelle": p.get_formule_display(),
+                    "formule_libelle": p.get_option_display() if p.option else p.get_formule_display(),
                     "date_debut": p.date_debut,
                     "date_fin": p.date_fin,
                     "montant": p.montant,

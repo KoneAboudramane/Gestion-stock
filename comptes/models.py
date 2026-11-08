@@ -377,6 +377,8 @@ class DemandeRenouvellement(ModeleBase):
 
     boutique = models.ForeignKey(Boutique, on_delete=models.CASCADE, related_name="demandes_renouvellement")
     formule = models.CharField(max_length=20, choices=Boutique.Formule.choices)
+    # Vide : paiement de l'abonnement ; sinon, d'une option payante (formule Essentiel).
+    option = models.CharField(max_length=20, choices=PaiementAbonnement.Option.choices, blank=True, default="")
     duree_mois = models.PositiveSmallIntegerField(choices=Duree.choices)
     montant = models.DecimalField(max_digits=12, decimal_places=2)
     mode = models.CharField(max_length=20, choices=PaiementAbonnement.Mode.choices)

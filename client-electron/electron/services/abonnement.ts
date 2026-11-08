@@ -4,7 +4,7 @@ import { app } from "electron";
 
 import { executer, unResultat } from "../db/helpers";
 import { sauvegarder } from "../db/index";
-import { appliquerCodeActivation, dateExpirationParCode, type CodeActivationLu } from "./activation";
+import { appliquerCodeActivation, dateExpirationParCode, optionsParCode, type CodeActivationLu } from "./activation";
 
 /**
  * Vérification de l'abonnement de la boutique, en lecture seule si expiré
@@ -112,20 +112,23 @@ export function droitOption(ligne: LigneOptions | undefined, cle: CleOption, dat
   return formuleEffective(ligne, dateEffective) === "pro" || exceptionOption(ligne, cle) || optionPayee(ligne, cle, dateEffective);
 }
 
-const COLONNES_OPTIONS = `date_expiration_abonnement, formule, essai_formule, essai_fin, synchro_autorisee, reseau_autorise,
+const COLONNES_OPTIONS = `id, date_expiration_abonnement, formule, essai_formule, essai_fin, synchro_autorisee, reseau_autorise,
   appli_mobile_autorisee, option_en_ligne_fin, option_en_ligne_suit, option_en_ligne_offerte, option_reseau_fin,
   option_reseau_suit, option_mobile_fin, option_mobile_suit`;
 
 /** Droits aux options de la boutique de ce poste (première boutique si aucun identifiant). */
 export function droitsOptionsBoutique(boutiqueId?: string): Record<CleOption, boolean> {
   const ligne = boutiqueId
-    ? unResultat<LigneOptions>(`SELECT ${COLONNES_OPTIONS} FROM boutiques WHERE id = ?`, [boutiqueId])
-    : unResultat<LigneOptions>(`SELECT ${COLONNES_OPTIONS} FROM boutiques LIMIT 1`);
+    ? unResultat<LigneOptions & { id: string }>(`SELECT ${COLONNES_OPTIONS} FROM boutiques WHERE id = ?`, [boutiqueId])
+    : unResultat<LigneOptions & { id: string }>(`SELECT ${COLONNES_OPTIONS} FROM boutiques LIMIT 1`);
   const date = rafraichirDatePlafond();
+  // Options apportées par un code d'activation saisi sans internet, valables jusqu'à sa date.
+  const parCode = ligne ? optionsParCode(ligne.id) : null;
+  const viaCode = (cle: CleOption) => !!parCode && parCode.options.includes(cle) && parCode.fin > date;
   return {
-    en_ligne: droitOption(ligne, "en_ligne", date),
-    reseau: droitOption(ligne, "reseau", date),
-    mobile: droitOption(ligne, "mobile", date),
+    en_ligne: droitOption(ligne, "en_ligne", date) || viaCode("en_ligne"),
+    reseau: droitOption(ligne, "reseau", date) || viaCode("reseau"),
+    mobile: droitOption(ligne, "mobile", date) || viaCode("mobile"),
   };
 }
 

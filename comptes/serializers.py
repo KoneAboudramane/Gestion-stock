@@ -137,6 +137,8 @@ class DemandeRenouvellementSerializer(serializers.Serializer):
     """Paiement déclaré par le commerçant (voir comptes/views.py::DemandeRenouvellementView)."""
 
     formule = serializers.ChoiceField(choices=Boutique.Formule.choices)
+    # Vide : l'abonnement ; sinon une option payante.
+    option = serializers.ChoiceField(choices=PaiementAbonnement.Option.choices, required=False, allow_blank=True)
     duree_mois = serializers.ChoiceField(choices=DemandeRenouvellement.Duree.choices)
     montant = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("1"))
     mode = serializers.ChoiceField(choices=PaiementAbonnement.Mode.choices)

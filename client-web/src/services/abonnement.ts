@@ -1,6 +1,6 @@
 import { ecrireLigne, listerTout, obtenirLigne } from "../db/helpers";
 import type { BoutiqueLocale } from "../db/schema";
-import { appliquerCodeActivation, dateExpirationParCode, type CodeActivationLu } from "./activation";
+import { appliquerCodeActivation, dateExpirationParCode, optionsParCode, type CodeActivationLu } from "./activation";
 
 /**
  * Port navigateur de client-electron/electron/services/abonnement.ts :
@@ -130,10 +130,13 @@ export function droitOption(ligne: LigneOptions | undefined, cle: CleOption, dat
 export async function droitsOptionsBoutique(boutiqueId?: string): Promise<Record<CleOption, boolean>> {
   const ligne = boutiqueId ? await obtenirLigne("boutiques", boutiqueId) : (await listerTout("boutiques"))[0];
   const date = rafraichirDatePlafond();
+  // Options apportées par un code d'activation saisi sans internet, valables jusqu'à sa date.
+  const parCode = ligne ? await optionsParCode(ligne.id) : null;
+  const viaCode = (cle: CleOption) => !!parCode && parCode.options.includes(cle) && parCode.fin > date;
   return {
-    en_ligne: droitOption(ligne, "en_ligne", date),
-    reseau: droitOption(ligne, "reseau", date),
-    mobile: droitOption(ligne, "mobile", date),
+    en_ligne: droitOption(ligne, "en_ligne", date) || viaCode("en_ligne"),
+    reseau: droitOption(ligne, "reseau", date) || viaCode("reseau"),
+    mobile: droitOption(ligne, "mobile", date) || viaCode("mobile"),
   };
 }
 

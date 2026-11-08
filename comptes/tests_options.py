@@ -156,3 +156,50 @@ class OptionsSiteTests(BaseOptions):
         self.assertEqual(r.status_code, 200, r.data)
         self.assertTrue(r.data["en_ligne_actif"])
         self.assertEqual(r.data["options"]["en_ligne"]["source"], "exception")
+
+
+class CodeEtDeclarationTests(BaseOptions):
+    SECRET = bytes(range(32))
+
+    def test_le_code_d_activation_emporte_les_options_valables_jusqu_a_sa_date(self):
+        import uuid
+        from datetime import date
+
+        from .activation import cle_publique, generer_code, lire_code, lire_options
+        from .services import options_pour_code
+
+        boutique_id = uuid.uuid4()
+        code = generer_code(boutique_id, date(2027, 3, 31), "essentiel", secret=self.SECRET, options=["reseau", "mobile"])
+        # Une appli qui ne connaît pas les options lit toujours « essentiel ».
+        self.assertEqual(lire_code(code, cle_publique(self.SECRET)), (boutique_id, date(2027, 3, 31), "essentiel"))
+        self.assertEqual(lire_options(code, cle_publique(self.SECRET)), ["reseau", "mobile"])
+        code_pro = generer_code(boutique_id, date(2027, 3, 31), "pro", secret=self.SECRET, options=["reseau"])
+        self.assertEqual(lire_code(code_pro, cle_publique(self.SECRET))[2], "pro")
+        self.assertEqual(lire_options(code_pro, cle_publique(self.SECRET)), [])
+        # Options retenues pour un code : celles valables jusqu'à sa date.
+        fin_code = timezone.localdate(self.boutique.date_expiration_abonnement)
+        enregistrer_option(self.boutique, "reseau", "offert", suit=True)
+        enregistrer_option(self.boutique, "mobile", "offert", fin=timezone.now() + timedelta(days=3))
+        self.boutique.option_en_ligne_offerte = True
+        self.assertEqual(options_pour_code(self.boutique, fin_code), ["en_ligne", "reseau"])
+
+    def test_paiement_declare_pour_une_option_puis_valide(self):
+        from .services import valider_demande_renouvellement
+
+        self.client.force_authenticate(user=self.patron)
+        r = self.client.post(
+            reverse("boutique-abonnement-demandes"),
+            {"formule": "essentiel", "option": "reseau", "duree_mois": 3, "montant": "15000", "mode": "wave", "reference": "OPT-1"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 201, r.data)
+        from .models import DemandeRenouvellement
+
+        demande = DemandeRenouvellement.objects.get(reference="OPT-1")
+        self.assertEqual(demande.option, "reseau")
+        fin_abonnement = self.boutique.date_expiration_abonnement
+        valider_demande_renouvellement(demande, par=self.admin)
+        self.boutique.refresh_from_db()
+        self.assertTrue(self.boutique.droit_option("reseau"))
+        self.assertEqual(self.boutique.date_expiration_abonnement, fin_abonnement)  # l'abonnement n'a pas bougé
+        self.assertEqual(PaiementAbonnement.objects.get(reference="OPT-1").option, "reseau")

@@ -54,6 +54,8 @@ const CLASSES_STATUT: Record<string, string> = {
 
 interface DeclarationSaisie {
   formule: string;
+  /** Vide : l'abonnement ; sinon une option payante. */
+  option: string;
   dureeMois: string;
   montant: string;
   mode: string;
@@ -124,16 +126,19 @@ export default function ModaleAbonnement({ session, onFermer }: { session: Sessi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, responsable]);
 
-  function prixTarif(formule: string, dureeMois: string): string {
-    const tarif = detail?.tarifs.find((t) => t.formule === formule && String(t.duree_mois) === dureeMois);
+  function prixTarif(formule: string, dureeMois: string, option = ""): string {
+    const tarif = option
+      ? detail?.tarifs_options?.find((t) => t.option === option && String(t.duree_mois) === dureeMois)
+      : detail?.tarifs.find((t) => t.formule === formule && String(t.duree_mois) === dureeMois);
     return tarif ? String(Number(tarif.prix)) : "";
   }
 
   function changerDeclaration(champs: Partial<DeclarationSaisie>) {
     if (!declaration) return;
     const suivante = { ...declaration, ...champs };
-    if (("formule" in champs || "dureeMois" in champs) && detail?.tarifs.length) {
-      suivante.montant = prixTarif(suivante.formule, suivante.dureeMois);
+    if ("formule" in champs || "dureeMois" in champs || "option" in champs) {
+      const prix = prixTarif(suivante.formule, suivante.dureeMois, suivante.option);
+      if (prix) suivante.montant = prix;
     }
     setDeclaration(suivante);
   }
@@ -150,6 +155,7 @@ export default function ModaleAbonnement({ session, onFermer }: { session: Sessi
     try {
       await donnees.declarer(session, {
         formule: declaration.formule,
+        ...(declaration.option ? { option: declaration.option } : {}),
         dureeMois: Number(declaration.dureeMois),
         montant: Number(declaration.montant),
         mode: declaration.mode,
@@ -345,7 +351,7 @@ export default function ModaleAbonnement({ session, onFermer }: { session: Sessi
                 setMessage(null);
                 setErreurDeclaration(null);
                 const formule = boutique?.formule || "essentiel";
-                setDeclaration({ formule, dureeMois: "1", montant: prixTarif(formule, "1"), mode: "", reference: "" });
+                setDeclaration({ formule, option: "", dureeMois: "1", montant: prixTarif(formule, "1"), mode: "", reference: "" });
               }}
             >
               ✅ J'ai payé : déclarer mon paiement
@@ -360,13 +366,30 @@ export default function ModaleAbonnement({ session, onFermer }: { session: Sessi
               </p>
               {erreurDeclaration && <div className="message-erreur">{erreurDeclaration}</div>}
               <div className="champs-declaration-paiement">
-                <label>
-                  Formule
-                  <select value={declaration.formule} onChange={(e) => changerDeclaration({ formule: e.target.value })}>
-                    <option value="essentiel">Essentiel</option>
-                    <option value="pro">Pro</option>
-                  </select>
-                </label>
+                {detail?.options && Object.values(detail.options).some((o) => o.source !== "pro") && (
+                  <label>
+                    Je paie pour
+                    <select value={declaration.option} onChange={(e) => changerDeclaration({ option: e.target.value })}>
+                      <option value="">L'abonnement</option>
+                      {Object.entries(detail.options)
+                        .filter(([, o]) => o.source !== "pro" && o.source !== "exception")
+                        .map(([cle, o]) => (
+                          <option key={cle} value={cle}>
+                            {o.libelle} (option)
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                )}
+                {!declaration.option && (
+                  <label>
+                    Formule
+                    <select value={declaration.formule} onChange={(e) => changerDeclaration({ formule: e.target.value })}>
+                      <option value="essentiel">Essentiel</option>
+                      <option value="pro">Pro</option>
+                    </select>
+                  </label>
+                )}
                 <label>
                   Durée
                   <select
@@ -440,7 +463,7 @@ export default function ModaleAbonnement({ session, onFermer }: { session: Sessi
                       <tr key={i}>
                         <td>{date(d.date)}</td>
                         <td>
-                          {LIBELLES_FORMULE[d.formule] ?? d.formule}, {d.duree_libelle}
+                          {d.option_libelle || LIBELLES_FORMULE[d.formule] || d.formule}, {d.duree_libelle}
                         </td>
                         <td className="nowrap">{formaterMontant(Number(d.montant))}</td>
                         <td>{d.mode_libelle}</td>

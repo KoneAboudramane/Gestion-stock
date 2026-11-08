@@ -479,7 +479,7 @@ def ajouter_mois(date, mois):
     return date.replace(year=annee, month=mois_cible, day=jour)
 
 
-def demander_renouvellement(boutique, demandeur, formule, duree_mois, montant, mode, reference, note=""):
+def demander_renouvellement(boutique, demandeur, formule, duree_mois, montant, mode, reference, note="", option=""):
     reference = reference.strip()
     if DemandeRenouvellement.objects.filter(reference__iexact=reference).exclude(
         statut=DemandeRenouvellement.Statut.REJETEE
@@ -490,6 +490,7 @@ def demander_renouvellement(boutique, demandeur, formule, duree_mois, montant, m
         boutique=boutique,
         demandeur=demandeur,
         formule=formule,
+        option=option or "",
         duree_mois=duree_mois,
         montant=montant,
         mode=mode,
@@ -501,7 +502,7 @@ def demander_renouvellement(boutique, demandeur, formule, duree_mois, montant, m
             subject=f"Paiement d'abonnement à vérifier — {boutique.nom}",
             message=(
                 f"Boutique : {boutique.nom}\n"
-                f"Formule : {demande.get_formule_display()}, {demande.get_duree_mois_display()}\n"
+                f"{demande.get_option_display() if demande.option else 'Formule : ' + demande.get_formule_display()}, {demande.get_duree_mois_display()}\n"
                 f"Montant : {montant} par {demande.get_mode_display()}\n"
                 f"Référence : {reference}\n\n"
                 "À valider dans l'espace admin : /admin/comptes/demanderenouvellement/"
@@ -519,6 +520,19 @@ def valider_demande_renouvellement(demande, par=None):
     if demande.statut != DemandeRenouvellement.Statut.EN_ATTENTE:
         raise ValidationError("Cette demande a déjà été traitée.")
     boutique = demande.boutique
+    if demande.option:
+        # Option payante : s'ajoute à la fin de l'option en cours (ou part d'aujourd'hui).
+        demande.paiement = enregistrer_option(
+            boutique, demande.option, PaiementAbonnement.Nature.PAIEMENT,
+            fin=ajouter_mois(point_depart_option(boutique, demande.option), demande.duree_mois),
+            montant=demande.montant, mode=demande.mode, reference=demande.reference,
+            note=f"Déclaré dans l'appli ({demande.get_duree_mois_display()})", par=par,
+        )
+        demande.statut = DemandeRenouvellement.Statut.VALIDEE
+        demande.traitee_par = par if par is not None and par.pk else None
+        demande.date_traitement = timezone.now()
+        demande.save()
+        return demande
     fin = ajouter_mois(point_depart_renouvellement(boutique), demande.duree_mois)
     demande.paiement = enregistrer_periode_abonnement(
         boutique,
@@ -643,6 +657,26 @@ def etat_options(boutique, maintenant=None):
     return etat
 
 
+def options_pour_code(boutique, date_fin):
+    """
+    Options à inscrire dans un code d'activation jusqu'au `date_fin` : celles dont la
+    boutique Essentiel dispose au moins jusqu'à cette date (exception, liée à
+    l'abonnement, ou payée jusque-là). Rien pour Pro : tout y est compris.
+    """
+    if boutique.formule == Boutique.Formule.PRO:
+        return []
+    retenues = []
+    for cle in Boutique.OPTIONS:
+        fin = getattr(boutique, f"option_{cle}_fin")
+        if (
+            getattr(boutique, Boutique.EXCEPTION_OPTION[cle])
+            or getattr(boutique, f"option_{cle}_suit")
+            or (fin and timezone.localdate(fin) >= date_fin)
+        ):
+            retenues.append(cle)
+    return retenues
+
+
 def point_depart_option(boutique, cle):
     """Une option prolongée repart de sa fin si elle est encore valable, sinon d'aujourd'hui."""
     fin = getattr(boutique, f"option_{cle}_fin")
@@ -657,7 +691,7 @@ def enregistrer_option(boutique, cle, nature, fin=None, suit=False, montant=0, m
     (`suit` : valable tant que l'abonnement payé l'est, prolongée avec lui).
     Inscrite au registre des abonnements (PaiementAbonnement.option).
     """
-    PaiementAbonnement.objects.create(
+    periode = PaiementAbonnement.objects.create(
         boutique=boutique,
         nature=nature,
         formule=boutique.formule,
@@ -673,6 +707,7 @@ def enregistrer_option(boutique, cle, nature, fin=None, suit=False, montant=0, m
     setattr(boutique, f"option_{cle}_suit", bool(suit))
     setattr(boutique, f"option_{cle}_fin", None if suit else fin)
     boutique.save(update_fields=[f"option_{cle}_suit", f"option_{cle}_fin", "date_modification"])
+    return periode
 
 
 def retirer_option(boutique, cle):

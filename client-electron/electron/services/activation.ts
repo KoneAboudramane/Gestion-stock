@@ -64,7 +64,12 @@ export interface CodeActivationLu {
   /** « AAAA-MM-JJ » */
   dateFin: string;
   formule: (typeof FORMULES)[number];
+  /** Options payantes inscrites (formule Essentiel), valables jusqu'à dateFin. */
+  options: ("en_ligne" | "reseau" | "mobile")[];
 }
+
+/** Bits 1 à 3 de l'octet de la formule (comptes/activation.py::BITS_OPTIONS). */
+const BITS_OPTIONS = { en_ligne: 1 << 1, reseau: 1 << 2, mobile: 1 << 3 } as const;
 
 /** Vérifie la signature et lit le contenu d'un code, ou lève ErreurActivation. */
 export function lireCodeActivation(code: string): CodeActivationLu {
@@ -90,7 +95,11 @@ export function lireCodeActivation(code: string): CodeActivationLu {
   return {
     boutiqueId: uuidDepuisOctets(contenu.subarray(1, 17)),
     dateFin: new Date(ORIGINE_DATES + jours * 86400000).toISOString().slice(0, 10),
-    formule: FORMULES[contenu[19]] ?? "essentiel",
+    formule: contenu[19] & 1 ? "pro" : "essentiel",
+    options:
+      contenu[19] & 1
+        ? []
+        : (Object.keys(BITS_OPTIONS) as (keyof typeof BITS_OPTIONS)[]).filter((cle) => contenu[19] & BITS_OPTIONS[cle]),
   };
 }
 
@@ -114,6 +123,21 @@ export function dateExpirationParCode(boutiqueId: string): string | null {
   }
 }
 
+/** Options apportées par le code d'activation gardé pour cette boutique, avec leur fin, ou null. */
+export function optionsParCode(boutiqueId: string): { options: CodeActivationLu["options"]; fin: string } | null {
+  const parametre = unResultat<{ valeur: string }>(
+    "SELECT valeur FROM parametres WHERE boutique_id = ? AND cle = ? AND supprime = 0",
+    [boutiqueId, CLE_PARAMETRE_CODE_ACTIVATION],
+  );
+  if (!parametre?.valeur) return null;
+  try {
+    const lu = lireCodeActivation(parametre.valeur);
+    return lu.boutiqueId === boutiqueId ? { options: lu.options, fin: finDeJournee(lu.dateFin) } : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Saisie du code sur le poste (en principe le poste principal) : vérifié sans
  * internet, refusé s'il est pour une autre boutique ou s'il ne prolonge rien,
@@ -122,7 +146,8 @@ export function dateExpirationParCode(boutiqueId: string): string | null {
 export function appliquerCodeActivation(code: string, boutiqueId: string, dateActuelle: string | null): CodeActivationLu {
   const lu = lireCodeActivation(code);
   if (lu.boutiqueId !== boutiqueId) throw new ErreurActivation("Ce code d'activation est destiné à une autre boutique.");
-  if (dateActuelle && finDeJournee(lu.dateFin) <= dateActuelle) {
+  // Un code qui ne prolonge pas l'abonnement reste utile s'il apporte des options.
+  if (dateActuelle && finDeJournee(lu.dateFin) <= dateActuelle && lu.options.length === 0) {
     throw new ErreurActivation(
       `Ce code (jusqu'au ${lu.dateFin.split("-").reverse().join("/")}) ne prolonge pas l'abonnement actuel.`,
     );

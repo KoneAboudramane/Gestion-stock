@@ -737,7 +737,7 @@ export default function GererAbonnement({
                     {(detail?.demandes ?? []).map((d) => (
                       <tr key={d.id ?? d.date}>
                         <td data-label="Date" className="nowrap">{dateCourte(d.date)}</td>
-                        <td data-label="Formule">{LIBELLES_FORMULE[d.formule] ?? d.formule}</td>
+                        <td data-label="Formule">{d.option_libelle || LIBELLES_FORMULE[d.formule] || d.formule}</td>
                         <td data-label="Durée">{d.duree_libelle}</td>
                         <td data-label="Montant" className="nowrap">{montant(d.montant)}</td>
                         <td data-label="Mode">{d.mode_libelle}</td>
@@ -819,7 +819,7 @@ export default function GererAbonnement({
                         <tr key={`${h.date}-${i}`}>
                           <td data-label="Enregistré le" className="nowrap">{dateCourte(h.date)}</td>
                           <td data-label="Nature">{h.nature_libelle}</td>
-                          <td data-label="Formule">{LIBELLES_FORMULE[h.formule] ?? h.formule}</td>
+                          <td data-label="Formule">{h.option_libelle || LIBELLES_FORMULE[h.formule] || h.formule}</td>
                           <td data-label="Période" className="nowrap">
                             {dateCourte(h.date_debut)} → {dateCourte(h.date_fin)}
                           </td>

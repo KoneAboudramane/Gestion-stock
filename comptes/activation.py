@@ -136,6 +136,10 @@ PREFIXE_SIGNATURE = b"gestion-stock/activation/v1"
 VERSION = 1
 ORIGINE_DATES = date(2020, 1, 1)
 FORMULES = {"essentiel": 0, "pro": 1}
+# Options payantes (formule Essentiel seulement) : bits 1 à 3 de l'octet de la
+# formule, valables jusqu'à la date du code. Une appli qui ne les connaît pas lit
+# simplement « essentiel » (valeur inconnue) : pas de changement de version.
+BITS_OPTIONS = {"en_ligne": 1 << 1, "reseau": 1 << 2, "mobile": 1 << 3}
 
 
 class ErreurActivation(Exception):
@@ -153,7 +157,7 @@ def cle_privee_configuree():
     return graine
 
 
-def generer_code(boutique_id, date_fin, formule, secret=None):
+def generer_code(boutique_id, date_fin, formule, secret=None, options=()):
     """
     Code d'activation : « GS-XXXXX-XXXXX-… » (base32 du contenu + signature,
     par groupes de 5) — à copier dans WhatsApp ou un SMS, pas à dicter.
@@ -172,7 +176,7 @@ def generer_code(boutique_id, date_fin, formule, secret=None):
         bytes([VERSION])
         + boutique_id.bytes
         + jours.to_bytes(2, "big")
-        + bytes([FORMULES.get(formule, 0)])
+        + bytes([FORMULES.get(formule, 0) | (0 if formule == "pro" else sum(BITS_OPTIONS[o] for o in set(options)))])
         + secrets.token_bytes(4)
     )
     brut = base64.b32encode(contenu + signer(secret, PREFIXE_SIGNATURE + contenu)).decode().rstrip("=")
@@ -193,3 +197,15 @@ def lire_code(code, publique):
         raise ErreurActivation("Code d'activation invalide.")
     formule = {v: k for k, v in FORMULES.items()}.get(contenu[19], "essentiel")
     return uuid.UUID(bytes=contenu[1:17]), ORIGINE_DATES + timedelta(days=int.from_bytes(contenu[17:19], "big")), formule
+
+
+def lire_options(code, publique):
+    """Options payantes inscrites dans un code (vide pour Pro, ou un code sans option)."""
+    lire_code(code, publique)  # vérifie la signature
+    brut = "".join(code.upper().split()).replace("-", "")
+    if brut.startswith("GS"):
+        brut = brut[2:]
+    octet = base64.b32decode(brut + "=" * (-len(brut) % 8))[19]
+    if octet & 1:
+        return []
+    return [cle for cle, bit in BITS_OPTIONS.items() if octet & bit]

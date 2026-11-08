@@ -60,7 +60,9 @@ def _demande_json(d):
         "boutique": _boutique_courte(d.boutique),
         "demandeur": (d.demandeur.get_full_name() or d.demandeur.username) if d.demandeur else "",
         "formule": d.formule,
-        "formule_libelle": d.get_formule_display(),
+        # Option payante déclarée (vide : l'abonnement) ; le libellé l'affiche à la place de la formule.
+        "option": d.option,
+        "formule_libelle": d.get_option_display() if d.option else d.get_formule_display(),
         "duree_mois": d.duree_mois,
         "duree_libelle": d.get_duree_mois_display(),
         "montant": d.montant,
@@ -162,7 +164,7 @@ class RegistreView(APIView):
                     "boutique": {"id": str(l.boutique_id), "nom": l.boutique.nom},
                     "nature": l.nature,
                     "nature_libelle": l.get_nature_display(),
-                    "formule_libelle": l.get_formule_display(),
+                    "formule_libelle": l.get_option_display() if l.option else l.get_formule_display(),
                     "date_debut": l.date_debut,
                     "date_fin": l.date_fin,
                     "montant": l.montant,
@@ -267,7 +269,10 @@ class CodeActivationView(APIView):
         if boutique.date_expiration_abonnement is None:
             return Response({"detail": "Abonnement sans limite : pas besoin de code."}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            code = generer_code(boutique.id, timezone.localdate(boutique.date_expiration_abonnement), boutique.formule)
+            date_fin = timezone.localdate(boutique.date_expiration_abonnement)
+            code = generer_code(
+                boutique.id, date_fin, boutique.formule, options=_services().options_pour_code(boutique, date_fin)
+            )
         except ErreurActivation as erreur:
             return Response({"detail": str(erreur)}, status=status.HTTP_400_BAD_REQUEST)
         journaliser(request, request.user, "code_activation", boutique=boutique)

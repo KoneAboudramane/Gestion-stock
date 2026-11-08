@@ -296,7 +296,9 @@ class BoutiqueAdmin(admin.ModelAdmin):
             return HttpResponseRedirect(retour)
         date_fin = timezone.localdate(boutique.date_expiration_abonnement)
         try:
-            code = generer_code(boutique.id, date_fin, boutique.formule)
+            from comptes.services import options_pour_code
+
+            code = generer_code(boutique.id, date_fin, boutique.formule, options=options_pour_code(boutique, date_fin))
         except ErreurActivation as erreur:
             self.message_user(request, str(erreur), level=messages.ERROR)
             return HttpResponseRedirect(retour)

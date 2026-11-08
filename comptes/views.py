@@ -31,6 +31,7 @@ from .services import (
     enregistrer_option,
     etat_options,
     grille_tarifs_options,
+    options_pour_code,
     retirer_option,
     demander_renouvellement,
     demarrer_essai,
@@ -181,8 +182,10 @@ class AdminAbonnementBoutiqueView(APIView):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
                 try:
+                    date_fin_code = timezone.localdate(boutique.date_expiration_abonnement)
                     code = generer_code(
-                        boutique.id, timezone.localdate(boutique.date_expiration_abonnement), boutique.formule
+                        boutique.id, date_fin_code, boutique.formule,
+                        options=options_pour_code(boutique, date_fin_code),
                     )
                 except ErreurActivation as erreur:
                     return Response({"detail": str(erreur)}, status=status.HTTP_400_BAD_REQUEST)
@@ -740,6 +743,8 @@ def detail_abonnement(boutique):
                 "id": str(d.id),
                 "date": d.date_creation,
                 "formule": d.formule,
+                "option": d.option,
+                "option_libelle": d.get_option_display() if d.option else "",
                 "duree_libelle": d.get_duree_mois_display(),
                 "montant": d.montant,
                 "mode_libelle": d.get_mode_display(),

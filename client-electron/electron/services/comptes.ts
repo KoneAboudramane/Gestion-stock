@@ -120,6 +120,8 @@ export interface AbonnementDetail {
 /** « J'ai payé » : paiement Mobile Money déclaré, à valider par l'administrateur. */
 export interface DeclarationPaiementAbonnement {
   formule: string;
+  /** Vide : l'abonnement ; sinon une option payante (en_ligne, reseau, mobile). */
+  option?: string;
   dureeMois: number;
   montant: number;
   mode: string;
@@ -141,6 +143,7 @@ export async function declarerPaiementAbonnement(
     headers: entetes(session),
     body: JSON.stringify({
       formule: declaration.formule,
+      ...(declaration.option ? { option: declaration.option } : {}),
       duree_mois: declaration.dureeMois,
       montant: declaration.montant,
       mode: declaration.mode,
